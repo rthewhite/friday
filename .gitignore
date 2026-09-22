@@ -1,5 +1,3 @@
+node_modules/
+dist/
 .env
-.venv/
-__pycache__/
-*.pyc
-uv.lock

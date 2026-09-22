@@ -21,53 +21,62 @@
 <h1>Friday</h1>
 <button id="btn">Start talking</button><span id="state">idle</span>
 <div id="log"></div>
-<script>
+<script type="module">
+const OUT_RATE = 24000;
 const btn = document.getElementById('btn'), state = document.getElementById('state'), log = document.getElementById('log');
-let pc, stream, channel, current = {user: null, bot: null};
+let ws, ctx, stream, node, playHead = 0, playing = new Set(), current = { user: null, bot: null };
 
 function add(cls, text) {
   const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d);
   window.scrollTo(0, document.body.scrollHeight); return d;
 }
-function append(role, text) {
-  if (!current[role]) current[role] = add(role, '');
-  current[role].textContent += text;
+function append(role, text) { if (!current[role]) current[role] = add(role, ''); current[role].textContent += text; }
+
+function play(pcm) {
+  const i16 = new Int16Array(pcm), buf = ctx.createBuffer(1, i16.length, OUT_RATE), ch = buf.getChannelData(0);
+  for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 0x8000;
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+  const at = Math.max(ctx.currentTime + 0.02, playHead);
+  src.start(at); playHead = at + buf.duration;
+  playing.add(src); src.onended = () => playing.delete(src);
 }
+function flush() { for (const s of playing) { try { s.stop(); } catch {} } playing.clear(); playHead = 0; }
 
 async function start() {
   state.textContent = 'connecting';
-  stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
-  pc = new RTCPeerConnection();
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
-  pc.ontrack = e => { const a = new Audio(); a.srcObject = e.streams[0]; a.autoplay = true; a.play().catch(()=>{}); };
-  channel = pc.createDataChannel('events');
-  channel.onmessage = e => {
+  ctx = new AudioContext();
+  await ctx.audioWorklet.addModule('/capture-worklet.js');
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/audio`);
+  ws.binaryType = 'arraybuffer';
+  await new Promise((ok, err) => { ws.onopen = ok; ws.onerror = err; });
+
+  node = new AudioWorkletNode(ctx, 'capture');
+  node.port.onmessage = e => ws.readyState === 1 && ws.send(e.data);
+  ctx.createMediaStreamSource(stream).connect(node);
+
+  ws.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) return play(e.data);
     const m = JSON.parse(e.data);
     switch (m.type) {
       case 'user_text': current.bot = null; append('user', m.data); break;
-      case 'bot_text':  current.user = null; append('bot', m.data); break;
+      case 'bot_text': current.user = null; append('bot', m.data); break;
       case 'turn_complete': current.user = current.bot = null; break;
-      case 'interrupted': current.bot = null; break;
-      case 'tool_call':   add('tool', `→ ${m.data.name}(${JSON.stringify(m.data.args)})`); break;
+      case 'interrupted': flush(); current.bot = null; break;
+      case 'tool_call': add('tool', `→ ${m.data.name}(${JSON.stringify(m.data.args)})`); break;
       case 'tool_result': add('tool', `← ${m.data.name}: ${JSON.stringify(m.data.result)}`); break;
-      case 'closed': stop(); break;
+      case 'closed': add('tool', `session closed: ${m.data ?? ''}`); stop(); break;
     }
   };
-  pc.onconnectionstatechange = () => { state.textContent = pc.connectionState; if (['failed','closed'].includes(pc.connectionState)) stop(); };
-
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  await new Promise(r => pc.iceGatheringState === 'complete' ? r() : pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r());
-  const res = await fetch('/api/webrtc/offer', {method: 'POST', headers: {'content-type': 'application/json'},
-    body: JSON.stringify({sdp: pc.localDescription.sdp, type: pc.localDescription.type})});
-  await pc.setRemoteDescription(await res.json());
-  btn.textContent = 'Stop'; btn.classList.add('on');
+  ws.onclose = () => stop();
+  state.textContent = 'live'; btn.textContent = 'Stop'; btn.classList.add('on');
 }
 function stop() {
-  stream?.getTracks().forEach(t => t.stop()); pc?.close(); pc = null;
+  flush(); stream?.getTracks().forEach(t => t.stop()); node?.disconnect(); ctx?.close(); ws?.close();
+  ws = ctx = stream = node = null;
   btn.textContent = 'Start talking'; btn.classList.remove('on'); state.textContent = 'idle';
 }
-btn.onclick = () => pc ? stop() : start().catch(e => { console.error(e); state.textContent = 'error: ' + e.message; stop(); });
+btn.onclick = () => ws ? stop() : start().catch(e => { console.error(e); state.textContent = 'error: ' + e.message; stop(); });
 </script>
 </body>
 </html>
