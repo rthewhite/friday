@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, extname } from "node:path";
 import { WebSocketServer } from "ws";
 import { settings } from "./config.js";
-import { declarations, loadTools } from "./tools/index.js";
+import { declarations, loadTools, toolNames } from "./tools/index.js";
+import { closeMcp } from "./tools/mcp.js";
 import { serveWs } from "./transports/ws.js";
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), "..", "web");
@@ -12,7 +13,8 @@ const MIME: Record<string, string> = { ".html": "text/html", ".js": "text/javasc
 
 await loadTools();
 if (!settings.apiKey) console.warn("GEMINI_API_KEY is not set");
-console.log("tools:", declarations().map((d) => d.name));
+console.log("tools:", toolNames());
+for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => void closeMcp().finally(() => process.exit(0)));
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://x");

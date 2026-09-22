@@ -34,6 +34,12 @@ defineTool<{ city: string }>({
 
 `scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`. Calls run in the background so audio keeps flowing during slow tools.
 
+## MCP servers
+
+Copy `mcp.example.json` to `mcp.json` (git-ignored) and list servers. Both stdio (`command`/`args`) and streamable HTTP (`url`/`headers`) transports work. Each MCP tool is registered as `<server>__<tool>`; use `include`/`exclude` to trim large servers and `scheduling` to control how Gemini surfaces results. Override the path with `FRIDAY_MCP_CONFIG`.
+
+Keep the total tool count modest: Gemini reads every declaration and caps at 512.
+
 ## Transport
 
 `WS /ws/audio` carries raw PCM both ways; see the protocol in `src/transports/ws.ts`. The web UI and a future ESP32 client speak the same protocol. Transports wrap `GeminiSession` (`src/session.ts`), so tools and prompt behaviour are shared. A WebRTC transport can be added alongside it later.

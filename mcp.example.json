@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "fs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "include": ["list_directory", "read_text_file"]
+    },
+    "home": {
+      "url": "http://homeassistant.local:8123/mcp",
+      "headers": { "Authorization": "Bearer YOUR_LONG_LIVED_TOKEN" },
+      "scheduling": "SILENT"
+    }
+  }
+}

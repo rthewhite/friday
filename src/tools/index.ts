@@ -11,6 +11,8 @@ export interface Tool<A = any> {
   name: string;
   description: string;
   parameters?: Schema;
+  /** Raw JSON Schema alternative to `parameters` (used for MCP tools). */
+  parametersJsonSchema?: unknown;
   /** How Gemini surfaces the result once it arrives. */
   scheduling?: Scheduling;
   handler: (args: A) => ToolResult | Promise<ToolResult>;
@@ -25,7 +27,9 @@ export function defineTool<A>(t: Tool<A>): Tool<A> {
 }
 
 export function declarations(): FunctionDeclaration[] {
-  return [...tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters }));
+  return [...tools.values()].map(({ name, description, parameters, parametersJsonSchema }) =>
+    parametersJsonSchema ? { name, description, parametersJsonSchema } : { name, description, parameters },
+  );
 }
 
 export async function callTool(
@@ -43,7 +47,13 @@ export async function callTool(
   }
 }
 
-/** Import every module that registers tools. Add new ones here. */
+export function toolNames(): string[] {
+  return [...tools.keys()];
+}
+
+/** Import every module that registers tools, then attach MCP servers. */
 export async function loadTools(): Promise<void> {
   await import("./builtin.js");
+  const { loadMcpTools } = await import("./mcp.js");
+  await loadMcpTools();
 }
