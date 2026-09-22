@@ -3,26 +3,20 @@
  *
  * Env:
  *   JELLYFIN_URL, JELLYFIN_API_KEY, JELLYFIN_USER (name; optional, defaults to first user)
- *   ATV_ID                 Apple TV identifier from `atvremote scan`
- *   ATV_COMPANION_CREDS    credentials from `atvremote --id <ATV_ID> --protocol companion pair`
- *   ATVREMOTE_BIN          path to atvremote (default: atvremote on PATH)
+ *   HA_URL, HA_TOKEN       Home Assistant base URL and long-lived access token
+ *   HA_APPLE_TV_ENTITY     media_player entity of the Apple TV (e.g. media_player.living_room)
  *   JELLYFIN_PUBLIC_URL    URL the Apple TV should use to reach Jellyfin (default: JELLYFIN_URL)
  */
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { Type } from "@google/genai";
+import { haCall } from "../ha.js";
 import { defineTool } from "./index.js";
-
-const run = promisify(execFile);
 
 const env = {
   get url() { return process.env.JELLYFIN_URL?.replace(/\/$/, ""); },
   get publicUrl() { return (process.env.JELLYFIN_PUBLIC_URL ?? process.env.JELLYFIN_URL)?.replace(/\/$/, ""); },
   get key() { return process.env.JELLYFIN_API_KEY; },
   get user() { return process.env.JELLYFIN_USER; },
-  get atvId() { return process.env.ATV_ID; },
-  get atvCreds() { return process.env.ATV_COMPANION_CREDS; },
-  get atvBin() { return process.env.ATVREMOTE_BIN ?? "atvremote"; },
+  get atvEntity() { return process.env.HA_APPLE_TV_ENTITY; },
 };
 
 // ---- Jellyfin -----------------------------------------------------------
@@ -95,19 +89,11 @@ defineTool<{ kind?: "next_up" | "recently_added"; limit?: number }>({
   },
 });
 
-// ---- Apple TV / Infuse --------------------------------------------------
-
-async function atv(...cmds: string[]): Promise<string> {
-  if (!env.atvId || !env.atvCreds) throw new Error("ATV_ID / ATV_COMPANION_CREDS not configured");
-  const { stdout } = await run(env.atvBin, ["--id", env.atvId, "--companion-credentials", env.atvCreds, ...cmds], {
-    timeout: 20_000,
-  });
-  return stdout.trim();
-}
+// ---- Apple TV / Infuse via Home Assistant --------------------------------
 
 defineTool<{ item_id: string }>({
   name: "play_on_apple_tv",
-  description: "Turn on the Apple TV and start playing a Jellyfin episode or movie in Infuse. Use an item id from list_episodes_to_watch.",
+  description: "Turn on the Apple TV (via Home Assistant) and start playing a Jellyfin episode or movie in Infuse. Use an item id from list_episodes_to_watch.",
   parameters: {
     type: Type.OBJECT,
     properties: { item_id: { type: Type.STRING } },
@@ -117,8 +103,11 @@ defineTool<{ item_id: string }>({
     const stream = `${env.publicUrl}/Videos/${item_id}/stream?static=true&api_key=${env.key}`;
     const link = `infuse://x-callback-url/play?url=${encodeURIComponent(stream)}`;
     try {
-      await atv("turn_on");
-      await atv(`launch_app=${link}`);
+      const entity_id = env.atvEntity;
+      if (!entity_id) throw new Error("HA_APPLE_TV_ENTITY not configured");
+      await haCall("media_player", "turn_on", { entity_id });
+      // HA's apple_tv integration routes media_content_type "url" to pyatv launch_app (deep link).
+      await haCall("media_player", "play_media", { entity_id, media_content_type: "url", media_content_id: link });
       // Success is already implied by the model's "starting it" reply; stay quiet.
       return { started: true, scheduling: "SILENT" };
     } catch (e) {

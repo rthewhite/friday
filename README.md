@@ -36,17 +36,12 @@ defineTool<{ city: string }>({
 
 ## Jellyfin + Apple TV (Infuse)
 
-Two tools in `src/tools/media.ts`: `list_episodes_to_watch` (Jellyfin Next Up or recently added) and `play_on_apple_tv` (wakes the Apple TV and deep-links Infuse to the stream).
+Two tools in `src/tools/media.ts`: `list_episodes_to_watch` (Jellyfin Next Up or recently added) and `play_on_apple_tv` (wakes the Apple TV through Home Assistant and deep-links Infuse to the stream).
 
 Setup:
 
 1. Jellyfin: Dashboard → API Keys → create one. Set `JELLYFIN_URL`, `JELLYFIN_API_KEY`, and optionally `JELLYFIN_USER` (display name).
-2. Apple TV control uses [pyatv](https://pyatv.dev)'s `atvremote` CLI:
-   ```sh
-   uv tool install pyatv                 # or pipx install pyatv
-   atvremote scan                        # copy the Identifier -> ATV_ID
-   atvremote --id <ATV_ID> --protocol companion pair   # enter PIN shown on TV -> ATV_COMPANION_CREDS
-   ```
+2. Home Assistant with the Apple TV integration set up. Create a long-lived access token (profile → Security) and set `HA_URL`, `HA_TOKEN`, and `HA_APPLE_TV_ENTITY` (the `media_player.*` entity of the Apple TV).
 3. Infuse 7.6.2 or later on the Apple TV. Playback uses `infuse://x-callback-url/play?url=<jellyfin stream url>`; the Apple TV must be able to reach `JELLYFIN_URL` (override with `JELLYFIN_PUBLIC_URL`).
 
 The stream URL embeds the Jellyfin API key, so keep this on your LAN.
