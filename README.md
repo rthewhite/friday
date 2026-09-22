@@ -34,6 +34,23 @@ defineTool<{ city: string }>({
 
 `scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`. Calls run in the background so audio keeps flowing during slow tools.
 
+## Jellyfin + Apple TV (Infuse)
+
+Two tools in `src/tools/media.ts`: `list_episodes_to_watch` (Jellyfin Next Up or recently added) and `play_on_apple_tv` (wakes the Apple TV and deep-links Infuse to the stream).
+
+Setup:
+
+1. Jellyfin: Dashboard → API Keys → create one. Set `JELLYFIN_URL`, `JELLYFIN_API_KEY`, and optionally `JELLYFIN_USER` (display name).
+2. Apple TV control uses [pyatv](https://pyatv.dev)'s `atvremote` CLI:
+   ```sh
+   uv tool install pyatv                 # or pipx install pyatv
+   atvremote scan                        # copy the Identifier -> ATV_ID
+   atvremote --id <ATV_ID> --protocol companion pair   # enter PIN shown on TV -> ATV_COMPANION_CREDS
+   ```
+3. Infuse 7.6.2 or later on the Apple TV. Playback uses `infuse://x-callback-url/play?url=<jellyfin stream url>`; the Apple TV must be able to reach `JELLYFIN_URL` (override with `JELLYFIN_PUBLIC_URL`).
+
+The stream URL embeds the Jellyfin API key, so keep this on your LAN.
+
 ## MCP servers
 
 Copy `mcp.example.json` to `mcp.json` (git-ignored) and list servers. Both stdio (`command`/`args`) and streamable HTTP (`url`/`headers`) transports work. Each MCP tool is registered as `<server>__<tool>`; use `include`/`exclude` to trim large servers and `scheduling` to control how Gemini surfaces results. Override the path with `FRIDAY_MCP_CONFIG`.

@@ -39,8 +39,8 @@ export async function callTool(
   const t = tools.get(name);
   if (!t) return { result: { error: `unknown tool ${name}` }, scheduling: "INTERRUPT" };
   try {
-    const result = await t.handler(args ?? {});
-    return { result, scheduling: t.scheduling ?? "INTERRUPT" };
+    const { scheduling, ...result } = await t.handler(args ?? {});
+    return { result, scheduling: (scheduling as Scheduling | undefined) ?? t.scheduling ?? "INTERRUPT" };
   } catch (e) {
     console.error(`tool ${name} failed`, e);
     return { result: { error: String(e) }, scheduling: "INTERRUPT" };
@@ -54,6 +54,7 @@ export function toolNames(): string[] {
 /** Import every module that registers tools, then attach MCP servers. */
 export async function loadTools(): Promise<void> {
   await import("./builtin.js");
+  await import("./media.js");
   const { loadMcpTools } = await import("./mcp.js");
   await loadMcpTools();
 }
