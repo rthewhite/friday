@@ -8,7 +8,7 @@
  *   JELLYFIN_PUBLIC_URL    URL the Apple TV should use to reach Jellyfin (default: JELLYFIN_URL)
  */
 import { Type } from "@google/genai";
-import { haCall } from "../ha.js";
+import { haCall, haState } from "../ha.js";
 import { defineTool } from "./index.js";
 
 const env = {
@@ -105,6 +105,10 @@ defineTool<{ item_id: string }>({
     try {
       const entity_id = env.atvEntity;
       if (!entity_id) throw new Error("HA_APPLE_TV_ENTITY not configured");
+      // HA answers 200 to service calls on unknown/unavailable entities, so check first.
+      const st = await haState(entity_id).catch(() => null);
+      if (!st) throw new Error(`Home Assistant has no entity ${entity_id}`);
+      if (st.state === "unavailable" || st.state === "unknown") throw new Error(`${entity_id} is ${st.state} in Home Assistant`);
       await haCall("media_player", "turn_on", { entity_id });
       // HA's apple_tv integration routes media_content_type "url" to pyatv launch_app (deep link).
       await haCall("media_player", "play_media", { entity_id, media_content_type: "url", media_content_id: link });
