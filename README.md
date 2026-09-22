@@ -36,7 +36,14 @@ defineTool<{ city: string }>({
 
 ## Jellyfin + Apple TV (Infuse)
 
-Two tools in `src/tools/media.ts`: `list_episodes_to_watch` (Jellyfin Next Up or recently added) and `play_on_apple_tv` (wakes the Apple TV through Home Assistant and deep-links Infuse to the stream).
+Tools in `src/tools/media.ts`:
+
+- `list_episodes_to_watch` – Jellyfin Next Up or recently added episodes.
+- `search_library` – find series and movies by name, with watch state.
+- `get_next_episode` – for a series, picks the episode to continue with: partially watched → next unwatched → episode 1.
+- `play_on_apple_tv` – wakes the Apple TV through Home Assistant and deep-links Infuse to the stream.
+
+"Let's continue Band of Brothers" chains search → next episode → play.
 
 Setup:
 

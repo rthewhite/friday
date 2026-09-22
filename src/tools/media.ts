@@ -24,13 +24,19 @@ const env = {
 interface JfItem {
   Id: string;
   Name: string;
+  Type?: string;
   SeriesName?: string;
+  SeriesId?: string;
   ParentIndexNumber?: number;
   IndexNumber?: number;
   DateCreated?: string;
+  ProductionYear?: number;
   RunTimeTicks?: number;
   Overview?: string;
+  UserData?: { Played?: boolean; PlaybackPositionTicks?: number; PlayedPercentage?: number; UnplayedItemCount?: number };
 }
+
+const TICKS_PER_MIN = 600_000_000;
 
 async function jf<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
   if (!env.url || !env.key) throw new Error("JELLYFIN_URL / JELLYFIN_API_KEY not configured");
@@ -56,16 +62,87 @@ async function userId(): Promise<string> {
 }
 
 function compact(i: JfItem) {
+  const pos = i.UserData?.PlaybackPositionTicks ?? 0;
   return {
     id: i.Id,
+    type: i.Type,
     series: i.SeriesName,
     season: i.ParentIndexNumber,
     episode: i.IndexNumber,
     title: i.Name,
+    year: i.ProductionYear,
     added: i.DateCreated?.slice(0, 10),
-    minutes: i.RunTimeTicks ? Math.round(i.RunTimeTicks / 600_000_000) : undefined,
+    minutes: i.RunTimeTicks ? Math.round(i.RunTimeTicks / TICKS_PER_MIN) : undefined,
+    watched: i.UserData?.Played || undefined,
+    resume_at_minutes: pos ? Math.round(pos / TICKS_PER_MIN) : undefined,
+    unplayed_episodes: i.UserData?.UnplayedItemCount,
   };
 }
+
+async function searchItems(uid: string, query: string, types: string, limit: number): Promise<JfItem[]> {
+  const r = await jf<{ Items: JfItem[] }>("/Items", {
+    userId: uid, searchTerm: query, includeItemTypes: types, recursive: "true", limit,
+    fields: "ProductionYear,DateCreated", enableTotalRecordCount: "false",
+  });
+  return r.Items;
+}
+
+/** Episode to play for a series: a partially watched one, else the next unwatched, else episode 1. */
+async function nextEpisode(uid: string, seriesId: string): Promise<{ episode: JfItem; reason: string } | null> {
+  const nextUp = await jf<{ Items: JfItem[] }>("/Shows/NextUp", {
+    userId: uid, seriesId, limit: 1, enableResumable: "true", fields: "DateCreated", enableTotalRecordCount: "false",
+  });
+  const n = nextUp.Items[0];
+  if (n) return { episode: n, reason: n.UserData?.PlaybackPositionTicks ? "resume partially watched" : "next unwatched" };
+  const eps = await jf<{ Items: JfItem[] }>(`/Shows/${seriesId}/Episodes`, { userId: uid, fields: "DateCreated" });
+  const first = eps.Items.find((e) => !e.UserData?.Played) ?? eps.Items[0];
+  return first ? { episode: first, reason: eps.Items.every((e) => e.UserData?.Played) ? "all watched, starting over" : "first episode" } : null;
+}
+
+defineTool<{ query: string; type?: "series" | "movie" | "any"; limit?: number }>({
+  name: "search_library",
+  description:
+    "Search the Jellyfin library for TV series and movies by name. Returns ids, year, and watch state (movies: watched / resume position; series: unplayed episode count). Use get_next_episode for a series, or play_on_apple_tv directly for a movie.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      query: { type: Type.STRING },
+      type: { type: Type.STRING, enum: ["series", "movie", "any"] },
+      limit: { type: Type.INTEGER, description: "default 6" },
+    },
+    required: ["query"],
+  },
+  handler: async ({ query, type = "any", limit = 6 }) => {
+    const types = type === "series" ? "Series" : type === "movie" ? "Movie" : "Series,Movie";
+    const items = await searchItems(await userId(), query, types, limit);
+    return { results: items.map(compact) };
+  },
+});
+
+defineTool<{ series: string }>({
+  name: "get_next_episode",
+  description:
+    "For a TV series (by name or id), work out which episode to play to continue watching: a partially watched episode is resumed, otherwise the next unwatched one, otherwise episode 1. Returns the episode id for play_on_apple_tv.",
+  parameters: { type: Type.OBJECT, properties: { series: { type: Type.STRING, description: "series name or Jellyfin id" } }, required: ["series"] },
+  handler: async ({ series }) => {
+    const uid = await userId();
+    let seriesId = series;
+    let seriesName = series;
+    if (!/^[0-9a-f]{32}$/i.test(series)) {
+      const hits = await searchItems(uid, series, "Series", 3);
+      if (!hits.length) return { error: `no series matching "${series}"` };
+      seriesId = hits[0].Id;
+      seriesName = hits[0].Name;
+      if (hits.length > 1) {
+        const alternatives = hits.slice(1).map((h) => `${h.Name} (${h.ProductionYear ?? "?"})`);
+        return { series: seriesName, ...(await nextEpisode(uid, seriesId).then((r) => r ? { reason: r.reason, episode: compact(r.episode) } : { error: "series has no episodes" })), other_matches: alternatives };
+      }
+    }
+    const r = await nextEpisode(uid, seriesId);
+    if (!r) return { error: `${seriesName} has no episodes` };
+    return { series: seriesName, reason: r.reason, episode: compact(r.episode) };
+  },
+});
 
 defineTool<{ kind?: "next_up" | "recently_added"; limit?: number }>({
   name: "list_episodes_to_watch",
