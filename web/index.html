@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Friday</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  button { font-size: 1.1rem; padding: .6rem 1.4rem; border-radius: 999px; border: 1px solid #8884; cursor: pointer; }
+  button.on { background: #d33; color: #fff; }
+  #log { margin-top: 1.5rem; display: flex; flex-direction: column; gap: .4rem; }
+  .msg { padding: .5rem .8rem; border-radius: .6rem; max-width: 85%; white-space: pre-wrap; }
+  .user { align-self: flex-end; background: #2a7fff22; }
+  .bot { align-self: flex-start; background: #8883; }
+  .tool { align-self: center; font-size: .8rem; opacity: .7; font-family: monospace; }
+  #state { font-size: .85rem; opacity: .7; margin-left: 1rem; }
+</style>
+</head>
+<body>
+<h1>Friday</h1>
+<button id="btn">Start talking</button><span id="state">idle</span>
+<div id="log"></div>
+<script>
+const btn = document.getElementById('btn'), state = document.getElementById('state'), log = document.getElementById('log');
+let pc, stream, channel, current = {user: null, bot: null};
+
+function add(cls, text) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d);
+  window.scrollTo(0, document.body.scrollHeight); return d;
+}
+function append(role, text) {
+  if (!current[role]) current[role] = add(role, '');
+  current[role].textContent += text;
+}
+
+async function start() {
+  state.textContent = 'connecting';
+  stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+  pc = new RTCPeerConnection();
+  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  pc.ontrack = e => { const a = new Audio(); a.srcObject = e.streams[0]; a.autoplay = true; a.play().catch(()=>{}); };
+  channel = pc.createDataChannel('events');
+  channel.onmessage = e => {
+    const m = JSON.parse(e.data);
+    switch (m.type) {
+      case 'user_text': current.bot = null; append('user', m.data); break;
+      case 'bot_text':  current.user = null; append('bot', m.data); break;
+      case 'turn_complete': current.user = current.bot = null; break;
+      case 'interrupted': current.bot = null; break;
+      case 'tool_call':   add('tool', `→ ${m.data.name}(${JSON.stringify(m.data.args)})`); break;
+      case 'tool_result': add('tool', `← ${m.data.name}: ${JSON.stringify(m.data.result)}`); break;
+      case 'closed': stop(); break;
+    }
+  };
+  pc.onconnectionstatechange = () => { state.textContent = pc.connectionState; if (['failed','closed'].includes(pc.connectionState)) stop(); };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await new Promise(r => pc.iceGatheringState === 'complete' ? r() : pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r());
+  const res = await fetch('/api/webrtc/offer', {method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({sdp: pc.localDescription.sdp, type: pc.localDescription.type})});
+  await pc.setRemoteDescription(await res.json());
+  btn.textContent = 'Stop'; btn.classList.add('on');
+}
+function stop() {
+  stream?.getTracks().forEach(t => t.stop()); pc?.close(); pc = null;
+  btn.textContent = 'Start talking'; btn.classList.remove('on'); state.textContent = 'idle';
+}
+btn.onclick = () => pc ? stop() : start().catch(e => { console.error(e); state.textContent = 'error: ' + e.message; stop(); });
+</script>
+</body>
+</html>
