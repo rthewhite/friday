@@ -38,11 +38,12 @@ interface JfItem {
 
 const TICKS_PER_MIN = 600_000_000;
 
-async function jf<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
+async function jf<T>(path: string, params: Record<string, string | number> = {}, method: "GET" | "POST" = "GET"): Promise<T> {
   if (!env.url || !env.key) throw new Error("JELLYFIN_URL / JELLYFIN_API_KEY not configured");
   const u = new URL(env.url + path);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
   const res = await fetch(u, {
+    method,
     headers: {
       Authorization: `MediaBrowser Token="${env.key}", Client="Friday", Device="Friday", DeviceId="friday", Version="0.1.0"`,
     },
@@ -50,6 +51,11 @@ async function jf<T>(path: string, params: Record<string, string | number> = {})
   });
   if (!res.ok) throw new Error(`jellyfin ${path} -> ${res.status}`);
   return (await res.json()) as T;
+}
+
+/** Mark an item played for the configured user (Jellyfin 10.9+ endpoint). */
+async function markPlayed(itemId: string): Promise<void> {
+  await jf(`/UserPlayedItems/${itemId}`, { userId: await userId() }, "POST");
 }
 
 let userIdCache: string | undefined;
@@ -170,7 +176,8 @@ defineTool<{ kind?: "next_up" | "recently_added"; limit?: number }>({
 
 defineTool<{ item_id: string }>({
   name: "play_on_apple_tv",
-  description: "Turn on the Apple TV (via Home Assistant) and start playing a Jellyfin episode or movie in Infuse. Use an item id from list_episodes_to_watch.",
+  description:
+    "Turn on the Apple TV (via Home Assistant) and start playing a Jellyfin episode or movie in Infuse. Use an item id from list_episodes_to_watch, search_library or get_next_episode. The item is marked as watched in Jellyfin automatically.",
   parameters: {
     type: Type.OBJECT,
     properties: { item_id: { type: Type.STRING } },
@@ -189,8 +196,14 @@ defineTool<{ item_id: string }>({
       await haCall("media_player", "turn_on", { entity_id });
       // HA's apple_tv integration routes media_content_type "url" to pyatv launch_app (deep link).
       await haCall("media_player", "play_media", { entity_id, media_content_type: "url", media_content_id: link });
+      // Infuse won't report progress for a URL stream, so record the watch ourselves.
+      try {
+        await markPlayed(item_id);
+      } catch (e) {
+        return { started: true, marked_watched: false, warning: `could not mark as watched: ${e}`, scheduling: "WHEN_IDLE" };
+      }
       // Success is already implied by the model's "starting it" reply; stay quiet.
-      return { started: true, scheduling: "SILENT" };
+      return { started: true, marked_watched: true, scheduling: "SILENT" };
     } catch (e) {
       return { started: false, error: String(e), scheduling: "INTERRUPT" };
     }
