@@ -65,16 +65,21 @@ async function start() {
       case 'interrupted': flush(); current.bot = null; break;
       case 'tool_call': add('tool', `→ ${m.data.name}(${JSON.stringify(m.data.args)})`); break;
       case 'tool_result': add('tool', `← ${m.data.name}: ${JSON.stringify(m.data.result)}`); break;
-      case 'closed': add('tool', `session closed: ${m.data ?? ''}`); stop(); break;
+      case 'closed': add('tool', `session closed: ${m.data ?? ''}`); stop(true); break;
     }
   };
-  ws.onclose = () => stop();
+  ws.onclose = () => stop(true);
   state.textContent = 'live'; btn.textContent = 'Stop'; btn.classList.add('on');
 }
-function stop() {
-  flush(); stream?.getTracks().forEach(t => t.stop()); node?.disconnect(); ctx?.close(); ws?.close();
-  ws = ctx = stream = node = null;
+// drain=true (server ended the conversation): stop the mic now but let queued speech finish playing.
+function stop(drain = false) {
+  stream?.getTracks().forEach(t => t.stop()); node?.disconnect(); ws?.close();
+  const c = ctx; ws = ctx = stream = node = null;
   btn.textContent = 'Start talking'; btn.classList.remove('on'); state.textContent = 'idle';
+  if (!c) return;
+  const wait = drain ? Math.max(0, playHead - c.currentTime) * 1000 : 0;
+  if (!drain) flush();
+  setTimeout(() => { playing.clear(); playHead = 0; c.close(); }, wait);
 }
 btn.onclick = () => ws ? stop() : start().catch(e => { console.error(e); state.textContent = 'error: ' + e.message; stop(); });
 </script>

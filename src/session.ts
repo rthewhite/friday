@@ -6,6 +6,7 @@
 import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from "@google/genai";
 import { settings } from "./config.js";
 import { callTool, declarations } from "./tools/index.js";
+import { END_CONVERSATION } from "./tools/builtin.js";
 
 export type Event =
   | { kind: "audio"; data: Buffer }
@@ -20,6 +21,10 @@ export type Event =
 export class GeminiSession {
   private session?: Session;
   private closed = false;
+  /** Set when the model called end_conversation; we close after its turn finishes. */
+  private endRequested?: string;
+  private idleTimer?: NodeJS.Timeout;
+  private toolsInFlight = 0;
 
   constructor(private readonly onEvent: (e: Event) => void) {}
 
@@ -61,25 +66,56 @@ export class GeminiSession {
     const sc = m.serverContent;
     if (!sc) return;
     if (sc.interrupted) this.onEvent({ kind: "interrupted" });
-    if (sc.inputTranscription?.text) this.onEvent({ kind: "user_text", data: sc.inputTranscription.text });
+    if (sc.inputTranscription?.text) {
+      this.clearIdle(); // the user is talking again
+      this.onEvent({ kind: "user_text", data: sc.inputTranscription.text });
+    }
     if (sc.outputTranscription?.text) this.onEvent({ kind: "bot_text", data: sc.outputTranscription.text });
     for (const p of sc.modelTurn?.parts ?? []) {
       if (p.inlineData?.data) this.onEvent({ kind: "audio", data: Buffer.from(p.inlineData.data, "base64") });
     }
-    if (sc.turnComplete) this.onEvent({ kind: "turn_complete" });
+    if (sc.turnComplete) {
+      this.onEvent({ kind: "turn_complete" });
+      if (this.endRequested) this.finish(`ended: ${this.endRequested}`);
+      else this.armIdle();
+    }
+  }
+
+  /** Close once the user has been silent for idleTimeoutMs after a turn, unless a tool is still pending. */
+  private armIdle(): void {
+    this.clearIdle();
+    if (!settings.idleTimeoutMs || this.toolsInFlight > 0) return;
+    this.idleTimer = setTimeout(() => this.finish("ended: no follow-up"), settings.idleTimeoutMs);
+  }
+
+  private clearIdle(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
+  }
+
+  private finish(reason: string): void {
+    if (this.closed) return;
+    console.log(`gemini session ${reason}`);
+    this.session?.close();
+    this.emitClosed(reason);
   }
 
   private async runTool(id?: string, name?: string, args?: Record<string, unknown>): Promise<void> {
     if (!name) return;
     this.onEvent({ kind: "tool_call", data: { name, args } });
+    this.toolsInFlight++;
+    this.clearIdle();
     const { result, scheduling } = await callTool(name, args);
+    this.toolsInFlight--;
     this.onEvent({ kind: "tool_result", data: { name, result } });
+    if (name === END_CONVERSATION) this.endRequested = String(args?.reason ?? "done");
     this.session?.sendToolResponse({ functionResponses: [{ id, name, response: { ...result, scheduling } }] });
   }
 
   private emitClosed(reason?: string): void {
     if (this.closed) return;
     this.closed = true;
+    this.clearIdle();
     this.onEvent({ kind: "closed", data: reason });
   }
 

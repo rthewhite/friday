@@ -32,3 +32,18 @@ defineTool<{ seconds: number; label?: string }>({
     return { done: true, label, message: `${label} finished after ${seconds} seconds` };
   },
 });
+
+/** Marker tool: the session closes after the model's turn finishes. */
+export const END_CONVERSATION = "end_conversation";
+defineTool<{ reason?: string }>({
+  name: END_CONVERSATION,
+  description:
+    "End the voice conversation and stop listening. Call this in the same turn as your final spoken words " +
+    "once a request is fully handled and you have no follow-up question, or when the user says goodbye.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: { reason: { type: Type.STRING, description: "Short reason, e.g. 'request done' or 'user said goodbye'" } },
+  },
+  scheduling: "SILENT",
+  handler: ({ reason = "done" }) => ({ ending: true, reason }),
+});

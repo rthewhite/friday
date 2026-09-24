@@ -19,6 +19,15 @@ npm run dev               # http://localhost:8080
 
 Browsers only allow the microphone on `localhost` or HTTPS.
 
+### Ending a conversation
+
+The session closes itself in two ways:
+
+- Friday calls the `end_conversation` tool once a request is fully handled and it has no follow-up question, or when you say "goodbye", "thanks", "that's all", etc. The session closes after its final words.
+- If you stay silent for `FRIDAY_IDLE_TIMEOUT_MS` (default 8000) after Friday finishes a turn, the session closes. Set to `0` to disable. The timer is paused while a tool (e.g. a timer) is still running.
+
+Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturing but finish playing queued audio.
+
 ## Add a tool
 
 Add a `defineTool()` call in `src/tools/builtin.ts` (or a new module imported from `loadTools()`):
