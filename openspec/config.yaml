@@ -1,0 +1,35 @@
+schema: spec-driven
+
+context: |
+  Friday: a voice assistant on Gemini Live (TypeScript / Node, ESM, @google/genai).
+  Architecture: transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap a
+  transport-agnostic GeminiSession (src/session.ts). Tools live in a single registry
+  (src/tools/index.ts, defineTool()); native tools in builtin.ts and media.ts, MCP
+  servers loaded from mcp.json via src/tools/mcp.ts. Every tool result carries a
+  scheduling hint (INTERRUPT | WHEN_IDLE | SILENT) that controls how Gemini surfaces it.
+  Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse).
+  Web client in web/ is vanilla HTML + AudioWorklet, no build step.
+  Config comes from env vars (see .env.example). Keep the total tool count modest (Gemini caps at 512).
+  Clients: browser today, ESP32 / Voice PE planned on the same WebSocket protocol.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
