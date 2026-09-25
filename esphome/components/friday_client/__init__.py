@@ -21,6 +21,7 @@ CONF_CONNECT_TIMEOUT = "connect_timeout"
 CONF_DRAIN_TIMEOUT = "drain_timeout"
 CONF_ERROR_HOLD = "error_hold"
 CONF_SEND_CHUNK = "send_chunk"
+CONF_BARGE_IN_DELAY = "barge_in_delay"
 
 friday_ns = cg.esphome_ns.namespace("friday_client")
 FridayClient = friday_ns.class_("FridayClient", cg.Component)
@@ -29,6 +30,7 @@ StartAction = friday_ns.class_("StartAction", automation.Action, cg.Parented.tem
 StopAction = friday_ns.class_("StopAction", automation.Action, cg.Parented.template(FridayClient))
 ToggleAction = friday_ns.class_("ToggleAction", automation.Action, cg.Parented.template(FridayClient))
 ErrorAction = friday_ns.class_("ErrorAction", automation.Action, cg.Parented.template(FridayClient))
+ChimeAction = friday_ns.class_("ChimeAction", automation.Action, cg.Parented.template(FridayClient))
 
 
 def _ws_url(value):
@@ -55,6 +57,7 @@ CONFIG_SCHEMA = cv.All(
                 cv.positive_time_period_milliseconds,
                 cv.Range(min=cv.TimePeriod(milliseconds=20), max=cv.TimePeriod(milliseconds=1000)),
             ),
+            cv.Optional(CONF_BARGE_IN_DELAY, default="1500ms"): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_ON_STATE): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(StateTrigger)}
             ),
@@ -90,6 +93,7 @@ async def to_code(config):
     cg.add(var.set_drain_timeout(config[CONF_DRAIN_TIMEOUT]))
     cg.add(var.set_error_hold(config[CONF_ERROR_HOLD]))
     cg.add(var.set_send_chunk_ms(config[CONF_SEND_CHUNK]))
+    cg.add(var.set_barge_in_delay(config[CONF_BARGE_IN_DELAY]))
 
     for conf in config.get(CONF_ON_STATE, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
@@ -115,3 +119,4 @@ automation.register_action("friday_client.start", StartAction, ACTION_SCHEMA, sy
 automation.register_action("friday_client.stop", StopAction, ACTION_SCHEMA, synchronous=True)(_simple_action)
 automation.register_action("friday_client.toggle", ToggleAction, ACTION_SCHEMA, synchronous=True)(_simple_action)
 automation.register_action("friday_client.error", ErrorAction, ACTION_SCHEMA, synchronous=True)(_simple_action)
+automation.register_action("friday_client.chime", ChimeAction, ACTION_SCHEMA, synchronous=True)(_simple_action)

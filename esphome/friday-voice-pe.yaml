@@ -31,6 +31,9 @@ esphome:
       - speaker.volume_set:
           id: i2s_audio_speaker
           volume: !lambda return id(speaker_volume);
+      # Wake word: listen for "hey friday" while idle.
+      - micro_wake_word.enable_model: hey_friday
+      - micro_wake_word.start:
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -125,14 +128,54 @@ friday_client:
   device_id: ${name}
   microphone:
     microphone: i2s_mics
-    channels: 0
+    # XMOS channel 1 (echo cancellation + noise suppression, no AGC). Channel 0 adds
+    # automatic gain control, which amplifies residual echo of Friday's own voice
+    # until Gemini hears it as a barge-in.
+    channels: 1
     bits_per_sample: 16
   speaker: friday_speaker
+  # Send silence for the first moment of each reply while the echo canceller converges.
+  barge_in_delay: 1500ms
   on_state:
     - logger.log:
         format: "friday state: %s"
         args: [state.c_str()]
     - script.execute: control_leds
+    # Only listen for the wake word while idle (see openspec design for wake-word).
+    - if:
+        condition:
+          lambda: return id(friday).get_state() == friday_client::State::IDLE;
+        then:
+          - micro_wake_word.enable_model: hey_friday
+        else:
+          - micro_wake_word.disable_model: hey_friday
+
+# On-device wake word detection. Nothing is sent to the server until it fires.
+# "hey friday" is a community model (Apache-2.0) from
+# https://github.com/JohnnyPrimus/Custom_V2_MicroWakeWords, trained on request in
+# https://community.home-assistant.io/t/803409. Pinned to a commit for
+# reproducible builds; swap the model line to e.g. `model: hey_jarvis` to change
+# the phrase. Channel 1 / gain 4 mirrors the upstream firmware's wake word feed.
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: i2s_mics
+    channels: 1
+    gain_factor: 4
+  stop_after_detection: false
+  vad:
+  models:
+    - model: github://JohnnyPrimus/Custom_V2_MicroWakeWords/models/hey_friday/hey_friday.json@2987c5ae4e4c8e7ac277bdede0904d99b4ed477a
+      id: hey_friday
+      # Model default cutoff 0.66: zero false triggers in a 10 min soak, detections score 0.67-0.75.
+      # Lower toward 0.55 if it misses, raise if it wakes on its own.
+  on_wake_word_detected:
+    - if:
+        condition:
+          switch.is_off: master_mute_switch
+        then:
+          - friday_client.chime: friday
+          - friday_client.start: friday
 
 # ---------------------------------------------------------------- Controls
 

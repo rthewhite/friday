@@ -46,6 +46,7 @@ class FridayClient : public Component {
   void set_drain_timeout(uint32_t ms) { this->drain_timeout_ms_ = ms; }
   void set_error_hold(uint32_t ms) { this->error_hold_ms_ = ms; }
   void set_send_chunk_ms(uint32_t ms) { this->send_chunk_bytes_ = ms * 32; }  // 16 kHz * 2 bytes
+  void set_barge_in_delay(uint32_t ms) { this->barge_in_delay_ms_ = ms; }
 
   /// Open a session (IDLE -> CONNECTING). No-op unless idle.
   void start();
@@ -55,6 +56,8 @@ class FridayClient : public Component {
   void toggle();
   /// Show the error state briefly (e.g. button pressed while muted).
   void error();
+  /// Play a short two-tone chime through the playback queue (used on wake word detection).
+  void chime();
 
   State get_state() const { return this->state_.load(); }
   bool is_active() const {
@@ -69,6 +72,7 @@ class FridayClient : public Component {
   void on_ws_event_(int32_t event_id, esp_websocket_event_data_t *d);
   void on_text_frame_(const std::string &json);
   void on_audio_frame_(const uint8_t *data, size_t len);
+  bool enqueue_audio_(const uint8_t *data, size_t len);
   bool connect_();
   void request_teardown_();
 
@@ -100,6 +104,8 @@ class FridayClient : public Component {
   uint32_t drain_timeout_ms_{5000};
   uint32_t error_hold_ms_{2000};
   size_t send_chunk_bytes_{3200};
+  uint32_t barge_in_delay_ms_{1500};
+  std::atomic<uint32_t> speaking_since_{0};
 
   std::atomic<State> state_{State::IDLE};
   std::atomic<bool> state_dirty_{false};
@@ -154,6 +160,10 @@ template<typename... Ts> class ToggleAction : public Action<Ts...>, public Paren
 template<typename... Ts> class ErrorAction : public Action<Ts...>, public Parented<FridayClient> {
  public:
   void play(const Ts &...x) override { this->parent_->error(); }
+};
+template<typename... Ts> class ChimeAction : public Action<Ts...>, public Parented<FridayClient> {
+ public:
+  void play(const Ts &...x) override { this->parent_->chime(); }
 };
 
 }  // namespace esphome::friday_client

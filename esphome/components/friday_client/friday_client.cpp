@@ -5,6 +5,7 @@
 #include "esphome/components/json/json_util.h"
 
 #include <esp_heap_caps.h>
+#include <cmath>
 #include <cstring>
 
 namespace esphome::friday_client {
@@ -13,8 +14,10 @@ static const char *const TAG = "friday_client";
 
 // Two seconds of 16 kHz s16le mono. Oldest audio is dropped when it fills.
 static constexpr size_t MIC_RB_BYTES = 64000;
-// Four seconds of 24 kHz s16le mono from the server, queued for the player task.
-static constexpr size_t PLAY_RB_BYTES = 192000;
+// Gemini streams replies two to three times faster than real time and the socket task must
+// never block (it would starve the microphone sender), so the queue has to hold most of a
+// long reply: ~65 s of 24 kHz s16le mono, in PSRAM.
+static constexpr size_t PLAY_RB_BYTES = 3 * 1024 * 1024;
 static constexpr TickType_t PLAY_WAIT = pdMS_TO_TICKS(100);
 struct PlayItem {
   uint32_t gen;
@@ -45,7 +48,6 @@ void FridayClient::setup() {
     return;
   }
   this->play_rb_ = xRingbufferCreateWithCaps(PLAY_RB_BYTES, RINGBUF_TYPE_NOSPLIT, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (this->play_rb_ == nullptr) this->play_rb_ = xRingbufferCreate(PLAY_RB_BYTES, RINGBUF_TYPE_NOSPLIT);
   if (this->play_rb_ == nullptr) {
     ESP_LOGE(TAG, "could not allocate playback buffer");
     this->mark_failed();
@@ -54,11 +56,13 @@ void FridayClient::setup() {
   this->mic_source_->add_data_callback([this](const std::vector<uint8_t> &d) { this->on_mic_data_(d); });
   xTaskCreate(FridayClient::sender_task_trampoline_, "friday_send", 4096, this, 5, &this->sender_task_handle_);
   xTaskCreate(FridayClient::player_task_trampoline_, "friday_play", 4096, this, 6, &this->player_task_handle_);
+  ESP_LOGI(TAG, "buffers allocated, free PSRAM %u KB", (unsigned) (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
 }
 
 void FridayClient::dump_config() {
-  ESP_LOGCONFIG(TAG, "Friday client:\n  URL: %s\n  Device id: %s\n  Send chunk: %u bytes", this->url_.c_str(),
-                this->device_id_.c_str(), (unsigned) this->send_chunk_bytes_);
+  ESP_LOGCONFIG(TAG, "Friday client:\n  URL: %s\n  Device id: %s\n  Send chunk: %u bytes\n  Barge-in delay: %u ms",
+                this->url_.c_str(), this->device_id_.c_str(), (unsigned) this->send_chunk_bytes_,
+                (unsigned) this->barge_in_delay_ms_);
 }
 
 void FridayClient::loop() {
@@ -299,27 +303,60 @@ void FridayClient::speaker_flush_() {
   if (this->speaker_started_.exchange(false)) this->speaker_->stop();
 }
 
-void FridayClient::on_audio_frame_(const uint8_t *data, size_t len) {
-  if (this->draining_ || this->user_stopping_) return;
-  if (this->get_state() == State::LISTENING) {
-    this->turn_done_ = false;
-    this->set_state_(State::SPEAKING);
-  }
-  // Never block here: this runs in the websocket task and would stall the mic sender.
+bool FridayClient::enqueue_audio_(const uint8_t *data, size_t len) {
+  // Never block here: callers run in the websocket task or the main loop.
   void *slot = nullptr;
-  if (xRingbufferSendAcquire(this->play_rb_, &slot, sizeof(PlayItem) + len, 0) != pdTRUE) {
-    uint32_t now = millis();
-    if (now - this->drop_warn_at_ > 1000) {
-      this->drop_warn_at_ = now;
-      ESP_LOGW(TAG, "playback queue full, dropped %u bytes", (unsigned) len);
-    }
-    return;
-  }
+  if (xRingbufferSendAcquire(this->play_rb_, &slot, sizeof(PlayItem) + len, 0) != pdTRUE) return false;
   auto *item = static_cast<PlayItem *>(slot);
   item->gen = this->play_gen_.load();
   memcpy(item->data, data, len);
   this->play_pending_ += len;
   xRingbufferSendComplete(this->play_rb_, slot);
+  return true;
+}
+
+void FridayClient::on_audio_frame_(const uint8_t *data, size_t len) {
+  if (this->draining_ || this->user_stopping_) return;
+  if (this->get_state() == State::LISTENING) {
+    this->turn_done_ = false;
+    this->speaking_since_ = millis();
+    this->set_state_(State::SPEAKING);
+  }
+  if (!this->enqueue_audio_(data, len)) {
+    uint32_t now = millis();
+    if (now - this->drop_warn_at_ > 1000) {
+      this->drop_warn_at_ = now;
+      ESP_LOGW(TAG, "playback queue full, dropped %u bytes", (unsigned) len);
+    }
+  }
+}
+
+// Two rising tones, ~220 ms total at 24 kHz mono s16le, with short fades so it
+// does not click. Pushed through the normal queue so it plays in order with speech.
+void FridayClient::chime() {
+  static constexpr uint32_t RATE = 24000;
+  static constexpr float FREQ[2] = {880.0f, 1174.66f};  // A5, D6
+  static constexpr uint32_t TONE_SAMPLES = RATE * 110 / 1000;
+  static constexpr uint32_t FADE = RATE * 8 / 1000;
+  static constexpr float AMP = 0.35f * 32767.0f;
+  std::vector<int16_t> pcm(TONE_SAMPLES * 2);
+  for (uint32_t t = 0; t < 2; t++) {
+    for (uint32_t i = 0; i < TONE_SAMPLES; i++) {
+      float env = 1.0f;
+      if (i < FADE) env = float(i) / FADE;
+      else if (i > TONE_SAMPLES - FADE) env = float(TONE_SAMPLES - i) / FADE;
+      pcm[t * TONE_SAMPLES + i] = int16_t(AMP * env * sinf(2.0f * float(M_PI) * FREQ[t] * i / RATE));
+    }
+  }
+  const auto *bytes = reinterpret_cast<const uint8_t *>(pcm.data());
+  const size_t total = pcm.size() * sizeof(int16_t);
+  // Queue items must stay well under the ring buffer's max item size.
+  for (size_t off = 0; off < total; off += 4096) {
+    if (!this->enqueue_audio_(bytes + off, std::min<size_t>(4096, total - off))) {
+      ESP_LOGW(TAG, "chime dropped, playback queue full");
+      return;
+    }
+  }
 }
 
 void FridayClient::player_task_trampoline_(void *arg) { static_cast<FridayClient *>(arg)->player_task_(); }
@@ -376,6 +413,16 @@ void FridayClient::mic_stop_() {
 
 void FridayClient::on_mic_data_(const std::vector<uint8_t> &data) {
   if (!this->mic_enabled_ || data.empty()) return;
+  // Barge-in guard: right after a reply starts, the echo canceller has not converged and
+  // Friday's own voice leaks through loud enough for Gemini to treat it as an interruption.
+  // Keep the stream flowing but send silence for the first barge_in_delay.
+  if (this->get_state() == State::SPEAKING && this->barge_in_delay_ms_ > 0 &&
+      millis() - this->speaking_since_.load() < this->barge_in_delay_ms_) {
+    static std::vector<uint8_t> silence;
+    if (silence.size() < data.size()) silence.assign(data.size(), 0);
+    if (xRingbufferSend(this->mic_rb_, silence.data(), data.size(), 0) == pdTRUE) return;
+    return;
+  }
   if (xRingbufferSend(this->mic_rb_, data.data(), data.size(), 0) == pdTRUE) return;
   // Full: drop the oldest audio, then retry once.
   size_t n;

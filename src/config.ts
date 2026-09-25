@@ -10,6 +10,15 @@ export const settings = {
   idleTimeoutMs: Number(process.env.FRIDAY_IDLE_TIMEOUT_MS ?? 8000),
   /** WebSocket ping interval; connections that miss a pong are terminated. 0 disables. */
   wsPingMs: Number(process.env.FRIDAY_WS_PING_MS ?? 20000),
+  /**
+   * Gemini's start-of-speech detection. LOW ignores faint sounds such as residual echo of
+   * Friday's own voice on speaker devices; HIGH is Gemini's default and interrupts more eagerly.
+   */
+  vadStartSensitivity: (process.env.FRIDAY_VAD_START_SENSITIVITY ?? "LOW").toUpperCase() === "HIGH" ? "HIGH" : "LOW",
+  /** Speech must last this long before Gemini treats it as the user talking (and interrupts). */
+  vadPrefixPaddingMs: Number(process.env.FRIDAY_VAD_PREFIX_MS ?? 200),
+  /** Print what Gemini hears the user say to the server log. Useful for echo debugging; off by default. */
+  logTranscripts: process.env.FRIDAY_LOG_TRANSCRIPTS === "1",
   systemPrompt: `You are Friday, a concise and friendly voice assistant.
 Keep spoken answers short. Use tools whenever they can answer the question
 instead of guessing. Answer in the language the user speaks.

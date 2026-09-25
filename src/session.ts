@@ -3,7 +3,7 @@
  * Push 16 kHz mono s16le PCM in with sendAudio(); receive Events via onEvent.
  * Tool calls run in the background so audio keeps streaming.
  */
-import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from "@google/genai";
+import { GoogleGenAI, Modality, StartSensitivity, type LiveServerMessage, type Session } from "@google/genai";
 import { settings } from "./config.js";
 import { callTool, declarations } from "./tools/index.js";
 import { END_CONVERSATION } from "./tools/builtin.js";
@@ -39,6 +39,15 @@ export class GeminiSession {
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.voice } } },
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            startOfSpeechSensitivity:
+              settings.vadStartSensitivity === "HIGH"
+                ? StartSensitivity.START_SENSITIVITY_HIGH
+                : StartSensitivity.START_SENSITIVITY_LOW,
+            prefixPaddingMs: settings.vadPrefixPaddingMs,
+          },
+        },
         tools: [{ functionDeclarations: decls }],
       },
       callbacks: {
@@ -47,7 +56,7 @@ export class GeminiSession {
         onclose: (e) => this.emitClosed(e.reason),
       },
     });
-    console.log(`gemini session open (${settings.model}, ${decls.length} tools)`);
+    console.log(`gemini session open (${settings.model}, ${decls.length} tools, vad ${settings.vadStartSensitivity}/${settings.vadPrefixPaddingMs}ms)`);
   }
 
   async sendAudio(pcm16k: Buffer): Promise<void> {
@@ -67,8 +76,12 @@ export class GeminiSession {
     if (!sc) return;
     // Gemini flags its own turn as interrupted when the end_conversation tool response
     // arrives; forwarding that would make clients cut Friday's final words.
-    if (sc.interrupted && !this.endRequested) this.onEvent({ kind: "interrupted" });
+    if (sc.interrupted && !this.endRequested) {
+      console.log("gemini: interrupted");
+      this.onEvent({ kind: "interrupted" });
+    }
     if (sc.inputTranscription?.text) {
+      if (settings.logTranscripts) console.log(`gemini: heard ${JSON.stringify(sc.inputTranscription.text)}`);
       this.clearIdle(); // the user is talking again
       this.onEvent({ kind: "user_text", data: sc.inputTranscription.text });
     }

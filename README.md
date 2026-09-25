@@ -28,6 +28,10 @@ The session closes itself in two ways:
 
 Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturing but finish playing queued audio.
 
+### Barge-in and echo
+
+Gemini interrupts itself when it detects the user speaking. On speaker devices a little of Friday's own voice leaks back into the microphone before echo cancellation converges, which Gemini can mistake for speech. `FRIDAY_VAD_START_SENSITIVITY` (default `LOW`) and `FRIDAY_VAD_PREFIX_MS` (default 200) tune how eagerly Gemini treats sound as the user talking; raise sensitivity to `HIGH` or lower the padding if barge-in feels sluggish on headphones or the browser.
+
 ## Add a tool
 
 Add a `defineTool()` call in `src/tools/builtin.ts` (or a new module imported from `loadTools()`):
@@ -76,7 +80,9 @@ esphome run friday-voice-pe.yaml          # first time over USB; afterwards it o
 esphome logs friday-voice-pe.yaml         # tail the device log
 ```
 
-Usage: press the top button to start talking, press again to stop. Friday ends the session itself after handling a request or when you say goodbye; the LEDs go off once its last words have played. The dial sets the speaker volume.
+Usage: say **"hey friday"** (or press the top button) to start talking. A short chime confirms the wake word was heard. Friday ends the session itself after handling a request or when you say goodbye; the LEDs go off once its last words have played. While Friday is talking you can talk over it, or say "stop" and Friday ends the session; the button also stops it. The dial sets the speaker volume.
+
+Wake word detection runs on the device with ESPHome's `micro_wake_word`; the microphone is always on for that purpose, but no audio leaves the device until the wake word fires. The "hey friday" model is a community model from [Custom_V2_MicroWakeWords](https://github.com/JohnnyPrimus/Custom_V2_MicroWakeWords) (Apache-2.0), pinned to a commit in the YAML. To use another phrase, change the `model:` line under `micro_wake_word` to an official name such as `hey_jarvis` or `okay_nabu`, or to another model URL, and reflash.
 
 | LED ring | Meaning |
 |---|---|
@@ -95,9 +101,11 @@ Troubleshooting:
 - **Red pulse while muted**: the side switch is on, or Mute is on in Home Assistant.
 - **Choppy or late speech**: raise `buffer_duration` on the `friday_speaker` resampler (default 2000ms) at the cost of a little more delay before Friday starts talking.
 - **Friday reacts to its own voice**: all playback must go through `friday_speaker`; anything bypassing the mixer defeats the XMOS echo cancellation.
+- **Wake word misses or false triggers**: adjust `probability_cutoff` for `hey_friday` under `micro_wake_word` (lower is more sensitive), or try `channels: 0` for the engine's microphone. If the community model is not good enough, switch to `hey_jarvis`.
+- **Friday interrupts itself during long replies**: it is hearing its own echo. Keep the client on microphone `channels: 1` (no automatic gain control) and leave `barge_in_delay` at 1500ms or raise it; on the server, `FRIDAY_VAD_START_SENSITIVITY=LOW` and `FRIDAY_VAD_PREFIX_MS=200` are the defaults. Set `FRIDAY_LOG_TRANSCRIPTS=1` to see what Gemini hears.
 - **Session drops after Wi-Fi hiccups**: expected for now. The device shows the error pattern and returns to idle; the server cleans up via its ping timeout.
 
-The component accepts `connect_timeout`, `drain_timeout`, `error_hold` and `send_chunk` (20ms to 1s, default 100ms) if you want to tune it. The device stays a normal ESPHome device in Home Assistant for OTA, logs, the Mute switch and the LED Ring light.
+The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_chunk` (20ms to 1s, default 100ms) and `barge_in_delay` (default 1500ms) if you want to tune it. The device stays a normal ESPHome device in Home Assistant for OTA, logs, the Mute switch and the LED Ring light.
 
 ## MCP servers
 
