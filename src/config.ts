@@ -8,6 +8,8 @@ export const settings = {
   voice: process.env.FRIDAY_VOICE ?? "Aoede",
   /** Close the session when the user stays silent this long after Friday finishes a turn. 0 disables. */
   idleTimeoutMs: Number(process.env.FRIDAY_IDLE_TIMEOUT_MS ?? 8000),
+  /** WebSocket ping interval; connections that miss a pong are terminated. 0 disables. */
+  wsPingMs: Number(process.env.FRIDAY_WS_PING_MS ?? 20000),
   systemPrompt: `You are Friday, a concise and friendly voice assistant.
 Keep spoken answers short. Use tools whenever they can answer the question
 instead of guessing. Answer in the language the user speaks.

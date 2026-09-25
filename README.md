@@ -62,6 +62,43 @@ Setup:
 
 The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 
+## Voice Preview Edition (ESP32)
+
+`esphome/friday-voice-pe.yaml` turns a Home Assistant Voice Preview Edition into a press-to-talk Friday client. It is a thin fork of the official firmware: XMOS echo cancellation, I2S audio, DAC, LEDs, button, dial and mute switch stay as upstream; the Home Assistant voice pipeline, wake word and media player are removed and replaced by the `friday_client` component in `esphome/components/`, which speaks the `/ws/audio` protocol directly.
+
+Prerequisites: ESPHome 2026.9 or newer on your machine (`brew install esphome` or `pip install esphome`), the Voice PE on the same LAN as the Friday server, and a USB-C cable for the first flash.
+
+```sh
+cd esphome
+cp secrets.yaml.example secrets.yaml      # Wi-Fi, API key (openssl rand -base64 32), OTA password
+$EDITOR friday-voice-pe.yaml              # set friday_host (and friday_port) under substitutions
+esphome run friday-voice-pe.yaml          # first time over USB; afterwards it offers OTA
+esphome logs friday-voice-pe.yaml         # tail the device log
+```
+
+Usage: press the top button to start talking, press again to stop. Friday ends the session itself after handling a request or when you say goodbye; the LEDs go off once its last words have played. The dial sets the speaker volume.
+
+| LED ring | Meaning |
+|---|---|
+| Off (or your LED Ring colour) | Idle |
+| Warm white twinkle | No Wi-Fi |
+| Slow spin | Connecting to Friday |
+| Fast spin | Listening |
+| Reverse spin | Friday is speaking |
+| Red pulse | Error (server unreachable, connection lost, or pressed while muted); clears after 2 s |
+| Two red dots | Microphone muted |
+| Red every third LED | XMOS voice kit failed to start |
+
+Troubleshooting:
+
+- **Red pulse right after pressing**: the device cannot reach `ws://<friday_host>:<port>/ws/audio`. Check `friday_host`, that the server is running, and that nothing blocks port 8080. The server log prints `[friday-voice] session open` on success.
+- **Red pulse while muted**: the side switch is on, or Mute is on in Home Assistant.
+- **Choppy or late speech**: raise `buffer_duration` on the `friday_speaker` resampler (default 2000ms) at the cost of a little more delay before Friday starts talking.
+- **Friday reacts to its own voice**: all playback must go through `friday_speaker`; anything bypassing the mixer defeats the XMOS echo cancellation.
+- **Session drops after Wi-Fi hiccups**: expected for now. The device shows the error pattern and returns to idle; the server cleans up via its ping timeout.
+
+The component accepts `connect_timeout`, `drain_timeout`, `error_hold` and `send_chunk` (20ms to 1s, default 100ms) if you want to tune it. The device stays a normal ESPHome device in Home Assistant for OTA, logs, the Mute switch and the LED Ring light.
+
 ## MCP servers
 
 Copy `mcp.example.json` to `mcp.json` (git-ignored) and list servers. Both stdio (`command`/`args`) and streamable HTTP (`url`/`headers`) transports work. Each MCP tool is registered as `<server>__<tool>`; use `include`/`exclude` to trim large servers and `scheduling` to control how Gemini surfaces results. Override the path with `FRIDAY_MCP_CONFIG`.
@@ -70,4 +107,10 @@ Keep the total tool count modest: Gemini reads every declaration and caps at 512
 
 ## Transport
 
-`WS /ws/audio` carries raw PCM both ways; see the protocol in `src/transports/ws.ts`. The web UI and a future ESP32 client speak the same protocol. Transports wrap `GeminiSession` (`src/session.ts`), so tools and prompt behaviour are shared. A WebRTC transport can be added alongside it later.
+`WS /ws/audio` carries raw PCM both ways; see the protocol in `src/transports/ws.ts`. The web UI and the Voice PE client speak the same protocol. Transports wrap `GeminiSession` (`src/session.ts`), so tools and prompt behaviour are shared. A WebRTC transport can be added alongside it later.
+
+- Clients may append `?device=<id>`; the id is logged with the session and otherwise ignored for now. Unknown query parameters are ignored.
+- Binary frames may be any size; batching 100 ms (3200 bytes) per frame is fine for microcontrollers.
+- The server pings every `FRIDAY_WS_PING_MS` (default 20000) and drops connections that stop answering, which also closes the Gemini session. Set to `0` to disable.
+
+Run `npm test` for the transport tests.

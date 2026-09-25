@@ -2,11 +2,10 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname } from "node:path";
-import { WebSocketServer } from "ws";
 import { settings } from "./config.js";
 import { declarations, loadTools, toolNames } from "./tools/index.js";
 import { closeMcp } from "./tools/mcp.js";
-import { serveWs } from "./transports/ws.js";
+import { attachAudioWs } from "./transports/ws.js";
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), "..", "web");
 const MIME: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
@@ -33,8 +32,7 @@ const server = createServer(async (req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ server, path: "/ws/audio" });
-wss.on("connection", (ws) => void serveWs(ws));
+attachAudioWs(server);
 
 server.listen(settings.port, settings.host, () =>
   console.log(`friday listening on http://localhost:${settings.port}`),

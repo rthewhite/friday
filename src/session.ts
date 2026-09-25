@@ -65,7 +65,9 @@ export class GeminiSession {
     for (const fc of m.toolCall?.functionCalls ?? []) void this.runTool(fc.id, fc.name, fc.args);
     const sc = m.serverContent;
     if (!sc) return;
-    if (sc.interrupted) this.onEvent({ kind: "interrupted" });
+    // Gemini flags its own turn as interrupted when the end_conversation tool response
+    // arrives; forwarding that would make clients cut Friday's final words.
+    if (sc.interrupted && !this.endRequested) this.onEvent({ kind: "interrupted" });
     if (sc.inputTranscription?.text) {
       this.clearIdle(); // the user is talking again
       this.onEvent({ kind: "user_text", data: sc.inputTranscription.text });

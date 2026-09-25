@@ -2,3 +2,8 @@ node_modules/
 dist/
 .env
 mcp.json
+
+# ESPHome
+esphome/secrets.yaml
+esphome/.esphome/
+__pycache__/
