@@ -16,7 +16,7 @@ import { createApp } from "./app.js";
 
 const db = openDatabase(settings.dataDir);
 const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
-if (!configStore.enabled) console.warn("configuration store disabled: FRIDAY_MASTER_KEY is not set; only environment values are used");
+if (!configStore.secretsEnabled) console.warn("secrets disabled: FRIDAY_MASTER_KEY is not set; plain configuration still works, secrets come from the environment only");
 for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
 const keys = new SqliteKeyStore(db);
 

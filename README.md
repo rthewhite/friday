@@ -103,7 +103,7 @@ The portal's build step scans the workspace for `friday.ui` declarations and gen
 
 Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) for three things:
 
-- **Configuration values.** Every key a module declares shows up under Settings > Configuration as `set`, `pending` or `env`. Values you save there are encrypted with `FRIDAY_MASTER_KEY` and win over the environment; `Save and reload module` applies them without restarting Friday. Scope a value to one module or make it global. Without a master key the store is disabled and only the environment is used.
+- **Configuration values.** Every key a module declares shows up under Settings > Configuration as `set`, `pending` or `env`, split into two tabs. The Configuration tab holds plain values (URLs, ids), shown and edited inline and stored as plain text. The Secrets tab holds keys the module declared `secret: true` (tokens, API keys); they are encrypted with `FRIDAY_MASTER_KEY` and never shown again after saving. Stored values win over the environment; `Save and reload module` applies them without restarting Friday. Scope a value to one module or make it global. Without a master key only secrets are disabled; plain configuration keeps working.
 - **Remote module keys.** Settings > Remote modules issues a key per module id (shown once, stored hashed) and can revoke it, which disconnects the module immediately. `FRIDAY_MODULE_KEYS` remains a fallback.
 - **Module storage.** Modules get `ctx.storage` (`get`, `set`, `delete`, `list`), a JSON key-value namespace per module. The test host provides an in-memory one.
 

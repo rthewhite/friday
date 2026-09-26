@@ -43,11 +43,11 @@ export function createMediaModule(opts: MediaOptions = {}) {
       ui: true,
       config: [
         { key: "JELLYFIN_URL", required: true, description: "Jellyfin base URL" },
-        { key: "JELLYFIN_API_KEY", required: true, description: "Jellyfin API key (Dashboard -> API Keys)" },
+        { key: "JELLYFIN_API_KEY", required: true, secret: true, description: "Jellyfin API key (Dashboard -> API Keys)" },
         { key: "JELLYFIN_USER", description: "Jellyfin user display name (default: first user)" },
         { key: "JELLYFIN_PUBLIC_URL", description: "URL the Apple TV uses to reach Jellyfin (default: JELLYFIN_URL)" },
         { key: "HA_URL", description: "Home Assistant base URL" },
-        { key: "HA_TOKEN", description: "Home Assistant long-lived access token" },
+        { key: "HA_TOKEN", secret: true, description: "Home Assistant long-lived access token" },
         { key: "HA_APPLE_TV_ENTITY", description: "media_player entity of the Apple TV" },
       ],
     },

@@ -12,9 +12,9 @@ export default defineModule({
     id: "weather",                 // kebab-case, unique per deployment, owner of the module's tools
     label: "Weather",
     description: "Forecasts",
-    config: [                      // env keys the module reads through ctx.config
-      { key: "WEATHER_API_KEY", required: true, description: "API key" },
-      { key: "WEATHER_UNITS" },
+    config: [                      // keys the module reads through ctx.config
+      { key: "WEATHER_API_KEY", required: true, secret: true, description: "API key" },
+      { key: "WEATHER_UNITS" },    // plain: visible and editable in the portal
     ],
   },
   async init(ctx) {
@@ -39,6 +39,8 @@ export default defineModule({
 | `config.get(key)` | Value or `undefined`. Read lazily inside handlers rather than at `init` so later changes are picked up. |
 | `config.require(key)` | Value or throws `<id>: <key> is not configured`. |
 | `log` | `log`, `warn`, `error`, prefixed with `[<id>]`. |
+
+Mark credentials and tokens with `secret: true`. Secrets are stored encrypted and never displayed in the portal; plain keys are shown and edited inline. Retrieval is identical for both: `ctx.config.get` / `require`.
 
 Rules the host enforces:
 

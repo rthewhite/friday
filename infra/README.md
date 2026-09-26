@@ -61,11 +61,13 @@ kubectl -n friday create secret generic friday-mcp --from-file=mcp.json=mcp.json
 
 ### The master key
 
-Every value saved in Settings > Configuration is AES-256-GCM encrypted with
-`FRIDAY_MASTER_KEY`. If the key is lost or changed, those rows cannot be read:
-Friday logs one error per row at startup, the portal shows them as `pending`,
-and you re-enter them (Settings > Configuration, then "Save and reload module").
-Remote module keys are stored as hashes and are unaffected.
+Values saved on the Secrets tab of Settings > Configuration (keys a module
+declares `secret: true`) are AES-256-GCM encrypted with `FRIDAY_MASTER_KEY`.
+Plain configuration (URLs, ids) is stored as plain text in `friday.db` on the
+PVC and does not need the master key. If the key is lost or changed, secret
+rows cannot be read: Friday logs one error per row at startup, the portal shows
+them as `pending`, and you re-enter them (Secrets tab, then "Save and reload
+module"). Remote module keys are stored as hashes and are unaffected.
 
 Backup: the PVC is the state. To copy the database out of the pod,
 `kubectl -n friday exec deploy/friday -- sh -c 'sqlite3 /data/friday.db ".backup /tmp/friday.bak"'`

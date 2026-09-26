@@ -45,22 +45,38 @@ export interface ConfigEntry {
   key: string;
   required: boolean;
   description?: string;
+  /** Declared secret by a module, or stored as secret. Secret entries never carry `value`. */
+  secret: boolean;
   status: "set" | "pending" | "env";
   scope?: string;
+  /** Current plain value (stored or environment). Absent for secrets and pending keys. */
+  value?: string;
+}
+
+/** True when any module declares this key as a secret. */
+export function isDeclaredSecret(host: ModuleHost, key: string): boolean {
+  return host.manifests().some(({ manifest }) => manifest.config?.some((c) => c.key === key && c.secret === true));
 }
 
 /** Declared keys per module, plus stored global values that no module declares. */
 export function configListing({ host, configStore, env = process.env }: Pick<AppDeps, "host" | "configStore" | "env">): ConfigEntry[] {
   const out: ConfigEntry[] = [];
   const declared = new Set<string>();
+  const withValue = (e: ConfigEntry, moduleId: string): ConfigEntry => {
+    if (e.secret || e.status === "pending") return e;
+    const value = e.scope ? configStore?.get(e.scope, e.key) : env[e.key];
+    return value === undefined ? e : { ...e, value };
+  };
   for (const { manifest } of host.manifests()) {
     for (const c of manifest.config ?? []) {
       declared.add(c.key);
-      out.push({ module: manifest.id, key: c.key, required: c.required === true, description: c.description, ...statusOf(configStore, env, manifest.id, c.key) });
+      const st = statusOf(configStore, env, manifest.id, c.key);
+      const storedSecret = st.scope ? configStore?.info(st.scope, c.key)?.secret === true : false;
+      out.push(withValue({ module: manifest.id, key: c.key, required: c.required === true, description: c.description, secret: isDeclaredSecret(host, c.key) || storedSecret, ...st }, manifest.id));
     }
   }
-  for (const { scope, key } of configStore?.keys() ?? []) {
-    if (scope === GLOBAL_SCOPE && !declared.has(key)) out.push({ module: GLOBAL_SCOPE, key, required: false, status: "set", scope: GLOBAL_SCOPE });
+  for (const { scope, key, secret } of configStore?.keys() ?? []) {
+    if (scope === GLOBAL_SCOPE && !declared.has(key)) out.push(withValue({ module: GLOBAL_SCOPE, key, required: false, secret, status: "set", scope: GLOBAL_SCOPE }, GLOBAL_SCOPE));
   }
   return out;
 }
@@ -94,19 +110,21 @@ export function createApp(deps: AppDeps) {
       if (!entry) return sendJson(res, { error: `no reloadable in-process module "${id}"` }, 404);
       sendJson(res, entry);
     })
-    .add("GET", "/api/config", (_req, res) => sendJson(res, { enabled: deps.configStore?.enabled === true, entries: configListing(deps) }))
+    .add("GET", "/api/config", (_req, res) => sendJson(res, { secretsEnabled: deps.configStore?.secretsEnabled === true, entries: configListing(deps) }))
     .add("PUT", "/api/config/:scope/:key", async (req, res, { scope, key }) => {
       if (!deps.configStore) return sendJson(res, { error: "no configuration store" }, 503);
       if (scope !== GLOBAL_SCOPE && !deps.host.manifests().some((m) => m.manifest.id === scope)) return sendJson(res, { error: `unknown scope "${scope}"` }, 404);
-      let body: { value?: unknown };
+      let body: { value?: unknown; secret?: unknown };
       try {
         body = JSON.parse((await readBody(req)) || "{}");
       } catch {
         return sendJson(res, { error: "invalid JSON" }, 400);
       }
       if (typeof body.value !== "string" || !body.value) return sendJson(res, { error: "value must be a non-empty string" }, 400);
+      // A key any module declares secret is always stored encrypted; the request cannot downgrade it.
+      const secret = isDeclaredSecret(deps.host, key) || body.secret === true;
       try {
-        deps.configStore.set(scope, key, body.value);
+        deps.configStore.set(scope, key, body.value, { secret });
       } catch (e) {
         if (e instanceof ConfigStoreDisabled) return sendJson(res, { error: e.message }, 503);
         throw e;
@@ -116,12 +134,7 @@ export function createApp(deps: AppDeps) {
     })
     .add("DELETE", "/api/config/:scope/:key", (_req, res, { scope, key }) => {
       if (!deps.configStore) return sendJson(res, { error: "no configuration store" }, 503);
-      try {
-        deps.configStore.delete(scope, key);
-      } catch (e) {
-        if (e instanceof ConfigStoreDisabled) return sendJson(res, { error: e.message }, 503);
-        throw e;
-      }
+      deps.configStore.delete(scope, key);
       res.statusCode = 204;
       res.end();
     })

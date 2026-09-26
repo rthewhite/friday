@@ -11,6 +11,15 @@ export interface Migration {
 
 export const migrations: Migration[] = [
   {
+    version: 2,
+    name: "plain-config-values",
+    // Existing rows are all encrypted; they stay secret until the user re-saves them as plain.
+    sql: `
+      ALTER TABLE config_values ADD COLUMN secret INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE config_values ADD COLUMN plaintext TEXT;
+    `,
+  },
+  {
     version: 1,
     name: "initial",
     sql: `

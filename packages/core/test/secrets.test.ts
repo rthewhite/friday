@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 import { migrate, migrations } from "../src/storage/db.js";
 import { decrypt, encrypt, parseMasterKey } from "../src/secrets/crypto.js";
 import { ConfigStore, ConfigStoreDisabled } from "../src/secrets/config-store.js";
@@ -28,48 +30,77 @@ test("encrypt/decrypt round-trips; tamper, wrong key and wrong AAD fail", () => 
   assert.throws(() => decrypt(key, "media", "JELLYFIN_API_KEY", tampered));
 });
 
-test("ConfigStore stores ciphertext, reads plaintext, lists keys, and caches until write", () => {
+test("ConfigStore: secrets are ciphertext, plain values are plaintext, both read back, keys report kind", () => {
   const d = db();
   const s = new ConfigStore(d, key, quiet);
-  assert.equal(s.enabled, true);
-  s.set("media", "JELLYFIN_URL", "http://jf");
-  const row = d.prepare("SELECT ciphertext FROM config_values").get() as { ciphertext: Uint8Array };
-  assert.ok(!Buffer.from(row.ciphertext).toString().includes("http://jf"));
+  assert.equal(s.secretsEnabled, true);
+  s.set("media", "JELLYFIN_API_KEY", "tok", { secret: true });
+  s.set("media", "JELLYFIN_URL", "http://jf", { secret: false });
+  const rows = d.prepare("SELECT key, secret, plaintext, ciphertext FROM config_values ORDER BY key").all() as any[];
+  assert.equal(rows[0].secret, 1);
+  assert.equal(rows[0].plaintext, null);
+  assert.ok(!Buffer.from(rows[0].ciphertext).toString().includes("tok"));
+  assert.equal(rows[1].secret, 0);
+  assert.equal(rows[1].plaintext, "http://jf");
+  assert.equal(s.get("media", "JELLYFIN_API_KEY"), "tok");
   assert.equal(s.get("media", "JELLYFIN_URL"), "http://jf");
-  s.set("media", "JELLYFIN_URL", "http://jf2");
+  s.set("media", "JELLYFIN_URL", "http://jf2", { secret: false });
   assert.equal(s.get("media", "JELLYFIN_URL"), "http://jf2");
-  s.set("global", "HA_URL", "http://ha");
-  assert.deepEqual(s.keys(), [{ scope: "global", key: "HA_URL" }, { scope: "media", key: "JELLYFIN_URL" }]);
+  // a plain row can be promoted to secret and back
+  s.set("media", "JELLYFIN_URL", "http://jf3", { secret: true });
+  assert.deepEqual(s.info("media", "JELLYFIN_URL"), { secret: true });
+  assert.equal(s.get("media", "JELLYFIN_URL"), "http://jf3");
+  s.set("global", "HA_URL", "http://ha", { secret: false });
+  assert.deepEqual(s.keys(), [{ scope: "global", key: "HA_URL", secret: false }, { scope: "media", key: "JELLYFIN_API_KEY", secret: true }, { scope: "media", key: "JELLYFIN_URL", secret: true }]);
   assert.equal(s.delete("media", "JELLYFIN_URL"), true);
   assert.equal(s.get("media", "JELLYFIN_URL"), undefined);
-  assert.equal(s.has("global", "HA_URL"), true);
+  assert.equal(s.info("media", "JELLYFIN_URL"), undefined);
 });
 
-test("disabled store: reads yield undefined, writes throw ConfigStoreDisabled", () => {
-  const s = new ConfigStore(db(), undefined, quiet);
-  assert.equal(s.enabled, false);
-  assert.equal(s.get("media", "X"), undefined);
-  assert.throws(() => s.set("media", "X", "1"), ConfigStoreDisabled);
-  assert.throws(() => s.delete("media", "X"), ConfigStoreDisabled);
-});
-
-test("wrong master key: rows are reported by verifyAll, treated as unset, and status is pending", () => {
+test("without a master key: plain values work, secret reads are unset, secret writes throw", () => {
   const d = db();
-  new ConfigStore(d, key, quiet).set("media", "JELLYFIN_API_KEY", "x");
+  new ConfigStore(d, key, quiet).set("media", "T", "tok", { secret: true });
+  const s = new ConfigStore(d, undefined, quiet);
+  assert.equal(s.secretsEnabled, false);
+  s.set("media", "URL", "http://x", { secret: false });
+  assert.equal(s.get("media", "URL"), "http://x");
+  assert.equal(s.get("media", "T"), undefined);
+  assert.throws(() => s.set("media", "T", "1", { secret: true }), ConfigStoreDisabled);
+  assert.equal(s.delete("media", "URL"), true);
+});
+
+test("rows from before the split (version 1) are treated as secret after migration 2", () => {
+  const d = new DatabaseSync(":memory:");
+  migrate(d, migrations.filter((m) => m.version === 1), quiet);
+  // write a v1-shaped row by hand
+  const { encrypt } = require("../src/secrets/crypto.js") as typeof import("../src/secrets/crypto.js");
+  const e = encrypt(key, "media", "OLD", "legacy");
+  d.prepare("INSERT INTO config_values (scope, key, ciphertext, iv, tag, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run("media", "OLD", e.ciphertext, e.iv, e.tag, "t");
+  assert.equal(migrate(d, migrations, quiet), 1);
+  const s = new ConfigStore(d, key, quiet);
+  assert.deepEqual(s.info("media", "OLD"), { secret: true });
+  assert.equal(s.get("media", "OLD"), "legacy");
+});
+
+test("wrong master key: secret rows are reported by verifyAll, treated as unset, and status is pending; plain rows unaffected", () => {
+  const d = db();
+  new ConfigStore(d, key, quiet).set("media", "JELLYFIN_API_KEY", "x", { secret: true });
+  new ConfigStore(d, key, quiet).set("media", "JELLYFIN_URL", "http://jf", { secret: false });
   const errors: string[] = [];
   const s = new ConfigStore(d, randomBytes(32), { error: (m: string) => errors.push(m) });
   assert.deepEqual(s.verifyAll(), [{ scope: "media", key: "JELLYFIN_API_KEY" }]);
   assert.equal(s.get("media", "JELLYFIN_API_KEY"), undefined);
   assert.ok(errors[0].includes("cannot decrypt media/JELLYFIN_API_KEY"));
   assert.deepEqual(statusOf(s, {}, "media", "JELLYFIN_API_KEY"), { status: "pending" });
+  assert.equal(s.get("media", "JELLYFIN_URL"), "http://jf");
 });
 
 test("resolver order: module scope, global scope, env; status reports the source", () => {
   const s = new ConfigStore(db(), key, quiet);
   const env = { HA_URL: "http://env", ONLY_ENV: "e" };
   const resolve = createResolver(s, env);
-  s.set("global", "HA_URL", "http://global");
-  s.set("media", "HA_URL", "http://media");
+  s.set("global", "HA_URL", "http://global", { secret: false });
+  s.set("media", "HA_URL", "http://media", { secret: true });
   assert.equal(resolve("media")("HA_URL"), "http://media");
   assert.equal(resolve("other")("HA_URL"), "http://global");
   assert.equal(resolve("other")("ONLY_ENV"), "e");
@@ -80,6 +111,6 @@ test("resolver order: module scope, global scope, env; status reports the source
   assert.deepEqual(statusOf(s, env, "other", "NOPE"), { status: "pending" });
   // reads are live: a later write is visible without rebuilding the resolver
   const r = resolve("other");
-  s.set("other", "NOPE", "now");
+  s.set("other", "NOPE", "now", { secret: false });
   assert.equal(r("NOPE"), "now");
 });

@@ -8,6 +8,8 @@ export interface ConfigKey {
   /** When true the host refuses to load the module if the key is unset. */
   required?: boolean;
   description?: string;
+  /** Credentials and tokens: stored encrypted and never shown in the portal. Retrieval is unchanged. */
+  secret?: boolean;
 }
 
 export interface ModuleManifest {

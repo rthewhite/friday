@@ -12,7 +12,7 @@ const quiet = { log() {} };
 test("fresh start creates the database and applies all migrations", async () => {
   const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
   const db = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
-  assert.equal(schemaVersion(db), migrations.at(-1)!.version);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
   assert.deepEqual(tables, ["config_values", "module_keys", "module_kv", "schema_version"]);
   db.close();

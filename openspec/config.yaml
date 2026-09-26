@@ -24,8 +24,9 @@ context: |
   import list at build time (no Module Federation). Modules add backend routes with ctx.http.route, served
   at /api/modules/<id>/...; core routing lives in packages/core/src/{router,app}.ts.
   Platform storage: core owns friday.db (node:sqlite, FRIDAY_DATA_DIR, PVC in k8s; packages/core/src/storage)
-  with versioned migrations; modules get ctx.storage (module_kv). Configuration values are stored AES-256-GCM
-  encrypted with FRIDAY_MASTER_KEY (packages/core/src/secrets); ctx.config resolves module scope, then global,
+  with versioned migrations; modules get ctx.storage (module_kv). Configuration values are plain (plaintext, visible in the
+  portal) or secret (manifest config key `secret: true`; AES-256-GCM with FRIDAY_MASTER_KEY, write-only)
+  (packages/core/src/secrets); ctx.config resolves module scope, then global,
   then env, lazily; /api/config lists declared keys with status set|pending|env and the portal's Settings >
   Configuration edits them; POST /api/modules/:id/reload re-initializes a module. Remote module keys are issued
   in the portal (/api/keys, hashed in module_keys) with FRIDAY_MODULE_KEYS as fallback (CompositeKeyStore).
