@@ -24,11 +24,11 @@
 
 ### Requirement: Configuration page
 
-The portal SHALL provide `Settings > Configuration` with pill tabs `Configuration` and `Secrets` showing counts, each rendering one table with a row per key: status dot, key, description, requested-by chips, scope, updated, and for plain entries the value. Clicking a row SHALL open a drawer with the value field (text for plain, masked for secrets), a scope selector (each requesting module or global), and `Save`, `Save and reload module` and `Clear` actions. Saved secret values SHALL NOT be displayed afterwards. A header action SHALL open the same drawer to add an undeclared global value, stored as secret only from the Secrets tab. The active tab SHALL be reflected in the URL and `?key=` SHALL open the drawer for that key.
+The portal SHALL provide `Settings > Configuration` with pill tabs `Configuration` and `Secrets` showing counts, each rendering one table with a row per key: status dot, key, description, requested-by chips, scope and updated; values SHALL NOT be shown in the table. Clicking a row SHALL open a drawer with the value field (text showing the current value for plain entries, masked for secrets), a scope selector (each requesting module or global), and `Save`, `Save and reload module` and `Clear` actions. Saved secret values SHALL NOT be displayed afterwards. A header action SHALL open the same drawer to add an undeclared global value, stored as secret only from the Secrets tab. The active tab SHALL be reflected in the URL and `?key=` SHALL open the drawer for that key.
 
 #### Scenario: Edit a plain value inline
 - **WHEN** the user opens the `JELLYFIN_URL` row, changes the value and saves
-- **THEN** the new value is stored plain and shows in the row
+- **THEN** the new value is stored plain and shows in the drawer when the row is reopened
 
 #### Scenario: Fill in a pending key
 - **WHEN** the user opens a `pending` secret, enters a value and clicks `Save and reload module`
