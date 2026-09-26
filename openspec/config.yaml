@@ -12,7 +12,10 @@ context: |
   declarations() at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
   before reaching Gemini. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
-  transport-agnostic GeminiSession. MCP servers come from mcp.json via packages/core/src/tools/mcp.ts.
+  transport-agnostic GeminiSession. MCP servers come from mcp.json via packages/core/src/tools/mcp.ts. Remote modules (remote/*,
+  e.g. simracing on the gaming PC) run the same module via runRemote from @friday/sdk/remote: they dial
+  /ws/modules, authenticate with FRIDAY_MODULE_KEYS, serve MCP over the socket; core registers their tools
+  as <id>__<tool> with owner remote:<id> for the life of the connection (packages/core/src/remote/).
   Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse).
   Web client in web/ is vanilla HTML + AudioWorklet, no build step, served by core (FRIDAY_WEB_DIR).
   Config comes from env vars (see .env.example). Keep the total tool count modest (Gemini caps at 512).

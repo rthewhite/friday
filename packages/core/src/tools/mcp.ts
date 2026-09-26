@@ -16,7 +16,10 @@ import { readFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Scheduling, ToolRegistry, ToolResult } from "@friday/sdk";
+import type { Scheduling, ToolRegistry } from "@friday/sdk";
+import { prefixedName, toResult } from "./mcp-shared.js";
+
+export { sanitize, toResult } from "./mcp-shared.js";
 
 interface ServerConfig {
   command?: string;
@@ -77,13 +80,13 @@ export class McpSource {
     }
     this.clients.set(name, client);
 
-    const prefix = sanitize(sc.prefix ?? name);
+    const prefix = sc.prefix ?? name;
     const { tools } = await client.listTools();
     let count = 0;
     for (const t of tools) {
       if (sc.include && !sc.include.includes(t.name)) continue;
       if (sc.exclude?.includes(t.name)) continue;
-      const geminiName = `${prefix}__${sanitize(t.name)}`.slice(0, 128);
+      const geminiName = prefixedName(prefix, t.name);
       this.registry.add(mcpOwner(name), {
         name: geminiName,
         description: t.description ?? t.name,
@@ -101,30 +104,4 @@ export class McpSource {
     await Promise.allSettled([...this.clients.values()].map((c) => c.close()));
     this.clients.clear();
   }
-}
-
-/** Flatten an MCP CallToolResult into something Gemini can read. */
-export function toResult(r: Awaited<ReturnType<Client["callTool"]>>): ToolResult {
-  if (r.structuredContent && typeof r.structuredContent === "object") return r.structuredContent as ToolResult;
-  const content = (r.content ?? []) as Array<{ type: string; text?: string; mimeType?: string }>;
-  const text = content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
-  const other = content.filter((c) => c.type !== "text").map((c) => `[${c.type} ${c.mimeType ?? ""}]`);
-  const out: ToolResult = {};
-  if (text) out.result = maybeJson(text);
-  if (other.length) out.attachments = other;
-  if (r.isError) out.error = text || "tool reported an error";
-  return out;
-}
-
-function maybeJson(s: string): unknown {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return s;
-  }
-}
-
-/** Gemini function names: letters, digits, underscore, dot, colon, dash. */
-export function sanitize(s: string): string {
-  return s.replace(/[^a-zA-Z0-9_.:-]/g, "_").replace(/^[^a-zA-Z_]/, "_");
 }

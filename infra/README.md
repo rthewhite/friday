@@ -60,12 +60,17 @@ To rotate: `kubectl -n friday delete secret friday-secrets` and recreate, then
 Do not put `FRIDAY_HOST`, `FRIDAY_PORT` or `FRIDAY_MCP_CONFIG` in the secret;
 the Deployment sets them.
 
+Remote modules authenticate with `FRIDAY_MODULE_KEYS` from the same secret, as
+`<module id>=<key>` pairs separated by commas (`simracing=$(openssl rand -base64 32)`).
+Without it `/ws/modules` rejects every connection and startup logs a warning.
+
 ## 4. Endpoints
 
 | Client | URL |
 |---|---|
 | Browser | `https://friday.thewhite.nl` (websecure) |
 | Voice PE | `ws://friday.thewhite.nl:80/ws/audio` (web entrypoint, this path only) |
+| Remote modules | `wss://friday.thewhite.nl/ws/modules` (websecure, whole-host route) |
 
 `*.thewhite.nl` resolves to Traefik on the LAN via AdGuard. The plain-HTTP route
 exists because the ESPHome `friday_client` component does not do TLS yet; drop

@@ -42,8 +42,8 @@ spec:
               value: "8080"
             - name: FRIDAY_MCP_CONFIG
               value: /etc/friday/mcp.json
-          # GEMINI_API_KEY, JELLYFIN_*, HA_* — everything from .env.example
-          # that is a credential or site-specific.
+          # GEMINI_API_KEY, JELLYFIN_*, HA_*, FRIDAY_MODULE_KEYS — everything from
+          # .env.example that is a credential or site-specific.
           envFrom:
             - secretRef:
                 name: friday-secrets
@@ -99,6 +99,8 @@ spec:
   entryPoints:
     - websecure
   routes:
+    # Whole host over TLS: the portal, /api/*, /ws/audio for browsers, and
+    # /ws/modules for remote modules (wss://friday.thewhite.nl/ws/modules).
     - match: Host(`friday.thewhite.nl`)
       kind: Rule
       services:

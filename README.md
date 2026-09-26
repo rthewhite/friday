@@ -8,7 +8,8 @@ browser (AudioWorklet) ── WebSocket PCM ──┐
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
                                                ├─► modules/builtin   time, timers, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
-                                               └─► MCP servers       mcp.json
+                                               ├─► MCP servers       mcp.json
+                                               └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
 
 The repo is a pnpm workspace:
@@ -19,6 +20,7 @@ The repo is a pnpm workspace:
 | `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, module host, MCP loader |
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
+| `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
 
 ## Run
 
@@ -79,6 +81,22 @@ await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
 ```
 
 `scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
+
+## Remote modules
+
+A module does not have to run inside Friday. `runRemote` from `@friday/sdk/remote` runs the same `defineModule` on another machine, dials `ws(s)://<friday>/ws/modules`, authenticates with a key, and serves its tools over MCP on that socket. While the connection is up its tools are registered as `<id>__<tool>` and listed under `/api/modules` with status `connected`; when the process stops or the network drops, they are removed. The remote reconnects with backoff (1 s to 30 s) and only gives up when Friday rejects the key.
+
+Server side, set `FRIDAY_MODULE_KEYS=<id>=<key>,...` (see `.env.example`). Client side:
+
+```ts
+import { runRemote } from "@friday/sdk/remote";
+import myModule from "./module.js";
+
+const handle = runRemote(myModule, { url: "wss://friday.thewhite.nl/ws/modules", key: process.env.FRIDAY_MODULE_KEY! });
+process.on("SIGINT", () => void handle.stop());
+```
+
+Gemini binds the tool list when a conversation starts, so **new or removed remote tools apply to the next conversation**, not the one already open. `remote/simracing` is the first remote module; see its README for running it on Windows.
 
 ## Jellyfin + Apple TV (Infuse)
 

@@ -48,6 +48,10 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
+  get(name: string): Tool | undefined {
+    return this.tools.get(name)?.tool;
+  }
+
   /** Snapshot of what the model should see. */
   declarations(): FunctionDeclaration[] {
     return [...this.tools.values()].map(({ tool: { name, description, parameters, parametersJsonSchema } }) =>

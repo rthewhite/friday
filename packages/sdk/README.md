@@ -73,6 +73,27 @@ test("get_weather", async () => {
 
 `createTestHost` initializes the module against an in-memory `ToolRegistry` with `env` as its only configuration source (`process.env` is not consulted), and rejects with the same error the real host would log when a required key is missing. Inject fakes (like `fetch`) through a factory function in your module, as `modules/media` does with `createMediaModule({ fetch })`.
 
+## Running a module remotely
+
+The same module can run on another machine and dial into Friday. `@friday/sdk/remote` exports `runRemote`:
+
+```ts
+import { runRemote } from "@friday/sdk/remote";
+import weather from "./module.js";
+
+const handle = runRemote(weather, {
+  url: "wss://friday.thewhite.nl/ws/modules",   // core's remote endpoint
+  key: process.env.FRIDAY_MODULE_KEY!,          // must map to manifest.id in core's FRIDAY_MODULE_KEYS
+  env: process.env,                             // config source for ctx.config (default)
+});
+
+await handle.connected();                        // resolves once core has welcomed this connection
+// ...
+await handle.stop();                             // closes the socket and calls module.dispose()
+```
+
+What happens: the runner calls `init` once against a local registry, sends `hello` with the manifest and key, and after `welcome` serves `tools/list` and `tools/call` over MCP on the same WebSocket. Each tool's default `scheduling` travels in `_meta["friday/scheduling"]`; reserved result keys work unchanged because core flattens the MCP result before resolving them. Core registers the tools as `<id>__<tool>` with owner `remote:<id>` and drops them when the socket closes. The runner reconnects with jittered exponential backoff (1 s to 30 s) except after close codes 4400 (bad hello) and 4401 (unauthorized). Tools added or removed while a voice conversation is open apply to the next conversation.
+
 ## Hosting
 
 Core's `ModuleHost` loads modules from a static list (`packages/core/src/modules.ts`), filtered by `FRIDAY_MODULES`. `ToolRegistry` is owner-tagged: `add(owner, tool)`, `removeOwner(owner)`, `declarations()` (a snapshot each voice session takes when it opens), `callTool(name, args)`, `onChange(listener)`, `list()`. The same contract will later be served by a remote runner, so keep modules free of Node-server assumptions.

@@ -16,6 +16,7 @@ on:
     paths:
       - packages/**
       - modules/**
+      - remote/**
       - web/**
       - package.json
       - pnpm-lock.yaml

@@ -17,6 +17,10 @@ export const settings = {
   idleTimeoutMs: Number(process.env.FRIDAY_IDLE_TIMEOUT_MS ?? 8000),
   /** WebSocket ping interval; connections that miss a pong are terminated. 0 disables. */
   wsPingMs: Number(process.env.FRIDAY_WS_PING_MS ?? 20000),
+  /** `<id>=<key>,...` pairs that let remote modules register on /ws/modules. Unset disables them. */
+  moduleKeys: process.env.FRIDAY_MODULE_KEYS,
+  /** Give a remote module this long to answer a tool call before the model gets `{ error: "timeout" }`. */
+  remoteCallTimeoutMs: Number(process.env.FRIDAY_REMOTE_CALL_TIMEOUT_MS ?? 10000),
   /**
    * Gemini's start-of-speech detection. LOW ignores faint sounds such as residual echo of
    * Friday's own voice on speaker devices; HIGH is Gemini's default and interrupts more eagerly.

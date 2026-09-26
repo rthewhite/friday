@@ -1,0 +1,18 @@
+{
+  "name": "@friday/remote-simracing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote Friday module for sim racing telemetry. Runs on the gaming PC and connects to core over /ws/modules.",
+  "bin": { "friday-simracing": "./dist/bin.js" },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/bin.js",
+    "dev": "tsx src/bin.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@friday/sdk": "workspace:*"
+  }
+}

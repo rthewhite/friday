@@ -5,6 +5,7 @@ import { extname, resolve, sep } from "node:path";
 import type { ToolRegistry } from "@friday/sdk";
 import type { ModuleEntry, ModuleHost } from "./module-host.js";
 import { mcpOwner, type McpSource } from "./tools/mcp.js";
+import type { RemoteEntry, RemoteHost } from "./remote/host.js";
 
 const MIME: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 
@@ -12,13 +13,14 @@ export interface AppDeps {
   registry: ToolRegistry;
   host: ModuleHost;
   mcp: McpSource;
+  remote?: RemoteHost;
   webDir: string;
 }
 
-export type ApiModuleEntry = ModuleEntry;
+export type ApiModuleEntry = ModuleEntry | RemoteEntry;
 
-/** Loaded modules followed by MCP servers, in the shape /api/modules returns. */
-export function moduleListing({ host, mcp, registry }: Pick<AppDeps, "host" | "mcp" | "registry">): ApiModuleEntry[] {
+/** In-process modules, then MCP servers, then connected remotes: the shape /api/modules returns. */
+export function moduleListing({ host, mcp, registry, remote }: Pick<AppDeps, "host" | "mcp" | "registry" | "remote">): ApiModuleEntry[] {
   return [
     ...host.loaded(),
     ...mcp.servers().map((name) => ({
@@ -28,6 +30,7 @@ export function moduleListing({ host, mcp, registry }: Pick<AppDeps, "host" | "m
       status: "loaded" as const,
       tools: registry.names(mcpOwner(name)),
     })),
+    ...(remote?.connected() ?? []),
   ];
 }
 

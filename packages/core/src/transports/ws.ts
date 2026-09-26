@@ -16,10 +16,12 @@
  * On "interrupted" the client must drop its playback buffer.
  */
 import type { IncomingMessage, Server } from "node:http";
-import { WebSocketServer, type WebSocket } from "ws";
+import type { WebSocketServer, WebSocket } from "ws";
 import type { ToolRegistry } from "@friday/sdk";
 import { settings } from "../config.js";
 import { GeminiSession, type Event } from "../session.js";
+import { keepAlive } from "./keep-alive.js";
+import { mountWs } from "./mount.js";
 
 /** The subset of GeminiSession the transport relies on; tests inject a stub. */
 export interface AudioSession {
@@ -41,31 +43,9 @@ export interface AudioWsOptions {
 
 /** Mount the audio WebSocket on an HTTP server at /ws/audio. */
 export function attachAudioWs(server: Server, opts: AudioWsOptions = {}): WebSocketServer {
-  const wss = new WebSocketServer({ server, path: "/ws/audio", maxPayload: opts.maxPayload });
-  const pingMs = opts.pingMs ?? settings.wsPingMs;
-  const alive = new WeakMap<WebSocket, boolean>();
-
-  wss.on("connection", (ws, req) => {
-    alive.set(ws, true);
-    ws.on("pong", () => alive.set(ws, true));
-    void serveWs(ws, req, opts);
-  });
-
-  if (pingMs > 0) {
-    const timer = setInterval(() => {
-      for (const ws of wss.clients) {
-        if (alive.get(ws) === false) {
-          console.log("ws: no pong, terminating");
-          ws.terminate(); // fires "close" -> session closed
-          continue;
-        }
-        alive.set(ws, false);
-        ws.ping();
-      }
-    }, pingMs);
-    timer.unref();
-    wss.on("close", () => clearInterval(timer));
-  }
+  const wss = mountWs(server, "/ws/audio", { maxPayload: opts.maxPayload });
+  keepAlive(wss, opts.pingMs ?? settings.wsPingMs);
+  wss.on("connection", (ws, req) => void serveWs(ws, req, opts));
   return wss;
 }
 

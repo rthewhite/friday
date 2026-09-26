@@ -9,3 +9,4 @@ openspec/
 **/test/
 .claude/
 *.md
+remote/
