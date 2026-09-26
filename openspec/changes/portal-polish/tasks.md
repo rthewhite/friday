@@ -20,4 +20,4 @@
 ## 4. Docs and check
 
 - [x] 4.1 Update `packages/portal-ui/README.md` (new components, page anatomy) and README's "Add a module UI" for `nav.icon` names; verify `openspec validate --all` passes
-- [ ] 4.2 Deploy and compare against the Jarvis reference: Configuration table with requested-by chips, tabs with counts, drawer editing; verify screenshots attached to the commit message or PR
+- [x] 4.2 Deploy and compare against the Jarvis reference: Configuration table with requested-by chips, tabs with counts, drawer editing; verify screenshots attached to the commit message or PR
