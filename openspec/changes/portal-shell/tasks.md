@@ -29,7 +29,7 @@
 ## 5. Build, deploy, cleanup
 
 - [x] 5.1 Update `Dockerfile` to build the portal and copy `packages/portal/dist`; update `FRIDAY_WEB_DIR` default resolution; verify `docker run` serves `/` and `/m/media`
-- [ ] 5.2 Delete `web/`, update `.dockerignore`, README (portal section, dev workflow, "Add a module UI"), `.env.example`, and `openspec/config.yaml` context; verify `openspec validate --all` and CI pass
+- [x] 5.2 Delete `web/`, update `.dockerignore`, README (portal section, dev workflow, "Add a module UI"), `.env.example`, and `openspec/config.yaml` context; verify `openspec validate --all` and CI pass
 - [ ] 5.3 Confirm the Voice PE still connects to the deployed server after the change; verify a wake-word session completes end to end
 
 ## 6. Integration check
