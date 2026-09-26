@@ -8,7 +8,7 @@ Defines the contract a Friday module implements and how core hosts in-process mo
 
 ### Requirement: Module contract
 
-A module SHALL be an object with a `manifest` and an `init(ctx)` function, optionally a `dispose()` function. The manifest SHALL have a kebab-case `id` unique within a deployment, a `label`, an optional `description`, and an optional list of `config` keys, each with `key`, optional `required` and optional `description`. `init` MAY be async and SHALL receive a `ModuleContext` exposing `defineTool`, `config.get`, `config.require` and `log`.
+A module SHALL be an object with a `manifest` and an `init(ctx)` function, optionally a `dispose()` function. The manifest SHALL have a kebab-case `id` unique within a deployment, a `label`, an optional `description`, and an optional list of `config` keys, each with `key`, optional `required`, optional `description` and optional `secret` (true for credentials and tokens; such values are stored encrypted and never shown in the portal). `init` MAY be async and SHALL receive a `ModuleContext` exposing `defineTool`, `config.get`, `config.require` and `log`.
 
 #### Scenario: Minimal module
 - **WHEN** a module exports `{ manifest: { id: "hello", label: "Hello" }, init(ctx) { ctx.defineTool(...) } }`
@@ -17,6 +17,10 @@ A module SHALL be an object with a `manifest` and an `init(ctx)` function, optio
 #### Scenario: Module does not import core
 - **WHEN** a module package is type-checked
 - **THEN** it depends only on `@friday/sdk`, never on `@friday/core`
+
+#### Scenario: Secret flag does not change retrieval
+- **WHEN** a module declares `{ key: "HA_TOKEN", secret: true }` and calls `ctx.config.require("HA_TOKEN")`
+- **THEN** it receives the value exactly as for a plain key
 
 ### Requirement: Tools defined through the context are owned by the module
 
@@ -32,7 +36,7 @@ A module SHALL be an object with a `manifest` and an `init(ctx)` function, optio
 
 ### Requirement: Declared configuration is validated and read through the context
 
-The host SHALL check every `required` config key of a module before calling `init`. A missing required key SHALL fail that module with an error naming the module and the key. `ctx.config.get(key)` SHALL return the value from the process environment or `undefined`; `ctx.config.require(key)` SHALL throw when the key is unset.
+The host SHALL check every `required` config key of a module before calling `init`. A missing required key SHALL fail that module with an error naming the module and the key. `ctx.config.get(key)` SHALL return the value resolved by the configuration store (module scope, then global scope, then process environment) or `undefined`; `ctx.config.require(key)` SHALL throw when the key is unset. Reads SHALL be lazy so values saved later are visible after a reload.
 
 #### Scenario: Missing required key
 - **WHEN** module `media` declares `JELLYFIN_URL` as required and it is unset
@@ -41,6 +45,10 @@ The host SHALL check every `required` config key of a module before calling `ini
 #### Scenario: Optional key
 - **WHEN** a module reads an undeclared or optional key that is unset
 - **THEN** `config.get` returns `undefined` and no error is raised at load time
+
+#### Scenario: Stored value wins
+- **WHEN** `JELLYFIN_URL` is both in the environment and stored for `media`
+- **THEN** `config.get` returns the stored value
 
 ### Requirement: In-process modules are loaded from a fixed list, filtered by FRIDAY_MODULES
 
@@ -125,3 +133,19 @@ A manifest MAY set `ui: true` to indicate the module ships a portal UI; `/api/mo
 #### Scenario: Listing
 - **WHEN** media sets `ui: true`
 - **THEN** `/api/modules` shows `"ui": true` for media
+
+### Requirement: Modules can be reloaded individually
+
+The host SHALL support `reload(id)` for in-process modules: dispose, remove tools and routes, validate config, initialize again. Failures during reload SHALL leave the module in `failed` status with the error.
+
+#### Scenario: Reload
+- **WHEN** `reload("media")` is called
+- **THEN** `dispose` runs, then `init` runs, and the module reports `loaded`
+
+### Requirement: Module storage in the context
+
+`ModuleContext` SHALL include `storage` as specified in `platform-storage` for in-process modules. The test host SHALL provide an in-memory `storage`.
+
+#### Scenario: Test host storage
+- **WHEN** a module test sets and gets a storage key through `createTestHost`
+- **THEN** the value round-trips without a database file

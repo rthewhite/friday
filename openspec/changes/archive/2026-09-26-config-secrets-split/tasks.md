@@ -20,4 +20,4 @@
 ## 4. Docs and check
 
 - [x] 4.1 Update `README.md`, `packages/sdk/README.md` (the `secret` flag) and `infra/README.md` (plain values are plaintext on the PVC; master key gates secrets only); verify `openspec validate --all` passes
-- [ ] 4.2 Deploy and re-save the media URLs from the Configuration tab so they become visible, confirm tokens stay hidden, reload media, run a voice turn with a media tool; verify via portal and logs
+- [x] 4.2 Deploy and re-save the media URLs from the Configuration tab so they become visible, confirm tokens stay hidden, reload media, run a voice turn with a media tool; verify via portal and logs

@@ -37,4 +37,4 @@
 
 ## 7. Integration check
 
-- [ ] 7.1 Deploy with an empty `friday-secrets` except Gemini and master keys, set all media config from the portal, reload media, run a voice turn using a media tool, issue a remote key, connect simracing, revoke the key and confirm disconnect; verify each step through the portal and logs
+- [x] 7.1 Deploy with an empty `friday-secrets` except Gemini and master keys, set all media config from the portal, reload media, run a voice turn using a media tool, issue a remote key, connect simracing, revoke the key and confirm disconnect; verify each step through the portal and logs
