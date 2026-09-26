@@ -58,7 +58,8 @@ const groups = computed(() => {
   return [...map.entries()].map(([module, items]) => ({ module, items }));
 });
 const tone = (s: Entry["status"]) => (s === "set" ? "success" : s === "env" ? "accent" : "warning");
-const dirty = (e: Entry) => !e.secret && (drafts[id(e)] ?? "") !== (e.value ?? "") && (drafts[id(e)] ?? "") !== "";
+/** Saveable when there is a value that differs from what is stored, or when the value only comes from the environment (adopting it into the store). */
+const dirty = (e: Entry) => !e.secret && (drafts[id(e)] ?? "") !== "" && (e.status !== "set" || (drafts[id(e)] ?? "") !== (e.value ?? ""));
 
 async function save(e: Entry, reload: boolean) {
   const value = drafts[id(e)] ?? "";

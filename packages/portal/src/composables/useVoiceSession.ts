@@ -25,9 +25,9 @@ export function useVoiceSession() {
   let seq = 0;
 
   const add = (kind: Entry["kind"], text: string): Entry => {
-    const e = { id: ++seq, kind, text };
-    log.value.push(e);
-    return e;
+    log.value.push({ id: ++seq, kind, text });
+    // Return the reactive proxy Vue stored, not the raw object, so later appends re-render.
+    return log.value[log.value.length - 1]!;
   };
   const append = (role: "user" | "bot", text: string) => {
     if (!current[role]) current[role] = add(role, "");
