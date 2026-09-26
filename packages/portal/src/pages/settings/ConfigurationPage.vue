@@ -106,7 +106,7 @@ async function clear(e: Entry) {
           </div>
           <p v-if="e.description" class="text-f-text-muted text-sm">{{ e.description }}</p>
           <form v-if="editing && editing.module === e.module && editing.key === e.key" class="surface-inset p-3 flex flex-wrap items-end gap-3" @submit.prevent="save(true)">
-            <div class="flex-1 min-w-48"><Input v-model="editing.value" type="password" label="Value" placeholder="Enter a new value" /></div>
+            <div class="flex-1 min-w-48"><Input v-model="editing.value" label="Value" placeholder="Enter a new value" /></div>
             <label class="flex flex-col gap-1 text-sm">
               <span class="text-f-text-muted">Scope</span>
               <select v-model="editing.scope" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
