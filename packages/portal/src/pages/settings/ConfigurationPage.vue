@@ -49,9 +49,8 @@ const tabs = computed(() => [
   { id: "secrets", label: "Secrets", count: secrets.value.length },
 ]);
 const columns = computed<Column[]>(() => [
-  { key: "status", label: "Status", width: "7rem" },
+  { key: "status", label: "", width: "3rem", align: "center" as const },
   { key: "key", label: "Key" },
-  ...(tab.value === "config" ? [{ key: "value", label: "Value" }] : []),
   { key: "description", label: "Description", hideBelow: "lg" as const },
   { key: "modules", label: "Requested by", hideBelow: "md" as const },
   { key: "updatedAt", label: "Updated", hideBelow: "lg" as const, width: "11rem" },
@@ -139,12 +138,11 @@ async function run(f: () => Promise<void>) {
     <p v-if="notice" class="text-f-text-muted">{{ notice }}</p>
 
     <DataTable :columns="columns" :rows="rows" row-key="key" clickable :empty="tab === 'secrets' ? 'No secrets declared' : 'No configuration declared'" @row-click="openEntry">
-      <template #cell-status="{ row }"><StatusDot :tone="tone((row as Entry).status)" :label="(row as Entry).status" /></template>
+      <template #cell-status="{ row }"><StatusDot :tone="tone((row as Entry).status)" :title="(row as Entry).status" /></template>
       <template #cell-key="{ row }">
         <code class="font-mono text-f-text-bright">{{ (row as Entry).key }}</code>
         <span v-if="(row as Entry).required" class="ml-2 text-xs text-f-text-muted">required</span>
       </template>
-      <template #cell-value="{ row }"><span class="font-mono text-f-text break-all">{{ (row as Entry).value ?? "" }}</span></template>
       <template #cell-description="{ row }"><span class="text-f-text-muted">{{ (row as Entry).description ?? "" }}</span></template>
       <template #cell-modules="{ row }">
         <div class="flex flex-wrap gap-1.5">

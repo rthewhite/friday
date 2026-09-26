@@ -8,7 +8,7 @@ const { modules, loading, error, refreshModules } = useModules();
 onMounted(() => void refreshModules());
 
 const columns: Column[] = [
-  { key: "status", label: "Status", width: "7rem" },
+  { key: "status", label: "", width: "3rem", align: "center" },
   { key: "label", label: "Module" },
   { key: "kind", label: "Kind", hideBelow: "md" },
   { key: "tools", label: "Tools", align: "right", width: "6rem" },
@@ -38,7 +38,7 @@ function show(m: ApiModule) { selected.value = m; open.value = true; }
     <p v-if="error" class="text-f-error">{{ error }}</p>
 
     <DataTable :columns="columns" :rows="modules as unknown as Record<string, unknown>[]" row-key="id" clickable @row-click="show($event as unknown as ApiModule)">
-      <template #cell-status="{ row }"><StatusDot :tone="tone((row as unknown as ApiModule).status)" :label="(row as unknown as ApiModule).status" /></template>
+      <template #cell-status="{ row }"><StatusDot :tone="tone((row as unknown as ApiModule).status)" :title="(row as unknown as ApiModule).status" /></template>
       <template #cell-label="{ row }">
         <div class="font-medium text-f-text-bright">{{ (row as unknown as ApiModule).label }}</div>
         <div class="text-xs text-f-text-muted">{{ (row as unknown as ApiModule).id }}</div>

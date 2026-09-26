@@ -3,7 +3,7 @@ export interface Column {
   key: string;
   label: string;
   width?: string;
-  align?: "left" | "right";
+  align?: "left" | "center" | "right";
   /** Hide this column below the given Tailwind breakpoint. */
   hideBelow?: "md" | "lg";
 }
@@ -17,7 +17,7 @@ const hide = { md: "hidden md:table-cell", lg: "hidden lg:table-cell" };
     <table class="w-full text-sm">
       <thead>
         <tr class="bg-f-surface-elevated text-left text-xs uppercase tracking-wide text-f-text-muted">
-          <th v-for="c in columns" :key="c.key" :class="['px-4 py-3 font-medium', c.align === 'right' && 'text-right', c.hideBelow && hide[c.hideBelow]]" :style="c.width ? { width: c.width } : undefined">{{ c.label }}</th>
+          <th v-for="c in columns" :key="c.key" :class="['px-4 py-3 font-medium', c.align === 'right' && 'text-right', c.align === 'center' && 'text-center', c.hideBelow && hide[c.hideBelow]]" :style="c.width ? { width: c.width } : undefined">{{ c.label }}</th>
           <th v-if="$slots.actions" class="px-4 py-3"></th>
         </tr>
       </thead>
@@ -31,7 +31,7 @@ const hide = { md: "hidden md:table-cell", lg: "hidden lg:table-cell" };
           :class="['border-t border-f-border-subtle transition', clickable && 'cursor-pointer hover:bg-f-surface-hover/50']"
           @click="clickable && emit('row-click', row)"
         >
-          <td v-for="c in columns" :key="c.key" :class="['px-4 py-3 align-top', c.align === 'right' && 'text-right', c.hideBelow && hide[c.hideBelow]]">
+          <td v-for="c in columns" :key="c.key" :class="['px-4 py-3 align-top', c.align === 'right' && 'text-right', c.align === 'center' && 'text-center', c.hideBelow && hide[c.hideBelow]]">
             <slot :name="`cell-${c.key}`" :row="row" :value="row[c.key]">{{ row[c.key] ?? "" }}</slot>
           </td>
           <td v-if="$slots.actions" class="px-4 py-3 text-right whitespace-nowrap" @click.stop><slot name="actions" :row="row" /></td>

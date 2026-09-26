@@ -23,7 +23,7 @@ const copied = ref(false);
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/modules`;
 
 const columns: Column[] = [
-  { key: "status", label: "Status", width: "7rem" },
+  { key: "status", label: "", width: "3rem", align: "center" },
   { key: "moduleId", label: "Module" },
   { key: "label", label: "Label" },
   { key: "createdAt", label: "Created", hideBelow: "md" },
@@ -64,7 +64,7 @@ const when = (s: string | null) => formatDateTime(s, "never");
     <p v-if="error" class="text-f-error">{{ error }}</p>
 
     <DataTable :columns="columns" :rows="keys" row-key="id" empty="No keys yet">
-      <template #cell-status="{ row }"><StatusDot :tone="(row as KeyRecord).revoked ? 'error' : 'success'" :label="(row as KeyRecord).revoked ? 'revoked' : 'active'" /></template>
+      <template #cell-status="{ row }"><StatusDot :tone="(row as KeyRecord).revoked ? 'error' : 'success'" :title="(row as KeyRecord).revoked ? 'revoked' : 'active'" /></template>
       <template #cell-moduleId="{ value }"><Chip>{{ value }}</Chip></template>
       <template #cell-createdAt="{ value }"><span class="text-f-text-muted whitespace-nowrap">{{ when(value as string) }}</span></template>
       <template #cell-lastSeenAt="{ value }"><span class="text-f-text-muted whitespace-nowrap">{{ when(value as string | null) }}</span></template>
