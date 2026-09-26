@@ -1,0 +1,11 @@
+.git/
+node_modules/
+dist/
+.env
+.env.*
+mcp.json
+esphome/
+openspec/
+test/
+.claude/
+*.md

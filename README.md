@@ -122,3 +122,7 @@ Keep the total tool count modest: Gemini reads every declaration and caps at 512
 - The server pings every `FRIDAY_WS_PING_MS` (default 20000) and drops connections that stop answering, which also closes the Gemini session. Set to `0` to disable.
 
 Run `npm test` for the transport tests.
+
+## Deploy
+
+Every push to `main` builds `registry.thewhite.nl/friday/friday:<sha>` on the homelab runner and rolls it out to the `friday` namespace (`.github/workflows/deploy.yml`, manifest in `deploy/k8s.yaml`). Browser UI at `https://friday.thewhite.nl`; the Voice PE connects to `ws://friday.thewhite.nl/ws/audio`. One-time bootstrap (namespace, secrets, registry user) is in `infra/README.md`.

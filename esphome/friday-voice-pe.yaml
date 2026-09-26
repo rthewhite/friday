@@ -14,8 +14,8 @@
 substitutions:
   name: friday-voice
   friendly_name: Friday Voice
-  friday_host: "192.168.1.191"   # host or IP running the Friday server
-  friday_port: "8080"
+  friday_host: "friday.thewhite.nl"   # host or IP running the Friday server (cluster ingress; use a LAN IP + 8080 for `npm run dev`)
+  friday_port: "80"
   hidden_ssid: "false"
 
 esphome:

@@ -17,6 +17,10 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => void clo
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
+  if (url.pathname === "/health") {
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify({ ok: true, tools: toolNames().length }));
+  }
   if (url.pathname === "/api/tools") {
     res.setHeader("content-type", "application/json");
     return res.end(JSON.stringify(declarations()));

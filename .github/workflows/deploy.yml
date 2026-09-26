@@ -1,0 +1,122 @@
+# Build and deploy friday to the homelab cluster.
+#
+# Test + typecheck run on every push. The image is built and pushed on every
+# push that touches runtime files (any branch). Deploy runs only on main.
+# Same shape as rthewhite/jarvis, collapsed to a single service.
+#
+# Required repository secrets (see infra/README.md):
+#   HOMELAB_REGISTRY_USER / HOMELAB_REGISTRY_PASSWORD   push creds for registry.thewhite.nl/friday/**
+#   HOMELAB_KUBE_SERVER / HOMELAB_KUBE_CA               cluster endpoint + CA
+#   HOMELAB_KUBE_TOKEN                                  deployer ServiceAccount token, friday namespace
+
+name: deploy
+
+on:
+  push:
+    paths:
+      - src/**
+      - web/**
+      - test/**
+      - package.json
+      - package-lock.json
+      - tsconfig.json
+      - Dockerfile
+      - .dockerignore
+      - deploy/**
+      - .github/workflows/deploy.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: registry.thewhite.nl
+  IMAGE: registry.thewhite.nl/friday/friday
+  NAMESPACE: friday
+
+jobs:
+  test:
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to the registry
+        run: |
+          echo "${{ secrets.HOMELAB_REGISTRY_PASSWORD }}" \
+            | docker login "$REGISTRY" -u "${{ secrets.HOMELAB_REGISTRY_USER }}" --password-stdin
+
+      # Tag by commit SHA, never :latest — an immutable tag is what makes
+      # "what is running?" answerable and `kubectl rollout undo` meaningful.
+      - name: Build and push
+        run: |
+          docker buildx build \
+            --tag "$IMAGE:${GITHUB_SHA}" \
+            --push \
+            .
+
+      - name: Log out of the registry
+        if: always()
+        run: docker logout "$REGISTRY"
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write a short-lived kubeconfig
+        run: |
+          mkdir -p "$RUNNER_TEMP/kube"
+          cat > "$RUNNER_TEMP/kube/config" <<EOF
+          apiVersion: v1
+          kind: Config
+          clusters:
+            - name: homelab
+              cluster:
+                server: ${{ secrets.HOMELAB_KUBE_SERVER }}
+                certificate-authority-data: ${{ secrets.HOMELAB_KUBE_CA }}
+          users:
+            - name: deployer
+              user:
+                token: ${{ secrets.HOMELAB_KUBE_TOKEN }}
+          contexts:
+            - name: homelab
+              context:
+                cluster: homelab
+                user: deployer
+                namespace: ${{ env.NAMESPACE }}
+          current-context: homelab
+          EOF
+          chmod 600 "$RUNNER_TEMP/kube/config"
+          echo "KUBECONFIG=$RUNNER_TEMP/kube/config" >> "$GITHUB_ENV"
+
+      - name: Deploy the SHA-tagged image
+        run: |
+          sed "s|\${IMAGE_TAG}|${GITHUB_SHA}|g" deploy/k8s.yaml \
+            | kubectl apply -f - -o name | tee applied.txt
+          grep '^deployment' applied.txt \
+            | xargs -r -n1 kubectl rollout status --namespace="$NAMESPACE" --timeout=180s
+
+      - name: Report what is running
+        run: |
+          echo "deployed image: $(kubectl -n "$NAMESPACE" get deploy friday \
+            -o jsonpath='{.spec.template.spec.containers[0].image}')"
+
+      - name: Remove the kubeconfig
+        if: always()
+        run: shred -u "$RUNNER_TEMP/kube/config" 2>/dev/null || rm -f "$RUNNER_TEMP/kube/config"

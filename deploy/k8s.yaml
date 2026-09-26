@@ -1,0 +1,127 @@
+# Workloads for the friday namespace. Applied by .github/workflows/deploy.yml
+# with ${IMAGE_TAG} replaced by the commit SHA.
+#
+# Namespace, deployer ServiceAccount, RBAC and the registry-pull secret are
+# created by the homelab Ansible (app-namespaces role), not here. The two
+# application secrets referenced below (friday-secrets, friday-mcp) are created
+# by hand — the deployer is deliberately denied access to Secrets. See
+# infra/README.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: friday
+  namespace: friday
+spec:
+  replicas: 1
+  # A Gemini Live session lives on one pod for its whole duration, so replace
+  # rather than roll: two pods would split the Voice PE and browser clients
+  # across images mid-conversation. Downtime is a few seconds.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: friday
+  template:
+    metadata:
+      labels:
+        app: friday
+    spec:
+      imagePullSecrets:
+        - name: registry-pull
+      containers:
+        - name: friday
+          image: registry.thewhite.nl/friday/friday:${IMAGE_TAG}
+          # Immutable SHA tags make IfNotPresent correct and cheap.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: FRIDAY_HOST
+              value: "0.0.0.0"
+            - name: FRIDAY_PORT
+              value: "8080"
+            - name: FRIDAY_MCP_CONFIG
+              value: /etc/friday/mcp.json
+          # GEMINI_API_KEY, JELLYFIN_*, HA_* — everything from .env.example
+          # that is a credential or site-specific.
+          envFrom:
+            - secretRef:
+                name: friday-secrets
+          volumeMounts:
+            - name: mcp
+              mountPath: /etc/friday
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+      volumes:
+        - name: mcp
+          secret:
+            secretName: friday-mcp
+            # MCP is optional: with no secret the mount is empty and the
+            # loader treats the missing file as "no MCP servers".
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: friday
+  namespace: friday
+spec:
+  selector:
+    app: friday
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# Browser UI + WebSocket over TLS. Browsers only allow the microphone on HTTPS.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: friday
+  namespace: friday
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`friday.thewhite.nl`)
+      kind: Rule
+      services:
+        - name: friday
+          port: 8080
+---
+# Plain-HTTP WebSocket for the Voice PE. The ESPHome friday_client component
+# speaks ws:// only (no TLS yet), so the audio endpoint — and only that path —
+# is also exposed on the `web` entrypoint. The explicit priority beats the
+# cluster-wide HTTP→HTTPS redirect, whose HostRegexp rule is longer and would
+# otherwise win.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: friday-ws-plain
+  namespace: friday
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`friday.thewhite.nl`) && PathPrefix(`/ws/audio`)
+      kind: Rule
+      priority: 100
+      services:
+        - name: friday
+          port: 8080
