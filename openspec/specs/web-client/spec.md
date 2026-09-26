@@ -2,13 +2,13 @@
 
 ## Purpose
 
-A single-page browser client (`web/index.html` + `web/capture-worklet.js`) that captures the microphone, streams PCM over the `/ws/audio` WebSocket, plays back Friday's speech, and shows a transcript with tool activity.
+The portal's Talk page (`packages/portal/src/pages/TalkPage.vue` with the `useVoiceSession` composable and `public/capture-worklet.js`) that captures the microphone, streams PCM over the `/ws/audio` WebSocket, plays back Friday's speech, and shows a transcript with tool activity.
 
 ## Requirements
 
 ### Requirement: Microphone capture at 16 kHz s16le
 
-An AudioWorklet SHALL downsample the microphone to 16 kHz mono signed 16-bit PCM and stream it in small, low-latency chunks. The microphone SHALL be requested with echo cancellation, noise suppression and auto gain control enabled.
+An AudioWorklet, served as a plain JavaScript file from the portal's public assets, SHALL downsample the microphone to 16 kHz mono signed 16-bit PCM and stream it in small, low-latency chunks. The microphone SHALL be requested with echo cancellation, noise suppression and auto gain control enabled.
 
 #### Scenario: Capture running
 - **WHEN** the session is live
@@ -20,7 +20,7 @@ An AudioWorklet SHALL downsample the microphone to 16 kHz mono signed 16-bit PCM
 
 ### Requirement: Start and stop control
 
-A single button SHALL toggle the session. Starting SHALL connect to `ws(s)://<host>/ws/audio` (scheme matching the page), set state to `connecting` then `live`, and mark the button as active with label `Stop`. Stopping SHALL release the microphone, disconnect the worklet, close the socket, and reset the UI to `idle` / `Start talking`.
+The portal's `Talk` page SHALL provide a single button that toggles the session. Starting SHALL connect to `ws(s)://<host>/ws/audio` (scheme matching the page), set state to `connecting` then `live`, and mark the button as active with label `Stop`. Stopping SHALL release the microphone, disconnect the worklet, close the socket, and reset the UI to `idle` / `Start talking`. Leaving the Talk route while live SHALL stop the session.
 
 #### Scenario: Start
 - **WHEN** the user clicks `Start talking`
@@ -33,6 +33,10 @@ A single button SHALL toggle the session. Starting SHALL connect to `ws(s)://<ho
 #### Scenario: Start fails
 - **WHEN** microphone or WebSocket setup throws
 - **THEN** the state shows `error: <message>` and the client is reset
+
+#### Scenario: Navigate away
+- **WHEN** the user opens another portal page during a live session
+- **THEN** the session is stopped as if `Stop` was clicked
 
 ### Requirement: Playback of 24 kHz PCM
 
