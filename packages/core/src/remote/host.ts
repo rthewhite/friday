@@ -57,7 +57,7 @@ export class RemoteHost {
 
   constructor(private readonly opts: RemoteHostOptions) {
     this.log = opts.log ?? console;
-    if (opts.keys.isEmpty()) this.log.warn("remote modules disabled: FRIDAY_MODULE_KEYS is not set");
+    if (opts.keys.isEmpty()) this.log.warn("remote modules disabled: no keys yet (create one under Settings > Remote modules, or set FRIDAY_MODULE_KEYS)");
   }
 
   attach(server: HttpServer): WebSocketServer {
