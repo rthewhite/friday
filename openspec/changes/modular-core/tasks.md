@@ -32,7 +32,7 @@
 ## 5. Build, deploy, docs
 
 - [x] 5.1 Rewrite `Dockerfile` for pnpm (`corepack enable`, frozen install, `pnpm -r build`, `pnpm --filter @friday/core deploy --prod`), copying `web/`; verify `docker build` succeeds and `docker run` answers `/health` and `/api/modules`
-- [ ] 5.2 Update `.github/workflows/deploy.yml` test job to install pnpm and run `pnpm -r typecheck && pnpm -r test`; verify the workflow passes on a branch push
+- [x] 5.2 Update `.github/workflows/deploy.yml` test job to install pnpm and run `pnpm -r typecheck && pnpm -r test`; verify the workflow passes on a branch push
 - [x] 5.3 Update `README.md` ("Add a tool" becomes "Add a module"), add `packages/sdk/README.md` describing the contract and test host, document `FRIDAY_MODULES` and `FRIDAY_WEB_DIR` in `.env.example`; verify the documented commands run as written
 - [x] 5.4 Update `openspec/config.yaml` context to describe the workspace layout and module contract; verify `openspec validate --all` passes
 
