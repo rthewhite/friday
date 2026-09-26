@@ -24,12 +24,12 @@
 
 - [x] 4.1 Create `remote/simracing` with `TelemetrySource`, `MockTelemetrySource`, tools `get_race_position`, `get_gap_ahead`, `get_gap_behind`, `get_fuel_remaining`, `get_lap_info`, and a `bin` reading `FRIDAY_URL` and `FRIDAY_MODULE_KEY`; verify `createTestHost` tests cover each tool with mock telemetry and the `not in a session` error
 - [x] 4.2 Add `remote/simracing/README.md` with Windows run instructions; verify `pnpm --filter @friday/remote-simracing start` connects to a local core and its tools appear in `/api/modules`
-- [ ] 4.3 Exclude `remote/` from the container image via `.dockerignore` and confirm CI builds and tests it; verify the image size is unchanged and CI passes
+- [x] 4.3 Exclude `remote/` from the container image via `.dockerignore` and confirm CI builds and tests it; verify the image size is unchanged and CI passes
 
 ## 5. Deploy and docs
 
 - [x] 5.1 Add the `websecure` IngressRoute for `/ws/modules` and `FRIDAY_MODULE_KEYS` to the secret documentation in `infra/README.md` and `.env.example`; verify `kubectl apply --dry-run=client` passes
-- [ ] 5.2 Document remote modules in `README.md` including "new tools apply to the next conversation"; verify the documented `wss://` connection works from another machine on the LAN
+- [x] 5.2 Document remote modules in `README.md` including "new tools apply to the next conversation"; verify the documented `wss://` connection works from another machine on the LAN
 
 ## 6. Integration check
 
