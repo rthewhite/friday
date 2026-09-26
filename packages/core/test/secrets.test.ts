@@ -51,7 +51,8 @@ test("ConfigStore: secrets are ciphertext, plain values are plaintext, both read
   assert.deepEqual(s.info("media", "JELLYFIN_URL"), { secret: true });
   assert.equal(s.get("media", "JELLYFIN_URL"), "http://jf3");
   s.set("global", "HA_URL", "http://ha", { secret: false });
-  assert.deepEqual(s.keys(), [{ scope: "global", key: "HA_URL", secret: false }, { scope: "media", key: "JELLYFIN_API_KEY", secret: true }, { scope: "media", key: "JELLYFIN_URL", secret: true }]);
+  assert.deepEqual(s.keys().map(({ updatedAt, ...k }) => (assert.match(updatedAt, /^\d{4}-/), k)), [{ scope: "global", key: "HA_URL", secret: false }, { scope: "media", key: "JELLYFIN_API_KEY", secret: true }, { scope: "media", key: "JELLYFIN_URL", secret: true }]);
+  assert.match(s.updatedAt("global", "HA_URL")!, /^\d{4}-/);
   assert.equal(s.delete("media", "JELLYFIN_URL"), true);
   assert.equal(s.get("media", "JELLYFIN_URL"), undefined);
   assert.equal(s.info("media", "JELLYFIN_URL"), undefined);

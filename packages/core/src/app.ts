@@ -40,47 +40,6 @@ export interface AppDeps {
   env?: Env;
 }
 
-export interface ConfigEntry {
-  module: string;
-  key: string;
-  required: boolean;
-  description?: string;
-  /** Declared secret by a module, or stored as secret. Secret entries never carry `value`. */
-  secret: boolean;
-  status: "set" | "pending" | "env";
-  scope?: string;
-  /** Current plain value (stored or environment). Absent for secrets and pending keys. */
-  value?: string;
-}
-
-/** True when any module declares this key as a secret. */
-export function isDeclaredSecret(host: ModuleHost, key: string): boolean {
-  return host.manifests().some(({ manifest }) => manifest.config?.some((c) => c.key === key && c.secret === true));
-}
-
-/** Declared keys per module, plus stored global values that no module declares. */
-export function configListing({ host, configStore, env = process.env }: Pick<AppDeps, "host" | "configStore" | "env">): ConfigEntry[] {
-  const out: ConfigEntry[] = [];
-  const declared = new Set<string>();
-  const withValue = (e: ConfigEntry, moduleId: string): ConfigEntry => {
-    if (e.secret || e.status === "pending") return e;
-    const value = e.scope ? configStore?.get(e.scope, e.key) : env[e.key];
-    return value === undefined ? e : { ...e, value };
-  };
-  for (const { manifest } of host.manifests()) {
-    for (const c of manifest.config ?? []) {
-      declared.add(c.key);
-      const st = statusOf(configStore, env, manifest.id, c.key);
-      const storedSecret = st.scope ? configStore?.info(st.scope, c.key)?.secret === true : false;
-      out.push(withValue({ module: manifest.id, key: c.key, required: c.required === true, description: c.description, secret: isDeclaredSecret(host, c.key) || storedSecret, ...st }, manifest.id));
-    }
-  }
-  for (const { scope, key, secret } of configStore?.keys() ?? []) {
-    if (scope === GLOBAL_SCOPE && !declared.has(key)) out.push(withValue({ module: GLOBAL_SCOPE, key, required: false, secret, status: "set", scope: GLOBAL_SCOPE }, GLOBAL_SCOPE));
-  }
-  return out;
-}
-
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
 
 /** In-process modules, then MCP servers, then connected remotes: the shape /api/modules returns. */
@@ -97,6 +56,65 @@ export function moduleListing({ host, mcp, registry, remote }: Pick<AppDeps, "ho
     })),
     ...(remote?.connected() ?? []),
   ];
+}
+
+export interface ConfigEntry {
+  key: string;
+  /** Declared secret by any module, or stored as secret. Secret entries never carry `value`. */
+  secret: boolean;
+  /** True when any requesting module requires the key. */
+  required: boolean;
+  description?: string;
+  /** Modules that declare this key. Empty for undeclared global values. */
+  modules: { id: string; required: boolean }[];
+  status: "set" | "pending" | "env";
+  scope?: string;
+  updatedAt?: string;
+  /** Current plain value (stored or environment). Absent for secrets and pending keys. */
+  value?: string;
+}
+
+/** True when any module declares this key as a secret. */
+export function isDeclaredSecret(host: ModuleHost, key: string): boolean {
+  return host.manifests().some(({ manifest }) => manifest.config?.some((c) => c.key === key && c.secret === true));
+}
+
+/** One entry per key: declared keys aggregated across modules, then stored global values no module declares. */
+export function configListing({ host, configStore, env = process.env }: Pick<AppDeps, "host" | "configStore" | "env">): ConfigEntry[] {
+  const byKey = new Map<string, ConfigEntry>();
+  for (const { manifest } of host.manifests()) {
+    for (const c of manifest.config ?? []) {
+      const e = byKey.get(c.key) ?? { key: c.key, secret: false, required: false, modules: [], status: "pending" as const };
+      e.modules.push({ id: manifest.id, required: c.required === true });
+      e.required ||= c.required === true;
+      e.secret ||= c.secret === true;
+      e.description ??= c.description;
+      byKey.set(c.key, e);
+    }
+  }
+  for (const e of byKey.values()) {
+    // First requester whose scope (or global) has a stored value wins; otherwise env; otherwise pending.
+    for (const m of e.modules) {
+      const st = statusOf(configStore, env, m.id, e.key);
+      if (st.status === "set") { Object.assign(e, st); break; }
+      if (st.status === "env") e.status = "env";
+    }
+    if (e.scope) {
+      e.secret ||= configStore?.info(e.scope, e.key)?.secret === true;
+      e.updatedAt = configStore?.updatedAt(e.scope, e.key);
+    }
+    if (!e.secret && e.status !== "pending") {
+      const value = e.scope ? configStore?.get(e.scope, e.key) : env[e.key];
+      if (value !== undefined) e.value = value;
+    }
+  }
+  for (const { scope, key, secret, updatedAt } of configStore?.keys() ?? []) {
+    if (scope !== GLOBAL_SCOPE || byKey.has(key)) continue;
+    const e: ConfigEntry = { key, secret, required: false, modules: [], status: "set", scope: GLOBAL_SCOPE, updatedAt };
+    if (!secret) { const v = configStore?.get(GLOBAL_SCOPE, key); if (v !== undefined) e.value = v; }
+    byKey.set(key, e);
+  }
+  return [...byKey.values()];
 }
 
 export function createApp(deps: AppDeps) {

@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { PageLayout, Card, Badge, Button, Input } from "@friday/portal-ui";
+import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Card, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
 
-interface Entry {
-  module: string;
+interface Entry extends Record<string, unknown> {
   key: string;
+  secret: boolean;
   required: boolean;
   description?: string;
-  secret: boolean;
+  modules: { id: string; required: boolean }[];
   status: "set" | "pending" | "env";
   scope?: string;
+  updatedAt?: string;
   value?: string;
 }
 type Tab = "config" | "secrets";
@@ -20,7 +21,7 @@ type Tab = "config" | "secrets";
 const route = useRoute();
 const router = useRouter();
 const tab = computed<Tab>(() => (route.query.tab === "secrets" ? "secrets" : "config"));
-const setTab = (t: Tab) => router.replace({ query: { ...route.query, tab: t } });
+const setTab = (t: string) => router.replace({ query: { ...route.query, tab: t, key: undefined } });
 
 const secretsEnabled = ref(true);
 const entries = ref<Entry[]>([]);
@@ -28,167 +29,161 @@ const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const busy = ref(false);
 
-/** Draft values keyed by `module/key`; plain entries start from their current value. */
-const drafts = reactive<Record<string, string>>({});
-const scopes = reactive<Record<string, string>>({});
-const editingSecret = ref<string | null>(null);
-const id = (e: Entry) => `${e.module}/${e.key}`;
-
 async function load() {
   try {
     const r = await api<{ secretsEnabled: boolean; entries: Entry[] }>("/api/config");
     secretsEnabled.value = r.secretsEnabled;
     entries.value = r.entries;
-    for (const e of r.entries) {
-      if (!e.secret) drafts[id(e)] = e.value ?? "";
-      scopes[id(e)] ??= e.scope === "global" || e.module === "global" ? "global" : e.module;
-    }
     error.value = null;
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   }
 }
-onMounted(load);
-watch(tab, () => { editingSecret.value = null; notice.value = null; });
+onMounted(async () => { await load(); openFromQuery(); });
 
-const visible = computed(() => entries.value.filter((e) => e.secret === (tab.value === "secrets")));
-const groups = computed(() => {
-  const map = new Map<string, Entry[]>();
-  for (const e of visible.value) map.set(e.module, [...(map.get(e.module) ?? []), e]);
-  return [...map.entries()].map(([module, items]) => ({ module, items }));
-});
+const plain = computed(() => entries.value.filter((e) => !e.secret));
+const secrets = computed(() => entries.value.filter((e) => e.secret));
+const rows = computed(() => (tab.value === "secrets" ? secrets.value : plain.value));
+const tabs = computed(() => [
+  { id: "config", label: "Configuration", count: plain.value.length },
+  { id: "secrets", label: "Secrets", count: secrets.value.length },
+]);
+const columns = computed<Column[]>(() => [
+  { key: "status", label: "Status", width: "7rem" },
+  { key: "key", label: "Key" },
+  ...(tab.value === "config" ? [{ key: "value", label: "Value" }] : []),
+  { key: "description", label: "Description", hideBelow: "lg" as const },
+  { key: "modules", label: "Requested by", hideBelow: "md" as const },
+  { key: "updatedAt", label: "Updated", hideBelow: "lg" as const, width: "11rem" },
+]);
 const tone = (s: Entry["status"]) => (s === "set" ? "success" : s === "env" ? "accent" : "warning");
-/** Saveable when there is a value that differs from what is stored, or when the value only comes from the environment (adopting it into the store). */
-const dirty = (e: Entry) => !e.secret && (drafts[id(e)] ?? "") !== "" && (e.status !== "set" || (drafts[id(e)] ?? "") !== (e.value ?? ""));
+const when = (s?: string) => (s ? new Date(s).toLocaleString() : "");
 
-async function save(e: Entry, reload: boolean) {
-  const value = drafts[id(e)] ?? "";
-  if (!value) return;
+// ---- drawer ---------------------------------------------------------------
+const open = ref(false);
+const selected = ref<Entry | null>(null);
+/** Adding a new global value: the key is editable. */
+const adding = ref(false);
+const draft = ref({ key: "", value: "", scope: "global" });
+
+function openEntry(e: Entry) {
+  selected.value = e;
+  adding.value = false;
+  draft.value = { key: e.key, value: e.secret ? "" : (e.value ?? ""), scope: e.scope === "global" || !e.modules.length ? "global" : e.modules[0]!.id };
+  open.value = true;
+  router.replace({ query: { ...route.query, key: e.key } });
+}
+function openAdd() {
+  selected.value = null;
+  adding.value = true;
+  draft.value = { key: "", value: "", scope: "global" };
+  open.value = true;
+}
+function openFromQuery() {
+  const k = route.query.key;
+  const e = entries.value.find((x) => x.key === k);
+  if (e) openEntry(e);
+}
+watch(open, (v) => { if (!v && route.query.key) router.replace({ query: { ...route.query, key: undefined } }); });
+watch(() => route.query.key, (k) => { if (k && !open.value) openFromQuery(); });
+
+const scopeOptions = computed(() => [...(selected.value?.modules.map((m) => m.id) ?? []), "global"]);
+const canReload = computed(() => draft.value.scope !== "global");
+const isSecret = computed(() => (adding.value ? tab.value === "secrets" : selected.value?.secret === true));
+
+async function save(reload: boolean) {
+  const key = draft.value.key.trim();
+  if (!key || !draft.value.value) return;
   await run(async () => {
-    await api(`/api/config/${encodeURIComponent(scopes[id(e)] ?? e.module)}/${encodeURIComponent(e.key)}`, { method: "PUT", json: { value, secret: e.secret } });
-    if (reload && e.module !== "global") {
-      const m = await api<{ status: string; error?: string }>(`/api/modules/${e.module}/reload`, { method: "POST" });
-      notice.value = m.status === "loaded" ? `${e.module} reloaded` : `${e.module} still ${m.status}: ${m.error ?? ""}`;
+    await api(`/api/config/${encodeURIComponent(draft.value.scope)}/${encodeURIComponent(key)}`, { method: "PUT", json: { value: draft.value.value, secret: isSecret.value } });
+    if (reload && canReload.value) {
+      const m = await api<{ status: string; error?: string }>(`/api/modules/${draft.value.scope}/reload`, { method: "POST" });
+      notice.value = m.status === "loaded" ? `${key} saved, ${draft.value.scope} reloaded` : `${key} saved, but ${draft.value.scope} is ${m.status}: ${m.error ?? ""}`;
       await refreshModules();
     } else {
-      notice.value = `${e.key} saved`;
+      notice.value = `${key} saved`;
     }
-    if (e.secret) { drafts[id(e)] = ""; editingSecret.value = null; }
+    open.value = false;
   });
 }
-
-async function clear(e: Entry) {
-  if (!e.scope) return;
+async function clear() {
+  const e = selected.value;
+  if (!e?.scope) return;
   await run(async () => {
     await api(`/api/config/${encodeURIComponent(e.scope!)}/${encodeURIComponent(e.key)}`, { method: "DELETE" });
     notice.value = `${e.key} cleared`;
+    open.value = false;
   });
 }
-
-const newKey = ref("");
-const newValue = ref("");
-async function addGlobal() {
-  const key = newKey.value.trim();
-  if (!key || !newValue.value) return;
-  await run(async () => {
-    await api(`/api/config/global/${encodeURIComponent(key)}`, { method: "PUT", json: { value: newValue.value, secret: tab.value === "secrets" } });
-    notice.value = `${key} saved (global)`;
-    newKey.value = "";
-    newValue.value = "";
-  });
-}
-
 async function run(f: () => Promise<void>) {
   busy.value = true;
-  try {
-    await f();
-    await load();
-  } catch (e) {
-    notice.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    busy.value = false;
-  }
+  try { await f(); await load(); } catch (e) { notice.value = e instanceof Error ? e.message : String(e); } finally { busy.value = false; }
 }
 </script>
 
 <template>
-  <PageLayout title="Configuration" subtitle="Values modules declare. Environment values are shown as a fallback and cannot be changed here.">
-    <div class="flex gap-1 border-b border-f-border-subtle">
-      <button
-        v-for="t in [{ id: 'config', label: 'Configuration' }, { id: 'secrets', label: 'Secrets' }] as const"
-        :key="t.id"
-        class="px-4 py-2 -mb-px border-b-2 text-sm transition"
-        :class="tab === t.id ? 'border-f-accent text-f-text-bright' : 'border-transparent text-f-text-muted hover:text-f-text'"
-        @click="setTab(t.id)"
-      >
-        {{ t.label }}
-      </button>
-    </div>
+  <PageLayout eyebrow="System" title="Configuration" subtitle="Configuration and secrets requested by Friday's modules. Stored values win over the environment.">
+    <template #actions>
+      <Button variant="ghost" :disabled="busy" @click="load"><Icon name="refresh" />Refresh</Button>
+      <Button :disabled="tab === 'secrets' && !secretsEnabled" @click="openAdd"><Icon name="plus" />{{ tab === "secrets" ? "New secret" : "New value" }}</Button>
+    </template>
+
+    <Tabs :items="tabs" :model-value="tab" @update:model-value="setTab" />
 
     <Card v-if="tab === 'secrets' && !secretsEnabled">
       <p class="text-f-warning">
-        Secrets are disabled because <code class="font-mono">FRIDAY_MASTER_KEY</code> is not set.
-        Generate one with <code class="font-mono">openssl rand -base64 32</code>, add it to the server's secret, and restart. Plain configuration keeps working; secrets come from the environment only until then.
+        Secrets are disabled because <code class="font-mono">FRIDAY_MASTER_KEY</code> is not set. Generate one with <code class="font-mono">openssl rand -base64 32</code>, add it to the server's secret, and restart. Plain configuration keeps working.
       </p>
     </Card>
     <p v-if="error" class="text-f-error">{{ error }}</p>
     <p v-if="notice" class="text-f-text-muted">{{ notice }}</p>
 
-    <Card v-for="g in groups" :key="g.module" :title="g.module">
-      <ul class="flex flex-col divide-y divide-f-border-subtle">
-        <li v-for="e in g.items" :key="e.key" class="py-3 flex flex-col gap-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <code class="font-mono text-f-text-bright">{{ e.key }}</code>
-            <Badge :tone="tone(e.status)">{{ e.status }}<template v-if="e.scope"> · {{ e.scope }}</template></Badge>
-            <Badge v-if="e.required" tone="neutral">required</Badge>
-            <span class="flex-1"></span>
-            <template v-if="e.secret">
-              <Button variant="ghost" :disabled="busy || !secretsEnabled" @click="editingSecret = editingSecret === id(e) ? null : id(e)">{{ e.status === "set" ? "Change" : "Set" }}</Button>
-            </template>
-            <Button v-if="e.status === 'set'" variant="danger" :disabled="busy" @click="clear(e)">Clear</Button>
-          </div>
-          <p v-if="e.description" class="text-f-text-muted text-sm">{{ e.description }}</p>
+    <DataTable :columns="columns" :rows="rows" row-key="key" clickable :empty="tab === 'secrets' ? 'No secrets declared' : 'No configuration declared'" @row-click="openEntry">
+      <template #cell-status="{ row }"><StatusDot :tone="tone((row as Entry).status)" :label="(row as Entry).status" /></template>
+      <template #cell-key="{ row }">
+        <code class="font-mono text-f-text-bright">{{ (row as Entry).key }}</code>
+        <span v-if="(row as Entry).required" class="ml-2 text-xs text-f-text-muted">required</span>
+      </template>
+      <template #cell-value="{ row }"><span class="font-mono text-f-text break-all">{{ (row as Entry).value ?? "" }}</span></template>
+      <template #cell-description="{ row }"><span class="text-f-text-muted">{{ (row as Entry).description ?? "" }}</span></template>
+      <template #cell-modules="{ row }">
+        <div class="flex flex-wrap gap-1.5">
+          <Chip v-for="m in (row as Entry).modules" :key="m.id">{{ m.id }}</Chip>
+          <Chip v-if="!(row as Entry).modules.length">global</Chip>
+        </div>
+      </template>
+      <template #cell-updatedAt="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ when((row as Entry).updatedAt) }}</span></template>
+    </DataTable>
 
-          <!-- Plain: inline, always visible -->
-          <form v-if="!e.secret" class="flex flex-wrap items-end gap-3" @submit.prevent="save(e, e.module !== 'global')">
-            <div class="flex-1 min-w-48"><Input v-model="drafts[id(e)]" :placeholder="e.status === 'pending' ? 'Not set' : ''" /></div>
-            <label class="flex flex-col gap-1 text-sm">
-              <span class="text-f-text-muted">Scope</span>
-              <select v-model="scopes[id(e)]" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
-                <option v-if="e.module !== 'global'" :value="e.module">{{ e.module }} only</option>
-                <option value="global">global (all modules)</option>
-              </select>
-            </label>
-            <Button v-if="e.module !== 'global'" type="submit" :disabled="busy || !dirty(e)">Save and reload module</Button>
-            <Button variant="ghost" :disabled="busy || !dirty(e)" @click="save(e, false)">Save</Button>
-          </form>
-
-          <!-- Secret: masked, on demand -->
-          <form v-else-if="editingSecret === id(e)" class="surface-inset p-3 flex flex-wrap items-end gap-3" @submit.prevent="save(e, e.module !== 'global')">
-            <div class="flex-1 min-w-48"><Input v-model="drafts[id(e)]" type="password" label="Value" placeholder="Enter a new value" /></div>
-            <label class="flex flex-col gap-1 text-sm">
-              <span class="text-f-text-muted">Scope</span>
-              <select v-model="scopes[id(e)]" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
-                <option v-if="e.module !== 'global'" :value="e.module">{{ e.module }} only</option>
-                <option value="global">global (all modules)</option>
-              </select>
-            </label>
-            <Button v-if="e.module !== 'global'" type="submit" :disabled="busy || !drafts[id(e)]">Save and reload module</Button>
-            <Button variant="ghost" :disabled="busy || !drafts[id(e)]" @click="save(e, false)">Save</Button>
-            <Button variant="ghost" :disabled="busy" @click="editingSecret = null">Cancel</Button>
-          </form>
-        </li>
-      </ul>
-    </Card>
-    <p v-if="!groups.length && !error" class="text-f-text-muted">No {{ tab === "secrets" ? "secrets" : "configuration values" }} declared.</p>
-
-    <Card :title="tab === 'secrets' ? 'Add a global secret' : 'Add a global value'">
-      <form class="flex flex-wrap items-end gap-3" @submit.prevent="addGlobal">
-        <div class="min-w-48"><Input v-model="newKey" label="Key" placeholder="MY_SETTING" /></div>
-        <div class="flex-1 min-w-48"><Input v-model="newValue" :type="tab === 'secrets' ? 'password' : 'text'" label="Value" /></div>
-        <Button type="submit" :disabled="busy || !newKey.trim() || !newValue || (tab === 'secrets' && !secretsEnabled)">Add</Button>
-      </form>
-      <p class="text-f-text-muted text-sm">Global values apply to every module that reads the key. {{ tab === "secrets" ? "Stored encrypted." : "Stored as plain text." }}</p>
-    </Card>
+    <Drawer v-model:open="open" :title="adding ? (isSecret ? 'New secret' : 'New value') : draft.key" :subtitle="selected?.description">
+      <div v-if="selected?.modules.length" class="flex flex-wrap items-center gap-1.5 text-sm text-f-text-muted">
+        Requested by <Chip v-for="m in selected.modules" :key="m.id">{{ m.id }}{{ m.required ? " · required" : "" }}</Chip>
+      </div>
+      <div v-if="selected" class="flex items-center gap-2 text-sm">
+        <StatusDot :tone="tone(selected.status)" :label="selected.status" />
+        <span v-if="selected.scope" class="text-f-text-muted">stored for {{ selected.scope }}</span>
+        <span v-else-if="selected.status === 'env'" class="text-f-text-muted">from the environment</span>
+      </div>
+      <Input v-if="adding" v-model="draft.key" label="Key" placeholder="MY_SETTING" />
+      <Input v-model="draft.value" :type="isSecret ? 'password' : 'text'" label="Value" :placeholder="isSecret ? 'Enter a new value' : ''" />
+      <label class="flex flex-col gap-1 text-sm">
+        <span class="text-f-text-muted">Scope</span>
+        <select v-model="draft.scope" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
+          <option v-for="s in scopeOptions" :key="s" :value="s">{{ s === "global" ? "global (all modules)" : `${s} only` }}</option>
+        </select>
+      </label>
+      <p v-if="isSecret" class="text-xs text-f-text-muted">Stored encrypted. Not shown again after saving.</p>
+      <template #footer>
+        <Button v-if="selected?.scope" variant="danger" :disabled="busy" @click="clear">Clear</Button>
+        <span class="flex-1"></span>
+        <Button variant="ghost" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(false)">Save</Button>
+        <Button v-if="canReload" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(true)">Save and reload {{ draft.scope }}</Button>
+      </template>
+    </Drawer>
   </PageLayout>
 </template>
+
+<script lang="ts">
+import { Icon } from "@friday/portal-ui";
+export default { components: { Icon } };
+</script>

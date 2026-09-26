@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { PageLayout, Card, Input, Button, Table, Badge } from "@friday/portal-ui";
+import { PageLayout, Card, Input, Button, DataTable, Badge } from "@friday/portal-ui";
 
 interface Item {
   id: string;
@@ -63,7 +63,7 @@ const state = (i: Item) => (i.type === "Series" ? (i.unplayed_episodes ? `${i.un
 </script>
 
 <template>
-  <PageLayout title="Media" subtitle="Search the Jellyfin library and play on the Apple TV">
+  <PageLayout eyebrow="Modules" title="Media" subtitle="Search the Jellyfin library and play on the Apple TV">
     <Card>
       <form class="flex flex-wrap items-end gap-3" @submit.prevent="search">
         <div class="flex-1 min-w-48"><Input v-model="query" label="Search" placeholder="Series or movie" /></div>
@@ -79,7 +79,7 @@ const state = (i: Item) => (i.type === "Series" ? (i.unplayed_episodes ? `${i.un
       </form>
       <p v-if="message" :class="message.tone === 'error' ? 'text-f-error' : 'text-f-success'">{{ message.text }}</p>
     </Card>
-    <Table :columns="columns" :rows="results" row-key="id" empty="Search for something to see results">
+    <DataTable :columns="columns" :rows="results" row-key="id" empty="Search for something to see results">
       <template #cell-title="{ row }">
         <div class="font-medium text-f-text-bright">{{ row.title }}</div>
         <div v-if="row.series" class="text-xs text-f-text-muted">{{ row.series }} S{{ row.season }}E{{ row.episode }}</div>
@@ -89,6 +89,6 @@ const state = (i: Item) => (i.type === "Series" ? (i.unplayed_episodes ? `${i.un
       <template #actions="{ row }">
         <Button v-if="row.type !== 'Series'" variant="ghost" :disabled="busy" @click="play(row as Item)">Play</Button>
       </template>
-    </Table>
+    </DataTable>
   </PageLayout>
 </template>

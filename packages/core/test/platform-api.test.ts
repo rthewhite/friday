@@ -30,7 +30,7 @@ async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string
     manifest: { id: "media", label: "Media", config: [{ key: "JELLYFIN_URL", required: true, description: "url" }, { key: "HA_URL" }, { key: "HA_TOKEN", secret: true }] },
     init(ctx) { ctx.defineTool({ name: "search", description: "", handler: () => ({ url: ctx.config.get("JELLYFIN_URL"), ha: ctx.config.get("HA_URL"), tok: ctx.config.get("HA_TOKEN") }) }); },
   });
-  const plain = defineModule({ manifest: { id: "plain", label: "Plain" }, init() {} });
+  const plain = defineModule({ manifest: { id: "plain", label: "Plain", config: [{ key: "HA_URL", required: true, description: "also here" }] }, init() {} });
   await host.load([media, plain]);
   const keys = new SqliteKeyStore(db);
   const remote = new RemoteHost({ registry, keys: new CompositeKeyStore([keys, new EnvKeyStore(opts.envKeys)]), pingMs: 0, log: quiet });
@@ -50,9 +50,9 @@ test("config listing, set, reload, delete; plain values are visible, secrets nev
     let cfg = await (await s.j("/api/config")).json();
     assert.equal(cfg.secretsEnabled, true);
     assert.deepEqual(cfg.entries, [
-      { module: "media", key: "JELLYFIN_URL", required: true, description: "url", secret: false, status: "pending" },
-      { module: "media", key: "HA_URL", required: false, secret: false, status: "env", value: "http://env-ha" },
-      { module: "media", key: "HA_TOKEN", required: false, secret: true, status: "env" },
+      { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "pending" },
+      { key: "HA_URL", secret: false, required: true, description: "also here", modules: [{ id: "media", required: false }, { id: "plain", required: true }], status: "env", value: "http://env-ha" },
+      { key: "HA_TOKEN", secret: true, required: false, modules: [{ id: "media", required: false }], status: "env" },
     ]);
     assert.equal((await s.j("/api/modules")).ok, true);
     assert.equal(((await (await s.j("/api/modules")).json()) as any[])[0].status, "failed");
@@ -68,10 +68,11 @@ test("config listing, set, reload, delete; plain values are visible, secrets nev
     assert.equal((await s.j("/api/config/global/EXTRA_SECRET", { method: "PUT", body: JSON.stringify({ value: "shh", secret: true }) })).status, 204);
 
     cfg = await (await s.j("/api/config")).json();
-    assert.deepEqual(cfg.entries[0], { module: "media", key: "JELLYFIN_URL", required: true, description: "url", secret: false, status: "set", scope: "media", value: "http://jf" });
-    assert.deepEqual(cfg.entries[1], { module: "media", key: "HA_URL", required: false, secret: false, status: "set", scope: "global", value: "http://global-ha" });
-    assert.deepEqual(cfg.entries[2], { module: "media", key: "HA_TOKEN", required: false, secret: true, status: "set", scope: "media" });
-    assert.deepEqual(cfg.entries.at(-1), { module: "global", key: "EXTRA_SECRET", required: false, secret: true, status: "set", scope: "global" });
+    const strip = (e: any) => { const { updatedAt, ...rest } = e; assert.match(updatedAt, /^\d{4}-/); return rest; };
+    assert.deepEqual(strip(cfg.entries[0]), { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "set", scope: "media", value: "http://jf" });
+    assert.deepEqual(strip(cfg.entries[1]), { key: "HA_URL", secret: false, required: true, description: "also here", modules: [{ id: "media", required: false }, { id: "plain", required: true }], status: "set", scope: "global", value: "http://global-ha" });
+    assert.deepEqual(strip(cfg.entries[2]), { key: "HA_TOKEN", secret: true, required: false, modules: [{ id: "media", required: false }], status: "set", scope: "media" });
+    assert.deepEqual(strip(cfg.entries.at(-1)), { key: "EXTRA_SECRET", secret: true, required: false, modules: [], status: "set", scope: "global" });
     assert.ok(!JSON.stringify(cfg).includes("tok") && !JSON.stringify(cfg).includes("shh"), "secret values are not returned");
 
     const reloaded = await (await s.j("/api/modules/media/reload", { method: "POST" })).json();
@@ -85,7 +86,9 @@ test("config listing, set, reload, delete; plain values are visible, secrets nev
     // an undeclared plain global shows up under module "global" with its value
     await s.j("/api/config/global/EXTRA", { method: "PUT", body: JSON.stringify({ value: "x" }) });
     cfg = await (await s.j("/api/config")).json();
-    assert.deepEqual(cfg.entries.find((e: any) => e.key === "EXTRA"), { module: "global", key: "EXTRA", required: false, secret: false, status: "set", scope: "global", value: "x" });
+    const extra = cfg.entries.find((e: any) => e.key === "EXTRA");
+    delete extra.updatedAt;
+    assert.deepEqual(extra, { key: "EXTRA", secret: false, required: false, modules: [], status: "set", scope: "global", value: "x" });
   } finally {
     await s.close();
   }
@@ -96,7 +99,7 @@ test("no master key: secretsEnabled=false, plain PUT works, secret PUT answers 5
   try {
     const cfg = await (await s.j("/api/config")).json();
     assert.equal(cfg.secretsEnabled, false);
-    assert.deepEqual(cfg.entries[0], { module: "media", key: "JELLYFIN_URL", required: true, description: "url", secret: false, status: "env", value: "http://env" });
+    assert.deepEqual(cfg.entries[0], { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "env", value: "http://env" });
     assert.equal((await s.j("/api/config/media/JELLYFIN_URL", { method: "PUT", body: JSON.stringify({ value: "http://stored" }) })).status, 204);
     assert.equal(((await (await s.j("/api/config")).json()).entries[0]).value, "http://stored");
     const put = await s.j("/api/config/media/HA_TOKEN", { method: "PUT", body: JSON.stringify({ value: "x" }) });

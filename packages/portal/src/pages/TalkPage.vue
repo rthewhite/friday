@@ -9,7 +9,7 @@ watch(() => log.value.length, async () => { await nextTick(); logEl.value?.scrol
 </script>
 
 <template>
-  <PageLayout title="Talk" subtitle="Push to talk with Friday. Browsers only allow the microphone on localhost or HTTPS.">
+  <PageLayout eyebrow="Assistant" title="Talk" subtitle="Push to talk with Friday. Browsers only allow the microphone on localhost or HTTPS.">
     <div class="flex items-center gap-4">
       <Button :variant="live ? 'danger' : 'primary'" @click="toggle">{{ live ? "Stop" : "Start talking" }}</Button>
       <span class="text-sm" :class="state.startsWith('error') ? 'text-f-error' : 'text-f-text-muted'">{{ state }}</span>

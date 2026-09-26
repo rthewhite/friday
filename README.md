@@ -93,7 +93,7 @@ The browser UI is a Vue single-page app served by core at `/` with an SPA fallba
 ### Add a module UI
 
 1. In the module's `package.json`, add `"friday": { "ui": "./src/ui/index.ts" }`, an export `"./ui": "./src/ui/index.ts"`, and `vue` as an optional peer dependency. Exclude `src/ui` from the module's own `tsconfig.json`; the portal's `vue-tsc` type-checks it.
-2. Export a `defineModuleUi({ id, nav: { label, icon, order }, routes })` from that file. Routes are Vue Router records relative to `/m/<id>`; `""` is the index page.
+2. Export a `defineModuleUi({ id, nav: { label, icon, order }, routes })` from that file. `icon` is a `portal-ui` icon name such as `play`, `grid` or `server` (or short text). Routes are Vue Router records relative to `/m/<id>`; `""` is the index page. Use `PageLayout` with `eyebrow="Modules"`, `DataTable` and `Drawer` from `@friday/portal-ui` so the page matches the shell; see `packages/portal-ui/README.md`.
 3. Set `ui: true` in the module manifest and add the module package to `packages/portal/package.json` dependencies.
 4. Need a backend? Register routes in `init` with `ctx.http.route("GET", "search", handler)`; they are served at `/api/modules/<id>/search`. `createTestHost(...).request()` exercises them in tests.
 
@@ -103,7 +103,7 @@ The portal's build step scans the workspace for `friday.ui` declarations and gen
 
 Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) for three things:
 
-- **Configuration values.** Every key a module declares shows up under Settings > Configuration as `set`, `pending` or `env`, split into two tabs. The Configuration tab holds plain values (URLs, ids), shown and edited inline and stored as plain text. The Secrets tab holds keys the module declared `secret: true` (tokens, API keys); they are encrypted with `FRIDAY_MASTER_KEY` and never shown again after saving. Stored values win over the environment; `Save and reload module` applies them without restarting Friday. Scope a value to one module or make it global. Without a master key only secrets are disabled; plain configuration keeps working.
+- **Configuration values.** Every key a module declares shows up under Settings > Configuration as `set`, `pending` or `env`, split into two tabs, one table each with a row per key and chips for the modules that request it. The Configuration tab holds plain values (URLs, ids), shown in the row and stored as plain text. The Secrets tab holds keys the module declared `secret: true` (tokens, API keys); they are encrypted with `FRIDAY_MASTER_KEY` and never shown again after saving. Click a row to edit in a side panel. Stored values win over the environment; `Save and reload module` applies them without restarting Friday. Scope a value to one module or make it global. Without a master key only secrets are disabled; plain configuration keeps working.
 - **Remote module keys.** Settings > Remote modules issues a key per module id (shown once, stored hashed) and can revoke it, which disconnects the module immediately. `FRIDAY_MODULE_KEYS` remains a fallback.
 - **Module storage.** Modules get `ctx.storage` (`get`, `set`, `delete`, `list`), a JSON key-value namespace per module. The test host provides an in-memory one.
 

@@ -11,7 +11,7 @@ const entry = computed(() => modules.value.find((m) => m.id === moduleId.value))
 
 <template>
   <RouterView v-if="isEnabled(moduleId)" />
-  <PageLayout v-else :title="entry?.label ?? moduleId" subtitle="Module not enabled">
+  <PageLayout v-else eyebrow="Modules" :title="entry?.label ?? moduleId" subtitle="Module not enabled">
     <Card>
       <p v-if="loading" class="text-f-text-muted">Checking module status…</p>
       <template v-else>

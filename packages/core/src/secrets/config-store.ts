@@ -29,6 +29,7 @@ export interface StoredKey {
   scope: string;
   key: string;
   secret: boolean;
+  updatedAt: string;
 }
 
 const SELECT = "SELECT scope, key, secret, plaintext, ciphertext, iv, tag FROM config_values";
@@ -87,9 +88,14 @@ export class ConfigStore {
     return this.db.prepare("DELETE FROM config_values WHERE scope = ? AND key = ?").run(scope, key).changes > 0;
   }
 
-  /** All rows on disk with their storage kind; values are not decrypted. */
+  /** All rows on disk with their storage kind and timestamp; values are not decrypted. */
   keys(): StoredKey[] {
-    return (this.db.prepare("SELECT scope, key, secret FROM config_values ORDER BY scope, key").all() as { scope: string; key: string; secret: number }[]).map((r) => ({ scope: r.scope, key: r.key, secret: r.secret === 1 }));
+    return (this.db.prepare("SELECT scope, key, secret, updated_at FROM config_values ORDER BY scope, key").all() as { scope: string; key: string; secret: number; updated_at: string }[]).map((r) => ({ scope: r.scope, key: r.key, secret: r.secret === 1, updatedAt: r.updated_at }));
+  }
+
+  updatedAt(scope: string, key: string): string | undefined {
+    const row = this.db.prepare("SELECT updated_at FROM config_values WHERE scope = ? AND key = ?").get(scope, key) as { updated_at: string } | undefined;
+    return row?.updated_at;
   }
 
   /** Decrypt every secret row once at boot so a wrong master key is reported immediately. Returns failures. */
