@@ -1,0 +1,62 @@
+/*
+ * Friday design tokens: Tailwind v4 theme. Midnight palette ported from the
+ * Jarvis preset under the --f-* prefix. Import once from the portal's CSS entry.
+ */
+@theme {
+  --color-f-bg: #0f1217;
+  --color-f-surface: #1e2430;
+  --color-f-surface-elevated: #252c3b;
+  --color-f-surface-hover: #2d3546;
+
+  --color-f-border: #343d4f;
+  --color-f-border-subtle: #272e3c;
+
+  --color-f-accent: #3b82f6;
+  --color-f-accent-strong: #2563eb;
+  --color-f-accent-bright: #60a5fa;
+  --color-f-accent-muted: rgba(59, 130, 246, 0.15);
+
+  --color-f-text: #d2d7e0;
+  --color-f-text-muted: #8c96a8;
+  --color-f-text-bright: #f7f9fc;
+
+  --color-f-success: #34d399;
+  --color-f-warning: #fbbf24;
+  --color-f-error: #f87171;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-f-bg);
+    background-image:
+      radial-gradient(1100px 550px at 75% -10%, rgba(59, 130, 246, 0.1), transparent 65%),
+      radial-gradient(900px 600px at -5% 105%, rgba(45, 212, 191, 0.07), transparent 60%);
+    background-attachment: fixed;
+    color: var(--color-f-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--color-f-border); border-radius: 3px; }
+  ::selection { background: var(--color-f-accent-muted); color: var(--color-f-text-bright); }
+}
+
+@utility surface-card {
+  background: var(--color-f-surface);
+  border: 1px solid var(--color-f-border);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+@utility surface-inset {
+  background: var(--color-f-bg);
+  border: 1px solid var(--color-f-border-subtle);
+  border-radius: 10px;
+}

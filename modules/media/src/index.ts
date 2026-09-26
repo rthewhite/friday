@@ -40,6 +40,7 @@ export function createMediaModule(opts: MediaOptions = {}) {
       id: "media",
       label: "Media",
       description: "Jellyfin library search and playback on an Apple TV running Infuse, via Home Assistant.",
+      ui: true,
       config: [
         { key: "JELLYFIN_URL", required: true, description: "Jellyfin base URL" },
         { key: "JELLYFIN_API_KEY", required: true, description: "Jellyfin API key (Dashboard -> API Keys)" },
@@ -134,6 +135,12 @@ function defineMediaTools(ctx: ModuleContext, fetchFn: typeof fetch): void {
     return first ? { episode: first, reason: eps.Items.every((e) => e.UserData?.Played) ? "all watched, starting over" : "first episode" } : null;
   }
 
+  async function search(query: string, type: "series" | "movie" | "any" = "any", limit = 6) {
+    const types = type === "series" ? "Series" : type === "movie" ? "Movie" : "Series,Movie";
+    const items = await searchItems(await userId(), query, types, limit);
+    return { results: items.map(compact) };
+  }
+
   ctx.defineTool<{ query: string; type?: "series" | "movie" | "any"; limit?: number }>({
     name: "search_library",
     description:
@@ -147,11 +154,7 @@ function defineMediaTools(ctx: ModuleContext, fetchFn: typeof fetch): void {
       },
       required: ["query"],
     },
-    handler: async ({ query, type = "any", limit = 6 }) => {
-      const types = type === "series" ? "Series" : type === "movie" ? "Movie" : "Series,Movie";
-      const items = await searchItems(await userId(), query, types, limit);
-      return { results: items.map(compact) };
-    },
+    handler: ({ query, type, limit }) => search(query, type, limit),
   });
 
   ctx.defineTool<{ series: string }>({
@@ -203,6 +206,32 @@ function defineMediaTools(ctx: ModuleContext, fetchFn: typeof fetch): void {
 
   // ---- Apple TV / Infuse via Home Assistant --------------------------------
 
+  async function play(item_id: string) {
+    try {
+      const stream = `${cfg.publicUrl}/Videos/${item_id}/stream?static=true&api_key=${cfg.key}`;
+      const link = `infuse://x-callback-url/play?url=${encodeURIComponent(stream)}`;
+      const entity_id = cfg.atvEntity;
+      if (!entity_id) throw new Error("HA_APPLE_TV_ENTITY not configured");
+      // HA answers 200 to service calls on unknown/unavailable entities, so check first.
+      const st = await ha.state(entity_id).catch(() => null);
+      if (!st) throw new Error(`Home Assistant has no entity ${entity_id}`);
+      if (st.state === "unavailable" || st.state === "unknown") throw new Error(`${entity_id} is ${st.state} in Home Assistant`);
+      await ha.call("media_player", "turn_on", { entity_id });
+      // HA's apple_tv integration routes media_content_type "url" to pyatv launch_app (deep link).
+      await ha.call("media_player", "play_media", { entity_id, media_content_type: "url", media_content_id: link });
+      // Infuse won't report progress for a URL stream, so record the watch ourselves.
+      try {
+        await markPlayed(item_id);
+      } catch (e) {
+        return { started: true, marked_watched: false, warning: `could not mark as watched: ${e}`, scheduling: "WHEN_IDLE" };
+      }
+      // Success is already implied by the model's "starting it" reply; stay quiet.
+      return { started: true, marked_watched: true, scheduling: "SILENT" };
+    } catch (e) {
+      return { started: false, error: String(e), scheduling: "INTERRUPT" };
+    }
+  }
+
   ctx.defineTool<{ item_id: string }>({
     name: "play_on_apple_tv",
     description:
@@ -212,31 +241,22 @@ function defineMediaTools(ctx: ModuleContext, fetchFn: typeof fetch): void {
       properties: { item_id: { type: Type.STRING } },
       required: ["item_id"],
     },
-    handler: async ({ item_id }) => {
-      try {
-        const stream = `${cfg.publicUrl}/Videos/${item_id}/stream?static=true&api_key=${cfg.key}`;
-        const link = `infuse://x-callback-url/play?url=${encodeURIComponent(stream)}`;
-        const entity_id = cfg.atvEntity;
-        if (!entity_id) throw new Error("HA_APPLE_TV_ENTITY not configured");
-        // HA answers 200 to service calls on unknown/unavailable entities, so check first.
-        const st = await ha.state(entity_id).catch(() => null);
-        if (!st) throw new Error(`Home Assistant has no entity ${entity_id}`);
-        if (st.state === "unavailable" || st.state === "unknown") throw new Error(`${entity_id} is ${st.state} in Home Assistant`);
-        await ha.call("media_player", "turn_on", { entity_id });
-        // HA's apple_tv integration routes media_content_type "url" to pyatv launch_app (deep link).
-        await ha.call("media_player", "play_media", { entity_id, media_content_type: "url", media_content_id: link });
-        // Infuse won't report progress for a URL stream, so record the watch ourselves.
-        try {
-          await markPlayed(item_id);
-        } catch (e) {
-          return { started: true, marked_watched: false, warning: `could not mark as watched: ${e}`, scheduling: "WHEN_IDLE" };
-        }
-        // Success is already implied by the model's "starting it" reply; stay quiet.
-        return { started: true, marked_watched: true, scheduling: "SILENT" };
-      } catch (e) {
-        return { started: false, error: String(e), scheduling: "INTERRUPT" };
-      }
-    },
+    handler: ({ item_id }) => play(item_id),
+  });
+
+  // ---- Portal routes (/api/modules/media/...) -------------------------------
+
+  ctx.http.route("GET", "search", async (req, res) => {
+    const q = req.query.get("q")?.trim();
+    if (!q) return res.status(400).json({ error: "q is required" });
+    const type = (req.query.get("type") ?? "any") as "series" | "movie" | "any";
+    res.json(await search(q, type, Number(req.query.get("limit") ?? 12)));
+  });
+  ctx.http.route("POST", "play", async (req, res) => {
+    const body = await req.json<{ item_id?: string }>();
+    if (!body?.item_id) return res.status(400).json({ error: "item_id is required" });
+    const { scheduling: _s, ...result } = await play(body.item_id);
+    res.status(result.started ? 200 : 502).json(result);
   });
 }
 

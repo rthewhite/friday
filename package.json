@@ -8,7 +8,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r build && pnpm -r test",
-    "dev": "pnpm -r build && pnpm --filter @friday/core dev",
+    "dev": "pnpm -r build && pnpm --parallel --filter @friday/core --filter @friday/portal dev",
     "start": "pnpm --filter @friday/core start"
   },
   "devDependencies": {

@@ -9,4 +9,4 @@ openspec/
 **/test/
 .claude/
 *.md
-remote/
+**/src/modules.gen.ts

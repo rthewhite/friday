@@ -83,3 +83,25 @@ test("play_on_apple_tv reports errors with INTERRUPT when HA is not configured o
   const b = await h.call("play_on_apple_tv", { item_id: "x" });
   assert.match(String(b.result.error), /is unavailable in Home Assistant/);
 });
+
+test("portal routes reuse the tool implementations", async () => {
+  const f = fakeFetch({
+    "/Users": [{ Id: "u1", Name: "ray" }],
+    "/Items": { Items: [{ Id: "m1", Name: "Heat", Type: "Movie", ProductionYear: 1995 }] },
+    "/api/states/media_player.tv": { state: "off", attributes: {} },
+    "/api/services/media_player/turn_on": [],
+    "/api/services/media_player/play_media": [],
+    "/UserPlayedItems/m1": {},
+  });
+  const h = await createTestHost(createMediaModule({ fetch: f }), { env });
+  assert.deepEqual(h.routes, ["GET search", "POST play"]);
+  assert.equal((await h.request("GET", "search")).status, 400);
+  const s = await h.request("GET", "search?q=heat&type=movie");
+  assert.equal(s.status, 200);
+  assert.equal((s.body as any).results[0].title, "Heat");
+  const p = await h.request("POST", "play", { item_id: "m1" });
+  assert.deepEqual(p, { status: 200, body: { started: true, marked_watched: true }, contentType: "application/json" });
+  assert.equal((await h.request("POST", "play", {})).status, 400);
+  const bad = await createTestHost(createMediaModule({ fetch: f }), { env: { ...env, HA_APPLE_TV_ENTITY: undefined } });
+  assert.equal((await bad.request("POST", "play", { item_id: "m1" })).status, 502);
+});

@@ -1,0 +1,25 @@
+{
+  "name": "@friday/portal-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Design tokens, base components and the module UI contract for the Friday portal.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.4",
+    "@vue/server-renderer": "^3.5.29",
+    "vitest": "^3.2.0",
+    "vue": "^3.5.29",
+    "vue-router": "^4.5.1"
+  }
+}

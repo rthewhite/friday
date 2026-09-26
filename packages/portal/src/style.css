@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@friday/portal-ui/tokens.css";
+/* Module pages and shared components live outside this package; scan them for classes. */
+@source "../../portal-ui/src";
+@source "../../../modules/*/src/ui";

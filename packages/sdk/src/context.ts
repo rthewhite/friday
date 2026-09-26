@@ -2,6 +2,7 @@
  * Building blocks shared by every host (core's in-process host, the test host and,
  * later, the remote runner): config validation and context construction.
  */
+import type { ModuleHttp } from "./http.js";
 import type { ModuleConfig, ModuleContext, ModuleLogger, ModuleManifest } from "./module.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Tool } from "./tool.js";
@@ -43,12 +44,16 @@ export interface ContextOptions {
   env: Env;
   registry: ToolRegistry;
   log?: ModuleLogger;
+  /** Route sink; defaults to a no-op that warns (used by hosts without HTTP, like the remote runner). */
+  http?: ModuleHttp;
 }
 
 export function createContext(manifest: ModuleManifest, o: ContextOptions): ModuleContext {
+  const log = prefixedLogger(manifest.id, o.log);
   return {
     defineTool: <A>(tool: Tool<A>) => o.registry.add(manifest.id, tool),
     config: envConfig(manifest, o.env),
-    log: prefixedLogger(manifest.id, o.log),
+    log,
+    http: o.http ?? { route: (method, path) => log.warn(`route ${method} ${path} ignored: this host has no HTTP server`) },
   };
 }

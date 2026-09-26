@@ -3,7 +3,7 @@
 Voice assistant on **Gemini 3.8 Live** (TypeScript / Node) built as a small core that hosts modules.
 
 ```
-browser (AudioWorklet) ── WebSocket PCM ──┐
+browser portal (Vue)   ── WebSocket PCM ──┐
                                           ├─► core ── Gemini Live (PCM 16k in / 24k out)
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
                                                ├─► modules/builtin   time, timers, end_conversation
@@ -17,7 +17,9 @@ The repo is a pnpm workspace:
 | Package | Path | What |
 |---|---|---|
 | `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
-| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, module host, MCP loader |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, module host, MCP loader, serves the portal |
+| `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Modules, and module pages |
+| `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
@@ -27,8 +29,10 @@ The repo is a pnpm workspace:
 ```sh
 cp .env.example .env      # add GEMINI_API_KEY
 pnpm install
-pnpm dev                  # builds the workspace, then runs core with tsx watch on http://localhost:8080
+pnpm dev                  # core on :8080 (tsx watch) + Vite dev server on http://localhost:5173 with hot reload
 ```
+
+`pnpm dev` builds the workspace first, then runs core and the portal's Vite server side by side. Vite proxies `/api`, `/health` and `/ws` to core, so open http://localhost:5173. For a production-like run, `pnpm build && pnpm start` serves the built portal from core on :8080.
 
 `pnpm test` builds everything and runs every package's tests. `FRIDAY_MODULES=builtin,media` narrows which in-process modules load; `GET /api/modules` shows each module's status and tools.
 
@@ -81,6 +85,19 @@ await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
 ```
 
 `scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
+
+## Portal
+
+The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Modules` page (everything `/api/modules` reports, with status and tools), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
+
+### Add a module UI
+
+1. In the module's `package.json`, add `"friday": { "ui": "./src/ui/index.ts" }`, an export `"./ui": "./src/ui/index.ts"`, and `vue` as an optional peer dependency. Exclude `src/ui` from the module's own `tsconfig.json`; the portal's `vue-tsc` type-checks it.
+2. Export a `defineModuleUi({ id, nav: { label, icon, order }, routes })` from that file. Routes are Vue Router records relative to `/m/<id>`; `""` is the index page.
+3. Set `ui: true` in the module manifest and add the module package to `packages/portal/package.json` dependencies.
+4. Need a backend? Register routes in `init` with `ctx.http.route("GET", "search", handler)`; they are served at `/api/modules/<id>/search`. `createTestHost(...).request()` exercises them in tests.
+
+The portal's build step scans the workspace for `friday.ui` declarations and generates the import list, so no shell code changes are needed. Nav items for modules that are disabled or failed are hidden, and their pages show a notice. See `modules/media/src/ui` for the first example.
 
 ## Remote modules
 
@@ -176,4 +193,4 @@ Run `pnpm test` for the transport tests.
 
 ## Deploy
 
-Every push to `main` builds `registry.thewhite.nl/friday/friday:<sha>` on the homelab runner and rolls it out to the `friday` namespace (`.github/workflows/deploy.yml`, manifest in `deploy/k8s.yaml`). Browser UI at `https://friday.thewhite.nl`; the Voice PE connects to `ws://friday.thewhite.nl/ws/audio`. One-time bootstrap (namespace, secrets, registry user) is in `infra/README.md`.
+Every push to `main` builds `registry.thewhite.nl/friday/friday:<sha>` on the homelab runner and rolls it out to the `friday` namespace (`.github/workflows/deploy.yml`, manifest in `deploy/k8s.yaml`). Portal at `https://friday.thewhite.nl`; the Voice PE connects to `ws://friday.thewhite.nl/ws/audio`. One-time bootstrap (namespace, secrets, registry user) is in `infra/README.md`.

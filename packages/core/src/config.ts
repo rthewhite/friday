@@ -2,15 +2,15 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-/** packages/core/{src,dist}/config.ts -> repo root web/. Override with FRIDAY_WEB_DIR (the image sets it). */
-const defaultWebDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "web");
+/** packages/core/{src,dist}/config.ts -> packages/portal/dist. Override with FRIDAY_WEB_DIR (the image sets it). */
+const defaultWebDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "portal", "dist");
 
 export const settings = {
   apiKey: process.env.GEMINI_API_KEY ?? "",
   model: process.env.FRIDAY_MODEL ?? "gemini-3.8-live",
   host: process.env.FRIDAY_HOST ?? "0.0.0.0",
   port: Number(process.env.FRIDAY_PORT ?? 8080),
-  /** Directory the static web client is served from. */
+  /** Directory the built portal is served from (SPA with index.html fallback). */
   webDir: process.env.FRIDAY_WEB_DIR ?? defaultWebDir,
   voice: process.env.FRIDAY_VOICE ?? "Aoede",
   /** Close the session when the user stays silent this long after Friday finishes a turn. 0 disables. */

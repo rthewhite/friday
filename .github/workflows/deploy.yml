@@ -17,7 +17,6 @@ on:
       - packages/**
       - modules/**
       - remote/**
-      - web/**
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml

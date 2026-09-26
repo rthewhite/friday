@@ -4,8 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Friday media module: Jellyfin library and Apple TV (Infuse) playback via Home Assistant.",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ui": "./src/ui/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -13,5 +21,13 @@
   },
   "dependencies": {
     "@friday/sdk": "workspace:*"
+  },
+  "friday": {
+    "ui": "./src/ui/index.ts"
+  },
+  "devDependencies": {
+    "@friday/portal-ui": "workspace:*",
+    "vue": "^3.5.29",
+    "vue-router": "^4.5.1"
   }
 }

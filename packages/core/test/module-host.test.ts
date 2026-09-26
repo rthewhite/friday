@@ -39,8 +39,8 @@ test("default: every module loads in order and is logged with its tools", async 
   await h.load([a, b]);
   assert.deepEqual(r.names(), ["a1", "b1"]);
   assert.deepEqual(h.loaded(), [
-    { id: "a", label: "A", description: undefined, status: "loaded", tools: ["a1"] },
-    { id: "b", label: "B", description: "bee", status: "loaded", tools: ["b1"] },
+    { id: "a", label: "A", description: undefined, status: "loaded", tools: ["a1"], ui: false },
+    { id: "b", label: "B", description: "bee", status: "loaded", tools: ["b1"], ui: false },
   ]);
   assert.deepEqual(lines, ["log module a: a1", "log module b: b1"]);
 });
@@ -92,4 +92,17 @@ test("context logger is prefixed with the module id", async () => {
   const m = defineModule({ manifest: { id: "media", label: "M" }, init: (ctx) => ctx.log.warn("slow") });
   await new ModuleHost(new ToolRegistry(log), { env: {}, log }).load([m]);
   assert.ok(lines.includes("warn [media] slow"));
+});
+
+test("routes are registered per module and cleared when init fails or on dispose", async () => {
+  const { log } = logger();
+  const r = new ToolRegistry(log);
+  const h = new ModuleHost(r, { env: {}, log });
+  const ok = defineModule({ manifest: { id: "ok", label: "Ok" }, init: (ctx) => ctx.http.route("GET", "ping", (_q, res) => res.json({ pong: true })) });
+  const bad = defineModule({ manifest: { id: "bad", label: "Bad" }, init(ctx) { ctx.http.route("GET", "x", () => {}); throw new Error("no"); } });
+  await h.load([ok, bad]);
+  assert.equal(h.routesOf("ok")!.list().length, 1);
+  assert.equal(h.routesOf("bad"), undefined);
+  await h.dispose();
+  assert.equal(h.routesOf("ok")!.list().length, 0);
 });

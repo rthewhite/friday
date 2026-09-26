@@ -1,3 +1,4 @@
+import type { ModuleHttp } from "./http.js";
 import type { Tool } from "./tool.js";
 
 /** A configuration value the module reads through `ctx.config`. */
@@ -14,6 +15,8 @@ export interface ModuleManifest {
   label: string;
   description?: string;
   config?: ConfigKey[];
+  /** True when the module package ships a portal UI (`friday.ui` in its package.json). */
+  ui?: boolean;
 }
 
 export interface ModuleConfig {
@@ -29,6 +32,8 @@ export interface ModuleContext {
   defineTool<A>(tool: Tool<A>): Tool<A>;
   config: ModuleConfig;
   log: ModuleLogger;
+  /** Module-scoped HTTP routes served at /api/modules/<id>/. Not available to remote modules. */
+  http: ModuleHttp;
 }
 
 export interface FridayModule {

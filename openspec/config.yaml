@@ -17,7 +17,12 @@ context: |
   /ws/modules, authenticate with FRIDAY_MODULE_KEYS, serve MCP over the socket; core registers their tools
   as <id>__<tool> with owner remote:<id> for the life of the connection (packages/core/src/remote/).
   Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse).
-  Web client in web/ is vanilla HTML + AudioWorklet, no build step, served by core (FRIDAY_WEB_DIR).
+  Portal (packages/portal): Vue 3 + Vite + Tailwind 4 SPA served by core from packages/portal/dist
+  (FRIDAY_WEB_DIR) with SPA fallback; pages Talk (voice client, AudioWorklet in public/), Modules, and
+  /m/<id> per module UI. Module UIs are declared with "friday": { "ui": ... } in the module package.json and
+  defineModuleUi from @friday/portal-ui (tokens + base components); scripts/gen-modules.mjs generates the
+  import list at build time (no Module Federation). Modules add backend routes with ctx.http.route, served
+  at /api/modules/<id>/...; core routing lives in packages/core/src/{router,app}.ts.
   Config comes from env vars (see .env.example). Keep the total tool count modest (Gemini caps at 512).
   Clients: browser and ESP32 / Voice PE (esphome/) on the same WebSocket protocol. One container image
   built with pnpm deploy; tests use node:test via `pnpm test`.

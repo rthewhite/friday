@@ -1,0 +1,10 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.dom.json",
+  "include": ["env.d.ts", "src/**/*", "src/**/*.vue", "../portal-ui/src/**/*", "../portal-ui/src/**/*.vue", "../../modules/*/src/ui/**/*", "../../modules/*/src/ui/**/*.vue"],
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "paths": { "@/*": ["./src/*"] },
+    "types": ["vite/client"],
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
+  }
+}
