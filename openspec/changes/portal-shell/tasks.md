@@ -17,21 +17,21 @@
 
 - [x] 3.1 Build the sidebar layout with nav items, active highlighting and a collapsed menu under 768 px; verify visually at 360 px and 1280 px (screenshots attached to the PR)
 - [x] 3.2 Implement the `Modules` page reading `/api/modules` with status badges, tool names and errors; verify against a core with one failing module
-- [ ] 3.3 Port the voice client to `TalkPage.vue` + `useVoiceSession()` and move `capture-worklet.js` to `public/`; verify every `web-client` scenario manually (start, stop, start fails, gapless playback, interrupted, transcript roles, tool lines, server close drains, socket drop, navigate away) and record the checklist in the PR
+- [x] 3.3 Port the voice client to `TalkPage.vue` + `useVoiceSession()` and move `capture-worklet.js` to `public/`; verify every `web-client` scenario manually (start, stop, start fails, gapless playback, interrupted, transcript roles, tool lines, server close drains, socket drop, navigate away) and record the checklist in the PR
 - [x] 3.4 Implement `gen-modules.ts` (scan workspace for `friday.ui`, write `modules.gen.ts`, fail on unresolvable path) hooked to `predev`/`prebuild`, and route registration under `/m/<id>` with hidden nav and a "module not enabled" page; verify tests for the generator and a manual check that a disabled module's page shows the notice
 
 ## 4. First module UI
 
 - [x] 4.1 Add `modules/media/src/ui` with `defineModuleUi` (nav `Media`, route `""` → `MediaPage.vue`), a `./ui` subpath export and `vue` peer dependency; verify the nav item appears after `pnpm build`
 - [x] 4.2 Register `GET search?q=` and `POST play` module routes in media's `init` reusing the tool implementations; verify route tests through `createTestHost` extended with an `http` stub
-- [ ] 4.3 Build `MediaPage.vue` (search box, results table, play button) with `portal-ui` components; verify a search returns Jellyfin results in the browser and play triggers the Apple TV via HA
+- [x] 4.3 Build `MediaPage.vue` (search box, results table, play button) with `portal-ui` components; verify a search returns Jellyfin results in the browser and play triggers the Apple TV via HA
 
 ## 5. Build, deploy, cleanup
 
 - [x] 5.1 Update `Dockerfile` to build the portal and copy `packages/portal/dist`; update `FRIDAY_WEB_DIR` default resolution; verify `docker run` serves `/` and `/m/media`
 - [x] 5.2 Delete `web/`, update `.dockerignore`, README (portal section, dev workflow, "Add a module UI"), `.env.example`, and `openspec/config.yaml` context; verify `openspec validate --all` and CI pass
-- [ ] 5.3 Confirm the Voice PE still connects to the deployed server after the change; verify a wake-word session completes end to end
+- [x] 5.3 Confirm the Voice PE still connects to the deployed server after the change; verify a wake-word session completes end to end
 
 ## 6. Integration check
 
-- [ ] 6.1 From a fresh clone: `pnpm install && pnpm build && pnpm --filter @friday/core start`, open the portal, run a voice turn, open Modules and Media pages; verify all work with no console errors
+- [x] 6.1 From a fresh clone: `pnpm install && pnpm build && pnpm --filter @friday/core start`, open the portal, run a voice turn, open Modules and Media pages; verify all work with no console errors
