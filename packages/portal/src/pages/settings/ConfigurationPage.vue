@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Card, type Column } from "@friday/portal-ui";
+import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
 
@@ -57,7 +57,7 @@ const columns = computed<Column[]>(() => [
   { key: "updatedAt", label: "Updated", hideBelow: "lg" as const, width: "11rem" },
 ]);
 const tone = (s: Entry["status"]) => (s === "set" ? "success" : s === "env" ? "accent" : "warning");
-const when = (s?: string) => (s ? new Date(s).toLocaleString() : "");
+const when = (s?: string) => formatDateTime(s);
 
 // ---- drawer ---------------------------------------------------------------
 const open = ref(false);

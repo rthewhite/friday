@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { PageLayout, Button, Input, DataTable, StatusDot, Chip, Drawer, Icon, type Column } from "@friday/portal-ui";
+import { PageLayout, Button, Input, DataTable, StatusDot, Chip, Drawer, Icon, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 
 interface KeyRecord extends Record<string, unknown> {
@@ -52,7 +52,7 @@ async function revoke(k: KeyRecord) {
   try { await api(`/api/keys/${k.id}`, { method: "DELETE" }); await load(); }
   catch (e) { error.value = e instanceof Error ? e.message : String(e); } finally { busy.value = false; }
 }
-const when = (s: string | null) => (s ? new Date(s).toLocaleString() : "never");
+const when = (s: string | null) => formatDateTime(s, "never");
 </script>
 
 <template>

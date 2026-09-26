@@ -63,3 +63,15 @@ describe("portal-ui components render", () => {
     expect(ui.id).toBe("x");
   });
 });
+
+describe("date formatting", () => {
+  it("uses dd-mm-yyyy and a 24-hour clock", async () => {
+    const { formatDateTime, formatDate, formatTime } = await import("../src/index.js");
+    const d = new Date(2026, 8, 26, 22, 10, 7);
+    expect(formatDateTime(d)).toBe("26-09-2026, 22:10:07");
+    expect(formatDate(d)).toBe("26-09-2026");
+    expect(formatTime(d)).toBe("22:10:07");
+    expect(formatDateTime(null, "never")).toBe("never");
+    expect(formatDateTime("not a date")).toBe("");
+  });
+});

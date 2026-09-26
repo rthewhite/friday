@@ -33,6 +33,10 @@ Every page uses `PageLayout` with an `eyebrow` (section name: Assistant, Modules
 | `Drawer` | right-hand panel, `v-model:open`, `title`, `subtitle`, `footer` slot, Escape and overlay close |
 | `Icon` | inline SVG by name (mic, grid, play, settings, key, refresh, plus, close, chevron, server, link); unknown names render as text so emoji still work |
 
+## Dates and times
+
+Always format timestamps with `formatDateTime`, `formatDate` or `formatTime` from `@friday/portal-ui`. They use Dutch notation, `26-09-2026, 22:10:07`, with a 24-hour clock, and accept ISO strings, numbers or `Date` plus an optional fallback for empty values. Never call `toLocaleString` directly in a page.
+
 ## Module UI contract
 
 `defineModuleUi({ id, nav: { label, icon, order }, routes })`. `icon` is an `Icon` name or short text. Routes are Vue Router records relative to `/m/<id>`.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { PageLayout, Button, DataTable, StatusDot, Badge, Chip, Drawer, Icon, type Column } from "@friday/portal-ui";
+import { PageLayout, Button, DataTable, StatusDot, Badge, Chip, Drawer, Icon, formatDateTime, type Column } from "@friday/portal-ui";
 import { useModules, type ApiModule } from "../composables/useModules.js";
 import { api } from "../composables/useApi.js";
 
@@ -61,7 +61,7 @@ function show(m: ApiModule) { selected.value = m; open.value = true; }
           <Chip>{{ selected.id }}</Chip>
         </div>
         <p v-if="selected.error" class="text-f-error text-sm font-mono">{{ selected.error }}</p>
-        <p v-if="selected.connectedAt" class="text-sm text-f-text-muted">Connected {{ new Date(selected.connectedAt).toLocaleString() }}</p>
+        <p v-if="selected.connectedAt" class="text-sm text-f-text-muted">Connected {{ formatDateTime(selected.connectedAt) }}</p>
         <div>
           <h3 class="text-sm font-medium text-f-text-bright mb-2">Tools ({{ selected.tools.length }})</h3>
           <div v-if="selected.tools.length" class="flex flex-wrap gap-1.5"><Chip v-for="t in selected.tools" :key="t">{{ t }}</Chip></div>

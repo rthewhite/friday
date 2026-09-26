@@ -10,3 +10,4 @@ export { default as StatusDot } from "./components/StatusDot.vue";
 export { default as Chip } from "./components/Chip.vue";
 export { default as Drawer } from "./components/Drawer.vue";
 export { default as Icon } from "./components/Icon.vue";
+export { formatDateTime, formatDate, formatTime } from "./format.js";
