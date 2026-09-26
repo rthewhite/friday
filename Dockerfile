@@ -21,9 +21,12 @@ RUN pnpm -r --filter '!@friday/remote-simracing' build \
 FROM node:24-alpine
 ENV NODE_ENV=production
 ENV FRIDAY_WEB_DIR=/app/web
+ENV FRIDAY_DATA_DIR=/data
 WORKDIR /app
 COPY --from=build /out/ ./
 COPY --from=build /app/packages/portal/dist/ web/
+# friday.db lives here; in k8s a PersistentVolumeClaim is mounted over it.
+RUN mkdir -p /data && chown node:node /data
 # Runs as the unprivileged node user. mcp.json (if any) is mounted here from a
 # Secret at runtime; FRIDAY_MCP_CONFIG points at it (see deploy/k8s.yaml).
 USER node

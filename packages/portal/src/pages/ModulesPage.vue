@@ -1,10 +1,26 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import { PageLayout, Card, Badge, Button } from "@friday/portal-ui";
+import { ref } from "vue";
 import { useModules, type ApiModule } from "../composables/useModules.js";
+import { api } from "../composables/useApi.js";
 
 const { modules, loading, error, refreshModules } = useModules();
 onMounted(() => void refreshModules());
+const reloading = ref<string | null>(null);
+const reloadable = (m: ApiModule) => !m.id.startsWith("mcp:") && m.status !== "connected" && m.status !== "disabled";
+
+async function reload(m: ApiModule) {
+  reloading.value = m.id;
+  try {
+    await api(`/api/modules/${m.id}/reload`, { method: "POST" });
+    await refreshModules();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    reloading.value = null;
+  }
+}
 
 const tone = (s: ApiModule["status"]) => (s === "loaded" || s === "connected" ? "success" : s === "failed" ? "error" : "neutral");
 const kind = (m: ApiModule) => (m.id.startsWith("mcp:") ? "MCP server" : m.status === "connected" ? "remote" : "in-process");
@@ -33,6 +49,8 @@ const kind = (m: ApiModule) => (m.id.startsWith("mcp:") ? "MCP server" : m.statu
         <div class="flex items-center gap-3 text-xs text-f-text-muted">
           <span v-if="m.connectedAt">connected {{ new Date(m.connectedAt).toLocaleTimeString() }}</span>
           <RouterLink v-if="m.ui && m.status === 'loaded'" :to="`/m/${m.id}`" class="text-f-accent-bright hover:underline">Open</RouterLink>
+          <span class="flex-1"></span>
+          <Button v-if="reloadable(m)" variant="ghost" :disabled="reloading === m.id" @click="reload(m)">{{ reloading === m.id ? "Reloading…" : "Reload" }}</Button>
         </div>
       </Card>
     </div>

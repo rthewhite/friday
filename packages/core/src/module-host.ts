@@ -1,12 +1,15 @@
-/** Loads in-process modules against core's registry with failure isolation and module-scoped routes. */
+/** Loads in-process modules against core's registry with failure isolation, module routes, and reload. */
 import {
   assertConfig,
   createContext,
+  envResolver,
   RouteTable,
   validateManifest,
+  type ConfigResolver,
   type Env,
   type FridayModule,
   type ModuleLogger,
+  type ModuleStorage,
   type ToolRegistry,
 } from "@friday/sdk";
 
@@ -27,6 +30,10 @@ export interface ModuleHostOptions {
   log?: ModuleLogger;
   /** Comma-separated module ids to enable; undefined enables all. */
   enabled?: string;
+  /** Per-module config resolver (stored values then env). Defaults to env only. */
+  resolve?: (moduleId: string) => ConfigResolver;
+  /** Per-module persistent storage. Defaults to an unavailable stub. */
+  storage?: (moduleId: string) => ModuleStorage;
 }
 
 interface Entry {
@@ -40,10 +47,12 @@ export class ModuleHost {
   private readonly entries: Entry[] = [];
   private readonly env: Env;
   private readonly log: ModuleLogger;
+  private readonly resolve: (moduleId: string) => ConfigResolver;
 
   constructor(private readonly registry: ToolRegistry, private readonly opts: ModuleHostOptions = {}) {
     this.env = opts.env ?? process.env;
     this.log = opts.log ?? console;
+    this.resolve = opts.resolve ?? (() => envResolver(this.env));
   }
 
   async load(modules: FridayModule[]): Promise<void> {
@@ -52,27 +61,52 @@ export class ModuleHost {
     for (const id of only ?? []) if (!known.has(id)) this.log.warn(`modules: FRIDAY_MODULES names unknown module "${id}"`);
 
     for (const module of modules) {
-      const id = module.manifest?.id;
-      const routes = new RouteTable();
-      if (only && !only.includes(id)) {
-        this.entries.push({ module, status: "disabled", routes });
-        continue;
-      }
-      try {
-        validateManifest(module.manifest);
-        assertConfig(module.manifest, this.env);
-        const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-        await module.init(createContext(module.manifest, { env: this.env, registry: this.registry, log: this.log, http }));
-        this.entries.push({ module, status: "loaded", routes });
-        const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
-        this.log.log(`module ${id}: ${this.registry.names(id).join(", ") || "(no tools)"}${routeList.length ? `; routes ${routeList.join(", ")}` : ""}`);
-      } catch (e) {
-        const error = e instanceof Error ? e.message : String(e);
-        this.registry.removeOwner(id);
-        routes.clear();
-        this.entries.push({ module, status: "failed", error, routes });
-        this.log.error(`module ${id} failed to load: ${error}`);
-      }
+      const entry: Entry = { module, status: "disabled", routes: new RouteTable() };
+      this.entries.push(entry);
+      if (only && !only.includes(module.manifest?.id)) continue;
+      await this.init(entry);
+    }
+  }
+
+  /** Dispose (if loaded) and initialize again with current configuration. Returns the new entry. */
+  async reload(id: string): Promise<ModuleEntry | undefined> {
+    const entry = this.entries.find((e) => e.module.manifest.id === id);
+    if (!entry || entry.status === "disabled") return undefined;
+    if (entry.status === "loaded") await this.teardown(entry);
+    await this.init(entry);
+    return this.loaded().find((e) => e.id === id);
+  }
+
+  private async init(entry: Entry): Promise<void> {
+    const { module, routes } = entry;
+    const id = module.manifest?.id;
+    try {
+      validateManifest(module.manifest);
+      const resolve = this.resolve(id);
+      assertConfig(module.manifest, resolve);
+      const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id) }));
+      entry.status = "loaded";
+      entry.error = undefined;
+      const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
+      this.log.log(`module ${id}: ${this.registry.names(id).join(", ") || "(no tools)"}${routeList.length ? `; routes ${routeList.join(", ")}` : ""}`);
+    } catch (e) {
+      entry.status = "failed";
+      entry.error = e instanceof Error ? e.message : String(e);
+      this.registry.removeOwner(id);
+      routes.clear();
+      this.log.error(`module ${id} failed to load: ${entry.error}`);
+    }
+  }
+
+  private async teardown(entry: Entry): Promise<void> {
+    const id = entry.module.manifest.id;
+    entry.routes.clear();
+    this.registry.removeOwner(id);
+    try {
+      await entry.module.dispose?.();
+    } catch (err) {
+      this.log.error(`module ${id} failed to dispose:`, err);
     }
   }
 
@@ -88,6 +122,11 @@ export class ModuleHost {
     }));
   }
 
+  /** Manifests of every known module (any status), for configuration listing. */
+  manifests() {
+    return this.entries.map((e) => ({ manifest: e.module.manifest, status: e.status }));
+  }
+
   /** Route table of a loaded module, or undefined when unknown, disabled or failed. */
   routesOf(id: string): RouteTable | undefined {
     const e = this.entries.find((x) => x.module.manifest.id === id);
@@ -98,13 +137,7 @@ export class ModuleHost {
   async dispose(): Promise<void> {
     for (const e of [...this.entries].reverse()) {
       if (e.status !== "loaded") continue;
-      e.routes.clear();
-      if (!e.module.dispose) continue;
-      try {
-        await e.module.dispose();
-      } catch (err) {
-        this.log.error(`module ${e.module.manifest.id} failed to dispose:`, err);
-      }
+      await this.teardown(e);
     }
   }
 }

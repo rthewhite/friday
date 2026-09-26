@@ -79,6 +79,14 @@ export class RemoteHost {
     }));
   }
 
+  /** Close a connected remote (e.g. its key was revoked); its tools are removed via the close handler. */
+  disconnect(id: string, code: number = CloseCode.UNAUTHORIZED, reason = "unauthorized"): boolean {
+    const c = this.connections.get(id);
+    if (!c) return false;
+    this.drop(c, code, reason);
+    return true;
+  }
+
   /** Shutdown: tell every remote to come back later. */
   async closeAll(): Promise<void> {
     for (const c of this.connections.values()) c.ws.close(CloseCode.GOING_AWAY, "shutting down");

@@ -1,4 +1,5 @@
 import type { ModuleHttp } from "./http.js";
+import type { ModuleStorage } from "./storage.js";
 import type { Tool } from "./tool.js";
 
 /** A configuration value the module reads through `ctx.config`. */
@@ -34,6 +35,8 @@ export interface ModuleContext {
   log: ModuleLogger;
   /** Module-scoped HTTP routes served at /api/modules/<id>/. Not available to remote modules. */
   http: ModuleHttp;
+  /** Persistent key-value storage namespaced to this module. Not available to remote modules. */
+  storage: ModuleStorage;
 }
 
 export interface FridayModule {

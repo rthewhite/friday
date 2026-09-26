@@ -5,31 +5,40 @@
 import type { ModuleHttp } from "./http.js";
 import type { ModuleConfig, ModuleContext, ModuleLogger, ModuleManifest } from "./module.js";
 import type { ToolRegistry } from "./registry.js";
+import type { ModuleStorage } from "./storage.js";
 import type { Tool } from "./tool.js";
 
 export type Env = Record<string, string | undefined>;
+/** Resolves a configuration key for one module; hosts compose stored values and the environment. */
+export type ConfigResolver = (key: string) => string | undefined;
 
-/** Names of `required` config keys that are unset in `env`. */
-export function missingConfig(manifest: ModuleManifest, env: Env): string[] {
-  return (manifest.config ?? []).filter((c) => c.required && !env[c.key]).map((c) => c.key);
+export const envResolver = (env: Env): ConfigResolver => (key) => env[key] || undefined;
+
+/** Names of `required` config keys the resolver cannot satisfy. */
+export function missingConfig(manifest: ModuleManifest, resolve: ConfigResolver | Env): string[] {
+  const r = typeof resolve === "function" ? resolve : envResolver(resolve);
+  return (manifest.config ?? []).filter((c) => c.required && !r(c.key)).map((c) => c.key);
 }
 
 /** Throws the host's standard error when a required key is unset. */
-export function assertConfig(manifest: ModuleManifest, env: Env): void {
-  const missing = missingConfig(manifest, env);
+export function assertConfig(manifest: ModuleManifest, resolve: ConfigResolver | Env): void {
+  const missing = missingConfig(manifest, resolve);
   if (missing.length) throw new Error(`module ${manifest.id}: missing required config ${missing.join(", ")}`);
 }
 
-export function envConfig(manifest: ModuleManifest, env: Env): ModuleConfig {
+/** Lazy config: every read goes through the resolver so values saved later are visible. */
+export function resolvedConfig(manifest: ModuleManifest, resolve: ConfigResolver): ModuleConfig {
   return {
-    get: (key) => env[key] || undefined,
+    get: (key) => resolve(key) || undefined,
     require(key) {
-      const v = env[key];
+      const v = resolve(key);
       if (!v) throw new Error(`${manifest.id}: ${key} is not configured`);
       return v;
     },
   };
 }
+
+export const envConfig = (manifest: ModuleManifest, env: Env): ModuleConfig => resolvedConfig(manifest, envResolver(env));
 
 export function prefixedLogger(id: string, base: ModuleLogger = console): ModuleLogger {
   const p = `[${id}]`;
@@ -41,8 +50,12 @@ export function prefixedLogger(id: string, base: ModuleLogger = console): Module
 }
 
 export interface ContextOptions {
+  /** Environment fallback; ignored when `resolve` is given. */
   env: Env;
+  /** Full resolver (stored values first, then env). Defaults to `envResolver(env)`. */
+  resolve?: ConfigResolver;
   registry: ToolRegistry;
+  storage?: ModuleStorage;
   log?: ModuleLogger;
   /** Route sink; defaults to a no-op that warns (used by hosts without HTTP, like the remote runner). */
   http?: ModuleHttp;
@@ -50,10 +63,15 @@ export interface ContextOptions {
 
 export function createContext(manifest: ModuleManifest, o: ContextOptions): ModuleContext {
   const log = prefixedLogger(manifest.id, o.log);
+  const unavailable = (what: string): ModuleStorage => {
+    const fail = async () => { throw new Error(`${manifest.id}: storage is not available ${what}`); };
+    return { get: fail, set: fail, delete: fail, list: fail };
+  };
   return {
     defineTool: <A>(tool: Tool<A>) => o.registry.add(manifest.id, tool),
-    config: envConfig(manifest, o.env),
+    config: resolvedConfig(manifest, o.resolve ?? envResolver(o.env)),
     log,
     http: o.http ?? { route: (method, path) => log.warn(`route ${method} ${path} ignored: this host has no HTTP server`) },
+    storage: o.storage ?? unavailable("in this host"),
   };
 }

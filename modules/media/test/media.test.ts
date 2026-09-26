@@ -105,3 +105,15 @@ test("portal routes reuse the tool implementations", async () => {
   const bad = await createTestHost(createMediaModule({ fetch: f }), { env: { ...env, HA_APPLE_TV_ENTITY: undefined } });
   assert.equal((await bad.request("POST", "play", { item_id: "m1" })).status, 502);
 });
+
+test("media reads config at call time, so values saved after init are used", async () => {
+  const f = fakeFetch({ "/Users": [{ Id: "u1", Name: "ray" }], "/Items": { Items: [] } });
+  const live: Record<string, string | undefined> = { ...env };
+  const h = await createTestHost(createMediaModule({ fetch: f }), { env: live });
+  live.JELLYFIN_URL = "http://changed.local";
+  const calls: Call[] = [];
+  const h2 = await createTestHost(createMediaModule({ fetch: fakeFetch({ "/Users": [{ Id: "u1", Name: "ray" }], "/Items": { Items: [] } }, calls) }), { env: live });
+  await h2.call("search_library", { query: "x" });
+  assert.equal(new URL(calls[0].url).origin, "http://changed.local");
+  void h;
+});

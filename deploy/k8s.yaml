@@ -42,8 +42,11 @@ spec:
               value: "8080"
             - name: FRIDAY_MCP_CONFIG
               value: /etc/friday/mcp.json
-          # GEMINI_API_KEY, JELLYFIN_*, HA_*, FRIDAY_MODULE_KEYS — everything from
-          # .env.example that is a credential or site-specific.
+            - name: FRIDAY_DATA_DIR
+              value: /data
+          # GEMINI_API_KEY and FRIDAY_MASTER_KEY are required here. Module config
+          # (JELLYFIN_*, HA_*) and FRIDAY_MODULE_KEYS may also live here as a
+          # fallback, but the portal's Settings pages are the primary place now.
           envFrom:
             - secretRef:
                 name: friday-secrets
@@ -51,6 +54,8 @@ spec:
             - name: mcp
               mountPath: /etc/friday
               readOnly: true
+            - name: data
+              mountPath: /data
           resources:
             requests:
               cpu: 50m
@@ -76,6 +81,22 @@ spec:
             # MCP is optional: with no secret the mount is empty and the
             # loader treats the missing file as "no MCP servers".
             optional: true
+        # friday.db: encrypted configuration, remote module keys, module storage.
+        # Single replica + Recreate, so one RWO claim is enough.
+        - name: data
+          persistentVolumeClaim:
+            claimName: friday-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: friday-data
+  namespace: friday
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: Service

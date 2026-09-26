@@ -18,6 +18,8 @@ const items = computed<NavItem[]>(() => [
     .filter((u) => isEnabled(u.id))
     .sort((a, b) => (a.nav.order ?? 100) - (b.nav.order ?? 100) || a.nav.label.localeCompare(b.nav.label))
     .map((u) => ({ to: `/m/${u.id}`, label: u.nav.label, icon: u.nav.icon })),
+  { to: "/settings/config", label: "Configuration", icon: "⚙", group: "Settings" },
+  { to: "/settings/keys", label: "Remote modules", icon: "🔑", group: "Settings" },
 ]);
 </script>
 

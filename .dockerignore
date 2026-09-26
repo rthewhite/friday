@@ -10,3 +10,4 @@ openspec/
 .claude/
 *.md
 **/src/modules.gen.ts
+data/

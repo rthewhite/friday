@@ -4,17 +4,32 @@ import { settings } from "./config.js";
 import { modules } from "./modules.js";
 import { ModuleHost } from "./module-host.js";
 import { McpSource } from "./tools/mcp.js";
-import { EnvKeyStore } from "./remote/key-store.js";
+import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "./remote/key-store.js";
 import { RemoteHost } from "./remote/host.js";
+import { openDatabase } from "./storage/db.js";
+import { SqliteModuleStorage } from "./storage/module-kv.js";
+import { ConfigStore } from "./secrets/config-store.js";
+import { parseMasterKey } from "./secrets/crypto.js";
+import { createResolver } from "./secrets/resolver.js";
 import { attachAudioWs } from "./transports/ws.js";
 import { createApp } from "./app.js";
 
+const db = openDatabase(settings.dataDir);
+const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
+if (!configStore.enabled) console.warn("configuration store disabled: FRIDAY_MASTER_KEY is not set; only environment values are used");
+for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
+const keys = new SqliteKeyStore(db);
+
 const registry = new ToolRegistry();
-const host = new ModuleHost(registry, { enabled: process.env.FRIDAY_MODULES });
+const host = new ModuleHost(registry, {
+  enabled: process.env.FRIDAY_MODULES,
+  resolve: createResolver(configStore, process.env),
+  storage: (id) => new SqliteModuleStorage(db, id),
+});
 const mcp = new McpSource(registry);
 const remote = new RemoteHost({
   registry,
-  keys: new EnvKeyStore(settings.moduleKeys),
+  keys: new CompositeKeyStore([keys, new EnvKeyStore(settings.moduleKeys)]),
   pingMs: settings.wsPingMs,
   callTimeoutMs: settings.remoteCallTimeoutMs,
 });
@@ -29,11 +44,11 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    void remote.closeAll().then(() => host.dispose()).then(() => mcp.close()).finally(() => process.exit(0));
+    void remote.closeAll().then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
   });
 }
 
-const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir }));
+const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env }));
 attachAudioWs(server, { registry });
 remote.attach(server);
 

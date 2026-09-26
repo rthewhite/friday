@@ -12,7 +12,7 @@ Right now it serves **mock telemetry**. Real sim adapters (iRacing SDK, ACC shar
    pnpm install
    pnpm -r build
    ```
-3. Set the connection details. The key must be listed in Friday's `FRIDAY_MODULE_KEYS` as `simracing=<key>`:
+3. Create a key in the portal: Settings > Remote modules, module id `simracing`, any label. Copy it when shown (it is displayed once). Alternatively, list `simracing=<key>` in Friday's `FRIDAY_MODULE_KEYS`. Then set the connection details:
    ```powershell
    $env:FRIDAY_URL = "wss://friday.thewhite.nl/ws/modules"
    $env:FRIDAY_MODULE_KEY = "<key>"
@@ -21,6 +21,6 @@ Right now it serves **mock telemetry**. Real sim adapters (iRacing SDK, ACC shar
    Against a local core use `ws://localhost:8080/ws/modules`.
 4. Check `https://friday.thewhite.nl/api/modules`: `simracing` shows `connected` with five `simracing__*` tools. The next voice conversation can use them; a conversation that is already open keeps its tool list.
 
-Stop with Ctrl+C. The module reconnects automatically with backoff after network drops or a Friday restart, and gives up only when Friday rejects the key (close code 4401).
+Stop with Ctrl+C. The module reconnects automatically with backoff after network drops or a Friday restart, and gives up only when Friday rejects the key (close code 4401), for example after you revoke it in the portal.
 
 To start it with a game, wrap it in a scheduled task or a launcher script that runs this command when the sim starts and kills it when the sim exits.

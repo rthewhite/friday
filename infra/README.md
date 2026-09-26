@@ -45,14 +45,32 @@ printf '%s' "$PW" | gh secret set HOMELAB_REGISTRY_PASSWORD --repo $R
 
 ## 3. Application secrets in the cluster (by hand, admin kubeconfig)
 
-`friday-secrets` is loaded with `envFrom`; put every credential / site-specific
-variable from `.env.example` in it. `friday-mcp` is optional and is mounted as
-`/etc/friday/mcp.json`.
+`friday-secrets` is loaded with `envFrom`. Two variables are required in it:
+`GEMINI_API_KEY` and `FRIDAY_MASTER_KEY`. Module configuration (Jellyfin, Home
+Assistant) and remote module keys are managed in the portal under Settings and
+stored encrypted in `friday.db` on the `friday-data` PersistentVolumeClaim; the
+environment remains a fallback, so a `.env` with everything still works.
+`friday-mcp` is optional and is mounted as `/etc/friday/mcp.json`.
 
 ```bash
+# Generate the master key once and keep a copy in your password manager.
+echo "FRIDAY_MASTER_KEY=$(openssl rand -base64 32)" >> .env
 kubectl -n friday create secret generic friday-secrets --from-env-file=.env
 kubectl -n friday create secret generic friday-mcp --from-file=mcp.json=mcp.json
 ```
+
+### The master key
+
+Every value saved in Settings > Configuration is AES-256-GCM encrypted with
+`FRIDAY_MASTER_KEY`. If the key is lost or changed, those rows cannot be read:
+Friday logs one error per row at startup, the portal shows them as `pending`,
+and you re-enter them (Settings > Configuration, then "Save and reload module").
+Remote module keys are stored as hashes and are unaffected.
+
+Backup: the PVC is the state. To copy the database out of the pod,
+`kubectl -n friday exec deploy/friday -- sh -c 'sqlite3 /data/friday.db ".backup /tmp/friday.bak"'`
+(the image has no sqlite3 CLI; `kubectl cp` of `/data/friday.db` while the pod is
+idle works too, WAL included: copy `friday.db`, `friday.db-wal` and `friday.db-shm`).
 
 To rotate: `kubectl -n friday delete secret friday-secrets` and recreate, then
 `kubectl -n friday rollout restart deploy/friday` (env is read at start).
@@ -60,9 +78,10 @@ To rotate: `kubectl -n friday delete secret friday-secrets` and recreate, then
 Do not put `FRIDAY_HOST`, `FRIDAY_PORT` or `FRIDAY_MCP_CONFIG` in the secret;
 the Deployment sets them.
 
-Remote modules authenticate with `FRIDAY_MODULE_KEYS` from the same secret, as
-`<module id>=<key>` pairs separated by commas (`simracing=$(openssl rand -base64 32)`).
-Without it `/ws/modules` rejects every connection and startup logs a warning.
+Remote modules authenticate with keys created in the portal (Settings > Remote
+modules; the key is shown once). `FRIDAY_MODULE_KEYS` in the secret still works as
+a fallback, as `<module id>=<key>` pairs separated by commas. When neither has a
+key, `/ws/modules` rejects every connection and startup logs a warning.
 
 ## 4. Endpoints
 

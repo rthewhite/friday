@@ -99,11 +99,21 @@ The browser UI is a Vue single-page app served by core at `/` with an SPA fallba
 
 The portal's build step scans the workspace for `friday.ui` declarations and generates the import list, so no shell code changes are needed. Nav items for modules that are disabled or failed are hidden, and their pages show a notice. See `modules/media/src/ui` for the first example.
 
+## Configuration, storage and keys
+
+Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) for three things:
+
+- **Configuration values.** Every key a module declares shows up under Settings > Configuration as `set`, `pending` or `env`. Values you save there are encrypted with `FRIDAY_MASTER_KEY` and win over the environment; `Save and reload module` applies them without restarting Friday. Scope a value to one module or make it global. Without a master key the store is disabled and only the environment is used.
+- **Remote module keys.** Settings > Remote modules issues a key per module id (shown once, stored hashed) and can revoke it, which disconnects the module immediately. `FRIDAY_MODULE_KEYS` remains a fallback.
+- **Module storage.** Modules get `ctx.storage` (`get`, `set`, `delete`, `list`), a JSON key-value namespace per module. The test host provides an in-memory one.
+
+The Modules page has a `Reload` button per in-process module, and `POST /api/modules/<id>/reload` does the same over HTTP. See `infra/README.md` for generating the master key and what happens if it is lost.
+
 ## Remote modules
 
 A module does not have to run inside Friday. `runRemote` from `@friday/sdk/remote` runs the same `defineModule` on another machine, dials `ws(s)://<friday>/ws/modules`, authenticates with a key, and serves its tools over MCP on that socket. While the connection is up its tools are registered as `<id>__<tool>` and listed under `/api/modules` with status `connected`; when the process stops or the network drops, they are removed. The remote reconnects with backoff (1 s to 30 s) and only gives up when Friday rejects the key.
 
-Server side, set `FRIDAY_MODULE_KEYS=<id>=<key>,...` (see `.env.example`). Client side:
+Server side, create a key under Settings > Remote modules (or set `FRIDAY_MODULE_KEYS=<id>=<key>,...` as a fallback). Client side:
 
 ```ts
 import { runRemote } from "@friday/sdk/remote";

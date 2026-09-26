@@ -6,6 +6,7 @@ import { assertConfig, createContext, type Env } from "./context.js";
 import { RouteTable, type HttpMethod, type RouteRequest, type RouteResponse } from "./http.js";
 import type { FridayModule, ModuleLogger } from "./module.js";
 import { ToolRegistry, type CallResult } from "./registry.js";
+import { MemoryStorage } from "./storage.js";
 
 export interface TestHostOptions {
   /** Configuration the module sees. Defaults to an empty environment, not `process.env`. */
@@ -24,6 +25,8 @@ export interface TestHost {
   tools: string[];
   call(name: string, args?: Record<string, unknown>): Promise<CallResult>;
   registry: ToolRegistry;
+  /** In-memory storage the module saw as `ctx.storage`. */
+  storage: MemoryStorage;
   /** Registered module routes as `GET search`. */
   routes: string[];
   /** Invoke a module route in memory. `path` is relative to the module mount and may carry a query string. */
@@ -39,11 +42,13 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   assertConfig(module.manifest, env);
   const registry = new ToolRegistry(log);
   const table = new RouteTable();
-  await module.init(createContext(module.manifest, { env, registry, log, http: { route: (method, path, handler) => table.add({ method, path, handler }) } }));
+  const storage = new MemoryStorage();
+  await module.init(createContext(module.manifest, { env, registry, log, storage, http: { route: (method, path, handler) => table.add({ method, path, handler }) } }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args) => registry.callTool(name, args),
     registry,
+    storage,
     routes: table.list().map((r) => `${r.method} ${r.path.replace(/^\//, "")}`),
     async request(method, pathWithQuery, body, headers = {}) {
       const [path, qs = ""] = pathWithQuery.split("?");

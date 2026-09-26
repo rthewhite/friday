@@ -17,7 +17,11 @@ export const settings = {
   idleTimeoutMs: Number(process.env.FRIDAY_IDLE_TIMEOUT_MS ?? 8000),
   /** WebSocket ping interval; connections that miss a pong are terminated. 0 disables. */
   wsPingMs: Number(process.env.FRIDAY_WS_PING_MS ?? 20000),
-  /** `<id>=<key>,...` pairs that let remote modules register on /ws/modules. Unset disables them. */
+  /** Directory for friday.db (SQLite). The image sets /data; dev defaults to ./data. */
+  dataDir: process.env.FRIDAY_DATA_DIR ?? "./data",
+  /** 32-byte base64 key that encrypts stored configuration values. Unset disables the config store. */
+  masterKey: process.env.FRIDAY_MASTER_KEY,
+  /** `<id>=<key>,...` pairs that let remote modules register on /ws/modules (fallback to portal-issued keys). */
   moduleKeys: process.env.FRIDAY_MODULE_KEYS,
   /** Give a remote module this long to answer a tool call before the model gets `{ error: "timeout" }`. */
   remoteCallTimeoutMs: Number(process.env.FRIDAY_REMOTE_CALL_TIMEOUT_MS ?? 10000),

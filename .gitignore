@@ -8,3 +8,4 @@ esphome/secrets.yaml
 esphome/.esphome/
 __pycache__/
 packages/portal/src/modules.gen.ts
+data/
