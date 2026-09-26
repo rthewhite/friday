@@ -1,16 +1,23 @@
 schema: spec-driven
 
 context: |
-  Friday: a voice assistant on Gemini Live (TypeScript / Node, ESM, @google/genai).
-  Architecture: transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap a
-  transport-agnostic GeminiSession (src/session.ts). Tools live in a single registry
-  (src/tools/index.ts, defineTool()); native tools in builtin.ts and media.ts, MCP
-  servers loaded from mcp.json via src/tools/mcp.ts. Every tool result carries a
-  scheduling hint (INTERRUPT | WHEN_IDLE | SILENT) that controls how Gemini surfaces it.
+  Friday: a voice assistant on Gemini Live (TypeScript / Node, ESM, @google/genai), built as a
+  small core that hosts modules. pnpm workspace: packages/sdk (@friday/sdk: module contract,
+  ToolRegistry, createTestHost), packages/core (@friday/core: HTTP, /ws/audio, GeminiSession,
+  ModuleHost, MCP source), modules/* (one package per module, depending only on the sdk).
+  A module exports defineModule({ manifest: { id, label, config[] }, init(ctx) }); ctx gives
+  defineTool, config (env-backed), log. Core lists in-process modules in packages/core/src/modules.ts,
+  FRIDAY_MODULES narrows them, GET /api/modules reports status. Tools live in one owner-tagged
+  ToolRegistry instance (owner = module id or mcp:<server>); each GeminiSession snapshots
+  declarations() at open (Gemini binds tools then). Tool results may carry reserved keys
+  scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
+  before reaching Gemini. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
+  transport-agnostic GeminiSession. MCP servers come from mcp.json via packages/core/src/tools/mcp.ts.
   Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse).
-  Web client in web/ is vanilla HTML + AudioWorklet, no build step.
+  Web client in web/ is vanilla HTML + AudioWorklet, no build step, served by core (FRIDAY_WEB_DIR).
   Config comes from env vars (see .env.example). Keep the total tool count modest (Gemini caps at 512).
-  Clients: browser today, ESP32 / Voice PE planned on the same WebSocket protocol.
+  Clients: browser and ESP32 / Voice PE (esphome/) on the same WebSocket protocol. One container image
+  built with pnpm deploy; tests use node:test via `pnpm test`.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

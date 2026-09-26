@@ -1,21 +1,34 @@
 # Friday
 
-Voice assistant on **Gemini 3.8 Live** (TypeScript / Node) with a tool registry and pluggable transports.
+Voice assistant on **Gemini 3.8 Live** (TypeScript / Node) built as a small core that hosts modules.
 
 ```
 browser (AudioWorklet) ── WebSocket PCM ──┐
-                                          ├─► friday server ── Gemini Live (PCM 16k in / 24k out)
-ESP32 / Voice PE       ── WebSocket PCM ──┘         │
-                                                    └─► tools (src/tools/*)
+                                          ├─► core ── Gemini Live (PCM 16k in / 24k out)
+ESP32 / Voice PE       ── WebSocket PCM ──┘    │
+                                               ├─► modules/builtin   time, timers, end_conversation
+                                               ├─► modules/media     Jellyfin + Apple TV
+                                               └─► MCP servers       mcp.json
 ```
+
+The repo is a pnpm workspace:
+
+| Package | Path | What |
+|---|---|---|
+| `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, module host, MCP loader |
+| `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
+| `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 
 ## Run
 
 ```sh
 cp .env.example .env      # add GEMINI_API_KEY
-npm install
-npm run dev               # http://localhost:8080
+pnpm install
+pnpm dev                  # builds the workspace, then runs core with tsx watch on http://localhost:8080
 ```
+
+`pnpm test` builds everything and runs every package's tests. `FRIDAY_MODULES=builtin,media` narrows which in-process modules load; `GET /api/modules` shows each module's status and tools.
 
 Browsers only allow the microphone on `localhost` or HTTPS.
 
@@ -32,24 +45,44 @@ Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturin
 
 Gemini interrupts itself when it detects the user speaking. On speaker devices a little of Friday's own voice leaks back into the microphone before echo cancellation converges, which Gemini can mistake for speech. `FRIDAY_VAD_START_SENSITIVITY` (default `LOW`) and `FRIDAY_VAD_PREFIX_MS` (default 200) tune how eagerly Gemini treats sound as the user talking; raise sensitivity to `HIGH` or lower the padding if barge-in feels sluggish on headphones or the browser.
 
-## Add a tool
+## Add a module
 
-Add a `defineTool()` call in `src/tools/builtin.ts` (or a new module imported from `loadTools()`):
+A module is a workspace package that depends only on `@friday/sdk` and exports a `defineModule`. Core never imports a module's internals; the module gets everything through `ctx`.
 
 ```ts
-defineTool<{ city: string }>({
-  name: "get_weather",
-  description: "Weather for a city",
-  parameters: { type: Type.OBJECT, properties: { city: { type: Type.STRING } }, required: ["city"] },
-  handler: async ({ city }) => ({ temp_c: 18, sky: "cloudy" }),
+// modules/weather/src/index.ts
+import { defineModule, Type } from "@friday/sdk";
+
+export default defineModule({
+  manifest: {
+    id: "weather",
+    label: "Weather",
+    config: [{ key: "WEATHER_API_KEY", required: true }],
+  },
+  init(ctx) {
+    ctx.defineTool<{ city: string }>({
+      name: "get_weather",
+      description: "Weather for a city",
+      parameters: { type: Type.OBJECT, properties: { city: { type: Type.STRING } }, required: ["city"] },
+      handler: async ({ city }) => ({ temp_c: 18, sky: "cloudy", key: ctx.config.require("WEATHER_API_KEY") }),
+    });
+  },
 });
 ```
 
-`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`. Calls run in the background so audio keeps flowing during slow tools.
+Then add the package to `packages/core/package.json` and to the list in `packages/core/src/modules.ts`. Test it without a server:
+
+```ts
+import { createTestHost } from "@friday/sdk/test";
+const h = await createTestHost(weather, { env: { WEATHER_API_KEY: "x" } });
+await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
+```
+
+`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
 
 ## Jellyfin + Apple TV (Infuse)
 
-Tools in `src/tools/media.ts`:
+Tools in `modules/media`:
 
 - `list_episodes_to_watch` – Jellyfin Next Up or recently added episodes.
 - `search_library` – find series and movies by name, with watch state.
@@ -109,19 +142,19 @@ The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_ch
 
 ## MCP servers
 
-Copy `mcp.example.json` to `mcp.json` (git-ignored) and list servers. Both stdio (`command`/`args`) and streamable HTTP (`url`/`headers`) transports work. Each MCP tool is registered as `<server>__<tool>`; use `include`/`exclude` to trim large servers and `scheduling` to control how Gemini surfaces results. Override the path with `FRIDAY_MCP_CONFIG`.
+Copy `mcp.example.json` to `mcp.json` (git-ignored) and list servers. Both stdio (`command`/`args`) and streamable HTTP (`url`/`headers`) transports work. Each MCP tool is registered as `<server>__<tool>` (owner `mcp:<server>` in `/api/modules`); use `include`/`exclude` to trim large servers and `scheduling` to control how Gemini surfaces results. Override the path with `FRIDAY_MCP_CONFIG`.
 
 Keep the total tool count modest: Gemini reads every declaration and caps at 512.
 
 ## Transport
 
-`WS /ws/audio` carries raw PCM both ways; see the protocol in `src/transports/ws.ts`. The web UI and the Voice PE client speak the same protocol. Transports wrap `GeminiSession` (`src/session.ts`), so tools and prompt behaviour are shared. A WebRTC transport can be added alongside it later.
+`WS /ws/audio` carries raw PCM both ways; see the protocol in `packages/core/src/transports/ws.ts`. The web UI and the Voice PE client speak the same protocol. Transports wrap `GeminiSession` (`packages/core/src/session.ts`), so tools and prompt behaviour are shared. A WebRTC transport can be added alongside it later.
 
 - Clients may append `?device=<id>`; the id is logged with the session and otherwise ignored for now. Unknown query parameters are ignored.
 - Binary frames may be any size; batching 100 ms (3200 bytes) per frame is fine for microcontrollers.
 - The server pings every `FRIDAY_WS_PING_MS` (default 20000) and drops connections that stop answering, which also closes the Gemini session. Set to `0` to disable.
 
-Run `npm test` for the transport tests.
+Run `pnpm test` for the transport tests.
 
 ## Deploy
 

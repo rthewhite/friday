@@ -14,12 +14,13 @@ name: deploy
 on:
   push:
     paths:
-      - src/**
+      - packages/**
+      - modules/**
       - web/**
-      - test/**
       - package.json
-      - package-lock.json
-      - tsconfig.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
       - Dockerfile
       - .dockerignore
       - deploy/**
@@ -40,13 +41,15 @@ jobs:
     runs-on: [self-hosted, homelab]
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
 
   build:
     needs: test
