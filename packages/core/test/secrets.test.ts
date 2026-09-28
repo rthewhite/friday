@@ -77,7 +77,7 @@ test("rows from before the split (version 1) are treated as secret after migrati
   const { encrypt } = require("../src/secrets/crypto.js") as typeof import("../src/secrets/crypto.js");
   const e = encrypt(key, "media", "OLD", "legacy");
   d.prepare("INSERT INTO config_values (scope, key, ciphertext, iv, tag, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run("media", "OLD", e.ciphertext, e.iv, e.tag, "t");
-  assert.equal(migrate(d, migrations, quiet), 1);
+  assert.equal(migrate(d, migrations, quiet), migrations.filter((m) => m.version > 1).length);
   const s = new ConfigStore(d, key, quiet);
   assert.deepEqual(s.info("media", "OLD"), { secret: true });
   assert.equal(s.get("media", "OLD"), "legacy");

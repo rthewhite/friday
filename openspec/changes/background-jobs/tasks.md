@@ -36,5 +36,5 @@
 
 ## 6. Integration
 
-- [ ] 6.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace and verify both pass
+- [x] 6.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace and verify both pass
 - [ ] 6.2 Deploy to the homelab and verify with a temporary verification job (removed afterwards): the Jobs page loads, a `cron` job runs at its due time in Amsterdam time, and restarting the pod across a due time produces exactly one `catch-up` run

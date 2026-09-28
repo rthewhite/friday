@@ -75,3 +75,10 @@ Routes are added to `createApp` next to `/api/keys`: `GET /api/jobs`, `GET /api/
 ## Migration Plan
 
 Migration 3 only creates new tables, so it is safe on existing databases. Rollback means deploying the previous image: the old code ignores the new tables, and `schema_version` stays at 3 harmlessly, since earlier migrations never check for a higher version. New env vars (`FRIDAY_JOB_HISTORY`, `FRIDAY_JOB_CATCHUP_DELAY_MS`) have defaults. `FRIDAY_TIMEZONE` is now also read by core, and its `.env.example` comment is updated to say so.
+
+## Implementation notes
+
+- **croner stays behind the SDK.** Besides `validateJob`, `@friday/sdk` exports `nextCronRun(expr, timezone, after)`, so core computes due times without its own croner dependency. Cron expressions are parsed in croner's `5-part` mode (six- and seven-field patterns are rejected; nicknames like `@daily` are accepted).
+- **Catch-up writes `last_due_at` when the catch-up run starts**, not at registration. A crash or reload during the catch-up delay therefore still catches up at the next start. If a scheduled due time fires before the delay ends, that run replaces the pending catch-up.
+- **ModuleHost wiring.** `ModuleHostOptions.jobs` is `(moduleId) => HostJobs`, where `HostJobs` is `ModuleJobs` plus `removeAll(): Promise<void>` (`Scheduler.forOwner` returns one). The host calls `removeAll()` on teardown and after a failed init, instead of holding the scheduler itself.
+- **Small contract choices.** `ctx.jobs.trigger(name)` throws for a name the module never scheduled. Cancelled runs record an error text (`cancelled: <reason>`). The handler logger is prefixed with the owner (`[brain]`), and the scheduler's own start and end lines name the job id. The test host's `ctx.jobs.trigger` runs the handler in the background with trigger `module`. `lastRun` in `/api/jobs` is the most recently *finished* run, so a skip recorded during a long run doesn't hide that run's outcome.
