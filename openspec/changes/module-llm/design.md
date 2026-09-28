@@ -67,6 +67,8 @@ A simple counter-and-queue semaphore, sized by `FRIDAY_LLM_CONCURRENCY`. An abor
 ### Models and tiers
 `settings.textModel = FRIDAY_TEXT_MODEL ?? "gemini-flash-latest"` and `settings.textModelFast = FRIDAY_TEXT_MODEL_FAST ?? settings.textModel`. The default is an alias that follows Google's current Flash model, so it doesn't go stale the way the pinned Live model name does. The alias is checked against `models.list` during implementation (task 2.1), and replaced by a pinned name if the alias isn't served.
 
+**Confirmed (2026-09-28):** `models.list` lists `models/gemini-flash-latest` ("Gemini Flash Latest") with `generateContent` among its supported actions, so the default stays `gemini-flash-latest`. The opt-in live test got its answer from `gemini-3.8-flash` (the response's `modelVersion`). Pinned alternatives served at the time: `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.5-flash`, and `gemini-flash-lite-latest` / `gemini-3.5-flash-lite` for a cheaper fast tier.
+
 ### Logging
 `LlmService` logs one line per settled call through core's logger:
 `llm: [brain] gemini-flash-latest ok in=1834 out=212 think=640 2.4s (1 attempt)`.
