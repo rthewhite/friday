@@ -10,6 +10,7 @@ import {
   type FridayModule,
   type ModuleJobs,
   type ModuleLlm,
+  type ModuleConversations,
   type ModuleLogger,
   type ModuleStorage,
   type ToolRegistry,
@@ -45,6 +46,8 @@ export interface ModuleHostOptions {
   jobs?: (moduleId: string) => HostJobs;
   /** Per-module text generation (calls attributed to the id). Defaults to an unavailable stub. */
   llm?: (moduleId: string) => ModuleLlm;
+  /** Per-module conversation access. Defaults to an unavailable stub. */
+  conversations?: (moduleId: string) => ModuleConversations;
 }
 
 interface Entry {
@@ -59,6 +62,8 @@ export class ModuleHost {
   private readonly env: Env;
   private readonly log: ModuleLogger;
   private readonly resolve: (moduleId: string) => ConfigResolver;
+  /** Unsubscribers of each module's onQuiet handlers, dropped on teardown and failed init. */
+  private readonly quietSubs = new Map<string, (() => void)[]>();
 
   constructor(private readonly registry: ToolRegistry, private readonly opts: ModuleHostOptions = {}) {
     this.env = opts.env ?? process.env;
@@ -96,7 +101,7 @@ export class ModuleHost {
       const resolve = this.resolve(id);
       assertConfig(module.manifest, resolve);
       const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id) }));
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id), conversations: this.conversationsFor(id) }));
       entry.status = "loaded";
       entry.error = undefined;
       const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
@@ -107,6 +112,7 @@ export class ModuleHost {
       this.registry.removeOwner(id);
       routes.clear();
       await this.opts.jobs?.(id).removeAll();
+      this.dropSubscriptions(id);
       this.log.error(`module ${id} failed to load: ${entry.error}`);
     }
   }
@@ -117,11 +123,31 @@ export class ModuleHost {
     this.registry.removeOwner(id);
     // Stop the module's timers and let in-flight runs settle before the module releases its resources.
     await this.opts.jobs?.(id).removeAll();
+    this.dropSubscriptions(id);
     try {
       await entry.module.dispose?.();
     } catch (err) {
       this.log.error(`module ${id} failed to dispose:`, err);
     }
+  }
+
+  /** `ctx.conversations` with its onQuiet subscriptions tracked so a reload or dispose can drop them. */
+  private conversationsFor(id: string): ModuleConversations | undefined {
+    const c = this.opts.conversations?.(id);
+    if (!c) return undefined;
+    return {
+      ...c,
+      onQuiet: (handler) => {
+        const off = c.onQuiet(handler);
+        this.quietSubs.set(id, [...(this.quietSubs.get(id) ?? []), off]);
+        return off;
+      },
+    };
+  }
+
+  private dropSubscriptions(id: string): void {
+    for (const off of this.quietSubs.get(id) ?? []) off();
+    this.quietSubs.delete(id);
   }
 
   loaded(): ModuleEntry[] {

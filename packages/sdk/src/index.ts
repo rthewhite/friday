@@ -6,3 +6,4 @@ export * from "./http.js";
 export * from "./storage.js";
 export * from "./jobs.js";
 export * from "./llm.js";
+export * from "./conversations.js";

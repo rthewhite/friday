@@ -11,6 +11,7 @@ import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/c
 import { statusOf } from "./secrets/resolver.js";
 import type { SqliteKeyStore } from "./remote/key-store.js";
 import type { Scheduler } from "./jobs/scheduler.js";
+import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore } from "./conversations/store.js";
 import type { Env } from "@friday/sdk";
 
 const MIME: Record<string, string> = {
@@ -40,6 +41,7 @@ export interface AppDeps {
   keys?: SqliteKeyStore;
   env?: Env;
   jobs?: Scheduler;
+  conversations?: ConversationStore;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -158,7 +160,32 @@ export function createApp(deps: AppDeps) {
       res.statusCode = 204;
       res.end();
     })
-    .add("GET", "/api/keys", (_req, res) => sendJson(res, deps.keys?.list() ?? []))
+    .add("GET", "/api/conversations", (_req, res, _params, url) => {
+      if (!deps.conversations) return sendJson(res, { conversations: [], next: null });
+      const limit = Math.min(Math.max(Math.trunc(Number(url.searchParams.get("limit") ?? DEFAULT_LIST_LIMIT)) || DEFAULT_LIST_LIMIT, 1), 200);
+      try {
+        // One extra row tells whether there is a next page.
+        const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined });
+        const page = rows.slice(0, limit);
+        sendJson(res, { conversations: page, next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
+      } catch (e) {
+        if (e instanceof InvalidQuery) return sendJson(res, { error: e.message }, 400);
+        throw e;
+      }
+    })
+    .add("GET", "/api/conversations/:id", (_req, res, { id }) => {
+      const c = deps.conversations?.get(id);
+      if (!c) return sendJson(res, { error: "unknown conversation" }, 404);
+      sendJson(res, c);
+    })
+    .add("DELETE", "/api/conversations/:id", (_req, res, { id }) => {
+      const outcome = deps.conversations?.delete(id) ?? "missing";
+      if (outcome === "missing") return sendJson(res, { error: "unknown conversation" }, 404);
+      if (outcome === "live") return sendJson(res, { error: "conversation is still being recorded" }, 409);
+      res.statusCode = 204;
+      res.end();
+    })
+    .add("GET", "/api/keys",(_req, res) => sendJson(res, deps.keys?.list() ?? []))
     .add("POST", "/api/keys", async (req, res) => {
       if (!deps.keys) return sendJson(res, { error: "no key store" }, 503);
       let body: { moduleId?: unknown; label?: unknown };

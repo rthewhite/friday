@@ -42,6 +42,7 @@ export default defineModule({
 | `jobs.schedule(job)` | Declares a background job `<id>/<name>` with a `cron` expression (in `FRIDAY_TIMEZONE`) or `everyMs` (at least 1000). Throws on an invalid declaration, so the module fails to load. In-process modules only; on the remote runner it throws `jobs are not available in this host`. |
 | `jobs.trigger(name)` | Starts one of the module's own jobs now (trigger `module`); returns `{ started: false }` when it is already running. |
 | `llm.generate(request)` | Text generation through core's model. See [Text generation](#text-generation). |
+| `conversations` | Read access to recorded conversations: `list`, `get`, `onQuiet`. In-process modules only; see [Conversations](#conversations). |
 
 Mark credentials and tokens with `secret: true`. Secrets are stored encrypted and never displayed in the portal; plain keys are shown and edited inline. Retrieval is identical for both: `ctx.config.get` / `require`.
 
@@ -86,6 +87,37 @@ A handler returns a plain object. Two keys are reserved and stripped before the 
 - `endConversation`: a reason string asking the session to close after the model's current turn.
 
 Throwing from a handler yields `{ error: "<message>" }` with `INTERRUPT` so the model can tell the user.
+
+### Conversations
+
+Core records every conversation as transcript text (never audio): user entries with their input (`speech`, transcribed and noisy, or `text`, typed and exact), assistant entries (marked `interrupted` on barge-in), and tool calls with their arguments and results. A conversation is **active** while it receives entries and goes **quiet** when its session ends or after `FRIDAY_CONVERSATION_QUIET_MINUTES` without activity. A resumed thread goes quiet again later, with a later `quietAt`.
+
+- `ctx.conversations.list({ quietSince?, limit? })`: without `quietSince`, the most recently active first. With it, the conversations currently quiet that went quiet after that time, oldest first.
+- `ctx.conversations.get(id)`: the conversation with all its entries, or `undefined`.
+- `ctx.conversations.onQuiet(handler)`: called with `{ id, lastActivityAt, quietAt }` each time a conversation goes quiet. Returns an unsubscribe function; subscriptions end when the module is disposed or reloaded. A throwing handler is logged and does not affect other subscribers.
+
+Notifications are best-effort and in-process: one that fires while the module reloads or Friday restarts is lost. The durable pattern is a watermark in `ctx.storage`, with `onQuiet` only as a nudge:
+
+```ts
+init(ctx) {
+  // Process every conversation that went quiet since the last run, exactly once.
+  const catchUp = async () => {
+    const since = (await ctx.storage.get<string>("watermark")) ?? new Date(0).toISOString();
+    for (const c of await ctx.conversations.list({ quietSince: since, limit: 100 })) {
+      const full = await ctx.conversations.get(c.id);
+      if (full) summarise(full);
+      await ctx.storage.set("watermark", c.quietAt);
+    }
+  };
+  // Going quiet is a best-effort nudge; the watermark makes a missed one (a restart, a reload) harmless.
+  let queue = Promise.resolve();
+  const nudge = () => (queue = queue.then(catchUp).catch((e) => ctx.log.error("digest failed", e)));
+  ctx.conversations.onQuiet(nudge);
+  void nudge();
+}
+```
+
+For heavier work, make `catchUp` a background job and have the handler call `ctx.jobs.trigger("<name>")` instead, so runs never overlap and show up on the Jobs page. Remote modules get an error `conversations are not available in this host`. In tests, `createTestHost` provides an in-memory store as `host.conversations`: `seed({ entries, ... })` adds a conversation and `await markQuiet(id)` fires the module's handlers.
 
 ## Text generation
 

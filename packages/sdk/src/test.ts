@@ -9,6 +9,7 @@ import { checkRequest, LlmError, parseOutput, type LlmRequest, type ModuleLlm } 
 import type { FridayModule, ModuleLogger } from "./module.js";
 import { ToolRegistry, type CallResult } from "./registry.js";
 import { MemoryStorage } from "./storage.js";
+import { MemoryConversations } from "./conversations.js";
 
 export interface TestHostOptions {
   /** Configuration the module sees. Defaults to an empty environment, not `process.env`. */
@@ -20,6 +21,8 @@ export interface TestHostOptions {
    * Requests are checked and schema output validated as in core. Without it, calls reject with `unavailable`.
    */
   llm?: FakeLlm;
+  /** Conversations the module sees as `ctx.conversations`; seed before init when the module reads them there. */
+  conversations?: MemoryConversations;
 }
 
 export type FakeLlm = (request: LlmRequest) => string | Promise<string>;
@@ -51,6 +54,8 @@ export interface TestHost {
   storage: MemoryStorage;
   /** Requests that reached the fake model through `ctx.llm`, in call order. */
   llmRequests: LlmRequest[];
+  /** In-memory conversations the module saw as `ctx.conversations`: `seed(...)`, then `markQuiet(id)` to fire `onQuiet`. */
+  conversations: MemoryConversations;
   /** Registered module routes as `GET search`. */
   routes: string[];
   /** Invoke a module route in memory. `path` is relative to the module mount and may carry a query string. */
@@ -71,6 +76,7 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   const registry = new ToolRegistry(log);
   const table = new RouteTable();
   const storage = new MemoryStorage();
+  const conversations = opts.conversations ?? new MemoryConversations(log);
   const llmRequests: LlmRequest[] = [];
   const llm = opts.llm && fakeLlm(opts.llm, llmRequests);
   const id = module.manifest.id;
@@ -103,13 +109,14 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
       return { started: true };
     },
   };
-  await module.init(createContext(module.manifest, { env, registry, log, storage, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm }));
+  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args) => registry.callTool(name, args),
     registry,
     storage,
     llmRequests,
+    conversations,
     routes: table.list().map((r) => `${r.method} ${r.path.replace(/^\//, "")}`),
     async request(method, pathWithQuery, body, headers = {}) {
       const [path, qs = ""] = pathWithQuery.split("?");
@@ -138,7 +145,10 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
     },
     jobs,
     runJob: (name) => runJob(name, "manual"),
-    dispose: async () => void (await module.dispose?.()),
+    dispose: async () => {
+      conversations.clearSubscriptions();
+      await module.dispose?.();
+    },
   };
 }
 

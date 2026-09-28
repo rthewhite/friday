@@ -93,3 +93,16 @@ test("ctx.llm is unavailable to remote modules", async () => {
   await h.stop();
   core.close();
 });
+
+test("conversations are not available to remote modules", async () => {
+  let ctx: ModuleContext | undefined;
+  const m = defineModule({ manifest: { id: "m", label: "M" }, init(c) { ctx = c; } });
+  const core = await fakeCore((ws) => ws.send(JSON.stringify({ type: "welcome", id: "m" })));
+  const h = runRemote(m, { url: core.url, key: "k", log: quiet, env: {}, minBackoffMs: 10 });
+  await h.connected();
+  await assert.rejects(ctx!.conversations.list(), /m: conversations are not available in this host/);
+  await assert.rejects(ctx!.conversations.get("x"), /conversations are not available in this host/);
+  assert.throws(() => ctx!.conversations.onQuiet(() => {}), /conversations are not available in this host/);
+  await h.stop();
+  core.close();
+});

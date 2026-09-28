@@ -8,6 +8,7 @@ import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "./remote/key-sto
 import { RemoteHost } from "./remote/host.js";
 import { openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
+import { ConversationStore } from "./conversations/store.js";
 import { ConfigStore } from "./secrets/config-store.js";
 import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
@@ -27,6 +28,7 @@ const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
 const jobs = new Scheduler({ store: jobStore, timezone: settings.timezone, catchupDelayMs: settings.jobCatchupDelayMs });
+const conversations = new ConversationStore(db, { quietMinutes: settings.conversationQuietMinutes });
 
 const registry = new ToolRegistry();
 const llm = new LlmService({
@@ -41,6 +43,7 @@ const host = new ModuleHost(registry, {
   storage: (id) => new SqliteModuleStorage(db, id),
   jobs: (id) => jobs.forOwner(id),
   llm: (id) => llm.forOwner(id),
+  conversations: (id) => conversations.forOwner(id),
 });
 const mcp = new McpSource(registry);
 const remote = new RemoteHost({
@@ -54,18 +57,20 @@ await host.load(modules);
 await mcp.load();
 if (!settings.apiKey) console.warn("GEMINI_API_KEY is not set");
 console.log(`tools (${registry.names().length}):`, registry.names().join(", "));
+conversations.start();
 
 let shuttingDown = false;
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    conversations.stop();
     void remote.closeAll().then(() => jobs.stop()).then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
   });
 }
 
-const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs }));
-attachAudioWs(server, { registry });
+const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations }));
+attachAudioWs(server, { registry, conversations });
 remote.attach(server);
 
 server.listen(settings.port, settings.host, () =>

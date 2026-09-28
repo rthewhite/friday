@@ -31,7 +31,7 @@ Every page uses `PageLayout` with an `eyebrow` (section name: Assistant, Modules
 | `Chip` | small mono pill for ids |
 | `Badge` | rounded label, `tone` |
 | `Drawer` | right-hand panel, `v-model:open`, `title`, `subtitle`, `footer` slot, Escape and overlay close |
-| `Icon` | inline SVG by name (mic, grid, play, settings, key, refresh, plus, close, chevron, server, link); unknown names render as text so emoji still work |
+| `Icon` | inline SVG by name (mic, chat, keyboard, grid, play, settings, key, refresh, plus, close, chevron, server, link); unknown names render as text so emoji still work |
 
 ## Dates and times
 

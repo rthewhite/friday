@@ -8,6 +8,7 @@ import { LlmError, type ModuleLlm } from "./llm.js";
 import type { ModuleConfig, ModuleContext, ModuleLogger, ModuleManifest } from "./module.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ModuleStorage } from "./storage.js";
+import type { ModuleConversations } from "./conversations.js";
 import type { Tool } from "./tool.js";
 
 export type Env = Record<string, string | undefined>;
@@ -65,6 +66,8 @@ export interface ContextOptions {
   jobs?: ModuleJobs;
   /** Text generation; defaults to a facade that rejects with `unavailable` (hosts without a model provider). */
   llm?: ModuleLlm;
+  /** Conversation store access; defaults to one that fails (hosts without a store, like the remote runner). */
+  conversations?: ModuleConversations;
 }
 
 export function createContext(manifest: ModuleManifest, o: ContextOptions): ModuleContext {
@@ -84,5 +87,15 @@ export function createContext(manifest: ModuleManifest, o: ContextOptions): Modu
       trigger: () => ({ started: false }),
     },
     llm: o.llm ?? { generate: async () => { throw new LlmError("unavailable", "text generation is not available in this host"); } },
+    conversations: o.conversations ?? noConversations(manifest.id),
+  };
+}
+
+function noConversations(id: string): ModuleConversations {
+  const error = () => new Error(`${id}: conversations are not available in this host`);
+  return {
+    list: async () => { throw error(); },
+    get: async () => { throw error(); },
+    onQuiet: () => { throw error(); },
   };
 }

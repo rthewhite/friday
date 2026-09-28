@@ -14,7 +14,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   const db = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
-  assert.deepEqual(tables, ["config_values", "job_runs", "job_state", "module_keys", "module_kv", "schema_version"]);
+  assert.deepEqual(tables, ["config_values", "conversation_entries", "conversations", "job_runs", "job_state", "module_keys", "module_kv", "schema_version"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -63,4 +63,25 @@ test("module storage isolates namespaces and round-trips JSON", async () => {
   const reopened = new SqliteModuleStorage(openDatabase(dir, "friday.db", quiet), "a");
   assert.deepEqual(await reopened.get("last"), { n: 1 });
   assert.equal(await reopened.get("missing"), undefined);
+});
+
+test("an existing database gains the conversation tables, their indexes and the cascading foreign key", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  migrate(old, migrations.filter((m) => m.version < 4), quiet);
+  old.prepare("INSERT INTO module_kv (module_id, key, value_json, updated_at) VALUES ('a', 'k', '1', 'now')").run();
+  assert.ok(schemaVersion(old) < 4);
+  old.close();
+
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
+  assert.equal((db.prepare("SELECT value_json FROM module_kv").get() as { value_json: string }).value_json, "1");
+  const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='conversations' AND sql IS NOT NULL ORDER BY name").all() as { name: string }[]).map((i) => i.name);
+  assert.deepEqual(indexes, ["conversations_last_activity", "conversations_quiet"]);
+  db.prepare("INSERT INTO conversations (id, channel, started_at, last_activity_at) VALUES ('c', 'voice', 'x', 'x')").run();
+  db.prepare("INSERT INTO conversation_entries (conversation_id, seq, kind, text, at) VALUES ('c', 1, 'user', 'hi', 'x')").run();
+  assert.throws(() => db.prepare("INSERT INTO conversation_entries (conversation_id, seq, kind, at) VALUES ('nope', 1, 'user', 'x')").run(), /FOREIGN KEY/);
+  db.prepare("DELETE FROM conversations WHERE id = 'c'").run();
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM conversation_entries").get() as { n: number }).n, 0);
+  db.close();
 });

@@ -15,11 +15,23 @@ import { createResolver } from "../src/secrets/resolver.js";
 import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "../src/remote/key-store.js";
 import { RemoteHost } from "../src/remote/host.js";
 import { SqliteModuleStorage } from "../src/storage/module-kv.js";
+import { ConversationStore } from "../src/conversations/store.js";
 import { waitFor } from "./helpers.js";
 import { JobStore } from "../src/jobs/store.js";
 import { Scheduler } from "../src/jobs/scheduler.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
+
+/** One recorded voice exchange through a recorder; returns the recorder (still live unless `end`). */
+function talk(store: ConversationStore, end?: string) {
+  const r = store.recorder({ channel: "voice", device: "kitchen" });
+  r.user(" Play Dune.", "speech");
+  r.tool("media_play", { query: "Dune" }).result({ playing: "Dune" });
+  r.assistant("Playing Dune.");
+  r.turnComplete();
+  if (end) r.end(end);
+  return r;
+}
 
 async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string } = {}) {
   const db = new DatabaseSync(":memory:");
@@ -35,16 +47,79 @@ async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string
   const plain = defineModule({ manifest: { id: "plain", label: "Plain", config: [{ key: "HA_URL", required: true, description: "also here" }] }, init() {} });
   await host.load([media, plain]);
   const keys = new SqliteKeyStore(db);
+  const conversations = new ConversationStore(db, { log: quiet });
   const remote = new RemoteHost({ registry, keys: new CompositeKeyStore([keys, new EnvKeyStore(opts.envKeys)]), pingMs: 0, log: quiet });
-  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, quiet), remote, webDir: "/nonexistent", configStore, keys, env }));
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, quiet), remote, webDir: "/nonexistent", configStore, keys, env, conversations }));
   remote.attach(server);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
   const base = `http://127.0.0.1:${port}`;
   const j = (path: string, init?: RequestInit) => fetch(base + path, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
-  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, registry, remote, close: async () => { await remote.closeAll(); server.close(); await once(server, "close"); } };
+  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, registry, remote, conversations, close: async () => { await remote.closeAll(); server.close(); await once(server, "close"); } };
 }
+
+test("conversations: list summary shape and the full conversation with entries", async () => {
+  const s = await start();
+  try {
+    const id = talk(s.conversations, "ended: done").conversationId!;
+    const list = await (await s.j("/api/conversations")).json();
+    assert.equal(list.next, null);
+    assert.equal(list.conversations.length, 1);
+    const c = list.conversations[0];
+    assert.match(c.startedAt, /^\d{4}-/);
+    assert.deepEqual(c, {
+      id, channel: "voice", device: "kitchen", startedAt: c.startedAt, lastActivityAt: c.lastActivityAt, endedAt: c.endedAt, endReason: "ended: done",
+      quietAt: c.quietAt, state: "quiet", entryCount: 3, preview: "Play Dune.",
+    });
+    const full = await (await s.j(`/api/conversations/${id}`)).json();
+    assert.deepEqual(full.entries.map(({ seq, at, ...e }: any) => e), [
+      { kind: "user", input: "speech", text: "Play Dune." },
+      { kind: "tool", name: "media_play", args: { query: "Dune" }, result: { playing: "Dune" }, truncated: false },
+      { kind: "assistant", text: "Playing Dune.", interrupted: false },
+    ]);
+    assert.equal((await s.j("/api/conversations/nope")).status, 404);
+    assert.equal((await s.j("/api/conversations/nope", { method: "DELETE" })).status, 404);
+    assert.equal((await s.j("/api/conversations?before=garbage")).status, 400);
+  } finally {
+    await s.close();
+  }
+});
+
+test("conversations: paging over 120 rows with the before cursor", async () => {
+  const s = await start();
+  try {
+    for (let i = 0; i < 120; i++) s.conversations.create({ channel: "chat" });
+    const first = await (await s.j("/api/conversations")).json();
+    assert.equal(first.conversations.length, 50);
+    const second = await (await s.j(`/api/conversations?before=${encodeURIComponent(first.next)}`)).json();
+    assert.equal(second.conversations.length, 50);
+    const third = await (await s.j(`/api/conversations?limit=50&before=${encodeURIComponent(second.next)}`)).json();
+    assert.equal(third.conversations.length, 20);
+    assert.equal(third.next, null);
+    const ids = [...first.conversations, ...second.conversations, ...third.conversations].map((c: any) => c.id);
+    assert.equal(new Set(ids).size, 120);
+    assert.equal((await (await s.j("/api/conversations?limit=7")).json()).conversations.length, 7);
+  } finally {
+    await s.close();
+  }
+});
+
+test("conversations: DELETE answers 409 while the session records, then 204, then the conversation is gone", async () => {
+  const s = await start();
+  try {
+    const r = talk(s.conversations);
+    const id = r.conversationId!;
+    const live = await s.j(`/api/conversations/${id}`, { method: "DELETE" });
+    assert.equal(live.status, 409);
+    assert.equal((await s.j(`/api/conversations/${id}`)).status, 200);
+    r.end("client closed");
+    assert.equal((await s.j(`/api/conversations/${id}`, { method: "DELETE" })).status, 204);
+    assert.equal((await s.j(`/api/conversations/${id}`)).status, 404);
+  } finally {
+    await s.close();
+  }
+});
 
 test("config listing, set, reload, delete; plain values are visible, secrets never leave the server", async () => {
   const s = await start({ env: { HA_URL: "http://env-ha", HA_TOKEN: "env-tok" } });

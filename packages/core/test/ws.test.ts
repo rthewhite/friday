@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { startHarness, StubSession, waitFor } from "./helpers.js";
+import { setup } from "./conversation-fixtures.js";
 
 test("smoke: server starts and accepts a connection", async () => {
   const h = await startHarness();
@@ -36,6 +37,50 @@ test("connection without device parameter behaves as before", async () => {
     await waitFor(() => h.logs.some((l) => l === "ws: session open"));
     ws.close();
     await once(ws, "close");
+  } finally {
+    await h.close();
+  }
+});
+
+/** Say one exchange through the stub's recorder, as GeminiSession would, and return the stored conversation. */
+async function recordOne(query: string) {
+  const { store } = setup();
+  const h = await startHarness({ conversations: store });
+  try {
+    const ws = await h.connect(query);
+    await waitFor(() => StubSession.instances.length === 1);
+    const r = StubSession.instances[0].recorder!;
+    r.user(" Hi", "speech");
+    r.assistant("Hello.");
+    r.turnComplete();
+    r.end("ended: no follow-up");
+    ws.close();
+    await once(ws, "close");
+    return store.get(r.conversationId!)!;
+  } finally {
+    await h.close();
+  }
+}
+
+test("the device query parameter is recorded with the connection's voice conversation", async () => {
+  const c = await recordOne("?device=kitchen&x=1");
+  assert.equal(c.channel, "voice");
+  assert.equal(c.device, "kitchen");
+  assert.equal(c.entryCount, 2);
+  assert.equal(c.endReason, "ended: no follow-up");
+});
+
+test("a connection without device parameter records a conversation without device", async () => {
+  const c = await recordOne("");
+  assert.equal(c.device, null);
+});
+
+test("without a conversation store the session gets no recorder", async () => {
+  const h = await startHarness();
+  try {
+    await h.connect();
+    await waitFor(() => StubSession.instances.length === 1);
+    assert.equal(StubSession.instances[0].recorder, undefined);
   } finally {
     await h.close();
   }

@@ -14,6 +14,7 @@ watch(() => route.fullPath, () => (open.value = false));
 const groups = ["Assistant", "Modules", "System"];
 const items = computed<NavItem[]>(() => [
   { to: "/", label: "Talk", icon: "mic", group: "Assistant" },
+  { to: "/conversations", label: "Conversations", icon: "chat", group: "Assistant" },
   { to: "/modules", label: "Modules", icon: "grid", group: "Modules" },
   ...uis
     .filter((u) => isEnabled(u.id))
