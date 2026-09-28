@@ -109,6 +109,33 @@ Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) fo
 
 The Modules page has a `Reload` button per in-process module, and `POST /api/modules/<id>/reload` does the same over HTTP. See `infra/README.md` for generating the master key and what happens if it is lost.
 
+## Background jobs
+
+Core runs scheduled work without a conversation. An in-process module declares a job in `init`:
+
+```ts
+ctx.jobs.schedule({
+  name: "nightly",                 // job id: <module id>/nightly
+  cron: "0 3 * * *",               // five-field cron in FRIDAY_TIMEZONE (default Europe/Amsterdam), or everyMs: 900_000
+  timeoutMs: 10 * 60_000,          // optional
+  run: async ({ signal, log, trigger }) => ({ summary: "deleted 12 conversations" }),
+});
+```
+
+`ctx.jobs.trigger("nightly")` starts it on demand. Remote modules have no `ctx.jobs`. Behaviour:
+
+- **No overlap.** A run that comes due while the previous one is still going is recorded as `skipped`. After a timeout, reload or shutdown the handler's `signal` is aborted, and the job doesn't run again until the handler has actually settled.
+- **Catch-up.** Core stores the due time of each job's last scheduled run. If one or more due times passed while Friday was down, the job runs once (trigger `catch-up`) `FRIDAY_JOB_CATCHUP_DELAY_MS` (30 s) after startup, then continues on its schedule. A new job waits for its first due time, and a quick module reload doesn't cause a catch-up.
+- **History.** Every run is recorded with trigger (`schedule`, `catch-up`, `manual`, `module`), start, duration, outcome (`ok`, `failed`, `skipped`, `cancelled`), summary and error; the last `FRIDAY_JOB_HISTORY` (50) runs per job are kept. A failing run never affects the schedule or the server. Runs still going when Friday is killed are marked `cancelled` at the next start.
+
+Settings > Jobs shows every job with its schedule, next run and last outcome, with the run history and `Run now` in a side panel. Over HTTP:
+
+```sh
+curl -s localhost:8080/api/jobs                                  # jobs, next run, running, last run
+curl -s localhost:8080/api/jobs/<owner>/<name>/runs              # run history, newest first
+curl -s -X POST localhost:8080/api/jobs/<owner>/<name>/run       # 202 { runId }, 409 when running, 404 unknown
+```
+
 ## Remote modules
 
 A module does not have to run inside Friday. `runRemote` from `@friday/sdk/remote` runs the same `defineModule` on another machine, dials `ws(s)://<friday>/ws/modules`, authenticates with a key, and serves its tools over MCP on that socket. While the connection is up its tools are registered as `<id>__<tool>` and listed under `/api/modules` with status `connected`; when the process stops or the network drops, they are removed. The remote reconnects with backoff (1 s to 30 s) and only gives up when Friday rejects the key.

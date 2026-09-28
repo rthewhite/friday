@@ -26,7 +26,7 @@
 ## 4. Jobs API
 
 - [x] 4.1 Add `GET /api/jobs`, `GET /api/jobs/:owner/:name/runs` and `POST /api/jobs/:owner/:name/run` (202/409/404) to `createApp`, listing only registered jobs. Verify with `platform-api.test.ts` cases for listing shape, runs newest-first, run-now 202, conflict 409, and unknown 404
-- [ ] 4.2 Document jobs (declaring, the API, catch-up and overlap behaviour) in a new README section after "Configuration, storage and keys", and verify the section's example `curl` commands against a local core
+- [x] 4.2 Document jobs (declaring, the API, catch-up and overlap behaviour) in a new README section after "Configuration, storage and keys", and verify the section's example `curl` commands against a local core
 
 ## 5. Portal Jobs page
 
