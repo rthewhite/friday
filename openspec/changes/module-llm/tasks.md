@@ -2,11 +2,11 @@
 
 ## 1. SDK contract
 
-- [ ] 1.1 Add `ajv` (the version already in the lockfile) as a direct `@friday/sdk` dependency, and verify `pnpm install` and `pnpm -r typecheck` succeed
-- [ ] 1.2 Add `packages/sdk/src/llm.ts` with the request and result types, `LlmError` (`kind`, `reason?`, `raw?`), `checkRequest()` (one of `prompt`/`messages`, the schema compiles), and `parseOutput()` (JSON parse, ajv validation with a per-schema compile cache, the MAX_TOKENS truncation check), and export them. Verify with `packages/sdk/test/llm.test.ts` covering both/neither input, an invalid schema, conforming output, an empty array, non-conforming output with the raw text carried, and truncation
-- [ ] 1.3 Add `llm` to `ModuleContext` and `createContext` (default rejects with `unavailable`, "text generation is not available in this host"), and verify a remote-runner test for that rejection
-- [ ] 1.4 Add the `llm` option to `createTestHost` (a fake function returning raw text or throwing `LlmError`, run through `checkRequest`/`parseOutput`, requests recorded in `host.llmRequests`, and `unavailable` without the option). Verify with test-host tests for a validated fake answer, a non-conforming fake answer giving `invalid_output`, recorded requests, and no fake
-- [ ] 1.5 Document `ctx.llm` in `packages/sdk/README.md` (request shape, error kinds and when to retry, Gemini's supported schema keywords, testing with a fake), and verify the example compiles by using it in `llm.test.ts`
+- [x] 1.1 Add `ajv` (the version already in the lockfile) as a direct `@friday/sdk` dependency, and verify `pnpm install` and `pnpm -r typecheck` succeed
+- [x] 1.2 Add `packages/sdk/src/llm.ts` with the request and result types, `LlmError` (`kind`, `reason?`, `raw?`), `checkRequest()` (one of `prompt`/`messages`, the schema compiles), and `parseOutput()` (JSON parse, ajv validation with a per-schema compile cache, the MAX_TOKENS truncation check), and export them. Verify with `packages/sdk/test/llm.test.ts` covering both/neither input, an invalid schema, conforming output, an empty array, non-conforming output with the raw text carried, and truncation
+- [x] 1.3 Add `llm` to `ModuleContext` and `createContext` (default rejects with `unavailable`, "text generation is not available in this host"), and verify a remote-runner test for that rejection
+- [x] 1.4 Add the `llm` option to `createTestHost` (a fake function returning raw text or throwing `LlmError`, run through `checkRequest`/`parseOutput`, requests recorded in `host.llmRequests`, and `unavailable` without the option). Verify with test-host tests for a validated fake answer, a non-conforming fake answer giving `invalid_output`, recorded requests, and no fake
+- [x] 1.5 Document `ctx.llm` in `packages/sdk/README.md` (request shape, error kinds and when to retry, Gemini's supported schema keywords, testing with a fake), and verify the example compiles by using it in `llm.test.ts`
 
 ## 2. Core provider and service
 

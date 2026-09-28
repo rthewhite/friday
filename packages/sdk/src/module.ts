@@ -1,4 +1,5 @@
 import type { ModuleHttp } from "./http.js";
+import type { ModuleLlm } from "./llm.js";
 import type { ModuleStorage } from "./storage.js";
 import type { Tool } from "./tool.js";
 
@@ -39,6 +40,8 @@ export interface ModuleContext {
   http: ModuleHttp;
   /** Persistent key-value storage namespaced to this module. Not available to remote modules. */
   storage: ModuleStorage;
+  /** Text generation through core's model. Rejects with `unavailable` in hosts without a model (remote modules). */
+  llm: ModuleLlm;
 }
 
 export interface FridayModule {

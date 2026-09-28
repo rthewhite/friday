@@ -3,6 +3,7 @@
  * later, the remote runner): config validation and context construction.
  */
 import type { ModuleHttp } from "./http.js";
+import { LlmError, type ModuleLlm } from "./llm.js";
 import type { ModuleConfig, ModuleContext, ModuleLogger, ModuleManifest } from "./module.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ModuleStorage } from "./storage.js";
@@ -59,6 +60,8 @@ export interface ContextOptions {
   log?: ModuleLogger;
   /** Route sink; defaults to a no-op that warns (used by hosts without HTTP, like the remote runner). */
   http?: ModuleHttp;
+  /** Text generation; defaults to a facade that rejects with `unavailable` (hosts without a model provider). */
+  llm?: ModuleLlm;
 }
 
 export function createContext(manifest: ModuleManifest, o: ContextOptions): ModuleContext {
@@ -73,5 +76,6 @@ export function createContext(manifest: ModuleManifest, o: ContextOptions): Modu
     log,
     http: o.http ?? { route: (method, path) => log.warn(`route ${method} ${path} ignored: this host has no HTTP server`) },
     storage: o.storage ?? unavailable("in this host"),
+    llm: o.llm ?? { generate: async () => { throw new LlmError("unavailable", "text generation is not available in this host"); } },
   };
 }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { WebSocketServer, type WebSocket } from "ws";
-import { defineModule } from "../src/index.js";
+import { defineModule, LlmError, type ModuleContext } from "../src/index.js";
 import { runRemote, CloseCode } from "../src/remote/index.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
@@ -64,5 +64,21 @@ test("stop disposes the module and stops reconnecting", async () => {
   await tick(100);
   assert.equal(core.count(), n);
   assert.equal(disposed, 1);
+  core.close();
+});
+
+test("ctx.llm is unavailable to remote modules", async () => {
+  let ctx: ModuleContext | undefined;
+  const m = defineModule({ manifest: { id: "m", label: "M" }, init: (c) => void (ctx = c) });
+  const core = await fakeCore((ws) => ws.send(JSON.stringify({ type: "welcome", id: "m" })));
+  const h = runRemote(m, { url: core.url, key: "k", log: quiet, env: {} });
+  await h.connected();
+  await assert.rejects(ctx!.llm.generate({ prompt: "hi" }), (e) => {
+    assert.ok(e instanceof LlmError);
+    assert.equal(e.kind, "unavailable");
+    assert.equal(e.message, "text generation is not available in this host");
+    return true;
+  });
+  await h.stop();
   core.close();
 });
