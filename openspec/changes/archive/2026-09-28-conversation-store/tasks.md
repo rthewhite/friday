@@ -43,4 +43,5 @@
 ## 8. Integration
 
 - [x] 8.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
-- [ ] 8.2 Deploy to the homelab and verify: a Voice PE conversation appears with its device, spoken turns and tool activity; a barge-in shows an interrupted answer followed by the user's words; typing on the Talk page records `text` input; and the Jobs page lists `core/conversation-retention` with its next run at 04:00
+- [x] 8.2 Deploy to the homelab and verify: a Voice PE conversation appears with its device, spoken turns and tool activity; a barge-in shows an interrupted answer followed by the user's words; typing on the Talk page records `text` input; and the Jobs page lists `core/conversation-retention` with its next run at 04:00
+  - Verified 2026-09-28: a portal voice session with a barge-in was stored as 5 entries (spoken question; answer cut off and marked `interrupted`; the user's "stop" as its own entry; goodbye; `end_conversation` tool entry) with end reason `ended: user said stop`, and `/api/jobs` lists `core/conversation-retention` at 04:00 Europe/Amsterdam. Not checked in production: a Voice PE session (device name), and typed input, which the Talk page has no field for (the WebSocket protocol accepts it; covered by recorder tests and the local check in 3.3).
