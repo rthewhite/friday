@@ -16,6 +16,7 @@ import type {
   ModuleConversations,
   QuietEvent,
 } from "@friday/sdk";
+import { ConversationRecorder, type RecorderLog } from "./recorder.js";
 
 /** Tool arguments and results are cut at this many characters of JSON. */
 export const MAX_TOOL_JSON = 4000;
@@ -348,5 +349,10 @@ export class ConversationStore {
     const n = (this.live.get(id) ?? 0) - 1;
     if (n > 0) this.live.set(id, n);
     else this.live.delete(id);
+  }
+
+  /** A recorder for one new conversation; nothing is stored until its first entry. */
+  recorder(meta: ConversationMeta, log?: RecorderLog): ConversationRecorder {
+    return new ConversationRecorder(this, meta, log ?? this.log);
   }
 }

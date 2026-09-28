@@ -9,8 +9,8 @@
 
 ## 2. Recorder and turn assembly
 
-- [ ] 2.1 Implement `ConversationRecorder` in `packages/core/src/conversations/recorder.ts`: lazy creation on the first entry, `user(text, input)`, `assistant(text)`, `tool(name, args)` returning a result handle, `interrupted()`, `turnComplete()`, `end(reason)`, `resume(id)`, and every store error caught and logged with the conversation id. Verify with recorder unit tests for lazy creation (no entries means no row), the end reason, and a failing store not throwing
-- [ ] 2.2 Implement the assembly state machine (fragments joined per role, pending user fragments during assistant output becoming a barge-in on `interrupted` or appended on `turnComplete`, tool entries placed at call time). Verify with replayed fragment sequences: a normal exchange, barge-in, a late user fragment, a tool call mid-turn, and two concurrent calls to the same tool
+- [x] 2.1 Implement `ConversationRecorder` in `packages/core/src/conversations/recorder.ts`: lazy creation on the first entry, `user(text, input)`, `assistant(text)`, `tool(name, args)` returning a result handle, `interrupted()`, `turnComplete()`, `end(reason)`, `resume(id)`, and every store error caught and logged with the conversation id. Verify with recorder unit tests for lazy creation (no entries means no row), the end reason, and a failing store not throwing
+- [x] 2.2 Implement the assembly state machine (fragments joined per role, pending user fragments during assistant output becoming a barge-in on `interrupted` or appended on `turnComplete`, tool entries placed at call time). Verify with replayed fragment sequences: a normal exchange, barge-in, a late user fragment, a tool call mid-turn, and two concurrent calls to the same tool
 
 ## 3. Session and transport integration
 
