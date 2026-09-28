@@ -27,15 +27,15 @@
 
 ## 3. API and startup
 
-- [ ] 3.1 Add `mcpStore` to `AppDeps` and wire `server.ts`: construct `McpServerStore(db, parseMasterKey(settings.masterKey))`, pass it to `McpSource`, and keep `await mcp.load()` after `host.load()`. Remove the `mcp.json` note from the `Dockerfile` comment. Verify that `pnpm typecheck` passes and that `pnpm --filter @friday/core start` with an empty data dir starts without MCP errors (stop the process afterwards).
-- [ ] 3.2 Add `GET /api/mcp/servers` (`{ secretsEnabled, servers }`, each server being its definition merged with state and `updatedAt`) and `POST /api/mcp/servers` (201 with the entry after the connection attempt) to `packages/core/src/app.ts`. Map `McpInputError` to 400, a duplicate name to 409 and `McpStoreDisabled` to 503. Verify with `app.test.ts` tests for 201 with `loaded` and tool names against the fixture, 400 for an invalid name or missing `url`, 409 for a duplicate, and 503 for a secret value without a master key.
-- [ ] 3.3 Add `PUT /api/mcp/servers/:name` (200), `DELETE /api/mcp/servers/:name` (204) and `POST /api/mcp/servers/:name/reconnect` (200; a no-op for disabled servers), with 404 for unknown names. Verify with tests that:
+- [x] 3.1 Add `mcpStore` to `AppDeps` and wire `server.ts`: construct `McpServerStore(db, parseMasterKey(settings.masterKey))`, pass it to `McpSource`, and keep `await mcp.load()` after `host.load()`. Remove the `mcp.json` note from the `Dockerfile` comment. Verify that `pnpm typecheck` passes and that `pnpm --filter @friday/core start` with an empty data dir starts without MCP errors (stop the process afterwards).
+- [x] 3.2 Add `GET /api/mcp/servers` (`{ secretsEnabled, servers }`, each server being its definition merged with state and `updatedAt`) and `POST /api/mcp/servers` (201 with the entry after the connection attempt) to `packages/core/src/app.ts`. Map `McpInputError` to 400, a duplicate name to 409 and `McpStoreDisabled` to 503. Verify with `app.test.ts` tests for 201 with `loaded` and tool names against the fixture, 400 for an invalid name or missing `url`, 409 for a duplicate, and 503 for a secret value without a master key.
+- [x] 3.3 Add `PUT /api/mcp/servers/:name` (200), `DELETE /api/mcp/servers/:name` (204) and `POST /api/mcp/servers/:name/reconnect` (200; a no-op for disabled servers), with 404 for unknown names. Verify with tests that:
   - an edit without re-sending the secret keeps the token, which the fixture still receives;
   - a body containing `name` on PUT is ignored or rejected, so the name never changes;
   - delete removes the server from both listings;
   - reconnect turns a server that failed at startup into `loaded` once the fixture is up.
-- [ ] 3.4 Add a test that creates and updates servers with secret headers and env values, then asserts that no response body from `/api/mcp/servers` or `/api/modules` contains any secret value.
-- [ ] 3.5 Update `moduleListing` in `app.ts` so every stored server appears as `mcp:<name>` with status `loaded`, `failed` (with `error`) or `disabled`, and an empty `tools` array when not loaded. Verify with `app.test.ts` cases for failed and disabled servers.
+- [x] 3.4 Add a test that creates and updates servers with secret headers and env values, then asserts that no response body from `/api/mcp/servers` or `/api/modules` contains any secret value.
+- [x] 3.5 Update `moduleListing` in `app.ts` so every stored server appears as `mcp:<name>` with status `loaded`, `failed` (with `error`) or `disabled`, and an empty `tools` array when not loaded. Verify with `app.test.ts` cases for failed and disabled servers.
 
 ## 4. Portal: MCP servers tab
 

@@ -4,6 +4,7 @@ import { settings } from "./config.js";
 import { modules } from "./modules.js";
 import { ModuleHost } from "./module-host.js";
 import { McpSource } from "./tools/mcp.js";
+import { McpServerStore } from "./tools/mcp-store.js";
 import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "./remote/key-store.js";
 import { RemoteHost } from "./remote/host.js";
 import { openDatabase } from "./storage/db.js";
@@ -22,7 +23,9 @@ import { GeminiTextModel } from "./llm/gemini.js";
 import { LlmService } from "./llm/service.js";
 
 const db = openDatabase(settings.dataDir);
-const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
+const masterKey = parseMasterKey(settings.masterKey);
+const configStore = new ConfigStore(db, masterKey);
+const mcpStore = new McpServerStore(db, masterKey);
 if (!configStore.secretsEnabled) console.warn("secrets disabled: FRIDAY_MASTER_KEY is not set; plain configuration still works, secrets come from the environment only");
 for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
 const keys = new SqliteKeyStore(db);
@@ -51,7 +54,7 @@ const host = new ModuleHost(registry, {
   llm: (id) => llm.forOwner(id),
   conversations: (id) => conversations.forOwner(id),
 });
-const mcp = new McpSource(registry);
+const mcp = new McpSource(registry, mcpStore);
 const remote = new RemoteHost({
   registry,
   keys: new CompositeKeyStore([keys, new EnvKeyStore(settings.moduleKeys)]),
@@ -76,7 +79,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations }));
+const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations }));
 attachAudioWs(server, { registry, conversations, geminiKey });
 remote.attach(server);
 

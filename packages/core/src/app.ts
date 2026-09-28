@@ -5,6 +5,7 @@ import { extname, resolve, sep } from "node:path";
 import type { ToolRegistry } from "@friday/sdk";
 import type { ModuleEntry, ModuleHost } from "./module-host.js";
 import { mcpOwner, type McpSource } from "./tools/mcp.js";
+import { McpInputError, McpServerExists, McpStoreDisabled, parseServerInput, type McpServerStore, type StoredServer } from "./tools/mcp-store.js";
 import type { RemoteEntry, RemoteHost } from "./remote/host.js";
 import { adaptRequest, adaptResponse, readBody, Router, sendJson } from "./router.js";
 import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/config-store.js";
@@ -35,6 +36,8 @@ export interface AppDeps {
   registry: ToolRegistry;
   host: ModuleHost;
   mcp: McpSource;
+  /** MCP server definitions; without it the MCP server API answers 503. */
+  mcpStore?: McpServerStore;
   remote?: RemoteHost;
   webDir: string;
   /** Platform services; optional so tests can build a minimal app. */
@@ -126,6 +129,31 @@ export function configListing({ host, configStore, env = process.env }: Pick<App
   return [...byKey.values()];
 }
 
+/** A stored definition (secret entries without values) merged with its connection state. */
+function mcpServerEntry({ mcp }: Pick<AppDeps, "mcp">, s: StoredServer) {
+  const state = mcp.stateOf(s.name) ?? (s.enabled ? { status: "failed" as const, error: "not connected", tools: [] } : { status: "disabled" as const, tools: [] });
+  return { ...s, status: state.status, ...(state.error ? { error: state.error } : {}), tools: state.tools };
+}
+
+/** Parse the JSON body and map MCP store errors to 400 / 409 / 503. */
+async function mcpWrite(deps: AppDeps, req: IncomingMessage, res: ServerResponse, fn: (store: McpServerStore, body: unknown) => Promise<void>): Promise<void> {
+  if (!deps.mcpStore) return sendJson(res, { error: "no MCP server store" }, 503);
+  let body: unknown;
+  try {
+    body = JSON.parse((await readBody(req)) || "{}");
+  } catch {
+    return sendJson(res, { error: "invalid JSON" }, 400);
+  }
+  try {
+    await fn(deps.mcpStore, body);
+  } catch (e) {
+    if (e instanceof McpInputError) return sendJson(res, { error: e.message }, 400);
+    if (e instanceof McpServerExists) return sendJson(res, { error: e.message }, 409);
+    if (e instanceof McpStoreDisabled) return sendJson(res, { error: e.message }, 503);
+    throw e;
+  }
+}
+
 export function createApp(deps: AppDeps) {
   const webRoot = resolve(deps.webDir);
   const router = new Router()
@@ -164,6 +192,38 @@ export function createApp(deps: AppDeps) {
       deps.configStore.delete(scope, key);
       res.statusCode = 204;
       res.end();
+    })
+    .add("GET", "/api/mcp/servers", (_req, res) => {
+      const store = deps.mcpStore;
+      sendJson(res, { secretsEnabled: store?.secretsEnabled === true, servers: store?.list().map((s) => mcpServerEntry(deps, s)) ?? [] });
+    })
+    .add("POST", "/api/mcp/servers", (req, res) =>
+      mcpWrite(deps, req, res, async (store, body) => {
+        const created = store.create(parseServerInput(body));
+        await deps.mcp.apply(created.name);
+        sendJson(res, mcpServerEntry(deps, store.get(created.name)!), 201);
+      }),
+    )
+    .add("PUT", "/api/mcp/servers/:name", (req, res, { name }) =>
+      mcpWrite(deps, req, res, async (store, body) => {
+        if (!store.get(name)) return sendJson(res, { error: `unknown MCP server "${name}"` }, 404);
+        store.update(parseServerInput(body, name));
+        await deps.mcp.apply(name);
+        sendJson(res, mcpServerEntry(deps, store.get(name)!));
+      }),
+    )
+    .add("DELETE", "/api/mcp/servers/:name", async (_req, res, { name }) => {
+      if (!deps.mcpStore) return sendJson(res, { error: "no MCP server store" }, 503);
+      if (!deps.mcpStore.delete(name)) return sendJson(res, { error: `unknown MCP server "${name}"` }, 404);
+      await deps.mcp.apply(name);
+      res.statusCode = 204;
+      res.end();
+    })
+    .add("POST", "/api/mcp/servers/:name/reconnect", async (_req, res, { name }) => {
+      if (!deps.mcpStore) return sendJson(res, { error: "no MCP server store" }, 503);
+      if (!deps.mcpStore.get(name)) return sendJson(res, { error: `unknown MCP server "${name}"` }, 404);
+      await deps.mcp.apply(name);
+      sendJson(res, mcpServerEntry(deps, deps.mcpStore.get(name)!));
     })
     .add("GET", "/api/conversations", (_req, res, _params, url) => {
       if (!deps.conversations) return sendJson(res, { conversations: [], next: null });
