@@ -27,7 +27,7 @@
 
 ## 5. Retention
 
-- [ ] 5.1 Register `core/conversation-retention` (`0 4 * * *`) in `server.ts` when retention is above 0: batch deletes of 500 checking the abort signal, returning `{ summary: "deleted N conversations" }`. Verify with a job test using a fake clock (a 91-day-old conversation deleted, a thread resumed 10 days ago kept) and a test that retention 0 registers no job
+- [x] 5.1 Register `core/conversation-retention` (`0 4 * * *`) in `server.ts` when retention is above 0: batch deletes of 500 checking the abort signal, returning `{ summary: "deleted N conversations" }`. Verify with a job test using a fake clock (a 91-day-old conversation deleted, a thread resumed 10 days ago kept) and a test that retention 0 registers no job
 
 ## 6. Conversations API
 

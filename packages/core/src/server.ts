@@ -9,6 +9,7 @@ import { RemoteHost } from "./remote/host.js";
 import { openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
 import { ConversationStore } from "./conversations/store.js";
+import { registerRetention } from "./conversations/retention.js";
 import { ConfigStore } from "./secrets/config-store.js";
 import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
@@ -58,6 +59,7 @@ await mcp.load();
 if (!settings.apiKey) console.warn("GEMINI_API_KEY is not set");
 console.log(`tools (${registry.names().length}):`, registry.names().join(", "));
 conversations.start();
+registerRetention(jobs, conversations, settings.conversationRetentionDays);
 
 let shuttingDown = false;
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
