@@ -36,9 +36,9 @@
 
 ## 7. Portal Conversations page
 
-- [ ] 7.1 Add a `chat` icon to `@friday/portal-ui` `Icon.vue`, and verify it renders in the component test
-- [ ] 7.2 Add the `/conversations` route and a `Conversations` item after `Talk` in the `Assistant` group, and verify the sidebar order: Talk, Conversations
-- [ ] 7.3 Build `pages/ConversationsPage.vue`: a table (state dot, start with `formatDateTime`, channel, device, preview, entry count, duration), "Load more" using the cursor, and a drawer with the ordered transcript (spoken or typed markers, interrupted marker, collapsible tool entries with pretty JSON), the end reason, and `Delete` with confirmation. `?id=` opens the drawer. Verify `pnpm --filter @friday/portal build` passes and the page works against a local core with a recorded conversation, including delete
+- [x] 7.1 Add a `chat` icon to `@friday/portal-ui` `Icon.vue`, and verify it renders in the component test
+- [x] 7.2 Add the `/conversations` route and a `Conversations` item after `Talk` in the `Assistant` group, and verify the sidebar order: Talk, Conversations
+- [x] 7.3 Build `pages/ConversationsPage.vue`: a table (state dot, start with `formatDateTime`, channel, device, preview, entry count, duration), "Load more" using the cursor, and a drawer with the ordered transcript (spoken or typed markers, interrupted marker, collapsible tool entries with pretty JSON), the end reason, and `Delete` with confirmation. `?id=` opens the drawer. Verify `pnpm --filter @friday/portal build` passes and the page works against a local core with a recorded conversation, including delete
 
 ## 8. Integration
 
