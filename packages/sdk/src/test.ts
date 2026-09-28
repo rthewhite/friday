@@ -2,8 +2,9 @@
  * Test host: run a module against an in-memory registry with no server, no
  * Gemini and no environment leakage. `import { createTestHost } from "@friday/sdk/test"`.
  */
-import { assertConfig, createContext, type Env } from "./context.js";
+import { assertConfig, createContext, prefixedLogger, type Env } from "./context.js";
 import { RouteTable, type HttpMethod, type RouteRequest, type RouteResponse } from "./http.js";
+import { validateJob, type JobOutcome, type JobSpec, type JobTrigger } from "./jobs.js";
 import type { FridayModule, ModuleLogger } from "./module.js";
 import { ToolRegistry, type CallResult } from "./registry.js";
 import { MemoryStorage } from "./storage.js";
@@ -21,6 +22,19 @@ export interface TestResponse {
   contentType?: string;
 }
 
+/** A job the module scheduled, as the test host recorded it. */
+export interface TestJob {
+  name: string;
+  cron?: string;
+  everyMs?: number;
+}
+
+export interface TestJobRun {
+  outcome: Extract<JobOutcome, "ok" | "failed">;
+  summary?: string;
+  error?: string;
+}
+
 export interface TestHost {
   tools: string[];
   call(name: string, args?: Record<string, unknown>): Promise<CallResult>;
@@ -31,6 +45,10 @@ export interface TestHost {
   routes: string[];
   /** Invoke a module route in memory. `path` is relative to the module mount and may carry a query string. */
   request(method: HttpMethod, path: string, body?: unknown, headers?: Record<string, string>): Promise<TestResponse>;
+  /** Jobs the module scheduled. No timers run; use `runJob`. */
+  jobs: TestJob[];
+  /** Run a scheduled job's handler once (trigger `manual`) and report how it settled. */
+  runJob(name: string): Promise<TestJobRun>;
   dispose(): Promise<void>;
 }
 
@@ -43,7 +61,37 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   const registry = new ToolRegistry(log);
   const table = new RouteTable();
   const storage = new MemoryStorage();
-  await module.init(createContext(module.manifest, { env, registry, log, storage, http: { route: (method, path, handler) => table.add({ method, path, handler }) } }));
+  const id = module.manifest.id;
+  const specs = new Map<string, JobSpec>();
+  const running = new Set<string>();
+  const jobs: TestJob[] = [];
+  const runJob = async (name: string, trigger: JobTrigger): Promise<TestJobRun> => {
+    const spec = specs.get(name);
+    if (!spec) throw new Error(`job ${id}/${name} is not scheduled`);
+    running.add(name);
+    try {
+      const r = await spec.run({ signal: new AbortController().signal, log: prefixedLogger(id, log), trigger });
+      return { outcome: "ok", ...(typeof r?.summary === "string" ? { summary: r.summary } : {}) };
+    } catch (e) {
+      return { outcome: "failed", error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      running.delete(name);
+    }
+  };
+  const jobApi = {
+    schedule(spec: JobSpec) {
+      validateJob(id, spec, specs);
+      specs.set(spec.name, spec);
+      jobs.push({ name: spec.name, ...(spec.cron !== undefined ? { cron: spec.cron } : { everyMs: spec.everyMs }) });
+    },
+    trigger(name: string) {
+      if (!specs.has(name)) throw new Error(`job ${id}/${name} is not scheduled`);
+      if (running.has(name)) return { started: false };
+      void runJob(name, "module");
+      return { started: true };
+    },
+  };
+  await module.init(createContext(module.manifest, { env, registry, log, storage, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) } }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args) => registry.callTool(name, args),
@@ -75,6 +123,8 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
       if (!sent) out.status = 204;
       return out;
     },
+    jobs,
+    runJob: (name) => runJob(name, "manual"),
     dispose: async () => void (await module.dispose?.()),
   };
 }

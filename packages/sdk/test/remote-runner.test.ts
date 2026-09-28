@@ -66,3 +66,14 @@ test("stop disposes the module and stops reconnecting", async () => {
   assert.equal(disposed, 1);
   core.close();
 });
+
+test("ctx.jobs.schedule throws on the remote runner", async () => {
+  let err: unknown;
+  const m = defineModule({ manifest: { id: "m", label: "M" }, init(ctx) { try { ctx.jobs.schedule({ name: "nightly", cron: "0 3 * * *", run() {} }); } catch (e) { err = e; } } });
+  const core = await fakeCore((ws) => ws.send(JSON.stringify({ type: "welcome", id: "m" })));
+  const h = runRemote(m, { url: core.url, key: "k", log: quiet, env: {} });
+  await h.connected();
+  assert.match(String(err), /m: jobs are not available in this host/);
+  await h.stop();
+  core.close();
+});

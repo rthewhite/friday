@@ -3,6 +3,7 @@
  * later, the remote runner): config validation and context construction.
  */
 import type { ModuleHttp } from "./http.js";
+import type { ModuleJobs } from "./jobs.js";
 import type { ModuleConfig, ModuleContext, ModuleLogger, ModuleManifest } from "./module.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ModuleStorage } from "./storage.js";
@@ -59,6 +60,8 @@ export interface ContextOptions {
   log?: ModuleLogger;
   /** Route sink; defaults to a no-op that warns (used by hosts without HTTP, like the remote runner). */
   http?: ModuleHttp;
+  /** Job scheduler for this module; defaults to one whose `schedule` throws (hosts without a scheduler). */
+  jobs?: ModuleJobs;
 }
 
 export function createContext(manifest: ModuleManifest, o: ContextOptions): ModuleContext {
@@ -73,5 +76,9 @@ export function createContext(manifest: ModuleManifest, o: ContextOptions): Modu
     log,
     http: o.http ?? { route: (method, path) => log.warn(`route ${method} ${path} ignored: this host has no HTTP server`) },
     storage: o.storage ?? unavailable("in this host"),
+    jobs: o.jobs ?? {
+      schedule: () => { throw new Error(`${manifest.id}: jobs are not available in this host`); },
+      trigger: () => ({ started: false }),
+    },
   };
 }

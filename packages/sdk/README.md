@@ -39,8 +39,37 @@ export default defineModule({
 | `config.get(key)` | Value or `undefined`. Read lazily inside handlers rather than at `init` so later changes are picked up. |
 | `config.require(key)` | Value or throws `<id>: <key> is not configured`. |
 | `log` | `log`, `warn`, `error`, prefixed with `[<id>]`. |
+| `jobs.schedule(job)` | Declares a background job `<id>/<name>` with a `cron` expression (in `FRIDAY_TIMEZONE`) or `everyMs` (at least 1000). Throws on an invalid declaration, so the module fails to load. In-process modules only; on the remote runner it throws `jobs are not available in this host`. |
+| `jobs.trigger(name)` | Starts one of the module's own jobs now (trigger `module`); returns `{ started: false }` when it is already running. |
 
 Mark credentials and tokens with `secret: true`. Secrets are stored encrypted and never displayed in the portal; plain keys are shown and edited inline. Retrieval is identical for both: `ctx.config.get` / `require`.
+
+A job never overlaps itself: a run that comes due while the previous one is still going is recorded as `skipped`. Its handler gets an abort signal (timeout, reload or shutdown), a logger, and the run's trigger (`schedule`, `catch-up`, `manual` or `module`), and may return a short `summary` for the run history:
+
+```ts
+const cleanup = defineModule({
+  manifest: { id: "cleanup", label: "Cleanup" },
+  init(ctx) {
+    ctx.jobs.schedule({
+      name: "nightly",
+      description: "Deletes expired items",
+      cron: "0 3 * * *",           // 03:00 in FRIDAY_TIMEZONE; or everyMs: 15 * 60_000
+      timeoutMs: 10 * 60_000,      // optional: aborts the signal and records the run as failed
+      async run({ signal, log, trigger }) {
+        let deleted = 0;
+        for (const item of ["a", "b"]) {
+          if (signal.aborted) break;   // stop promptly on timeout, reload or shutdown
+          deleted++;
+        }
+        log.log(`cleanup (${trigger}) done`);
+        return { summary: `deleted ${deleted} items` };
+      },
+    });
+  },
+});
+```
+
+A throwing handler records the run as `failed` with its message; the job runs again at its next due time. The module id `core` is reserved for core's own jobs.
 
 Rules the host enforces:
 
@@ -73,7 +102,15 @@ test("get_weather", async () => {
 });
 ```
 
-`createTestHost` initializes the module against an in-memory `ToolRegistry` with `env` as its only configuration source (`process.env` is not consulted), and rejects with the same error the real host would log when a required key is missing. Inject fakes (like `fetch`) through a factory function in your module, as `modules/media` does with `createMediaModule({ fetch })`.
+`createTestHost` initializes the module against an in-memory `ToolRegistry` with `env` as its only configuration source (`process.env` is not consulted), and rejects with the same error the real host would log when a required key is missing.
+
+Scheduled jobs are recorded without running any timers. `host.jobs` lists their names and schedules, and `host.runJob(name)` runs the handler once and resolves to `{ outcome, summary?, error? }`. Declarations are validated as core validates them, so an invalid cron expression rejects `createTestHost`:
+
+```ts
+const h = await createTestHost(cleanup);
+assert.deepEqual(h.jobs, [{ name: "nightly", cron: "0 3 * * *" }]);
+assert.deepEqual(await h.runJob("nightly"), { outcome: "ok", summary: "deleted 2 items" });
+``` Inject fakes (like `fetch`) through a factory function in your module, as `modules/media` does with `createMediaModule({ fetch })`.
 
 ## Running a module remotely
 

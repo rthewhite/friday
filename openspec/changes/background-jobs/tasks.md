@@ -2,12 +2,12 @@
 
 ## 1. SDK job contract
 
-- [ ] 1.1 Add `croner` to `@friday/sdk` dependencies and verify `pnpm install` and `pnpm -r typecheck` succeed
-- [ ] 1.2 Add job types (`JobSpec`, `JobContext`, `JobResult`, `ModuleJobs`) and `validateJob()` (kebab-case name, exactly one of `cron`/`everyMs`, `everyMs >= 1000`, cron parsed by croner, error names the job), and export them from `@friday/sdk`. Verify with unit tests in `packages/sdk/test/jobs.test.ts` covering each rejection and a valid cron and interval
-- [ ] 1.3 Reserve module id `core` in `validateManifest`, and verify a test that a manifest with id `core` is rejected
-- [ ] 1.4 Add `jobs` to `ModuleContext` and `createContext` (default: `schedule` throws `jobs are not available in this host`, `trigger` returns `{ started: false }`). Verify a remote-runner test that `ctx.jobs.schedule` throws with that message
-- [ ] 1.5 Extend `createTestHost` with `jobs` (declared names and schedules) and `runJob(name)` resolving to `{ outcome, summary?, error? }`, validating through `validateJob`. Verify with test-host tests for a successful run, a throwing handler (`failed` with message), and an invalid cron rejecting `createTestHost`
-- [ ] 1.6 Document `ctx.jobs` and `runJob` in `packages/sdk/README.md` (ModuleContext and Testing sections), and verify the example compiles by using it verbatim in `jobs.test.ts`
+- [x] 1.1 Add `croner` to `@friday/sdk` dependencies and verify `pnpm install` and `pnpm -r typecheck` succeed
+- [x] 1.2 Add job types (`JobSpec`, `JobContext`, `JobResult`, `ModuleJobs`) and `validateJob()` (kebab-case name, exactly one of `cron`/`everyMs`, `everyMs >= 1000`, cron parsed by croner, error names the job), and export them from `@friday/sdk`. Verify with unit tests in `packages/sdk/test/jobs.test.ts` covering each rejection and a valid cron and interval
+- [x] 1.3 Reserve module id `core` in `validateManifest`, and verify a test that a manifest with id `core` is rejected
+- [x] 1.4 Add `jobs` to `ModuleContext` and `createContext` (default: `schedule` throws `jobs are not available in this host`, `trigger` returns `{ started: false }`). Verify a remote-runner test that `ctx.jobs.schedule` throws with that message
+- [x] 1.5 Extend `createTestHost` with `jobs` (declared names and schedules) and `runJob(name)` resolving to `{ outcome, summary?, error? }`, validating through `validateJob`. Verify with test-host tests for a successful run, a throwing handler (`failed` with message), and an invalid cron rejecting `createTestHost`
+- [x] 1.6 Document `ctx.jobs` and `runJob` in `packages/sdk/README.md` (ModuleContext and Testing sections), and verify the example compiles by using it verbatim in `jobs.test.ts`
 
 ## 2. Core scheduler
 
