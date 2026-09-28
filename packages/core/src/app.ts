@@ -10,6 +10,7 @@ import { adaptRequest, adaptResponse, readBody, Router, sendJson } from "./route
 import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/config-store.js";
 import { statusOf } from "./secrets/resolver.js";
 import type { SqliteKeyStore } from "./remote/key-store.js";
+import type { Scheduler } from "./jobs/scheduler.js";
 import type { Env } from "@friday/sdk";
 
 const MIME: Record<string, string> = {
@@ -38,6 +39,7 @@ export interface AppDeps {
   configStore?: ConfigStore;
   keys?: SqliteKeyStore;
   env?: Env;
+  jobs?: Scheduler;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -178,6 +180,18 @@ export function createApp(deps: AppDeps) {
       deps.remote?.disconnect(moduleId);
       res.statusCode = 204;
       res.end();
+    })
+    .add("GET", "/api/jobs", (_req, res) => sendJson(res, deps.jobs?.list() ?? []))
+    .add("GET", "/api/jobs/:owner/:name/runs", (_req, res, { owner, name }) => {
+      const runs = deps.jobs?.runs(`${owner}/${name}`);
+      if (!runs) return sendJson(res, { error: `unknown job "${owner}/${name}"` }, 404);
+      sendJson(res, runs);
+    })
+    .add("POST", "/api/jobs/:owner/:name/run", (_req, res, { owner, name }) => {
+      const r = deps.jobs?.runNow(`${owner}/${name}`, "manual") ?? { status: "unknown" as const };
+      if (r.status === "unknown") return sendJson(res, { error: `unknown job "${owner}/${name}"` }, 404);
+      if (r.status === "running") return sendJson(res, { error: "job is already running" }, 409);
+      sendJson(res, { runId: r.runId }, 202);
     });
 
   const moduleRoute = async (req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> => {

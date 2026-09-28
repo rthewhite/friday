@@ -8,6 +8,7 @@ import {
   type ConfigResolver,
   type Env,
   type FridayModule,
+  type ModuleJobs,
   type ModuleLogger,
   type ModuleStorage,
   type ToolRegistry,
@@ -25,6 +26,11 @@ export interface ModuleEntry {
   ui: boolean;
 }
 
+/** A module's jobs plus the hook that removes them and cancels in-flight runs (waiting up to a grace period). */
+export interface HostJobs extends ModuleJobs {
+  removeAll(): Promise<void>;
+}
+
 export interface ModuleHostOptions {
   env?: Env;
   log?: ModuleLogger;
@@ -34,6 +40,8 @@ export interface ModuleHostOptions {
   resolve?: (moduleId: string) => ConfigResolver;
   /** Per-module persistent storage. Defaults to an unavailable stub. */
   storage?: (moduleId: string) => ModuleStorage;
+  /** Per-module job scheduler (`scheduler.forOwner`). Defaults to unavailable. */
+  jobs?: (moduleId: string) => HostJobs;
 }
 
 interface Entry {
@@ -85,7 +93,7 @@ export class ModuleHost {
       const resolve = this.resolve(id);
       assertConfig(module.manifest, resolve);
       const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id) }));
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id) }));
       entry.status = "loaded";
       entry.error = undefined;
       const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
@@ -95,6 +103,7 @@ export class ModuleHost {
       entry.error = e instanceof Error ? e.message : String(e);
       this.registry.removeOwner(id);
       routes.clear();
+      await this.opts.jobs?.(id).removeAll();
       this.log.error(`module ${id} failed to load: ${entry.error}`);
     }
   }
@@ -103,6 +112,8 @@ export class ModuleHost {
     const id = entry.module.manifest.id;
     entry.routes.clear();
     this.registry.removeOwner(id);
+    // Stop the module's timers and let in-flight runs settle before the module releases its resources.
+    await this.opts.jobs?.(id).removeAll();
     try {
       await entry.module.dispose?.();
     } catch (err) {

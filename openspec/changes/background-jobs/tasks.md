@@ -20,12 +20,12 @@
 
 ## 3. Wiring into the host and server
 
-- [ ] 3.1 Pass `jobs: (id) => scheduler.forOwner(id)` from `ModuleHost` into `createContext`. Remove the owner's jobs in `teardown` and on init failure, waiting for in-flight runs up to the grace period before `module.dispose()`. Verify `reload.test.ts` and `module-host.test.ts` cases: reload keeps history and causes no spurious catch-up, a failed init leaves no jobs, and dispose cancels a running job
-- [ ] 3.2 Create the scheduler in `server.ts` after opening the database, mark stale runs at startup, and stop it before `host.dispose()` on SIGINT/SIGTERM. Verify by starting core locally with a test module job (`everyMs: 5000`), seeing runs logged, and confirming SIGTERM records the in-flight run as `cancelled`
+- [x] 3.1 Pass `jobs: (id) => scheduler.forOwner(id)` from `ModuleHost` into `createContext`. Remove the owner's jobs in `teardown` and on init failure, waiting for in-flight runs up to the grace period before `module.dispose()`. Verify `reload.test.ts` and `module-host.test.ts` cases: reload keeps history and causes no spurious catch-up, a failed init leaves no jobs, and dispose cancels a running job
+- [x] 3.2 Create the scheduler in `server.ts` after opening the database, mark stale runs at startup, and stop it before `host.dispose()` on SIGINT/SIGTERM. Verify by starting core locally with a test module job (`everyMs: 5000`), seeing runs logged, and confirming SIGTERM records the in-flight run as `cancelled`
 
 ## 4. Jobs API
 
-- [ ] 4.1 Add `GET /api/jobs`, `GET /api/jobs/:owner/:name/runs` and `POST /api/jobs/:owner/:name/run` (202/409/404) to `createApp`, listing only registered jobs. Verify with `platform-api.test.ts` cases for listing shape, runs newest-first, run-now 202, conflict 409, and unknown 404
+- [x] 4.1 Add `GET /api/jobs`, `GET /api/jobs/:owner/:name/runs` and `POST /api/jobs/:owner/:name/run` (202/409/404) to `createApp`, listing only registered jobs. Verify with `platform-api.test.ts` cases for listing shape, runs newest-first, run-now 202, conflict 409, and unknown 404
 - [ ] 4.2 Document jobs (declaring, the API, catch-up and overlap behaviour) in a new README section after "Configuration, storage and keys", and verify the section's example `curl` commands against a local core
 
 ## 5. Portal Jobs page

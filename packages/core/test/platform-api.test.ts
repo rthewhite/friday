@@ -16,6 +16,8 @@ import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "../src/remote/ke
 import { RemoteHost } from "../src/remote/host.js";
 import { SqliteModuleStorage } from "../src/storage/module-kv.js";
 import { waitFor } from "./helpers.js";
+import { JobStore } from "../src/jobs/store.js";
+import { Scheduler } from "../src/jobs/scheduler.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 
@@ -146,5 +148,76 @@ test("keys: create returns plaintext once, listing hides it, stored key authenti
   } finally {
     await handle?.stop();
     await s.close();
+  }
+});
+
+test("jobs API: listing, runs newest first, run now 202, conflict 409, unknown 404", async () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const store = new JobStore(db);
+  const jobs = new Scheduler({ store, log: quiet, timezone: "Europe/Amsterdam", graceMs: 100 });
+  const registry = new ToolRegistry(quiet);
+  const host = new ModuleHost(registry, { env: {}, log: quiet, enabled: "brain,broken", jobs: (id) => jobs.forOwner(id) });
+  let release: (() => void) | undefined;
+  const brain = defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    init(ctx) {
+      ctx.jobs.schedule({ name: "nightly", description: "Turns transcripts into memory", cron: "0 3 * * *", run: () => new Promise<{ summary: string }>((r) => (release = () => r({ summary: "12 memories" }))) });
+      ctx.jobs.schedule({ name: "poll", everyMs: 900_000, run: () => { throw new Error("jellyfin unreachable"); } });
+    },
+  });
+  const broken = defineModule({ manifest: { id: "broken", label: "B" }, init(ctx) { ctx.jobs.schedule({ name: "x", everyMs: 1000, run() {} }); throw new Error("no"); } });
+  const off = defineModule({ manifest: { id: "off", label: "Off" }, init(ctx) { ctx.jobs.schedule({ name: "x", everyMs: 1000, run() {} }); } });
+  await host.load([brain, broken, off]);
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, quiet), webDir: "/nonexistent", jobs }));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const post = (path: string) => fetch(base + path, { method: "POST" });
+  try {
+    let list = (await (await fetch(base + "/api/jobs")).json()) as any[];
+    assert.deepEqual(list.map((j) => j.id), ["brain/nightly", "brain/poll"], "disabled and failed modules' jobs are not listed");
+    assert.deepEqual(list[0], {
+      id: "brain/nightly", owner: "brain", name: "nightly", description: "Turns transcripts into memory",
+      schedule: { cron: "0 3 * * *", timezone: "Europe/Amsterdam" }, nextRunAt: list[0].nextRunAt, running: false, lastRun: null,
+    });
+    assert.ok(Date.parse(list[0].nextRunAt) > Date.now());
+    assert.deepEqual(list[1].schedule, { everyMs: 900_000 });
+
+    assert.equal((await post("/api/jobs/brain/poll/run")).status, 202);
+    await waitFor(() => store.lastRun("brain/poll") !== undefined);
+    const started = await post("/api/jobs/brain/nightly/run");
+    assert.equal(started.status, 202);
+    const { runId } = (await started.json()) as { runId: string };
+    assert.equal((await post("/api/jobs/brain/nightly/run")).status, 409);
+    list = (await (await fetch(base + "/api/jobs")).json()) as any[];
+    assert.equal(list[0].running, true);
+    assert.match(list[0].runningSince, /^\d{4}-/);
+    assert.equal(list[1].lastRun.outcome, "failed");
+    assert.equal(list[1].lastRun.error, "jellyfin unreachable");
+    release!();
+    await waitFor(() => store.lastRun("brain/nightly") !== undefined);
+    list = (await (await fetch(base + "/api/jobs")).json()) as any[];
+    assert.equal(list[0].running, false);
+    assert.equal(list[0].lastRun.outcome, "ok");
+    assert.equal(list[0].lastRun.summary, "12 memories");
+
+    assert.equal((await post("/api/jobs/brain/nightly/run")).status, 202);
+    await waitFor(() => typeof release === "function");
+    release!();
+    await waitFor(() => store.runs("brain/nightly").every((r) => r.outcome !== "running"));
+    const runs = (await (await fetch(base + "/api/jobs/brain/nightly/runs")).json()) as any[];
+    assert.equal(runs.length, 2);
+    assert.equal(runs[1].id, runId, "newest first");
+    assert.deepEqual(Object.keys(runs[1]).sort(), ["durationMs", "finishedAt", "id", "jobId", "outcome", "startedAt", "summary", "trigger"]);
+    assert.equal(runs[1].trigger, "manual");
+
+    assert.equal((await fetch(base + "/api/jobs/brain/nope/runs")).status, 404);
+    assert.equal((await post("/api/jobs/off/x/run")).status, 404);
+    assert.equal((await post("/api/jobs/nope/x/run")).status, 404);
+  } finally {
+    await jobs.stop();
+    server.close();
+    await once(server, "close");
   }
 });

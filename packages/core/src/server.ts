@@ -13,18 +13,25 @@ import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
 import { attachAudioWs } from "./transports/ws.js";
 import { createApp } from "./app.js";
+import { JobStore } from "./jobs/store.js";
+import { Scheduler } from "./jobs/scheduler.js";
 
 const db = openDatabase(settings.dataDir);
 const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
 if (!configStore.secretsEnabled) console.warn("secrets disabled: FRIDAY_MASTER_KEY is not set; plain configuration still works, secrets come from the environment only");
 for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
 const keys = new SqliteKeyStore(db);
+const jobStore = new JobStore(db, settings.jobHistory);
+const interrupted = jobStore.markInterrupted(Date.now());
+if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
+const jobs = new Scheduler({ store: jobStore, timezone: settings.timezone, catchupDelayMs: settings.jobCatchupDelayMs });
 
 const registry = new ToolRegistry();
 const host = new ModuleHost(registry, {
   enabled: process.env.FRIDAY_MODULES,
   resolve: createResolver(configStore, process.env),
   storage: (id) => new SqliteModuleStorage(db, id),
+  jobs: (id) => jobs.forOwner(id),
 });
 const mcp = new McpSource(registry);
 const remote = new RemoteHost({
@@ -44,11 +51,11 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    void remote.closeAll().then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
+    void remote.closeAll().then(() => jobs.stop()).then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
   });
 }
 
-const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env }));
+const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs }));
 attachAudioWs(server, { registry });
 remote.attach(server);
 

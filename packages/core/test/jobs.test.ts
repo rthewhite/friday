@@ -4,45 +4,10 @@ import { DatabaseSync } from "node:sqlite";
 import type { JobContext, JobSpec, ModuleLogger } from "@friday/sdk";
 import { migrate, migrations } from "../src/storage/db.js";
 import { JobStore } from "../src/jobs/store.js";
-import { MAX_TIMER_MS, Scheduler, type Clock } from "../src/jobs/scheduler.js";
+import { MAX_TIMER_MS, Scheduler } from "../src/jobs/scheduler.js";
+import { FakeClock } from "./fake-clock.js";
 
 const quiet = { log() {} };
-const flush = () => new Promise<void>((r) => setImmediate(r));
-
-/** Deterministic time: timers fire in due order at their exact time while `advance` walks the clock forward. */
-class FakeClock implements Clock {
-  private seq = 0;
-  timers = new Map<number, { at: number; fn: () => void; seq: number }>();
-  constructor(public t: number) {}
-  now = () => this.t;
-  setTimeout = (fn: () => void, ms: number) => {
-    const id = ++this.seq;
-    this.timers.set(id, { at: this.t + ms, fn, seq: id });
-    return id;
-  };
-  clearTimeout = (id: unknown) => void this.timers.delete(id as number);
-  /** A promise that resolves after `ms` of fake time; handlers use it to "take" time. */
-  sleep = (ms: number, signal?: AbortSignal) =>
-    new Promise<void>((resolve, reject) => {
-      const id = this.setTimeout(resolve, ms);
-      signal?.addEventListener("abort", () => { this.clearTimeout(id); reject(signal.reason); });
-    });
-  async advance(ms: number): Promise<void> {
-    const end = this.t + ms;
-    for (;;) {
-      await flush();
-      const due = [...this.timers.entries()].filter(([, x]) => x.at <= end).sort(([, a], [, b]) => a.at - b.at || a.seq - b.seq)[0];
-      if (!due) break;
-      this.timers.delete(due[0]);
-      this.t = due[1].at;
-      due[1].fn();
-    }
-    this.t = end;
-    await flush();
-  }
-  /** Advance to an absolute time. */
-  to = (iso: string) => this.advance(Date.parse(iso) - this.t);
-}
 
 function logger() {
   const lines: string[] = [];

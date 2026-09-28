@@ -2,6 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defineModule, ToolRegistry, type ModuleLogger } from "@friday/sdk";
 import { ModuleHost } from "../src/module-host.js";
+import { DatabaseSync } from "node:sqlite";
+import { migrate, migrations } from "../src/storage/db.js";
+import { JobStore } from "../src/jobs/store.js";
+import { Scheduler } from "../src/jobs/scheduler.js";
+import { FakeClock } from "./fake-clock.js";
 
 function logger() {
   const lines: string[] = [];
@@ -105,4 +110,52 @@ test("routes are registered per module and cleared when init fails or on dispose
   assert.equal(h.routesOf("bad"), undefined);
   await h.dispose();
   assert.equal(h.routesOf("ok")!.list().length, 0);
+});
+
+function jobHost(log: ModuleLogger) {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, { log() {} });
+  const clock = new FakeClock(Date.parse("2026-09-28T12:00:00Z"));
+  const store = new JobStore(db);
+  const scheduler = new Scheduler({ store, clock, log, catchupDelayMs: 1000, graceMs: 1000 });
+  return { clock, store, scheduler, host: new ModuleHost(new ToolRegistry(log), { env: {}, log, jobs: (id) => scheduler.forOwner(id) }) };
+}
+
+test("a module whose init fails leaves no jobs; an invalid job fails the module with the job error", async () => {
+  const { log } = logger();
+  const { host, scheduler } = jobHost(log);
+  const late = defineModule({ manifest: { id: "late", label: "Late" }, init(ctx) { ctx.jobs.schedule({ name: "tick", everyMs: 1000, run() {} }); throw new Error("no"); } });
+  const invalid = defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    init(ctx) { ctx.defineTool({ name: "recall", description: "", handler: () => ({}) }); ctx.jobs.schedule({ name: "nightly", cron: "61 * * * *", run() {} }); },
+  });
+  const reserved = defineModule({ manifest: { id: "core", label: "Core" }, init() {} });
+  await host.load([late, invalid, reserved]);
+  assert.deepEqual(scheduler.list(), []);
+  const [l, b, c] = host.loaded();
+  assert.equal(l.status, "failed");
+  assert.equal(b.status, "failed");
+  assert.match(b.error!, /job brain\/nightly: invalid cron "61 \* \* \* \*"/);
+  assert.deepEqual(b.tools, []);
+  assert.equal(c.status, "failed");
+  assert.match(c.error!, /module id "core" is reserved/);
+});
+
+test("dispose cancels a running job before module.dispose runs", async () => {
+  const { log } = logger();
+  const { host, scheduler, store } = jobHost(log);
+  const order: string[] = [];
+  const m = defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    init(ctx) {
+      ctx.jobs.schedule({ name: "nightly", cron: "0 3 * * *", run: ({ signal }) => new Promise<void>((_, reject) => signal.addEventListener("abort", () => { order.push("aborted"); reject(signal.reason); })) });
+    },
+    dispose: () => void order.push("dispose"),
+  });
+  await host.load([m]);
+  assert.equal(scheduler.runNow("brain/nightly").status, "started");
+  await host.dispose();
+  assert.deepEqual(order, ["aborted", "dispose"]);
+  assert.equal(store.runs("brain/nightly")[0].outcome, "cancelled");
+  assert.deepEqual(scheduler.list(), []);
 });
