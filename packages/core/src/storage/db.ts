@@ -11,6 +11,41 @@ export interface Migration {
 
 export const migrations: Migration[] = [
   {
+    version: 4,
+    name: "conversations",
+    // Transcript text only. preview and entry_count are kept on the conversation so listing never reads entries.
+    sql: `
+      CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        channel TEXT NOT NULL,
+        device TEXT,
+        started_at TEXT NOT NULL,
+        last_activity_at TEXT NOT NULL,
+        ended_at TEXT,
+        end_reason TEXT,
+        quiet_at TEXT,
+        entry_count INTEGER NOT NULL DEFAULT 0,
+        preview TEXT
+      );
+      CREATE INDEX conversations_last_activity ON conversations (last_activity_at DESC);
+      CREATE INDEX conversations_quiet ON conversations (quiet_at);
+      CREATE TABLE conversation_entries (
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        input TEXT,
+        text TEXT,
+        interrupted INTEGER NOT NULL DEFAULT 0,
+        tool_name TEXT,
+        tool_args TEXT,
+        tool_result TEXT,
+        truncated INTEGER NOT NULL DEFAULT 0,
+        at TEXT NOT NULL,
+        PRIMARY KEY (conversation_id, seq)
+      );
+    `,
+  },
+  {
     version: 2,
     name: "plain-config-values",
     // Existing rows are all encrypted; they stay secret until the user re-saves them as plain.

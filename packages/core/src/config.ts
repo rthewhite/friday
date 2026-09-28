@@ -19,6 +19,10 @@ export const settings = {
   wsPingMs: Number(process.env.FRIDAY_WS_PING_MS ?? 20000),
   /** Directory for friday.db (SQLite). The image sets /data; dev defaults to ./data. */
   dataDir: process.env.FRIDAY_DATA_DIR ?? "./data",
+  /** Delete conversations whose last activity is older than this many days (nightly). 0 keeps them forever. */
+  conversationRetentionDays: Number(process.env.FRIDAY_CONVERSATION_RETENTION_DAYS ?? 90),
+  /** A conversation without activity for this many minutes goes quiet. */
+  conversationQuietMinutes: Number(process.env.FRIDAY_CONVERSATION_QUIET_MINUTES ?? 30),
   /** 32-byte base64 key that encrypts stored configuration values. Unset disables the config store. */
   masterKey: process.env.FRIDAY_MASTER_KEY,
   /** `<id>=<key>,...` pairs that let remote modules register on /ws/modules (fallback to portal-issued keys). */
