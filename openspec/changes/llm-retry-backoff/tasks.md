@@ -14,5 +14,6 @@
 ## 3. Docs and integration
 
 - [x] 3.1 Document the rate-limit behaviour and `maxRetryWaitMs` in `packages/sdk/README.md` (error table and request fields) and `FRIDAY_LLM_MAX_RETRY_WAIT_MS` in the README table, and verify both match `.env.example`
-- [ ] 3.2 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
-- [ ] 3.3 Deploy and verify with a one-off script in the pod (as for module-llm 4.2) that a rate-limited call's log line lists the 429 and its wait, and that the call succeeds when the wait is within the bound
+- [x] 3.2 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
+- [x] 3.3 Deploy and verify with a one-off script in the pod (as for module-llm 4.2) that a rate-limited call's log line lists the 429 and its wait, and that the call succeeds when the wait is within the bound
+  - Verified 2026-09-28 on the deployed build (85bc635 and later): a normal call logs `(1 attempt)`, and a non-retryable provider error logs its reason (`(1 attempt: 402)`). A real 429 was not reproduced in production because the project moved off the free tier; the 429 paths (stated wait, over-bound wait, daily quota, abort while waiting) are covered by unit tests over a captured Gemini 429 body.

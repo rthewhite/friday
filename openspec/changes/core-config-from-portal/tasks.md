@@ -19,4 +19,5 @@
 ## 4. Integration
 
 - [x] 4.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
-- [ ] 4.2 Deploy, save the working key on Settings > Configuration > Secrets for `core`, and verify with the one-off check in the pod that a text-generation call succeeds and a voice session opens, without a restart
+- [x] 4.2 Deploy, save the working key on Settings > Configuration > Secrets for `core`, and verify with the one-off check in the pod that a text-generation call succeeds and a voice session opens, without a restart
+  - Verified 2026-09-28 after deploying fdf8722: a new key saved on the Secrets tab (scope `core`, different from the env key) served a text-generation call in the pod (`ok ... 1.6s (1 attempt)`, key source portal) and a voice session (`gemini session open (gemini-3.8-live, 93 tools ...)`), without a restart.
