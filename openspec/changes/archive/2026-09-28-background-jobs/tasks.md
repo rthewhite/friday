@@ -38,3 +38,4 @@
 
 - [x] 6.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace and verify both pass
 - [ ] 6.2 Deploy to the homelab and verify with a temporary verification job (removed afterwards): the Jobs page loads, a `cron` job runs at its due time in Amsterdam time, and restarting the pod across a due time produces exactly one `catch-up` run
+  - Partly verified 2026-09-28 in production: `/api/jobs` lists `core/conversation-retention` (`0 4 * * *`, Europe/Amsterdam, next run 04:00), and after backdating its last due time and restarting the pod it ran exactly once with trigger `catch-up` (ok, deleted 0 conversations). Left open, to be checked by the user: the scheduled 04:00 run on 2026-09-29, and a look at the Jobs page.
