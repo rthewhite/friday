@@ -45,6 +45,8 @@ export interface AudioWsOptions {
   maxPayload?: number;
   /** Records each connection as a `voice` conversation. Without it nothing is recorded. */
   conversations?: Pick<ConversationStore, "recorder">;
+  /** Gemini API key for new default sessions, resolved when each opens. Defaults to the environment. */
+  geminiKey?: () => string | undefined;
 }
 
 /** Mount the audio WebSocket on an HTTP server at /ws/audio. */
@@ -62,7 +64,7 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     opts.createSession ??
     ((onEvent, recorder) => {
       if (!opts.registry) throw new Error("attachAudioWs needs a registry or createSession");
-      return new GeminiSession(onEvent, opts.registry, { recorder });
+      return new GeminiSession(onEvent, opts.registry, { recorder, geminiKey: opts.geminiKey });
     });
   const recorder = opts.conversations?.recorder({ channel: "voice", device });
 

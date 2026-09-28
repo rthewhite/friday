@@ -33,6 +33,9 @@ function talk(store: ConversationStore, end?: string) {
   return r;
 }
 
+/** Entries requested by modules (the tests below predate core's own keys). */
+const moduleEntries = (cfg: { entries: Array<{ modules: Array<{ id: string }> }> }) => cfg.entries.filter((e) => !e.modules.some((m) => m.id === "core"));
+
 async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string } = {}) {
   const db = new DatabaseSync(":memory:");
   migrate(db, migrations, quiet);
@@ -56,7 +59,7 @@ async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string
   const port = (server.address() as { port: number }).port;
   const base = `http://127.0.0.1:${port}`;
   const j = (path: string, init?: RequestInit) => fetch(base + path, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
-  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, registry, remote, conversations, close: async () => { await remote.closeAll(); server.close(); await once(server, "close"); } };
+  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, registry, remote, conversations, configStore, close: async () => { await remote.closeAll(); server.close(); await once(server, "close"); } };
 }
 
 test("conversations: list summary shape and the full conversation with entries", async () => {
@@ -126,7 +129,7 @@ test("config listing, set, reload, delete; plain values are visible, secrets nev
   try {
     let cfg = await (await s.j("/api/config")).json();
     assert.equal(cfg.secretsEnabled, true);
-    assert.deepEqual(cfg.entries, [
+    assert.deepEqual(moduleEntries(cfg), [
       { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "pending" },
       { key: "HA_URL", secret: false, required: true, description: "also here", modules: [{ id: "media", required: false }, { id: "plain", required: true }], status: "env", value: "http://env-ha" },
       { key: "HA_TOKEN", secret: true, required: false, modules: [{ id: "media", required: false }], status: "env" },
@@ -146,9 +149,9 @@ test("config listing, set, reload, delete; plain values are visible, secrets nev
 
     cfg = await (await s.j("/api/config")).json();
     const strip = (e: any) => { const { updatedAt, ...rest } = e; assert.match(updatedAt, /^\d{4}-/); return rest; };
-    assert.deepEqual(strip(cfg.entries[0]), { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "set", scope: "media", value: "http://jf" });
-    assert.deepEqual(strip(cfg.entries[1]), { key: "HA_URL", secret: false, required: true, description: "also here", modules: [{ id: "media", required: false }, { id: "plain", required: true }], status: "set", scope: "global", value: "http://global-ha" });
-    assert.deepEqual(strip(cfg.entries[2]), { key: "HA_TOKEN", secret: true, required: false, modules: [{ id: "media", required: false }], status: "set", scope: "media" });
+    assert.deepEqual(strip(moduleEntries(cfg)[0]), { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "set", scope: "media", value: "http://jf" });
+    assert.deepEqual(strip(moduleEntries(cfg)[1]), { key: "HA_URL", secret: false, required: true, description: "also here", modules: [{ id: "media", required: false }, { id: "plain", required: true }], status: "set", scope: "global", value: "http://global-ha" });
+    assert.deepEqual(strip(moduleEntries(cfg)[2]), { key: "HA_TOKEN", secret: true, required: false, modules: [{ id: "media", required: false }], status: "set", scope: "media" });
     assert.deepEqual(strip(cfg.entries.at(-1)), { key: "EXTRA_SECRET", secret: true, required: false, modules: [], status: "set", scope: "global" });
     assert.ok(!JSON.stringify(cfg).includes("tok") && !JSON.stringify(cfg).includes("shh"), "secret values are not returned");
 
@@ -176,9 +179,9 @@ test("no master key: secretsEnabled=false, plain PUT works, secret PUT answers 5
   try {
     const cfg = await (await s.j("/api/config")).json();
     assert.equal(cfg.secretsEnabled, false);
-    assert.deepEqual(cfg.entries[0], { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "env", value: "http://env" });
+    assert.deepEqual(moduleEntries(cfg)[0], { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "env", value: "http://env" });
     assert.equal((await s.j("/api/config/media/JELLYFIN_URL", { method: "PUT", body: JSON.stringify({ value: "http://stored" }) })).status, 204);
-    assert.equal(((await (await s.j("/api/config")).json()).entries[0]).value, "http://stored");
+    assert.equal(moduleEntries(await (await s.j("/api/config")).json())[0].value, "http://stored");
     const put = await s.j("/api/config/media/HA_TOKEN", { method: "PUT", body: JSON.stringify({ value: "x" }) });
     assert.equal(put.status, 503);
     assert.match((await put.json()).error, /FRIDAY_MASTER_KEY/);
@@ -294,5 +297,24 @@ test("jobs API: listing, runs newest first, run now 202, conflict 409, unknown 4
     await jobs.stop();
     server.close();
     await once(server, "close");
+  }
+});
+
+test("core requests GEMINI_API_KEY: listed as a secret, storable for core, never downgraded", async () => {
+  const s = await start({ env: { GEMINI_API_KEY: "env-key" } });
+  try {
+    const core = async () => (await (await s.j("/api/config")).json()).entries.find((e: any) => e.key === "GEMINI_API_KEY");
+    assert.deepEqual(await core(), { key: "GEMINI_API_KEY", secret: true, required: true, description: "Gemini API key for voice sessions and text generation", modules: [{ id: "core", required: true }], status: "env" });
+    assert.equal((await s.j("/api/config/core/GEMINI_API_KEY", { method: "PUT", body: JSON.stringify({ value: "portal-key" }) })).status, 204);
+    const stored = await core();
+    assert.equal(stored.status, "set");
+    assert.equal(stored.scope, "core");
+    assert.equal(stored.value, undefined);
+    assert.equal(s.configStore.info("core", "GEMINI_API_KEY")?.secret, true);
+    assert.equal((await s.j("/api/config/global/GEMINI_API_KEY", { method: "PUT", body: JSON.stringify({ value: "g", secret: false }) })).status, 204);
+    assert.equal(s.configStore.info("global", "GEMINI_API_KEY")?.secret, true);
+    assert.equal((await s.j("/api/config/nope/GEMINI_API_KEY", { method: "PUT", body: JSON.stringify({ value: "x" }) })).status, 404);
+  } finally {
+    await s.close();
   }
 });

@@ -10,6 +10,7 @@ import { openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
 import { ConversationStore } from "./conversations/store.js";
 import { registerRetention } from "./conversations/retention.js";
+import { coreConfig } from "./core-config.js";
 import { ConfigStore } from "./secrets/config-store.js";
 import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
@@ -25,6 +26,9 @@ const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
 if (!configStore.secretsEnabled) console.warn("secrets disabled: FRIDAY_MASTER_KEY is not set; plain configuration still works, secrets come from the environment only");
 for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
 const keys = new SqliteKeyStore(db);
+// Core's own key: stored for core or globally in the portal, else the environment; read at each use.
+const coreKey = coreConfig(configStore, process.env);
+const geminiKey = () => coreKey("GEMINI_API_KEY");
 const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
@@ -33,7 +37,7 @@ const conversations = new ConversationStore(db, { quietMinutes: settings.convers
 
 const registry = new ToolRegistry();
 const llm = new LlmService({
-  model: new GeminiTextModel(settings.apiKey),
+  model: new GeminiTextModel(geminiKey),
   models: { standard: settings.textModel, fast: settings.textModelFast },
   concurrency: settings.llmConcurrency,
   timeoutMs: settings.llmTimeoutMs,
@@ -57,7 +61,7 @@ const remote = new RemoteHost({
 
 await host.load(modules);
 await mcp.load();
-if (!settings.apiKey) console.warn("GEMINI_API_KEY is not set");
+if (!geminiKey()) console.warn("GEMINI_API_KEY is not set (Settings > Configuration > Secrets, or the environment)");
 console.log(`tools (${registry.names().length}):`, registry.names().join(", "));
 conversations.start();
 registerRetention(jobs, conversations, settings.conversationRetentionDays);
@@ -73,7 +77,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
 }
 
 const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations }));
-attachAudioWs(server, { registry, conversations });
+attachAudioWs(server, { registry, conversations, geminiKey });
 remote.attach(server);
 
 server.listen(settings.port, settings.host, () =>

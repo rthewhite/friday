@@ -13,6 +13,7 @@ import type { SqliteKeyStore } from "./remote/key-store.js";
 import type { Scheduler } from "./jobs/scheduler.js";
 import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore } from "./conversations/store.js";
 import type { Env } from "@friday/sdk";
+import { CORE_ID, coreManifest } from "./core-config.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -78,15 +79,18 @@ export interface ConfigEntry {
   value?: string;
 }
 
-/** True when any module declares this key as a secret. */
+/** Everything that declares configuration: core itself, then every known module. */
+const requesters = (host: ModuleHost) => [{ manifest: coreManifest }, ...host.manifests()];
+
+/** True when core or any module declares this key as a secret. */
 export function isDeclaredSecret(host: ModuleHost, key: string): boolean {
-  return host.manifests().some(({ manifest }) => manifest.config?.some((c) => c.key === key && c.secret === true));
+  return requesters(host).some(({ manifest }) => manifest.config?.some((c) => c.key === key && c.secret === true));
 }
 
-/** One entry per key: declared keys aggregated across modules, then stored global values no module declares. */
+/** One entry per key: declared keys aggregated across core and modules, then stored global values nothing declares. */
 export function configListing({ host, configStore, env = process.env }: Pick<AppDeps, "host" | "configStore" | "env">): ConfigEntry[] {
   const byKey = new Map<string, ConfigEntry>();
-  for (const { manifest } of host.manifests()) {
+  for (const { manifest } of requesters(host)) {
     for (const c of manifest.config ?? []) {
       const e = byKey.get(c.key) ?? { key: c.key, secret: false, required: false, modules: [], status: "pending" as const };
       e.modules.push({ id: manifest.id, required: c.required === true });
@@ -135,7 +139,7 @@ export function createApp(deps: AppDeps) {
     .add("GET", "/api/config", (_req, res) => sendJson(res, { secretsEnabled: deps.configStore?.secretsEnabled === true, entries: configListing(deps) }))
     .add("PUT", "/api/config/:scope/:key", async (req, res, { scope, key }) => {
       if (!deps.configStore) return sendJson(res, { error: "no configuration store" }, 503);
-      if (scope !== GLOBAL_SCOPE && !deps.host.manifests().some((m) => m.manifest.id === scope)) return sendJson(res, { error: `unknown scope "${scope}"` }, 404);
+      if (scope !== GLOBAL_SCOPE && scope !== CORE_ID && !deps.host.manifests().some((m) => m.manifest.id === scope)) return sendJson(res, { error: `unknown scope "${scope}"` }, 404);
       let body: { value?: unknown; secret?: unknown };
       try {
         body = JSON.parse((await readBody(req)) || "{}");

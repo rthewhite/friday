@@ -68,19 +68,33 @@ export function fromGeminiResponse(res: GenerateContentResponse, requested: stri
 }
 
 export class GeminiTextModel implements TextModel {
-  private client?: GenerateContent;
+  private readonly key: () => string | undefined;
+  private client?: { apiKey: string; generate: GenerateContent };
 
-  /** `generateContent` defaults to `new GoogleGenAI({ apiKey }).models.generateContent`, created on first use. */
-  constructor(private readonly apiKey: string, generateContent?: GenerateContent) {
-    this.client = generateContent;
+  /**
+   * `apiKey` is a value or a function resolved on every call (core config: core scope, global, env).
+   * `generateContent`, when given, serves every key (tests). Otherwise `clientFor` builds one client
+   * per key value, reused until the resolved key changes.
+   */
+  constructor(
+    apiKey: string | (() => string | undefined),
+    private readonly generateContent?: GenerateContent,
+    private readonly clientFor: (apiKey: string) => GenerateContent = (key) => {
+      const ai = new GoogleGenAI({ apiKey: key });
+      return (p) => ai.models.generateContent(p);
+    },
+  ) {
+    this.key = typeof apiKey === "function" ? apiKey : () => apiKey;
   }
 
   async generate(req: TextRequest, opts: { signal?: AbortSignal } = {}): Promise<TextResponse> {
-    if (!this.apiKey) throw new LlmError("unavailable", "GEMINI_API_KEY is not configured");
-    if (!this.client) {
-      const ai = new GoogleGenAI({ apiKey: this.apiKey });
-      this.client = (p) => ai.models.generateContent(p);
+    const apiKey = this.key();
+    if (!apiKey) throw new LlmError("unavailable", "GEMINI_API_KEY is not configured");
+    let generate = this.generateContent;
+    if (!generate) {
+      if (this.client?.apiKey !== apiKey) this.client = { apiKey, generate: this.clientFor(apiKey) };
+      generate = this.client.generate;
     }
-    return fromGeminiResponse(await this.client(toGeminiParams(req, opts.signal)), req.model);
+    return fromGeminiResponse(await generate(toGeminiParams(req, opts.signal)), req.model);
   }
 }

@@ -95,3 +95,19 @@ test("live: gemini answers a schema request through LlmService", { skip: live ? 
   assert.ok(!lines[0].includes("primary colors"));
   console.log(lines[0]);
 });
+
+test("the key is resolved per call; one client per key value, rebuilt when the key changes", async () => {
+  let key: string | undefined = "key-one";
+  const built: string[] = [];
+  const m = new GeminiTextModel(() => key, undefined, (k) => {
+    built.push(k);
+    return async () => ({ candidates: [{ content: { role: "model", parts: [{ text: `via ${k}` }] }, finishReason: FinishReason.STOP }] }) as GenerateContentResponse;
+  });
+  assert.equal((await m.generate({ model: "m", prompt: "a" })).text, "via key-one");
+  assert.equal((await m.generate({ model: "m", prompt: "b" })).text, "via key-one");
+  key = "key-two";
+  assert.equal((await m.generate({ model: "m", prompt: "c" })).text, "via key-two");
+  assert.deepEqual(built, ["key-one", "key-two"]);
+  key = "";
+  await assert.rejects(m.generate({ model: "m", prompt: "d" }), (e) => e instanceof LlmError && e.kind === "unavailable" && /GEMINI_API_KEY is not configured/.test(e.message));
+});

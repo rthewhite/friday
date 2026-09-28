@@ -10,10 +10,12 @@ const quiet = { log() {}, error() {} };
 
 function fakeLive() {
   const params: LiveConnectParameters[] = [];
+  const keys: string[] = [];
   const responses: unknown[] = [];
   let closed = 0;
-  const connect: LiveConnect = async (p) => {
+  const connect: LiveConnect = async (p, apiKey) => {
     params.push(p);
+    keys.push(apiKey);
     return {
       sendRealtimeInput() {},
       sendClientContent() {},
@@ -21,7 +23,7 @@ function fakeLive() {
       close: () => void closed++,
     };
   };
-  return { connect, params, responses, get closed() { return closed; } };
+  return { connect, params, keys, responses, get closed() { return closed; } };
 }
 
 function toolNames(p: LiveConnectParameters): string[] {
@@ -138,4 +140,18 @@ test("a session emits exactly the same events with and without a recorder", asyn
   const recorded = await run(true);
   assert.deepEqual(recorded.events, plain.events);
   assert.equal(recorded.entries, 5);
+});
+
+test("the Gemini key is resolved when a session opens; a later change reaches only the next session", async () => {
+  const live = fakeLive();
+  let key = "key-one";
+  const r = new ToolRegistry(quiet);
+  const s1 = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, geminiKey: () => key });
+  await s1.open();
+  key = "key-two";
+  const s2 = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, geminiKey: () => key });
+  await s2.open();
+  assert.deepEqual(live.keys, ["key-one", "key-two"]);
+  s1.close();
+  s2.close();
 });

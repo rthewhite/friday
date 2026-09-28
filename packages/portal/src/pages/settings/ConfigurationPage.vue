@@ -87,7 +87,8 @@ watch(open, (v) => { if (!v && route.query.key) router.replace({ query: { ...rou
 watch(() => route.query.key, (k) => { if (k && !open.value) openFromQuery(); });
 
 const scopeOptions = computed(() => [...(selected.value?.modules.map((m) => m.id) ?? []), "global"]);
-const canReload = computed(() => draft.value.scope !== "global");
+// Core is not a reloadable module: its keys apply to the next voice session and model call.
+const canReload = computed(() => draft.value.scope !== "global" && draft.value.scope !== "core");
 const isSecret = computed(() => (adding.value ? tab.value === "secrets" : selected.value?.secret === true));
 
 async function save(reload: boolean) {
@@ -171,10 +172,11 @@ async function run(f: () => Promise<void>) {
         </select>
       </label>
       <p v-if="isSecret" class="text-xs text-f-text-muted">Stored encrypted. Not shown again after saving.</p>
+      <p v-if="draft.scope === 'core'" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
       <template #footer>
         <Button v-if="selected?.scope" variant="danger" :disabled="busy" @click="clear">Clear</Button>
         <span class="flex-1"></span>
-        <Button variant="ghost" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(false)">Save</Button>
+        <Button :variant="canReload ? 'ghost' : undefined" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(false)">Save</Button>
         <Button v-if="canReload" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(true)">Save and reload {{ draft.scope }}</Button>
       </template>
     </Drawer>

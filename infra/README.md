@@ -45,11 +45,14 @@ printf '%s' "$PW" | gh secret set HOMELAB_REGISTRY_PASSWORD --repo $R
 
 ## 3. Application secrets in the cluster (by hand, admin kubeconfig)
 
-`friday-secrets` is loaded with `envFrom`. Two variables are required in it:
-`GEMINI_API_KEY` and `FRIDAY_MASTER_KEY`. Module configuration (Jellyfin, Home
+`friday-secrets` is loaded with `envFrom`. Only `FRIDAY_MASTER_KEY` has to be in
+it: it encrypts the configuration store, so it can't live there. The Gemini key
+(`GEMINI_API_KEY`, requested by `core`), module configuration (Jellyfin, Home
 Assistant) and remote module keys are managed in the portal under Settings and
 stored encrypted in `friday.db` on the `friday-data` PersistentVolumeClaim; the
-environment remains a fallback, so a `.env` with everything still works.
+environment remains a fallback, so a `.env` with everything still works. Core
+reads its key at each voice session and model call, so a key saved in the portal
+applies without a restart.
 `friday-mcp` is optional and is mounted as `/etc/friday/mcp.json`.
 
 ```bash
@@ -74,7 +77,9 @@ Backup: the PVC is the state. To copy the database out of the pod,
 (the image has no sqlite3 CLI; `kubectl cp` of `/data/friday.db` while the pod is
 idle works too, WAL included: copy `friday.db`, `friday.db-wal` and `friday.db-shm`).
 
-To rotate: `kubectl -n friday delete secret friday-secrets` and recreate, then
+To rotate the Gemini key: save the new one on Settings > Configuration > Secrets
+(scope `core`); no restart. To rotate anything still in the secret:
+`kubectl -n friday delete secret friday-secrets` and recreate, then
 `kubectl -n friday rollout restart deploy/friday` (env is read at start).
 
 Do not put `FRIDAY_HOST`, `FRIDAY_PORT` or `FRIDAY_MCP_CONFIG` in the secret;

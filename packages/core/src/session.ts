@@ -27,11 +27,13 @@ export type Event =
   | { kind: "tool_result"; data: { name: string; result: unknown } }
   | { kind: "closed"; data?: string };
 
-/** The subset of the Live API the session uses; tests inject a fake. */
-export type LiveConnect = (params: LiveConnectParameters) => Promise<Pick<Session, "sendRealtimeInput" | "sendClientContent" | "sendToolResponse" | "close">>;
+/** The subset of the Live API the session uses; tests inject a fake. `apiKey` is the key resolved at open. */
+export type LiveConnect = (params: LiveConnectParameters, apiKey: string) => Promise<Pick<Session, "sendRealtimeInput" | "sendClientContent" | "sendToolResponse" | "close">>;
 
 export interface SessionOptions {
   connect?: LiveConnect;
+  /** Gemini API key, resolved once when the session opens (core config: core scope, global, env). */
+  geminiKey?: () => string | undefined;
   log?: Pick<Console, "log" | "error">;
   /** Records the conversation (transcripts, typed input, tools, end reason). Never changes what is emitted. */
   recorder?: ConversationRecorder;
@@ -55,8 +57,8 @@ export class GeminiSession {
   }
 
   async open(): Promise<void> {
-    const connect: LiveConnect =
-      this.opts.connect ?? ((p) => new GoogleGenAI({ apiKey: settings.apiKey }).live.connect(p));
+    const connect: LiveConnect = this.opts.connect ?? ((p, apiKey) => new GoogleGenAI({ apiKey }).live.connect(p));
+    const apiKey = (this.opts.geminiKey ?? (() => settings.apiKey))() ?? "";
     const decls = this.registry.declarations() as FunctionDeclaration[];
     this.session = await connect({
       model: settings.model,
@@ -82,7 +84,7 @@ export class GeminiSession {
         onerror: (e) => this.log.error("gemini error", e.message),
         onclose: (e) => this.emitClosed(e.reason),
       },
-    });
+    }, apiKey);
     this.log.log(`gemini session open (${settings.model}, ${decls.length} tools, vad ${settings.vadStartSensitivity}/${settings.vadPrefixPaddingMs}ms)`);
   }
 
