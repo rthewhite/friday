@@ -60,7 +60,7 @@
 
 ## 6. Integration and rollout
 
-- [ ] 6.1 Run `pnpm typecheck` and `pnpm test` in the foreground and verify both pass.
+- [x] 6.1 Run `pnpm typecheck` and `pnpm test` in the foreground and verify both pass.
 - [ ] 6.2 Run `pnpm dev` locally against a scratch `FRIDAY_DATA_DIR` with `FRIDAY_MASTER_KEY` set. Add the Home Assistant server from the local `mcp.json` through the portal, and verify `mcp:home` shows `loaded` on the Modules page and a voice session in Talk can call a `home__*` tool. Stop the dev servers afterwards.
 - [ ] 6.3 After deploying, follow the migration plan in design.md: re-enter `home` in the production portal and confirm it is `loaded`. Then, only once confirmed, delete the `friday-mcp` k8s Secret and the local `mcp.json`. Verify with `sudo -n kubectl get secret friday-mcp` returning NotFound.
 - [ ] 6.4 When archiving, update the Purpose of `openspec/specs/mcp-tools/spec.md` so it no longer says servers are configured in `mcp.json`. Verify with `openspec show mcp-tools --type spec` after archiving.

@@ -188,6 +188,29 @@ test("a rejected connection is reported without the secret, in state and in logs
   }
 });
 
+test("a wrong master key fails only the server with secrets, without logging the value", async () => {
+  const f = await startMcpFixture();
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, migrations, quiet);
+  new McpServerStore(db, randomBytes(32)).create(parseServerInput({ name: "home", transport: "http", url: f.url, headers: [{ name: "Authorization", value: TOKEN, secret: true }] }));
+  new McpServerStore(db, randomBytes(32)).create(parseServerInput({ name: "plain", transport: "http", url: f.url }));
+  const logs: string[] = [];
+  const src = new McpSource(new ToolRegistry(quiet), new McpServerStore(db, randomBytes(32)), { log: { log() {}, error: (...a: unknown[]) => logs.push(a.join(" ")) } });
+  try {
+    await src.load();
+    const [home, plain] = src.servers();
+    assert.deepEqual([home.status, plain.status], ["failed", "loaded"]);
+    assert.match(home.error!, /secret header "Authorization" cannot be decrypted/);
+    assert.ok(logs.some((l) => l.includes('server "home" failed')));
+    assert.ok(logs.every((l) => !l.includes("fixture-t0ken-value")));
+    assert.equal(f.requests.filter((h) => h.authorization).length, 0, "nothing is sent for the undecryptable server");
+  } finally {
+    await src.close();
+    await f.close();
+  }
+});
+
 test("updating a server leaves an earlier declarations snapshot unchanged", async () => {
   const f = await startMcpFixture(["turn_on", "turn_off"]);
   const { src, registry, add, put } = setup();
