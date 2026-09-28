@@ -36,6 +36,9 @@ test("parseServerInput rejects each invalid field with a 400-class error", () =>
     ["duplicate header, any case", http({ headers: [{ name: "X-A", value: "1" }, { name: "x-a", value: "2" }] }), /duplicate header/],
     ["duplicate env", { name: "fs", transport: "stdio", command: "x", env: [{ name: "A", value: "1" }, { name: "A", value: "2" }] }, /duplicate env/],
     ["entry value not a string", http({ headers: [{ name: "X-A", value: 1 }] }), /must be a string/],
+    ["header value with a newline", http({ headers: [{ name: "Authorization", value: "Bearer abc\n", secret: true }] }), /header "Authorization" contains a line break/],
+    ["header value with CR", http({ headers: [{ name: "X-A", value: "a\rb" }] }), /line break or control character/],
+    ["env value with NUL", { name: "fs", transport: "stdio", command: "x", env: [{ name: "A", value: "a\0b" }] }, /env "A" contains/],
   ];
   for (const [label, body, re] of bad) {
     assert.throws(() => parseServerInput(body), (e: unknown) => e instanceof McpInputError && re.test(e.message), label);

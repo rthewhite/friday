@@ -64,3 +64,11 @@
 - [ ] 6.2 Run `pnpm dev` locally against a scratch `FRIDAY_DATA_DIR` with `FRIDAY_MASTER_KEY` set. Add the Home Assistant server from the local `mcp.json` through the portal, and verify `mcp:home` shows `loaded` on the Modules page and a voice session in Talk can call a `home__*` tool. Stop the dev servers afterwards.
 - [ ] 6.3 After deploying, follow the migration plan in design.md: re-enter `home` in the production portal and confirm it is `loaded`. Then, only once confirmed, delete the `friday-mcp` k8s Secret and the local `mcp.json`. Verify with `sudo -n kubectl get secret friday-mcp` returning NotFound.
 - [ ] 6.4 When archiving, update the Purpose of `openspec/specs/mcp-tools/spec.md` so it no longer says servers are configured in `mcp.json`. Verify with `openspec show mcp-tools --type spec` after archiving.
+
+## 7. Review and security fixes (from the quality gate)
+
+- [x] 7.1 Refuse cross-origin `/api/` writes: 403 on `Sec-Fetch-Site` not `same-origin`/`none`, or on an `Origin` host that differs from `Host` (design D9). Verified by `mcp-api.test.ts` (cross-site `text/plain` POST, `null` origin, same-site, reconnect and DELETE are refused; GET and same-origin writes pass) and by the headless-Chrome portal run, where every portal write passes the guard.
+- [x] 7.2 Answer 500 for unexpected route errors instead of an unhandled rejection. Verified by the `mcp-api.test.ts` test that makes `store.create` throw and checks later requests still work.
+- [x] 7.3 Make `McpSource.close()` wait for in-flight and queued applies, and turn later applies into no-ops. Verified by the `mcp.test.ts` test where close waits for a hanging connect to time out and the queued apply does not connect again.
+- [x] 7.4 Reject control characters in header values (and NUL in env values) at write time, so a connect error can't quote a malformed secret. Verified by new `parseServerInput` cases in `mcp-store.test.ts`.
+- [x] 7.5 In the portal, block Save when a stored secret is switched to plain without a value, and keep stdio args verbatim (only trailing blank lines are dropped). Verified in the headless-Chrome run.

@@ -85,6 +85,14 @@ const draft = ref(blank());
 
 const rowsOf = (list: ApiEntry[]): Row[] => list.map((e) => ({ name: e.name, value: e.secret ? "" : (e.value ?? ""), secret: e.secret, stored: e.secret }));
 const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
+/** Arguments are kept verbatim (spaces and empty arguments matter); only trailing blank lines go. */
+const argLines = (s: string) => {
+  const out = s.replace(/\r/g, "").split("\n");
+  while (out.length && out[out.length - 1] === "") out.pop();
+  return out;
+};
+/** A stored secret switched to plain has no value to fall back on, so it must be typed in. */
+const needsValue = (r: Row) => r.stored && !r.secret && !r.value;
 
 function fill(s: Server) {
   selected.value = s;
@@ -141,7 +149,7 @@ function body() {
     enabled: d.enabled,
     transport: d.transport,
     command: d.command,
-    args: lines(d.args),
+    args: argLines(d.args),
     url: d.url,
     env: toApi(d.env),
     headers: toApi(d.headers),
@@ -152,7 +160,12 @@ function body() {
   };
 }
 
-const canSave = computed(() => (adding.value ? draft.value.name.trim() !== "" : true) && (draft.value.transport === "http" ? draft.value.url.trim() : draft.value.command.trim()));
+const canSave = computed(
+  () =>
+    (adding.value ? draft.value.name.trim() !== "" : true) &&
+    !!(draft.value.transport === "http" ? draft.value.url.trim() : draft.value.command.trim()) &&
+    !entryRows.value.some(needsValue),
+);
 
 async function save() {
   await run("save", async () => {
@@ -248,7 +261,7 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
           <input
             v-model="row.value"
             :type="row.secret ? 'password' : 'text'"
-            :placeholder="row.stored ? '•••••• stored, leave blank to keep' : row.secret ? 'secret value' : 'value'"
+            :placeholder="needsValue(row) ? 'enter a value to replace the stored secret' : row.stored && row.secret ? '•••••• stored, leave blank to keep' : row.secret ? 'secret value' : 'value'"
             :disabled="row.secret && !secretsEnabled"
             autocomplete="off"
             class="surface-inset min-w-0 flex-1 px-3 py-2 font-mono text-f-text placeholder:text-f-text-muted outline-none focus:border-f-accent disabled:opacity-50"

@@ -166,6 +166,34 @@ test("a server that never answers fails with a timeout and does not block load",
   }
 });
 
+test("close waits for a reconnect in flight and leaves nothing connected", async () => {
+  const f = await startMcpFixture();
+  const { src, registry, add, put } = setup({ timeoutMs: 300 });
+  try {
+    add({ name: "home", transport: "http", url: f.url });
+    await src.load();
+    f.hangListTools = true;
+    put({ name: "home", transport: "http", url: f.url, include: ["turn_on"] });
+    const seen = f.requests.length;
+    const inFlight = src.apply("home");
+    const queued = src.apply("home");
+    // Close only once the reconnect is really talking to the (hanging) server.
+    while (f.requests.length === seen) await new Promise((r) => setTimeout(r, 5));
+    const started = Date.now();
+    await src.close();
+    const waited = Date.now() - started;
+    assert.ok(waited >= 200, `close waited for the in-flight connect to time out (${waited}ms)`);
+    assert.ok(waited < 550, `the queued apply did not connect again (${waited}ms)`);
+    assert.equal((await inFlight)!.status, "failed");
+    assert.equal((await queued)!.status, "failed");
+    assert.deepEqual(src.servers(), []);
+    assert.deepEqual(registry.names(), []);
+    assert.equal(await src.apply("home"), undefined, "apply after close does nothing");
+  } finally {
+    await f.close();
+  }
+});
+
 test("a rejected connection is reported without the secret, in state and in logs", async () => {
   const f = await startMcpFixture();
   f.rejectWith = 401;

@@ -44,6 +44,8 @@ export class McpSource {
   private readonly state = new Map<string, State>();
   /** Tail of each server's apply chain. */
   private readonly queue = new Map<string, Promise<void>>();
+  /** Set by close(); later applies do nothing, so shutdown cannot race a reconnect. */
+  private closed = false;
   private readonly timeoutMs: number;
   private readonly log: Pick<Console, "log" | "error">;
 
@@ -89,12 +91,16 @@ export class McpSource {
     return [...this.state.keys()].sort().map((n) => this.stateOf(n)!);
   }
 
+  /** Let running and queued applies finish (they no-op once closed), then drop every client. */
   async close(): Promise<void> {
+    this.closed = true;
+    while (this.queue.size) await Promise.allSettled([...this.queue.values()]);
     await Promise.allSettled([...this.state.keys()].map((n) => this.disconnect(n)));
     this.state.clear();
   }
 
   private async reconnect(name: string): Promise<void> {
+    if (this.closed) return;
     await this.disconnect(name);
     const def = this.store?.get(name);
     if (!def) {

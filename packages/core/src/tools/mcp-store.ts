@@ -145,6 +145,10 @@ function entries(v: unknown, kind: EntryKind): EntryInput[] {
     seen.add(id);
     if (e.secret !== undefined && typeof e.secret !== "boolean") throw new McpInputError(`secret of ${label(kind)} "${e.name}" must be a boolean`);
     if (e.value !== undefined && typeof e.value !== "string") throw new McpInputError(`value of ${label(kind)} "${e.name}" must be a string`);
+    // Rejected here rather than at connect time, where the error could quote (part of) a secret.
+    if (typeof e.value === "string" && (kind === "header" ? /[\0-\x08\x0a-\x1f\x7f]/ : /\0/).test(e.value)) {
+      throw new McpInputError(`value of ${label(kind)} "${e.name}" contains a line break or control character`);
+    }
     const secret = e.secret === true;
     // A blank secret means "keep what is stored".
     const value = secret && e.value === "" ? undefined : e.value;
