@@ -48,15 +48,16 @@ export interface AppDeps {
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
 
 /** In-process modules, then MCP servers, then connected remotes: the shape /api/modules returns. */
-export function moduleListing({ host, mcp, registry, remote }: Pick<AppDeps, "host" | "mcp" | "registry" | "remote">): ApiModuleEntry[] {
+export function moduleListing({ host, mcp, remote }: Pick<AppDeps, "host" | "mcp" | "remote">): ApiModuleEntry[] {
   return [
     ...host.loaded(),
-    ...mcp.servers().map((name) => ({
+    ...mcp.servers().map(({ name, status, error, tools }): ModuleEntry => ({
       id: mcpOwner(name),
       label: name,
       description: "MCP server",
-      status: "loaded" as const,
-      tools: registry.names(mcpOwner(name)),
+      status,
+      ...(error ? { error } : {}),
+      tools,
       ui: false,
     })),
     ...(remote?.connected() ?? []),

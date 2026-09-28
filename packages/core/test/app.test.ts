@@ -27,7 +27,7 @@ async function start(enabled?: string) {
     },
   });
   await host.load([builtin, media]);
-  const mcp = new McpSource(registry, quiet);
+  const mcp = new McpSource(registry, undefined, { log: quiet });
   const webDir = await mkdtemp(join(tmpdir(), "friday-web-"));
   await writeFile(join(webDir, "index.html"), "<h1>hi</h1>");
   await mkdir(join(webDir, "assets"));
@@ -81,7 +81,7 @@ test("module routes: dispatch, params, JSON body, status, 404 for unknown module
     },
   });
   await host.load([media]);
-  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, quiet), webDir: "/nonexistent" }));
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), webDir: "/nonexistent" }));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;

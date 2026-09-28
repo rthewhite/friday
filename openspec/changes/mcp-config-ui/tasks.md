@@ -10,20 +10,20 @@
 
 ## 2. `McpSource`: per-server lifecycle
 
-- [ ] 2.1 Build a test fixture helper in `packages/core/test/` that serves an SDK MCP `Server` over `StreamableHTTPServerTransport` on an ephemeral port. It should expose configurable tools, record request headers, and optionally hang on `listTools`. Verify it with a smoke test that a plain SDK `Client` can list its tools.
-- [ ] 2.2 Rewrite `McpSource` in `packages/core/src/tools/mcp.ts` to take `(registry, store, { timeoutMs, log })` and keep a per-server state map (`loaded`, `failed` with `error`, `disabled`). `load()` applies all stored servers in parallel. `servers()` returns `{ name, status, error?, tools }`. Drop the `mcp.json` reading, the `FRIDAY_MCP_CONFIG` lookup, and the file-format header comment, and describe the stored model instead. Replace the file-fixture tests in `mcp.test.ts` and verify:
+- [x] 2.1 Build a test fixture helper in `packages/core/test/` that serves an SDK MCP `Server` over `StreamableHTTPServerTransport` on an ephemeral port. It should expose configurable tools, record request headers, and optionally hang on `listTools`. Verify it with a smoke test that a plain SDK `Client` can list its tools.
+- [x] 2.2 Rewrite `McpSource` in `packages/core/src/tools/mcp.ts` to take `(registry, store, { timeoutMs, log })` and keep a per-server state map (`loaded`, `failed` with `error`, `disabled`). `load()` applies all stored servers in parallel. `servers()` returns `{ name, status, error?, tools }`. Drop the `mcp.json` reading, the `FRIDAY_MCP_CONFIG` lookup, and the file-format header comment, and describe the stored model instead. Replace the file-fixture tests in `mcp.test.ts` and verify:
   - an empty store registers nothing;
   - one unreachable server is `failed` while another is `loaded`;
   - a disabled server registers no tools;
   - the `Authorization` header resolved from a secret reaches the fixture;
   - the include, exclude, prefix and scheduling tests still pass.
-- [ ] 2.3 Implement `apply(name)`, serialized per server with a promise chain keyed by name. It removes the owner's tools, closes the old client, reloads the definition, connects if the server is enabled, and removes the state when the server has been deleted. Tools are registered only after `listTools` succeeds. Verify with tests that:
+- [x] 2.3 Implement `apply(name)`, serialized per server with a promise chain keyed by name. It removes the owner's tools, closes the old client, reloads the definition, connects if the server is enabled, and removes the state when the server has been deleted. Tools are registered only after `listTools` succeeds. Verify with tests that:
   - updating `home` leaves `fs`'s client and tools untouched;
   - two concurrent `apply("home")` calls end with exactly one client and no duplicate-name registry error;
   - deleting a server removes its tools and its entry in `servers()`.
-- [ ] 2.4 Add the `withTimeout` deadline around connect plus `listTools`. On timeout, close the client and record `timed out after <n>s`. Verify with the hanging fixture and `timeoutMs: 50` that the server is `failed` with the timeout error and `load()` resolves.
-- [ ] 2.5 Make sure errors recorded or logged for a server never contain header or env values. For HTTP errors, keep only the message. Verify with a test whose fixture rejects the request (401), asserting that neither the `error` nor the captured log output contains the token.
-- [ ] 2.6 Verify that a session snapshot is unaffected. Take `registry.declarations()`, run `apply` for an updated server, and assert the earlier snapshot is unchanged while a new `declarations()` call reflects the update.
+- [x] 2.4 Add the `withTimeout` deadline around connect plus `listTools`. On timeout, close the client and record `timed out after <n>s`. Verify with the hanging fixture and `timeoutMs: 50` that the server is `failed` with the timeout error and `load()` resolves.
+- [x] 2.5 Make sure errors recorded or logged for a server never contain header or env values. For HTTP errors, keep only the message. Verify with a test whose fixture rejects the request (401), asserting that neither the `error` nor the captured log output contains the token.
+- [x] 2.6 Verify that a session snapshot is unaffected. Take `registry.declarations()`, run `apply` for an updated server, and assert the earlier snapshot is unchanged while a new `declarations()` call reflects the update.
 
 ## 3. API and startup
 
