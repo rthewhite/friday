@@ -22,4 +22,5 @@
 ## 4. Integration
 
 - [x] 4.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
-- [ ] 4.2 Deploy to the homelab and verify with a temporary verification job (removed afterwards) that calls `ctx.llm.generate` with a schema: the run is `ok` on the Jobs page, and the core log shows one `llm:` line with the model and token counts and no content
+- [x] 4.2 Deploy to the homelab and verify with a temporary verification job (removed afterwards) that calls `ctx.llm.generate` with a schema: the run is `ok` on the Jobs page, and the core log shows one `llm:` line with the model and token counts and no content
+  - Verified 2026-09-28 with a one-off script inside the pod, using the deployed `LlmService` and `GeminiTextModel` with the pod's settings instead of a job: schema-valid JSON from `gemini-flash-latest` (`gemini-3.8-flash`), and one content-free log line `llm: [verify] ... ok in=15 out=9 think=145 22.2s (3 attempts)`. The retries came from free-tier 429s, which the follow-up change handles. The Jobs-page part will be covered by the first module job that calls `ctx.llm` (the brain).
