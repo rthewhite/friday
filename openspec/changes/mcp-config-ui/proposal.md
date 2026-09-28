@@ -12,7 +12,7 @@ MCP servers are the only part of Friday still configured through a file: `mcp.js
 - Individual header values can be marked **secret**. Secret values are encrypted with `FRIDAY_MASTER_KEY` (AES-256-GCM, like config secrets), are write-only, and are never returned by the API. When the master key is unset, saving a secret value fails with 503 and plain values keep working.
 - New API `/api/mcp/servers` to list, create, update and delete servers. Saving or deleting a server reconnects or disconnects only that server at runtime, without a restart. Open voice sessions keep their tool snapshot.
 - `GET /api/modules` reports every configured MCP server, not just the connected ones: `loaded`, `failed` with the connection error, or `disabled`.
-- The portal's `Settings > Configuration` page gets a third pill tab, `MCP servers`. It shows a table of servers (status, name, transport, tool count). Clicking a row opens a drawer for editing the definition, its headers and env (each marked plain or secret), and the filters, with `Save`, `Delete` and a connection-error display.
+- The portal's `Settings > Configuration` page gets a third pill tab, `MCP servers`. It shows a table of servers (status, name, URL, tool count). Clicking a row opens a drawer for editing the definition, its headers (each marked plain or secret), and the filters, with `Save`, `Delete` and a connection-error display.
 - The k8s manifest drops the `friday-mcp` Secret volume and the `FRIDAY_MCP_CONFIG` env var. The README and `.env.example` are updated.
 
 ## Capabilities

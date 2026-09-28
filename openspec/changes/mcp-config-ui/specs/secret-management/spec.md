@@ -34,7 +34,7 @@ The `MCP servers` tab SHALL render one table with a row per stored server: statu
 Secret rows SHALL show a masked placeholder when a value is stored and SHALL never display it. Leaving a stored secret blank SHALL keep it; switching a stored secret to plain SHALL require a new value before saving. When a server has failed, the drawer SHALL show its error. Actions SHALL be `Save`, `Reconnect` (existing enabled servers) and `Delete` (after confirmation). After an action the row SHALL show the resulting status and tool count. When `FRIDAY_MASTER_KEY` is unset, the tab SHALL show the secrets banner and new secret values SHALL NOT be accepted. `?tab=mcp&server=<name>` SHALL open the drawer for that server.
 
 #### Scenario: Add an HTTP server with a token
-- **WHEN** the user clicks `New server`, enters name `home`, picks `HTTP`, enters the URL, adds header `Authorization` with the secret toggle on and a bearer token, and saves
+- **WHEN** the user clicks `New server`, enters name `home`, enters the URL, adds header `Authorization` with the secret toggle on and a bearer token, and saves
 - **THEN** the row shows `home` as `loaded` with its tool count, and reopening the drawer shows the header masked with no value
 
 #### Scenario: Change a filter without touching the token
