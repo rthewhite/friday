@@ -14,7 +14,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   const db = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
-  assert.deepEqual(tables, ["config_values", "conversation_entries", "conversations", "job_runs", "job_state", "module_keys", "module_kv", "schema_version"]);
+  assert.deepEqual(tables, ["config_values", "conversation_entries", "conversations", "job_runs", "job_state", "mcp_server_entries", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -83,5 +83,21 @@ test("an existing database gains the conversation tables, their indexes and the 
   assert.throws(() => db.prepare("INSERT INTO conversation_entries (conversation_id, seq, kind, at) VALUES ('nope', 1, 'user', 'x')").run(), /FOREIGN KEY/);
   db.prepare("DELETE FROM conversations WHERE id = 'c'").run();
   assert.equal((db.prepare("SELECT COUNT(*) AS n FROM conversation_entries").get() as { n: number }).n, 0);
+  db.close();
+});
+
+test("a version-4 database gains the MCP server tables and entries cascade with their server", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  migrate(old, migrations.filter((m) => m.version <= 4), quiet);
+  old.close();
+
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.equal(schemaVersion(db), 5);
+  db.prepare("INSERT INTO mcp_servers (name, transport, url, created_at, updated_at) VALUES ('home', 'http', 'http://x', 'now', 'now')").run();
+  db.prepare("INSERT INTO mcp_server_entries (server, kind, name, position, secret, plaintext) VALUES ('home', 'header', 'X-A', 0, 0, 'a')").run();
+  assert.throws(() => db.prepare("INSERT INTO mcp_server_entries (server, kind, name, position, secret, plaintext) VALUES ('nope', 'header', 'X-A', 0, 0, 'a')").run(), /FOREIGN KEY/);
+  db.prepare("DELETE FROM mcp_servers WHERE name = 'home'").run();
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM mcp_server_entries").get() as { n: number }).n, 0);
   db.close();
 });

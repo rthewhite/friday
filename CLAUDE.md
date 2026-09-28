@@ -22,7 +22,7 @@ When the user runs `/opsx:apply <change>` (or asks to implement a change), do th
    ```
    Then call `EnterWorktree` with `path: .claude/worktrees/<change>`. If the worktree already exists, just enter it.
 3. Set the worktree up:
-   - `pnpm install --frozen-lockfile`
+   - `pnpm install --frozen-lockfile && pnpm -r build`. Packages import each other's `dist/`, so tests fail until the workspace is built.
    - `cp ../../../.env .env` if the main checkout has one. It's git-ignored, so worktrees don't get it.
    - `./data` is relative, so each worktree gets its own `friday.db` automatically.
 4. Follow the `/opsx:apply` skill from inside the worktree. All paths are relative to the worktree, and the main checkout is never edited during apply.
