@@ -7,8 +7,9 @@ MCP servers are the only part of Friday still configured through a file: `mcp.js
 ## What Changes
 
 - **BREAKING**: `mcp.json` and `FRIDAY_MCP_CONFIG` are removed. MCP server definitions are stored in `friday.db` (new migration) and are the only source. Existing servers must be re-entered in the portal.
-- A server definition keeps today's fields: name, transport (stdio `command`/`args`/`env` or HTTP `url`/`headers`), `include`, `exclude`, `scheduling`, `prefix`. It also gains an `enabled` flag.
-- Individual header and env values can be marked **secret**. Secret values are encrypted with `FRIDAY_MASTER_KEY` (AES-256-GCM, like config secrets), are write-only, and are never returned by the API. When the master key is unset, saving a secret value fails with 503 and plain values keep working.
+- A server definition keeps today's HTTP fields: name, `url`, `headers`, `include`, `exclude`, `scheduling`, `prefix`. It also gains an `enabled` flag.
+- **BREAKING**: stdio servers (a `command` Friday spawns) are no longer supported. The portal has no login, so defining commands there would let anyone on the network run code in Friday's container; no stdio server is in use today.
+- Individual header values can be marked **secret**. Secret values are encrypted with `FRIDAY_MASTER_KEY` (AES-256-GCM, like config secrets), are write-only, and are never returned by the API. When the master key is unset, saving a secret value fails with 503 and plain values keep working.
 - New API `/api/mcp/servers` to list, create, update and delete servers. Saving or deleting a server reconnects or disconnects only that server at runtime, without a restart. Open voice sessions keep their tool snapshot.
 - `GET /api/modules` reports every configured MCP server, not just the connected ones: `loaded`, `failed` with the connection error, or `disabled`.
 - The portal's `Settings > Configuration` page gets a third pill tab, `MCP servers`. It shows a table of servers (status, name, transport, tool count). Clicking a row opens a drawer for editing the definition, its headers and env (each marked plain or secret), and the filters, with `Save`, `Delete` and a connection-error display.
@@ -22,7 +23,7 @@ _None._ MCP configuration stays within the existing `mcp-tools` capability.
 
 ### Modified Capabilities
 
-- `mcp-tools`: "Configuration file" is replaced by database-stored server definitions with secret header/env values (encrypted with the same AES-256-GCM scheme as config secrets), a CRUD API, and per-server reconnect on change. Failure isolation now also covers runtime reconnects.
+- `mcp-tools`: "Configuration file" is replaced by database-stored HTTP server definitions with secret header values (encrypted with the same AES-256-GCM scheme as config secrets), a CRUD API, and per-server reconnect on change. Failure isolation now also covers runtime reconnects.
 - `secret-management`: "Configuration page" gains the `MCP servers` tab and its drawer.
 - `http-server`: `/api/modules` lists all configured MCP servers with `loaded`, `failed` or `disabled` status and an error, instead of always `loaded`. The startup requirement attaches MCP servers from storage.
 

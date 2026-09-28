@@ -22,23 +22,20 @@ test("parseServerInput rejects each invalid field with a 400-class error", () =>
     ["name with a space", http({ name: "home assistant" }), /name must start with a letter/],
     ["name starting with a digit", http({ name: "1home" }), /name must/],
     ["name too long", http({ name: "a".repeat(33) }), /max 32/],
-    ["unknown transport", http({ transport: "ws" }), /transport must be/],
-    ["http without url", http({ url: undefined }), /needs a url/],
+    ["no url", http({ url: undefined }), /a url is required/],
+    ["stdio server", { name: "fs", transport: "stdio", command: "npx", args: ["-y", "server"] }, /only MCP servers reachable over HTTP/],
+    ["command without transport", http({ command: "/bin/sh" }), /Friday does not start MCP server processes/],
+    ["other transport", http({ transport: "ws" }), /only MCP servers reachable over HTTP/],
     ["url not http(s)", http({ url: "file:///etc/passwd" }), /http or https/],
     ["url unparsable", http({ url: "nope" }), /not a valid URL/],
-    ["stdio without command", { name: "fs", transport: "stdio" }, /needs a command/],
-    ["args not strings", { name: "fs", transport: "stdio", command: "npx", args: [1] }, /args must be a list of strings/],
     ["include not a list", http({ include: "turn_on" }), /include must be a list/],
     ["bad scheduling", http({ scheduling: "LATER" }), /scheduling must be one of/],
     ["enabled not boolean", http({ enabled: "yes" }), /enabled must be a boolean/],
-    ["env name invalid", { name: "fs", transport: "stdio", command: "x", env: [{ name: "1BAD", value: "v" }] }, /invalid env name/],
     ["header name invalid", http({ headers: [{ name: "Bad Header", value: "v" }] }), /invalid header name/],
     ["duplicate header, any case", http({ headers: [{ name: "X-A", value: "1" }, { name: "x-a", value: "2" }] }), /duplicate header/],
-    ["duplicate env", { name: "fs", transport: "stdio", command: "x", env: [{ name: "A", value: "1" }, { name: "A", value: "2" }] }, /duplicate env/],
     ["entry value not a string", http({ headers: [{ name: "X-A", value: 1 }] }), /must be a string/],
     ["header value with a newline", http({ headers: [{ name: "Authorization", value: "Bearer abc\n", secret: true }] }), /header "Authorization" contains a line break/],
     ["header value with CR", http({ headers: [{ name: "X-A", value: "a\rb" }] }), /line break or control character/],
-    ["env value with NUL", { name: "fs", transport: "stdio", command: "x", env: [{ name: "A", value: "a\0b" }] }, /env "A" contains/],
   ];
   for (const [label, body, re] of bad) {
     assert.throws(() => parseServerInput(body), (e: unknown) => e instanceof McpInputError && re.test(e.message), label);
@@ -52,12 +49,9 @@ test("parseServerInput takes the name from the body on create and forbids changi
   assert.throws(() => parseServerInput(http({ name: "other" }), "home"), /cannot be changed/);
 });
 
-test("parseServerInput drops the other transport's fields and treats empty values as unset", () => {
-  const h = parseServerInput(http({ command: "npx", args: ["-y"], env: [{ name: "A", value: "1" }], include: [], scheduling: "", prefix: "" }));
-  assert.deepEqual(h, { name: "home", enabled: true, transport: "http", url: "https://ha.example/api/mcp", env: [], headers: [] });
-  const s = parseServerInput({ name: "fs", transport: "stdio", command: " npx ", args: ["a b"], url: "http://x", headers: [{ name: "X", value: "1" }], enabled: false, scheduling: "SILENT", prefix: "files" });
-  assert.deepEqual(s, { name: "fs", enabled: false, transport: "stdio", command: "npx", args: ["a b"], env: [], headers: [], scheduling: "SILENT", prefix: "files" });
-  // A blank secret means "keep the stored value".
+test("parseServerInput treats empty lists and strings as unset and keeps a blank secret as 'keep'", () => {
+  assert.deepEqual(parseServerInput(http({ include: [], exclude: [], scheduling: "", prefix: "", transport: "http" })), { name: "home", enabled: true, url: "https://ha.example/api/mcp", headers: [] });
+  assert.deepEqual(parseServerInput(http({ enabled: false, url: " http://x/mcp ", scheduling: "SILENT", prefix: "ha", include: ["a"] })), { name: "home", enabled: false, url: "http://x/mcp", headers: [], include: ["a"], scheduling: "SILENT", prefix: "ha" });
   assert.deepEqual(parseServerInput(http({ headers: [{ name: "Authorization", value: "", secret: true }] })).headers, [{ name: "Authorization", secret: true }]);
 });
 
@@ -67,7 +61,7 @@ test("create stores secrets as ciphertext, lists them without values, and resolv
   const created = store.create(withToken({ headers: [{ name: "Authorization", value: TOKEN, secret: true }, { name: "X-Client", value: "friday", secret: false }], include: ["turn_on"] }));
   assert.deepEqual(created.headers, [{ name: "Authorization", secret: true }, { name: "X-Client", secret: false, value: "friday" }]);
   assert.deepEqual(created.include, ["turn_on"]);
-  const row = db.prepare("SELECT plaintext, ciphertext FROM mcp_server_entries WHERE name = 'Authorization'").get() as { plaintext: string | null; ciphertext: Uint8Array };
+  const row = db.prepare("SELECT plaintext, ciphertext FROM mcp_server_headers WHERE name = 'Authorization'").get() as { plaintext: string | null; ciphertext: Uint8Array };
   assert.equal(row.plaintext, null);
   assert.ok(!Buffer.from(row.ciphertext).toString("utf8").includes("s3cret"));
   assert.ok(!JSON.stringify(store.list()).includes("s3cret"));
@@ -79,11 +73,11 @@ test("create stores secrets as ciphertext, lists them without values, and resolv
 test("a definition survives reopening the database", async () => {
   const dir = await mkdtemp(join(tmpdir(), "friday-mcp-store-"));
   const a = openDatabase(dir, "friday.db", quiet);
-  new McpServerStore(a, key).create(parseServerInput({ name: "fs", transport: "stdio", command: "npx", args: ["-y", "server"], env: [{ name: "TOKEN", value: "t0k", secret: true }], scheduling: "SILENT" }));
+  new McpServerStore(a, key).create(parseServerInput(http({ headers: [{ name: "Authorization", value: "t0k", secret: true }], scheduling: "SILENT", exclude: ["x"] })));
   a.close();
   const store = new McpServerStore(openDatabase(dir, "friday.db", quiet), key);
-  const r = store.resolve("fs")!;
-  assert.deepEqual([r.command, r.args, r.env, r.scheduling, r.enabled], ["npx", ["-y", "server"], { TOKEN: "t0k" }, "SILENT", true]);
+  const r = store.resolve("home")!;
+  assert.deepEqual([r.url, r.headers, r.scheduling, r.exclude, r.enabled], ["https://ha.example/api/mcp", { Authorization: "t0k" }, "SILENT", ["x"], true]);
 });
 
 test("update merge rules: keep, re-encrypt, reject and delete entries", () => {
@@ -136,10 +130,10 @@ test("resolve fails with value-free errors naming the entry", () => {
   assert.throws(() => new McpServerStore(db, undefined).resolve("home"), noSecret(/secret header "Authorization" requires FRIDAY_MASTER_KEY/));
 
   // AAD binds each ciphertext to its entry: swapping them breaks decryption.
-  const get = (n: string) => db.prepare("SELECT ciphertext, iv, tag FROM mcp_server_entries WHERE name = ?").get(n) as { ciphertext: Uint8Array; iv: Uint8Array; tag: Uint8Array };
+  const get = (n: string) => db.prepare("SELECT ciphertext, iv, tag FROM mcp_server_headers WHERE name = ?").get(n) as { ciphertext: Uint8Array; iv: Uint8Array; tag: Uint8Array };
   const a = get("Authorization");
   const b = get("X-Other");
-  const put = db.prepare("UPDATE mcp_server_entries SET ciphertext = ?, iv = ?, tag = ? WHERE name = ?");
+  const put = db.prepare("UPDATE mcp_server_headers SET ciphertext = ?, iv = ?, tag = ? WHERE name = ?");
   put.run(b.ciphertext, b.iv, b.tag, "Authorization");
   put.run(a.ciphertext, a.iv, a.tag, "X-Other");
   assert.throws(() => store.resolve("home"), noSecret(/cannot be decrypted/));
@@ -152,5 +146,5 @@ test("delete removes the server and its entries", () => {
   assert.equal(store.delete("home"), true);
   assert.equal(store.delete("home"), false);
   assert.deepEqual(store.list(), []);
-  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM mcp_server_entries").get() as { n: number }).n, 0);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM mcp_server_headers").get() as { n: number }).n, 0);
 });

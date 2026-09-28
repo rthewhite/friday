@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -103,18 +102,6 @@ test("include, exclude, prefix and scheduling shape the registered tools", async
   } finally {
     await src.close();
     await f.close();
-  }
-});
-
-test("a stdio server is spawned with its args and env merged into the process environment", async () => {
-  const { src, registry, add } = setup();
-  try {
-    add({ name: "local", transport: "stdio", command: process.execPath, args: [fileURLToPath(new URL("./mcp-stdio-fixture.mjs", import.meta.url)), "from args"], env: [{ name: "FIXTURE_TOOL", value: "from_env", secret: true }] });
-    await src.load();
-    assert.deepEqual(src.servers()[0], { name: "local", status: "loaded", tools: ["local__from_env"] });
-    assert.equal(registry.get("local__from_env")!.description, "from args");
-  } finally {
-    await src.close();
   }
 });
 

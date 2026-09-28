@@ -1,21 +1,17 @@
 <script setup lang="ts">
-/** Settings > Configuration > MCP servers: table of stored servers and an edit drawer (see the secret-management spec). */
+/** Settings > Configuration > MCP servers: table of stored HTTP MCP servers and an edit drawer (see the secret-management spec). */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button, Input, DataTable, StatusDot, Drawer, Card, Badge, formatDateTime, type Column } from "@friday/portal-ui";
+import { Button, Input, DataTable, StatusDot, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
 
-interface ApiEntry { name: string; secret: boolean; value?: string }
+interface ApiHeader { name: string; secret: boolean; value?: string }
 interface Server extends Record<string, unknown> {
   name: string;
   enabled: boolean;
-  transport: "stdio" | "http";
-  command?: string;
-  args?: string[];
-  url?: string;
-  env: ApiEntry[];
-  headers: ApiEntry[];
+  url: string;
+  headers: ApiHeader[];
   include?: string[];
   exclude?: string[];
   scheduling?: "INTERRUPT" | "WHEN_IDLE" | "SILENT";
@@ -25,7 +21,7 @@ interface Server extends Record<string, unknown> {
   tools: string[];
   updatedAt: string;
 }
-/** An env or header row in the form. `stored` marks a secret whose value the server keeps. */
+/** A header row in the form. `stored` marks a secret whose value the server keeps. */
 interface Row { name: string; value: string; secret: boolean; stored: boolean }
 
 const emit = defineEmits<{ count: [n: number] }>();
@@ -54,7 +50,7 @@ onMounted(async () => { await load(); openFromQuery(); });
 const columns: Column[] = [
   { key: "status", label: "", width: "3rem", align: "center" },
   { key: "name", label: "Name" },
-  { key: "transport", label: "Transport", hideBelow: "md" },
+  { key: "url", label: "URL", hideBelow: "md" },
   { key: "tools", label: "Tools", width: "6rem" },
   { key: "updatedAt", label: "Updated", hideBelow: "lg", width: "11rem" },
 ];
@@ -69,12 +65,7 @@ const confirmDelete = ref(false);
 const blank = () => ({
   name: "",
   enabled: true,
-  transport: "http" as Server["transport"],
-  command: "",
-  args: "",
   url: "",
-  // Both lists are kept so switching transport does not lose what was typed.
-  env: [] as Row[],
   headers: [] as Row[],
   include: "",
   exclude: "",
@@ -83,14 +74,8 @@ const blank = () => ({
 });
 const draft = ref(blank());
 
-const rowsOf = (list: ApiEntry[]): Row[] => list.map((e) => ({ name: e.name, value: e.secret ? "" : (e.value ?? ""), secret: e.secret, stored: e.secret }));
+const rowsOf = (list: ApiHeader[]): Row[] => list.map((h) => ({ name: h.name, value: h.secret ? "" : (h.value ?? ""), secret: h.secret, stored: h.secret }));
 const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
-/** Arguments are kept verbatim (spaces and empty arguments matter); only trailing blank lines go. */
-const argLines = (s: string) => {
-  const out = s.replace(/\r/g, "").split("\n");
-  while (out.length && out[out.length - 1] === "") out.pop();
-  return out;
-};
 /** A stored secret switched to plain has no value to fall back on, so it must be typed in. */
 const needsValue = (r: Row) => r.stored && !r.secret && !r.value;
 
@@ -99,11 +84,7 @@ function fill(s: Server) {
   draft.value = {
     name: s.name,
     enabled: s.enabled,
-    transport: s.transport,
-    command: s.command ?? "",
-    args: (s.args ?? []).join("\n"),
-    url: s.url ?? "",
-    env: rowsOf(s.env),
+    url: s.url,
     headers: rowsOf(s.headers),
     include: (s.include ?? []).join("\n"),
     exclude: (s.exclude ?? []).join("\n"),
@@ -132,27 +113,18 @@ watch(open, (v) => { if (!v && route.query.server) router.replace({ query: { ...
 watch(() => route.query.server, (n) => { if (n && !open.value) openFromQuery(); });
 defineExpose({ openAdd, load });
 
-const entryRows = computed(() => (draft.value.transport === "http" ? draft.value.headers : draft.value.env));
-const entryLabel = computed(() => (draft.value.transport === "http" ? "Headers" : "Environment"));
-const addRow = () => entryRows.value.push({ name: "", value: "", secret: false, stored: false });
-const removeRow = (i: number) => entryRows.value.splice(i, 1);
-
-const toApi = (rows: Row[]) =>
-  rows
-    .filter((r) => r.name.trim())
-    .map((r) => (r.secret && r.stored && !r.value ? { name: r.name.trim(), secret: true } : { name: r.name.trim(), value: r.value, secret: r.secret }));
+const addRow = () => draft.value.headers.push({ name: "", value: "", secret: false, stored: false });
+const removeRow = (i: number) => draft.value.headers.splice(i, 1);
 
 function body() {
   const d = draft.value;
   return {
     ...(adding.value ? { name: d.name.trim() } : {}),
     enabled: d.enabled,
-    transport: d.transport,
-    command: d.command,
-    args: argLines(d.args),
     url: d.url,
-    env: toApi(d.env),
-    headers: toApi(d.headers),
+    headers: d.headers
+      .filter((r) => r.name.trim())
+      .map((r) => (r.secret && r.stored && !r.value ? { name: r.name.trim(), secret: true } : { name: r.name.trim(), value: r.value, secret: r.secret })),
     include: lines(d.include),
     exclude: lines(d.exclude),
     scheduling: d.scheduling || undefined,
@@ -160,12 +132,7 @@ function body() {
   };
 }
 
-const canSave = computed(
-  () =>
-    (adding.value ? draft.value.name.trim() !== "" : true) &&
-    !!(draft.value.transport === "http" ? draft.value.url.trim() : draft.value.command.trim()) &&
-    !entryRows.value.some(needsValue),
-);
+const canSave = computed(() => (adding.value ? draft.value.name.trim() !== "" : true) && draft.value.url.trim() !== "" && !draft.value.headers.some(needsValue));
 
 async function save() {
   await run("save", async () => {
@@ -206,7 +173,7 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
   <div class="flex flex-col gap-4">
     <Card v-if="!secretsEnabled">
       <p class="text-f-warning">
-        Secrets are disabled because <code class="font-mono">FRIDAY_MASTER_KEY</code> is not set, so tokens cannot be stored. Generate one with <code class="font-mono">openssl rand -base64 32</code>, add it to the server's secret, and restart. Plain headers and env values keep working.
+        Secrets are disabled because <code class="font-mono">FRIDAY_MASTER_KEY</code> is not set, so tokens cannot be stored. Generate one with <code class="font-mono">openssl rand -base64 32</code>, add it to the server's secret, and restart. Plain headers keep working.
       </p>
     </Card>
     <p v-if="error" class="text-f-error">{{ error }}</p>
@@ -215,12 +182,12 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
     <DataTable :columns="columns" :rows="servers" row-key="name" clickable empty="No MCP servers yet" @row-click="openServer">
       <template #cell-status="{ row }"><StatusDot :tone="tone((row as Server).status)" :title="(row as Server).status" /></template>
       <template #cell-name="{ row }"><code class="font-mono text-f-text-bright">{{ (row as Server).name }}</code></template>
-      <template #cell-transport="{ row }"><Badge>{{ (row as Server).transport === "http" ? "HTTP" : "stdio" }}</Badge></template>
+      <template #cell-url="{ row }"><span class="font-mono text-xs text-f-text-muted break-all">{{ (row as Server).url }}</span></template>
       <template #cell-tools="{ row }"><span class="text-f-text-muted">{{ (row as Server).tools.length }}</span></template>
       <template #cell-updatedAt="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ formatDateTime((row as Server).updatedAt) }}</span></template>
     </DataTable>
 
-    <Drawer v-model:open="open" :title="adding ? 'New MCP server' : draft.name" :subtitle="adding ? undefined : `Tools are registered as ${draft.prefix || draft.name}__<tool>`">
+    <Drawer v-model:open="open" :title="adding ? 'New MCP server' : draft.name" :subtitle="adding ? 'Friday connects to MCP servers over streamable HTTP' : `Tools are registered as ${draft.prefix || draft.name}__<tool>`">
       <div v-if="selected" class="flex flex-wrap items-center gap-2 text-sm">
         <StatusDot :tone="tone(selected.status)" :label="selected.status" />
         <span class="text-f-text-muted">{{ selected.tools.length }} tools</span>
@@ -233,31 +200,15 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
         <input v-model="draft.enabled" type="checkbox" class="accent-f-accent" />
         <span>Enabled</span>
       </label>
-      <label class="flex flex-col gap-1 text-sm">
-        <span class="text-f-text-muted">Transport</span>
-        <select v-model="draft.transport" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
-          <option value="http">HTTP (streamable)</option>
-          <option value="stdio">stdio (spawn a command)</option>
-        </select>
-      </label>
-      <template v-if="draft.transport === 'http'">
-        <Input v-model="draft.url" label="URL" placeholder="https://homeassistant.local:8123/api/mcp" />
-      </template>
-      <template v-else>
-        <Input v-model="draft.command" label="Command" placeholder="npx" />
-        <label class="flex flex-col gap-1 text-sm">
-          <span class="text-f-text-muted">Arguments, one per line</span>
-          <textarea v-model="draft.args" rows="3" class="surface-inset px-3 py-2 font-mono text-f-text outline-none focus:border-f-accent" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/tmp"></textarea>
-        </label>
-      </template>
+      <Input v-model="draft.url" label="URL" placeholder="https://homeassistant.local:8123/api/mcp" />
 
       <div class="flex flex-col gap-2 text-sm">
         <div class="flex items-center justify-between">
-          <span class="text-f-text-muted">{{ entryLabel }}</span>
+          <span class="text-f-text-muted">Headers</span>
           <Button variant="ghost" @click="addRow"><Icon name="plus" />Add</Button>
         </div>
-        <div v-for="(row, i) in entryRows" :key="i" class="flex items-center gap-2">
-          <input v-model="row.name" :placeholder="draft.transport === 'http' ? 'Authorization' : 'API_TOKEN'" :disabled="row.stored" class="surface-inset w-2/5 px-3 py-2 font-mono text-f-text outline-none focus:border-f-accent disabled:opacity-70" />
+        <div v-for="(row, i) in draft.headers" :key="i" class="flex items-center gap-2">
+          <input v-model="row.name" placeholder="Authorization" :disabled="row.stored" class="surface-inset w-2/5 px-3 py-2 font-mono text-f-text outline-none focus:border-f-accent disabled:opacity-70" />
           <input
             v-model="row.value"
             :type="row.secret ? 'password' : 'text'"
@@ -271,7 +222,7 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
           </label>
           <Button variant="ghost" :title="`Remove ${row.name}`" @click="removeRow(i)"><Icon name="close" /></Button>
         </div>
-        <p v-if="!entryRows.length" class="text-xs text-f-text-muted">{{ draft.transport === "http" ? "Add an Authorization header for bearer tokens and mark it secret." : "Variables are added to Friday's own environment for this process." }}</p>
+        <p v-if="!draft.headers.length" class="text-xs text-f-text-muted">Add an Authorization header for bearer tokens and mark it secret.</p>
       </div>
 
       <label class="flex flex-col gap-1 text-sm">

@@ -1,14 +1,13 @@
 /**
- * MCP tool source. Connects the MCP servers stored in friday.db (see mcp-store.ts) and registers
- * every tool of every server in core's registry as `<prefix>__<tool>` with owner `mcp:<server>`,
- * so Gemini sees MCP tools and native tools identically.
+ * MCP tool source. Connects the MCP servers stored in friday.db (see mcp-store.ts) over streamable
+ * HTTP and registers every tool of every server in core's registry as `<prefix>__<tool>` with owner
+ * `mcp:<server>`, so Gemini sees MCP tools and native tools identically.
  *
  * Each server has its own state (`loaded`, `failed` with an error, or `disabled`). `apply(name)`
  * reconnects one server after its definition changed; calls for the same server run one after the
  * other, different servers in parallel. Open sessions keep the declarations they snapshotted.
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolRegistry } from "@friday/sdk";
 import { prefixedName, toResult } from "./mcp-shared.js";
@@ -115,7 +114,6 @@ export class McpSource {
     const secrets: string[] = [];
     try {
       const sc = this.store!.resolve(name)!;
-      for (const e of def.env) if (e.secret && sc.env[e.name]) secrets.push(...secretParts(sc.env[e.name]));
       for (const e of def.headers) if (e.secret && sc.headers[e.name]) secrets.push(...secretParts(sc.headers[e.name]));
       const client = await this.connect(name, sc);
       this.state.set(name, { status: "loaded", client });
@@ -136,10 +134,7 @@ export class McpSource {
   /** Connect, list and register; on any failure nothing stays registered and the client is closed. */
   private async connect(name: string, sc: ResolvedServer): Promise<Client> {
     const client = new Client({ name: "friday", version: "0.1.0" });
-    const transport =
-      sc.transport === "stdio"
-        ? new StdioClientTransport({ command: sc.command!, args: sc.args ?? [], env: { ...process.env, ...sc.env } as Record<string, string>, stderr: "ignore" })
-        : new StreamableHTTPClientTransport(new URL(sc.url!), { requestInit: { headers: sc.headers } });
+    const transport = new StreamableHTTPClientTransport(new URL(sc.url), { requestInit: { headers: sc.headers } });
     const owner = mcpOwner(name);
     try {
       const tools = await withTimeout(

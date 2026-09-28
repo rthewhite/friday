@@ -14,7 +14,7 @@ import { startMcpFixture, type McpFixture } from "./mcp-fixture.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 const TOKEN = "Bearer api-t0ken-secret";
-const ENV_SECRET = "env-s3cret-value";
+const OTHER_SECRET = "other-s3cret-value";
 
 async function start(opts: { masterKey?: Buffer | null } = {}) {
   const db = new DatabaseSync(":memory:");
@@ -79,7 +79,8 @@ test("POST creates a server, connects it and GET lists it without secret values"
     assert.equal(listed.json.secretsEnabled, true);
     assert.equal(listed.json.servers.length, 1);
     const [entry] = listed.json.servers;
-    assert.deepEqual([entry.name, entry.transport, entry.url, entry.enabled, entry.status], ["home", "http", f.url, true, "loaded"]);
+    assert.deepEqual([entry.name, entry.url, entry.enabled, entry.status], ["home", f.url, true, "loaded"]);
+    assert.equal(entry.transport, undefined);
     assert.ok(entry.updatedAt);
   } finally {
     await s.close();
@@ -98,7 +99,7 @@ test("invalid writes get 400, a duplicate 409, and a secret without a master key
     assert.match(badName.json.error, /name must/);
     const noUrl = await s.call("POST", "/api/mcp/servers", { name: "x", transport: "http" });
     assert.equal(noUrl.status, 400);
-    assert.match(noUrl.json.error, /needs a url/);
+    assert.match(noUrl.json.error, /a url is required/);
     assert.equal((await s.call("POST", "/api/mcp/servers", home(f))).status, 201);
     assert.equal((await s.call("POST", "/api/mcp/servers", home(f))).status, 409);
 
@@ -198,8 +199,9 @@ test("no response from the MCP or module APIs ever contains a secret value", asy
   const s = await start();
   try {
     await s.call("POST", "/api/mcp/servers", home(f));
-    await s.call("POST", "/api/mcp/servers", { name: "local", transport: "stdio", command: "/nonexistent/binary", env: [{ name: "API_TOKEN", value: ENV_SECRET, secret: true }] });
-    await s.call("PUT", "/api/mcp/servers/home", { transport: "http", url: f.url, headers: [{ name: "Authorization", value: TOKEN, secret: true }, { name: "X-Other", value: ENV_SECRET, secret: true }] });
+    const stdio = await s.call("POST", "/api/mcp/servers", { name: "local", transport: "stdio", command: "/nonexistent/binary" });
+    assert.equal(stdio.status, 400, "stdio servers are not supported");
+    await s.call("PUT", "/api/mcp/servers/home", { transport: "http", url: f.url, headers: [{ name: "Authorization", value: TOKEN, secret: true }, { name: "X-Other", value: OTHER_SECRET, secret: true }] });
     f.rejectWith = 403; // the fixture echoes the Authorization header in its error body
     await s.call("POST", "/api/mcp/servers/home/reconnect");
     await s.call("GET", "/api/mcp/servers");
@@ -207,7 +209,7 @@ test("no response from the MCP or module APIs ever contains a secret value", asy
     assert.ok(s.bodies.length >= 6);
     for (const b of s.bodies) {
       assert.ok(!b.includes("api-t0ken-secret"), b);
-      assert.ok(!b.includes(ENV_SECRET), b);
+      assert.ok(!b.includes(OTHER_SECRET), b);
     }
   } finally {
     await s.close();
@@ -215,11 +217,11 @@ test("no response from the MCP or module APIs ever contains a secret value", asy
   }
 });
 
-test("API writes from another origin are refused, so a web page cannot define a stdio server", async () => {
+test("API writes from another origin are refused, so a web page cannot add or change servers", async () => {
   const s = await start();
   try {
     const host = new URL(s.base).host;
-    const evil = JSON.stringify({ name: "x", transport: "stdio", command: "/bin/sh", args: ["-c", "exit 0"] });
+    const evil = JSON.stringify({ name: "x", url: "https://evil.example/mcp" });
     const attempts: Record<string, string>[] = [
       { "content-type": "text/plain", origin: "https://evil.example" },
       { "content-type": "text/plain", "sec-fetch-site": "cross-site" },

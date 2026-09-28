@@ -22,17 +22,16 @@ The portal SHALL provide `Settings > Configuration` with pill tabs `Configuratio
 
 ### Requirement: MCP servers tab
 
-The `MCP servers` tab SHALL render one table with a row per stored server: status dot (`loaded`, `failed`, `disabled`), name, transport (`stdio` or `HTTP`), tool count and updated. A `New server` header action and a click on a row SHALL open a drawer with these fields:
+The `MCP servers` tab SHALL render one table with a row per stored server: status dot (`loaded`, `failed`, `disabled`), name, URL, tool count and updated. A `New server` header action and a click on a row SHALL open a drawer with these fields:
 - name (editable only when adding)
 - enabled toggle
-- transport selector
-- `command` and `args`, or `url`
-- a key/value list for `env` or `headers`, with a secret toggle per row
+- `url`
+- a list of headers (name and value), with a secret toggle per row
 - `include` and `exclude` lists
 - a `scheduling` selector
 - `prefix`
 
-Secret rows SHALL show a masked placeholder when a value is stored and SHALL never display it. Leaving a stored secret blank SHALL keep it. When a server has failed, the drawer SHALL show its error. Actions SHALL be `Save`, `Reconnect` (existing enabled servers) and `Delete` (after confirmation). After an action the row SHALL show the resulting status and tool count. When `FRIDAY_MASTER_KEY` is unset, the tab SHALL show the secrets banner and new secret values SHALL NOT be accepted. `?tab=mcp&server=<name>` SHALL open the drawer for that server.
+Secret rows SHALL show a masked placeholder when a value is stored and SHALL never display it. Leaving a stored secret blank SHALL keep it; switching a stored secret to plain SHALL require a new value before saving. When a server has failed, the drawer SHALL show its error. Actions SHALL be `Save`, `Reconnect` (existing enabled servers) and `Delete` (after confirmation). After an action the row SHALL show the resulting status and tool count. When `FRIDAY_MASTER_KEY` is unset, the tab SHALL show the secrets banner and new secret values SHALL NOT be accepted. `?tab=mcp&server=<name>` SHALL open the drawer for that server.
 
 #### Scenario: Add an HTTP server with a token
 - **WHEN** the user clicks `New server`, enters name `home`, picks `HTTP`, enters the URL, adds header `Authorization` with the secret toggle on and a bearer token, and saves

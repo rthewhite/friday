@@ -364,7 +364,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * True when a browser sent this request from another site. The portal has no login, so without this a
  * web page visited on the LAN could POST to the API (a CORS "simple request" needs no preflight) and,
- * for example, define a stdio MCP server. Non-browser clients send neither header and pass.
+ * for example, add an MCP server or overwrite configuration. Non-browser clients send neither header and pass.
  */
 export function isCrossOrigin(req: IncomingMessage): boolean {
   const site = req.headers["sec-fetch-site"];

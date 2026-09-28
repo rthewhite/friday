@@ -8,7 +8,7 @@ browser portal (Vue)   ── WebSocket PCM ──┐
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
                                                ├─► modules/builtin   time, timers, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
-                                               ├─► MCP servers       configured in the portal (stdio or HTTP)
+                                               ├─► MCP servers       configured in the portal (HTTP)
                                                └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
 
@@ -250,14 +250,14 @@ The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_ch
 
 Add MCP servers under **Settings > Configuration > MCP servers**. They are stored in `friday.db` and changes apply right away: saving a server reconnects just that server and shows whether it loaded, with the error when it didn't. Voice sessions that are already open keep their tools; the next session sees the change.
 
-- **Transports**: streamable HTTP (`url` plus headers) or stdio (a `command` with arguments, plus env values).
-- **Tokens**: mark a header or env value as *secret* (for example `Authorization: Bearer …` for Home Assistant). Secret values are encrypted with `FRIDAY_MASTER_KEY`, never shown again, and kept when you leave them blank while editing. Without a master key only plain values can be saved.
+- **Transport**: streamable HTTP only (a `url` plus headers). Friday does not start MCP server processes; run a stdio-only server behind an HTTP bridge and add it by URL.
+- **Tokens**: mark a header as *secret* (for example `Authorization: Bearer …` for Home Assistant). Secret values are encrypted with `FRIDAY_MASTER_KEY`, never shown again, and kept when you leave them blank while editing. Without a master key only plain values can be saved.
 - **Tools** are registered as `<prefix>__<tool>` (the prefix defaults to the server name; owner `mcp:<server>` in `/api/modules`). Use the include and exclude lists to trim large servers, and scheduling to control how Gemini surfaces results.
 - **API**: `GET/POST /api/mcp/servers`, `PUT/DELETE /api/mcp/servers/:name`, `POST /api/mcp/servers/:name/reconnect`. Secret values are never returned.
 
-Stdio servers are trusted code: anyone who can reach the portal can make Friday spawn a command, and a stdio server inherits Friday's environment (including `FRIDAY_MASTER_KEY` and `GEMINI_API_KEY`) plus its own env values. Keep the portal on a trusted network and prefer HTTP servers where you can. Friday refuses API writes from other origins, so a web page you visit cannot add a server through your browser.
+The portal has no login, so keep it on a trusted network: anyone who can reach it can add or change servers. Friday refuses API writes from other origins, so a web page you visit cannot do that through your browser.
 
-`mcp.json` and `FRIDAY_MCP_CONFIG` are no longer read. When upgrading, re-enter each server from the old file in the portal, then delete the file (and, in k8s, the `friday-mcp` secret).
+`mcp.json` and `FRIDAY_MCP_CONFIG` are no longer read. When upgrading, re-enter each HTTP server from the old file in the portal, then delete the file (and, in k8s, the `friday-mcp` secret).
 
 Keep the total tool count modest: Gemini reads every declaration and caps at 512.
 

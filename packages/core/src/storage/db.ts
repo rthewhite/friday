@@ -13,16 +13,13 @@ export const migrations: Migration[] = [
   {
     version: 5,
     name: "mcp-servers",
-    // MCP server definitions. Env and header entries live in their own table in the config_values
-    // layout (plaintext or AES-256-GCM ciphertext) and go away with their server.
+    // HTTP MCP server definitions. Headers live in their own table in the config_values layout
+    // (plaintext or AES-256-GCM ciphertext) and go away with their server.
     sql: `
       CREATE TABLE mcp_servers (
         name TEXT PRIMARY KEY,
         enabled INTEGER NOT NULL DEFAULT 1,
-        transport TEXT NOT NULL,
-        command TEXT,
-        args_json TEXT,
-        url TEXT,
+        url TEXT NOT NULL,
         include_json TEXT,
         exclude_json TEXT,
         scheduling TEXT,
@@ -30,9 +27,8 @@ export const migrations: Migration[] = [
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
-      CREATE TABLE mcp_server_entries (
+      CREATE TABLE mcp_server_headers (
         server TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE,
-        kind TEXT NOT NULL,
         name TEXT NOT NULL,
         position INTEGER NOT NULL,
         secret INTEGER NOT NULL,
@@ -40,7 +36,7 @@ export const migrations: Migration[] = [
         ciphertext BLOB,
         iv BLOB,
         tag BLOB,
-        PRIMARY KEY (server, kind, name)
+        PRIMARY KEY (server, name)
       );
     `,
   },

@@ -42,11 +42,11 @@ On startup the server SHALL load in-process modules through the module host and 
 
 ### Requirement: Cross-origin API writes are refused
 
-The server SHALL answer 403 to any `/api/` request with a method other than GET, HEAD or OPTIONS when the request carries a `Sec-Fetch-Site` header other than `same-origin` or `none`, or an `Origin` header whose host differs from the request's `Host` (including an opaque `null` origin). Requests without either header, such as those from scripts and remote tooling, SHALL be unaffected. This prevents a web page visited on the LAN from changing Friday through the unauthenticated API, for example by defining a stdio MCP server with a CORS simple request.
+The server SHALL answer 403 to any `/api/` request with a method other than GET, HEAD or OPTIONS when the request carries a `Sec-Fetch-Site` header other than `same-origin` or `none`, or an `Origin` header whose host differs from the request's `Host` (including an opaque `null` origin). Requests without either header, such as those from scripts and remote tooling, SHALL be unaffected. This prevents a web page visited on the LAN from changing Friday through the unauthenticated API, for example by adding an MCP server with a CORS simple request.
 
-#### Scenario: Cross-site page posts a stdio server
-- **WHEN** a request to `POST /api/mcp/servers` carries `Origin: https://evil.example` and a `text/plain` body defining a stdio server
-- **THEN** the response is 403 and no server is stored or spawned
+#### Scenario: Cross-site page adds an MCP server
+- **WHEN** a request to `POST /api/mcp/servers` carries `Origin: https://evil.example` and a `text/plain` body defining a server
+- **THEN** the response is 403 and no server is stored or connected
 
 #### Scenario: Portal request
 - **WHEN** the portal on the same origin sends `POST /api/mcp/servers` with `Sec-Fetch-Site: same-origin`

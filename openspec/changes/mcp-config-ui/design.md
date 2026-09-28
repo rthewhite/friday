@@ -21,9 +21,10 @@ Current state:
 
 **Non-Goals:**
 - Importing an existing `mcp.json`. The user re-enters servers by hand.
-- Portal authentication, or gating stdio servers. Anyone who can reach the portal can define a stdio command; see Risks.
+- Portal authentication.
+- Stdio MCP servers. They were planned at first and dropped during implementation (user decision, 2026-09-28): none is in use, and defining commands in an unauthenticated portal meant anyone on the network could run code in Friday's container. An MCP server that only speaks stdio has to be run separately behind an HTTP transport.
 - Choosing tools from a live tool list in the drawer. `include`/`exclude` stay free-text lists.
-- OAuth flows for MCP servers. Authentication is static headers or env values only.
+- OAuth flows for MCP servers. Authentication is static headers only.
 - Adding new form components to `@friday/portal-ui`.
 
 ## Decisions
@@ -32,7 +33,7 @@ Current state:
 
 Migration 5 `mcp-servers` adds two tables:
 
-- `mcp_servers (name PK, enabled, transport, command, args_json, url, include_json, exclude_json, scheduling, prefix, created_at, updated_at)`
+- `mcp_servers (name PK, enabled, url, include_json, exclude_json, scheduling, prefix, created_at, updated_at)`
 - `mcp_server_entries (server FK → mcp_servers ON DELETE CASCADE, kind 'env'|'header', name, position, secret, plaintext, ciphertext, iv, tag, PRIMARY KEY (server, kind, name))`
 
 The entries table holds both plain and secret values in the same layout as `config_values`. `position` preserves the order the user entered them in.
@@ -68,7 +69,7 @@ Merge rules on update (entries are replaced as a set):
 `parseServerInput(body, { creating })` returns a typed definition or throws `McpInputError` (→ 400). It checks:
 
 - the name regex, and that the name is only present on create;
-- `transport` is `stdio` or `http`, with the matching `command` or `url` present; the URL must parse as http(s);
+- `url` is present and parses as http(s); a `transport` other than `http`, or any `command`, is rejected as unsupported;
 - string arrays for `args`, `include` and `exclude`;
 - `scheduling` is `INTERRUPT`, `WHEN_IDLE` or `SILENT`;
 - entry names: env names match `^[A-Za-z_][A-Za-z0-9_]*$`, header names are HTTP token characters, and there are no duplicates within a kind.
@@ -88,7 +89,7 @@ Fields that don't belong to the chosen transport are dropped, not rejected, so t
 
   A deleted server's state is removed.
 - **Per-server serialization.** A `Map<name, Promise>` chains `apply` calls per name, so concurrent saves run one after another. Different servers run in parallel.
-- **Timeout.** `connect()` and `listTools()` share one deadline via a `withTimeout` helper. On timeout the client is closed, which kills a stdio child process or aborts HTTP, and the error is `timed out after 10s`. `timeoutMs` can be set so tests stay fast.
+- **Timeout.** `connect()` and `listTools()` share one deadline via a `withTimeout` helper. On timeout the client is closed, which aborts the HTTP request, and the error is `timed out after 10s`. `timeoutMs` can be set so tests stay fast.
 - **Registration only on full success.** Tools are registered only after `listTools` succeeds, so a failure never leaves half a server's tools in the registry.
 - `servers()` returns `[{ name, status, error?, tools }]` from the state map, and `moduleListing` maps these onto `ApiModuleEntry` (see the http-server delta). The portal Modules page already colours `failed` and `disabled`.
 - Open sessions keep their snapshot for free. `GeminiSession` snapshots `declarations()` when it opens, so `removeOwner` + `add` only affects later sessions.
@@ -116,7 +117,7 @@ In `server.ts`, `McpServerStore` is created next to `ConfigStore` with the same 
 Drawer controls use the same native `<select>`, checkbox and `surface-inset` styling as the current page:
 
 - `args`, `include` and `exclude` are textareas with one item per line, since args can contain spaces.
-- Env and headers are a row list of name, value, a secret checkbox and a remove button. A stored secret renders as a password input with placeholder `•••••• stored, leave blank to keep`, and sends `{ name, secret: true }` when left blank.
+- Headers are a row list of name, value, a secret checkbox and a remove button. A stored secret renders as a password input with placeholder `•••••• stored, leave blank to keep`, and sends `{ name, secret: true }` when left blank.
 - Without a master key, secret checkboxes on new rows are disabled and the existing secrets banner is shown.
 - `Delete` is a two-step button (`Delete` → `Confirm delete`) rather than `window.confirm`.
 
@@ -129,7 +130,7 @@ Drawer controls use the same native `<select>`, checkbox and `surface-inset` sty
 
 ### D9. Refuse cross-origin API writes (added after security review)
 
-The security review found that `POST /api/mcp/servers` accepted a `text/plain` body. A cross-origin `fetch(..., { mode: "no-cors" })` is a CORS simple request, so there's no preflight, and any web page a LAN user opened could define and immediately spawn a stdio server. That widened the accepted "anyone who can reach the portal" risk to "any website a LAN user visits".
+The security review found that `POST /api/mcp/servers` accepted a `text/plain` body. A cross-origin `fetch(..., { mode: "no-cors" })` is a CORS simple request, so there's no preflight, and any web page a LAN user opened could define and immediately spawn a stdio server. That widened the accepted "anyone who can reach the portal" risk to "any website a LAN user visits". Stdio has since been dropped (see Non-Goals), but the guard stays: it still stops a page from adding or repointing MCP servers, overwriting configuration, or minting remote module keys.
 
 The fix is one guard at the top of the request handler. For non-GET/HEAD/OPTIONS `/api/` requests, it answers 403 when `Sec-Fetch-Site` is present and isn't `same-origin` or `none`, or when `Origin` is present and doesn't match `Host`. It protects every write route, including `/api/config`, `/api/keys` and module routes, and it covers body-less POSTs such as reconnect.
 
@@ -137,10 +138,9 @@ The fix is one guard at the top of the request handler. For non-GET/HEAD/OPTIONS
 
 ## Risks / Trade-offs
 
-- **[Accepted] Anyone who can reach the portal can run commands through stdio servers.** Cross-origin writes are refused (D9), so a web page opened on the LAN cannot do this through the user's browser. The portal has no authentication, and a stdio definition spawns an arbitrary command in the container. Before this change that took cluster access. The user chose to treat the portal as a trusted, LAN-only admin surface. → Documented in the README MCP section; revisit if the portal gets authentication or is exposed beyond the LAN.
+- **[Risk] Anyone who can reach the portal can add or change MCP servers**, and so point Friday at an HTTP endpoint of their choice. The portal has no login. → No code runs in Friday's container because of this (stdio is not supported), and cross-origin writes are refused (D9), so a web page opened on the LAN cannot do it through the user's browser.
 - **[Risk] Secrets can leak through error messages.** An MCP SDK or transport error might echo request details. → Store and resolve errors are built from entry names only. Errors reported for HTTP connections are reduced to the message, never headers. A test asserts that the secret never appears in `error` or in log output.
 - **[Risk] A slow server holds a request open for up to 10 seconds.** → The timeout is bounded, the busy state shows in the UI, and serialization is per server, so other servers are unaffected.
-- **[Trade-off] Stdio env values are merged into the full `process.env`, as today.** A stdio server therefore also sees `FRIDAY_MASTER_KEY` and `GEMINI_API_KEY`. This is unchanged behaviour but more visible now that users define the commands. → Kept for compatibility (npx needs `PATH` and `HOME`); noted in the README.
 - **[Trade-off] Names can't be renamed.** Renaming means deleting and re-creating the server, including re-entering its secrets. Acceptable given how rarely servers change.
 - **[Risk] Upgrading drops MCP tools until the server is re-entered.** → See the migration plan. There's one server (`home`), and the portal is available straight after deploy.
 

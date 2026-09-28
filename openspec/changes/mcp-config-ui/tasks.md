@@ -72,3 +72,12 @@
 - [x] 7.3 Make `McpSource.close()` wait for in-flight and queued applies, and turn later applies into no-ops. Verified by the `mcp.test.ts` test where close waits for a hanging connect to time out and the queued apply does not connect again.
 - [x] 7.4 Reject control characters in header values (and NUL in env values) at write time, so a connect error can't quote a malformed secret. Verified by new `parseServerInput` cases in `mcp-store.test.ts`.
 - [x] 7.5 In the portal, block Save when a stored secret is switched to plain without a value, and keep stdio args verbatim (only trailing blank lines are dropped). Verified in the headless-Chrome run.
+
+## 8. Drop stdio MCP servers (user decision after review)
+
+Stdio support was built in groups 1–4 and removed here; the earlier task texts describe it as it was then.
+
+- [x] 8.1 Make definitions HTTP-only: migration 5 becomes `mcp_servers` (no transport, command or args) plus `mcp_server_headers`, `parseServerInput` rejects `transport: "stdio"` or a `command` with 400, and `McpSource` only creates streamable HTTP clients. Verified by `mcp-store.test.ts`, `mcp.test.ts`, `mcp-api.test.ts` and `storage.test.ts` (183 core tests pass).
+- [x] 8.2 Remove the transport selector, command, args and env rows from the MCP servers tab (the table shows the URL instead). Verified in the headless-Chrome run (22/22), including a check that no transport or command field is left.
+- [x] 8.3 Update proposal, specs, design, README and `openspec/config.yaml` to HTTP-only. Verified with `openspec validate mcp-config-ui --strict` and a grep for stdio mentions.
+
