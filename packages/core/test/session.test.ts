@@ -4,6 +4,7 @@ import { ToolRegistry } from "@friday/sdk";
 import type { LiveConnectParameters, LiveServerMessage } from "@google/genai";
 import { GeminiSession, type Event, type LiveConnect } from "../src/session.js";
 import { waitFor } from "./helpers.js";
+import { setup } from "./conversation-fixtures.js";
 
 const quiet = { log() {}, error() {} };
 
@@ -69,4 +70,72 @@ test("without endConversation the turn completes normally", async () => {
   assert.ok(events.some((e) => e.kind === "interrupted"));
   assert.ok(!events.some((e) => e.kind === "closed"));
   s.close();
+});
+
+const msg = (serverContent: LiveServerMessage["serverContent"]) => ({ serverContent }) as LiveServerMessage;
+
+test("typed text is recorded as input text, followed by the answer", async () => {
+  const { store } = setup();
+  const recorder = store.recorder({ channel: "voice" });
+  const live = fakeLive();
+  const s = new GeminiSession(() => {}, new ToolRegistry(quiet), { connect: live.connect, log: quiet, recorder });
+  await s.open();
+  s.sendText("what time is it");
+  s.handle(msg({ outputTranscription: { text: "It's" } }));
+  s.handle(msg({ outputTranscription: { text: " noon." }, turnComplete: true }));
+  s.close();
+  const c = store.get(recorder.conversationId!)!;
+  assert.deepEqual(c.entries.map(({ seq, at, ...e }) => e), [
+    { kind: "user", input: "text", text: "what time is it" },
+    { kind: "assistant", text: "It's noon.", interrupted: false },
+  ]);
+  assert.equal(c.endReason, "client closed");
+});
+
+test("end_conversation ends the recorded conversation quiet with reason ended: done", async () => {
+  const { store } = setup();
+  const recorder = store.recorder({ channel: "voice" });
+  const r = new ToolRegistry(quiet);
+  r.add("builtin", { name: "end_conversation", description: "", scheduling: "SILENT", handler: ({ reason }: { reason?: string }) => ({ ending: true, endConversation: reason ?? "done" }) });
+  const live = fakeLive();
+  const s = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, recorder });
+  await s.open();
+  s.handle(msg({ inputTranscription: { text: " Thanks, bye." } }));
+  s.handle({ toolCall: { functionCalls: [{ id: "1", name: "end_conversation", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 1);
+  s.handle(msg({ outputTranscription: { text: "Bye!" } }));
+  s.handle(msg({ interrupted: true, turnComplete: true }));
+  const c = store.get(recorder.conversationId!)!;
+  assert.equal(c.state, "quiet");
+  assert.equal(c.endReason, "ended: done");
+  assert.deepEqual(c.entries.map((e) => e.kind), ["user", "tool", "assistant"]);
+  assert.deepEqual(c.entries[1], { seq: 2, at: c.entries[1].at, kind: "tool", name: "end_conversation", args: {}, result: { ending: true }, truncated: false });
+  assert.equal(c.entries[2].kind === "assistant" && c.entries[2].interrupted, false, "the suppressed interruption is not recorded");
+});
+
+test("a session emits exactly the same events with and without a recorder", async () => {
+  const run = async (withRecorder: boolean) => {
+    const { store } = setup();
+    const r = new ToolRegistry(quiet);
+    r.add("x", { name: "t", description: "", handler: ({ n }: { n: number }) => ({ n }) });
+    const live = fakeLive();
+    const events: Event[] = [];
+    const recorder = withRecorder ? store.recorder({ channel: "voice", device: "kitchen" }) : undefined;
+    const s = new GeminiSession((e) => events.push(e), r, { connect: live.connect, log: quiet, recorder });
+    await s.open();
+    s.handle(msg({ inputTranscription: { text: " Do" } }));
+    s.handle(msg({ inputTranscription: { text: " it." } }));
+    s.handle({ toolCall: { functionCalls: [{ id: "1", name: "t", args: { n: 1 } }, { id: "2", name: "t", args: { n: 2 } }] } } as LiveServerMessage);
+    await waitFor(() => live.responses.length === 2);
+    s.handle(msg({ outputTranscription: { text: "Done" }, modelTurn: { parts: [{ inlineData: { data: Buffer.from([1, 2]).toString("base64") } }] } }));
+    s.handle(msg({ inputTranscription: { text: " wait" } }));
+    s.handle(msg({ interrupted: true }));
+    s.handle(msg({ turnComplete: true }));
+    s.close();
+    return { events, entries: recorder ? store.get(recorder.conversationId!)!.entries.length : 0 };
+  };
+  const plain = await run(false);
+  const recorded = await run(true);
+  assert.deepEqual(recorded.events, plain.events);
+  assert.equal(recorded.entries, 5);
 });

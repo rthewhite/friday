@@ -15,6 +15,7 @@ import {
 } from "@google/genai";
 import type { ToolRegistry } from "@friday/sdk";
 import { settings } from "./config.js";
+import type { ConversationRecorder } from "./conversations/recorder.js";
 
 export type Event =
   | { kind: "audio"; data: Buffer }
@@ -32,6 +33,8 @@ export type LiveConnect = (params: LiveConnectParameters) => Promise<Pick<Sessio
 export interface SessionOptions {
   connect?: LiveConnect;
   log?: Pick<Console, "log" | "error">;
+  /** Records the conversation (transcripts, typed input, tools, end reason). Never changes what is emitted. */
+  recorder?: ConversationRecorder;
 }
 
 export class GeminiSession {
@@ -92,6 +95,7 @@ export class GeminiSession {
 
   sendText(text: string): void {
     this.session?.sendClientContent({ turns: [{ role: "user", parts: [{ text }] }] });
+    this.opts.recorder?.user(text, "text");
   }
 
   /** Exposed for tests that drive the session without a Live connection. */
@@ -104,18 +108,24 @@ export class GeminiSession {
     if (sc.interrupted && !this.endRequested) {
       this.log.log("gemini: interrupted");
       this.onEvent({ kind: "interrupted" });
+      this.opts.recorder?.interrupted();
     }
     if (sc.inputTranscription?.text) {
       if (settings.logTranscripts) this.log.log(`gemini: heard ${JSON.stringify(sc.inputTranscription.text)}`);
       this.clearIdle(); // the user is talking again
       this.onEvent({ kind: "user_text", data: sc.inputTranscription.text });
+      this.opts.recorder?.user(sc.inputTranscription.text, "speech");
     }
-    if (sc.outputTranscription?.text) this.onEvent({ kind: "bot_text", data: sc.outputTranscription.text });
+    if (sc.outputTranscription?.text) {
+      this.onEvent({ kind: "bot_text", data: sc.outputTranscription.text });
+      this.opts.recorder?.assistant(sc.outputTranscription.text);
+    }
     for (const p of sc.modelTurn?.parts ?? []) {
       if (p.inlineData?.data) this.onEvent({ kind: "audio", data: Buffer.from(p.inlineData.data, "base64") });
     }
     if (sc.turnComplete) {
       this.onEvent({ kind: "turn_complete" });
+      this.opts.recorder?.turnComplete();
       if (this.endRequested) this.finish(`ended: ${this.endRequested}`);
       else this.armIdle();
     }
@@ -143,10 +153,12 @@ export class GeminiSession {
   private async runTool(id?: string, name?: string, args?: Record<string, unknown>): Promise<void> {
     if (!name) return;
     this.onEvent({ kind: "tool_call", data: { name, args } });
+    const recorded = this.opts.recorder?.tool(name, args);
     this.toolsInFlight++;
     this.clearIdle();
     const { result, scheduling, endConversation } = await this.registry.callTool(name, args);
     this.toolsInFlight--;
+    recorded?.result(result);
     this.onEvent({ kind: "tool_result", data: { name, result } });
     if (endConversation !== undefined) this.endRequested = endConversation;
     this.session?.sendToolResponse({ functionResponses: [{ id, name, response: { ...result, scheduling } }] });
@@ -157,6 +169,7 @@ export class GeminiSession {
     this.closed = true;
     this.clearIdle();
     this.onEvent({ kind: "closed", data: reason });
+    this.opts.recorder?.end(reason);
   }
 
   close(): void {

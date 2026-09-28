@@ -14,8 +14,8 @@
 
 ## 3. Session and transport integration
 
-- [ ] 3.1 Add an optional `recorder` to `SessionOptions` and call it from `handle` (input/output transcription, `interrupted`, `turnComplete`), `sendText` (input `text`), `runTool` (handle around the call), and `emitClosed` (`end(reason)`). Verify `session.test.ts` cases: typed text is recorded as `text`, `end_conversation` gives end reason `ended: done`, and emitted events are identical with and without a recorder
-- [ ] 3.2 In `serveWs`, create a recorder per connection with channel `voice` and the `device` query value, and pass it to the default `GeminiSession`. Keep `createSession` injection working. Verify `ws.test.ts` records `device=kitchen`, and records no device without the parameter
+- [x] 3.1 Add an optional `recorder` to `SessionOptions` and call it from `handle` (input/output transcription, `interrupted`, `turnComplete`), `sendText` (input `text`), `runTool` (handle around the call), and `emitClosed` (`end(reason)`). Verify `session.test.ts` cases: typed text is recorded as `text`, `end_conversation` gives end reason `ended: done`, and emitted events are identical with and without a recorder
+- [x] 3.2 In `serveWs`, create a recorder per connection with channel `voice` and the `device` query value, and pass it to the default `GeminiSession`. Keep `createSession` injection working. Verify `ws.test.ts` records `device=kitchen`, and records no device without the parameter
 - [ ] 3.3 Wire the store into `server.ts` (created after the database, sweep started, sweep stopped on shutdown, passed to `attachAudioWs` and `createApp`), and verify by talking to a local core and seeing the conversation row with entries in `friday.db`
 
 ## 4. Module access

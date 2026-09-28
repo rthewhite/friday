@@ -8,6 +8,7 @@ import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "./remote/key-sto
 import { RemoteHost } from "./remote/host.js";
 import { openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
+import { ConversationStore } from "./conversations/store.js";
 import { ConfigStore } from "./secrets/config-store.js";
 import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
@@ -19,6 +20,7 @@ const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
 if (!configStore.secretsEnabled) console.warn("secrets disabled: FRIDAY_MASTER_KEY is not set; plain configuration still works, secrets come from the environment only");
 for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
 const keys = new SqliteKeyStore(db);
+const conversations = new ConversationStore(db, { quietMinutes: settings.conversationQuietMinutes });
 
 const registry = new ToolRegistry();
 const host = new ModuleHost(registry, {
@@ -38,18 +40,20 @@ await host.load(modules);
 await mcp.load();
 if (!settings.apiKey) console.warn("GEMINI_API_KEY is not set");
 console.log(`tools (${registry.names().length}):`, registry.names().join(", "));
+conversations.start();
 
 let shuttingDown = false;
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    conversations.stop();
     void remote.closeAll().then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
   });
 }
 
 const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env }));
-attachAudioWs(server, { registry });
+attachAudioWs(server, { registry, conversations });
 remote.attach(server);
 
 server.listen(settings.port, settings.host, () =>
