@@ -34,6 +34,12 @@ export const settings = {
   vadPrefixPaddingMs: Number(process.env.FRIDAY_VAD_PREFIX_MS ?? 200),
   /** Print what Gemini hears the user say to the server log. Useful for echo debugging; off by default. */
   logTranscripts: process.env.FRIDAY_LOG_TRANSCRIPTS === "1",
+  /** IANA zone cron job schedules are evaluated in (also the builtin module's default zone). */
+  timezone: process.env.FRIDAY_TIMEZONE || "Europe/Amsterdam",
+  /** Recorded runs kept per background job. */
+  jobHistory: Number(process.env.FRIDAY_JOB_HISTORY ?? 50),
+  /** Delay before the one catch-up run of a job whose due time passed while Friday was down. */
+  jobCatchupDelayMs: Number(process.env.FRIDAY_JOB_CATCHUP_DELAY_MS ?? 30000),
   systemPrompt: `You are Friday, a concise and friendly voice assistant.
 Keep spoken answers short. Use tools whenever they can answer the question
 instead of guessing. Answer in the language the user speaks.

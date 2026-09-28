@@ -14,7 +14,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   const db = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
-  assert.deepEqual(tables, ["config_values", "module_keys", "module_kv", "schema_version"]);
+  assert.deepEqual(tables, ["config_values", "job_runs", "job_state", "module_keys", "module_kv", "schema_version"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -31,6 +31,18 @@ test("incremental upgrade runs only newer migrations and a failure aborts by nam
   assert.equal(schemaVersion(db), 2);
   assert.throws(() => migrate(db, [v1, v2, { version: 3, name: "broken", sql: "CREATE TABLE b (x)" }], quiet), /migration 3 \(broken\) failed/);
   assert.equal(schemaVersion(db), 2);
+});
+
+test("migration 3 upgrades a version-2 database with the job tables", () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations.filter((m) => m.version <= 2), quiet);
+  assert.equal(schemaVersion(db), 2);
+  db.prepare("INSERT INTO module_kv VALUES ('m', 'k', '1', 'now')").run();
+  assert.equal(migrate(db, migrations, quiet), migrations.filter((m) => m.version > 2).length);
+  assert.ok(schemaVersion(db) >= 3);
+  const names = (db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'job_%' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
+  assert.deepEqual(names, ["job_runs", "job_runs_job_started", "job_state"]);
+  assert.equal((db.prepare("SELECT count(*) AS n FROM module_kv").get() as { n: number }).n, 1, "existing data survives");
 });
 
 test("module storage isolates namespaces and round-trips JSON", async () => {

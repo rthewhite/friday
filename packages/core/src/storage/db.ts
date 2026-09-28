@@ -11,6 +11,28 @@ export interface Migration {
 
 export const migrations: Migration[] = [
   {
+    version: 3,
+    name: "job-runs",
+    // Run history per job (pruned to FRIDAY_JOB_HISTORY) and the due time of the last scheduled run, for catch-up.
+    sql: `
+      CREATE TABLE job_runs (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        trigger TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        outcome TEXT NOT NULL,
+        summary TEXT,
+        error TEXT
+      );
+      CREATE INDEX job_runs_job_started ON job_runs (job_id, started_at DESC);
+      CREATE TABLE job_state (
+        job_id TEXT PRIMARY KEY,
+        last_due_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
     version: 2,
     name: "plain-config-values",
     // Existing rows are all encrypted; they stay secret until the user re-saves them as plain.
