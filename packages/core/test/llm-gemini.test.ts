@@ -7,14 +7,15 @@ import { GeminiTextModel } from "../src/llm/gemini.js";
 import { LlmService } from "../src/llm/service.js";
 
 test("text model settings: defaults and the fast-tier fallback", () => {
-  assert.deepEqual(llmSettings({}), { textModel: "gemini-flash-latest", textModelFast: "gemini-flash-latest", llmConcurrency: 2, llmTimeoutMs: 120000 });
+  assert.deepEqual(llmSettings({}), { textModel: "gemini-flash-latest", textModelFast: "gemini-flash-latest", llmConcurrency: 2, llmTimeoutMs: 120000, llmMaxRetryWaitMs: 60000 });
   assert.deepEqual(llmSettings({ FRIDAY_TEXT_MODEL: "gemini-3.8-flash" }).textModelFast, "gemini-3.8-flash");
   assert.deepEqual(
-    llmSettings({ FRIDAY_TEXT_MODEL: "a", FRIDAY_TEXT_MODEL_FAST: "b", FRIDAY_LLM_CONCURRENCY: "4", FRIDAY_LLM_TIMEOUT_MS: "5000" }),
-    { textModel: "a", textModelFast: "b", llmConcurrency: 4, llmTimeoutMs: 5000 },
+    llmSettings({ FRIDAY_TEXT_MODEL: "a", FRIDAY_TEXT_MODEL_FAST: "b", FRIDAY_LLM_CONCURRENCY: "4", FRIDAY_LLM_TIMEOUT_MS: "5000", FRIDAY_LLM_MAX_RETRY_WAIT_MS: "0" }),
+    { textModel: "a", textModelFast: "b", llmConcurrency: 4, llmTimeoutMs: 5000, llmMaxRetryWaitMs: 0 },
   );
   assert.equal(llmSettings({ FRIDAY_LLM_CONCURRENCY: "0" }).llmConcurrency, 2);
   assert.equal(llmSettings({ FRIDAY_LLM_CONCURRENCY: "nope" }).llmConcurrency, 2);
+  assert.equal(llmSettings({ FRIDAY_LLM_MAX_RETRY_WAIT_MS: "-5" }).llmMaxRetryWaitMs, 60000);
 });
 
 function stub(response: Partial<GenerateContentResponse>) {

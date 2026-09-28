@@ -17,6 +17,8 @@ export function llmSettings(env: Record<string, string | undefined>) {
     llmConcurrency: Math.max(1, Math.floor(Number(env.FRIDAY_LLM_CONCURRENCY) || 2)),
     /** Per-attempt limit for a model call unless the request sets `timeoutMs`. */
     llmTimeoutMs: Number(env.FRIDAY_LLM_TIMEOUT_MS) || 120000,
+    /** Longest wait before retrying a rate-limited call unless the request sets `maxRetryWaitMs`. */
+    llmMaxRetryWaitMs: env.FRIDAY_LLM_MAX_RETRY_WAIT_MS && Number.isFinite(Number(env.FRIDAY_LLM_MAX_RETRY_WAIT_MS)) && Number(env.FRIDAY_LLM_MAX_RETRY_WAIT_MS) >= 0 ? Number(env.FRIDAY_LLM_MAX_RETRY_WAIT_MS) : 60000,
   };
 }
 

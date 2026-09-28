@@ -37,6 +37,7 @@ const llm = new LlmService({
   models: { standard: settings.textModel, fast: settings.textModelFast },
   concurrency: settings.llmConcurrency,
   timeoutMs: settings.llmTimeoutMs,
+  maxRetryWaitMs: settings.llmMaxRetryWaitMs,
 });
 const host = new ModuleHost(registry, {
   enabled: process.env.FRIDAY_MODULES,

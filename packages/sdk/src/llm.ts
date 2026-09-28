@@ -31,6 +31,8 @@ export interface LlmRequest {
   signal?: AbortSignal;
   /** Per-attempt limit; defaults to FRIDAY_LLM_TIMEOUT_MS. */
   timeoutMs?: number;
+  /** Longest wait before retrying a rate-limited call; defaults to FRIDAY_LLM_MAX_RETRY_WAIT_MS. Longer stated waits fail at once. */
+  maxRetryWaitMs?: number;
 }
 
 export interface LlmUsage {
@@ -113,6 +115,9 @@ export function checkRequest(req: LlmRequest): void {
     }
   }
   if (req.model !== undefined && req.model !== "standard" && req.model !== "fast") throw bad('model must be "standard" or "fast"');
+  if (req.maxRetryWaitMs !== undefined && !(typeof req.maxRetryWaitMs === "number" && Number.isFinite(req.maxRetryWaitMs) && req.maxRetryWaitMs >= 0)) {
+    throw bad("maxRetryWaitMs must be a non-negative number");
+  }
   if (req.schema !== undefined) {
     if (!req.schema || typeof req.schema !== "object" || Array.isArray(req.schema)) throw bad("schema must be a JSON Schema object");
     validator(req.schema);

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ApiError } from "@google/genai";
 import { LlmError, type LlmErrorKind } from "@friday/sdk";
 import { GeminiTextModel, type TextModel, type TextRequest, type TextResponse } from "../src/llm/gemini.js";
-import { LlmService, type LlmServiceOptions } from "../src/llm/service.js";
+import { classify, LlmService, rateLimitInfo, type LlmServiceOptions } from "../src/llm/service.js";
 import { sleep, waitFor } from "./helpers.js";
 
 type Step = TextResponse | Error | ((req: TextRequest, signal?: AbortSignal) => Promise<TextResponse>);
@@ -93,7 +93,7 @@ test("503 once, then ok, resolves", async () => {
   const { llm, lines } = service(f.model);
   assert.equal((await llm.generate({ prompt: "p" })).text, "ok");
   assert.equal(f.calls.length, 2);
-  assert.match(lines[0], /ok .*\(2 attempts\)$/);
+  assert.match(lines[0], /ok .*\(2 attempts: 503 wait \d+\.\ds\)$/);
 });
 
 test("persistent 503 is unavailable after 3 attempts", async () => {
@@ -102,7 +102,7 @@ test("persistent 503 is unavailable after 3 attempts", async () => {
   await assert.rejects(llm.generate({ prompt: "p" }), kind("unavailable", /HTTP 503/));
   assert.equal(f.calls.length, 3);
   assert.equal(lines.length, 1);
-  assert.match(lines[0], /^llm: \[brain\] std-model unavailable: .*\(3 attempts\)$/);
+  assert.match(lines[0], /^llm: \[brain\] std-model unavailable: .*\(3 attempts: 503 wait \d+\.\ds, 503 wait \d+\.\ds, 503\)$/);
 });
 
 test("429 and network errors are retried; 400 and 404 are invalid_request without retry", async () => {
@@ -233,4 +233,111 @@ test("log lines never contain prompts, messages or output", async () => {
   assert.equal(lines.length, 3);
   for (const l of lines) assert.doesNotMatch(l, /TOP-SECRET/);
   assert.match(lines[1], /^llm: \[brain\] std-model \(gemini-test-001\) invalid_output: output does not match the schema.* in=10 out=4 /);
+});
+
+/** A 429 as Gemini sends it, JSON-encoded in ApiError.message by @google/genai. */
+function rateLimited(opts: { retryDelay?: string; quotaId?: string } = {}) {
+  const details: unknown[] = [];
+  if (opts.quotaId) {
+    details.push({
+      "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+      violations: [{ quotaMetric: "generativelanguage.googleapis.com/generate_content_free_tier_requests", quotaId: opts.quotaId, quotaDimensions: { location: "global", model: "gemini-3.8-flash" }, quotaValue: "10" }],
+    });
+  }
+  details.push({ "@type": "type.googleapis.com/google.rpc.Help", links: [{ description: "Learn more about Gemini API quotas", url: "https://ai.google.dev/gemini-api/docs/rate-limits" }] });
+  if (opts.retryDelay) details.push({ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: opts.retryDelay });
+  const body = { error: { code: 429, message: "You exceeded your current quota, please check your plan and billing details.", status: "RESOURCE_EXHAUSTED", details } };
+  return new ApiError({ message: JSON.stringify(body), status: 429 });
+}
+
+/** A sleep that records requested waits and returns at once, honouring abort like the real one. */
+function recordingSleep() {
+  const waits: number[] = [];
+  const fn = (ms: number, signal?: AbortSignal) => {
+    waits.push(ms);
+    return signal?.aborted ? Promise.reject(new LlmError("cancelled", "text generation was cancelled")) : Promise.resolve();
+  };
+  return { waits, fn };
+}
+
+test("rateLimitInfo reads Gemini's retry delay and quota, and tolerates anything else", () => {
+  const perMinute = "GenerateRequestsPerMinutePerProjectPerModel-FreeTier";
+  assert.deepEqual(rateLimitInfo(rateLimited({ retryDelay: "37s", quotaId: perMinute }).message), { waitMs: 37000, quota: perMinute });
+  assert.deepEqual(rateLimitInfo(rateLimited({ retryDelay: "1.5s" }).message), { waitMs: 1500 });
+  assert.deepEqual(rateLimitInfo(rateLimited({ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }).message), { quota: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" });
+  assert.deepEqual(rateLimitInfo(JSON.stringify({ error: { code: 429, message: "slow down" } })), {});
+  assert.deepEqual(rateLimitInfo("got status: 429 Too Many Requests"), {});
+  assert.deepEqual(rateLimitInfo(JSON.stringify({ error: { details: [{ "@type": "x.RetryInfo", retryDelay: "soon" }] } })), {});
+  const f = classify(rateLimited({ retryDelay: "37s" }));
+  assert.equal(f.retry, true);
+  assert.equal(f.reason, "429");
+  assert.equal(f.waitMs, 37000);
+  assert.equal(classify(new TypeError("fetch failed")).reason, "network");
+});
+
+test("a 429 with a stated wait retries after at least that wait, keeping the call's slot", async () => {
+  const f = fakeModel(rateLimited({ retryDelay: "37s", quotaId: "GenerateRequestsPerMinutePerProjectPerModel-FreeTier" }), answer("ok"));
+  const sleep = recordingSleep();
+  const { llm, lines } = service(f.model, { sleep: sleep.fn, concurrency: 1 });
+  assert.equal((await llm.generate({ prompt: "p" })).text, "ok");
+  assert.equal(f.calls.length, 2);
+  assert.equal(sleep.waits.length, 1);
+  assert.ok(sleep.waits[0] >= 37000 && sleep.waits[0] <= 40700, String(sleep.waits[0]));
+  assert.match(lines[0], /ok .*\(2 attempts: 429 wait (3[7-9]|40|41)s\)$/);
+});
+
+test("a stated wait beyond the bound, or a daily quota, fails at once without another attempt", async () => {
+  const over = fakeModel(rateLimited({ retryDelay: "90s" }));
+  const a = service(over.model, { sleep: recordingSleep().fn, maxRetryWaitMs: 60000 });
+  await assert.rejects(a.llm.generate({ prompt: "p" }), kind("unavailable", /provider asks to wait 90s \(limit 60s\)/));
+  assert.equal(over.calls.length, 1);
+  assert.match(a.lines[0], /\(1 attempt: 429\)$/);
+
+  const daily = fakeModel(rateLimited({ retryDelay: "2s", quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }));
+  const b = service(daily.model, { sleep: recordingSleep().fn });
+  await assert.rejects(b.llm.generate({ prompt: "p" }), kind("unavailable", /daily quota GenerateRequestsPerDayPerProjectPerModel-FreeTier exhausted/));
+  assert.equal(daily.calls.length, 1);
+});
+
+test("a request's maxRetryWaitMs overrides the service bound", async () => {
+  const strict = fakeModel(rateLimited({ retryDelay: "5s" }), answer("ok"));
+  await assert.rejects(service(strict.model, { sleep: recordingSleep().fn }).llm.generate({ prompt: "p", maxRetryWaitMs: 1000 }), kind("unavailable", /wait 5\.0s \(limit 1\.0s\)/));
+  assert.equal(strict.calls.length, 1);
+
+  const patient = fakeModel(rateLimited({ retryDelay: "90s" }), answer("ok"));
+  const sleep = recordingSleep();
+  assert.equal((await service(patient.model, { sleep: sleep.fn, maxRetryWaitMs: 60000 }).llm.generate({ prompt: "p", maxRetryWaitMs: 120000 })).text, "ok");
+  assert.ok(sleep.waits[0] >= 90000);
+});
+
+test("a 429 without a stated wait falls back to the fixed backoff", async () => {
+  const f = fakeModel(rateLimited(), rateLimited(), answer("ok"));
+  const sleep = recordingSleep();
+  const { llm, lines } = service(f.model, { sleep: sleep.fn, retryDelaysMs: [1000, 4000] });
+  assert.equal((await llm.generate({ prompt: "p" })).text, "ok");
+  assert.ok(sleep.waits[0] >= 800 && sleep.waits[0] <= 1200 && sleep.waits[1] >= 3200 && sleep.waits[1] <= 4800, String(sleep.waits));
+  assert.match(lines[0], /\(3 attempts: 429 wait \d\.\ds, 429 wait \d\.\ds\)$/);
+});
+
+test("aborting while waiting out a rate limit cancels at once", async () => {
+  const f = fakeModel(rateLimited({ retryDelay: "30s" }));
+  const { llm } = service(f.model);
+  const ac = new AbortController();
+  const p = llm.generate({ prompt: "p", signal: ac.signal });
+  await waitFor(() => f.calls.length === 1);
+  const t0 = Date.now();
+  ac.abort();
+  await assert.rejects(p, kind("cancelled"));
+  assert.ok(Date.now() - t0 < 500);
+  assert.equal(f.calls.length, 1);
+});
+
+test("retry reasons name the status or network, and a clean call lists none", async () => {
+  const f = fakeModel(new TypeError("fetch failed"), http(503), answer("ok"));
+  const { llm, lines } = service(f.model, { sleep: recordingSleep().fn });
+  await llm.generate({ prompt: "TOP-SECRET-PROMPT" });
+  await llm.generate({ prompt: "p" });
+  assert.match(lines[0], /\(3 attempts: network wait \d+\.\ds, 503 wait \d+\.\ds\)$/);
+  assert.match(lines[1], /\(1 attempt\)$/);
+  for (const l of lines) assert.doesNotMatch(l, /TOP-SECRET/);
 });

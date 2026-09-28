@@ -150,13 +150,13 @@ async function extractFacts(ctx: ModuleContext, transcript: string, signal?: Abo
 }
 ```
 
-Request fields: `system`, exactly one of `prompt` (string) or `messages` (`{ role: "user" | "model", text }[]`, in order), and optionally `schema`, `model`, `temperature`, `maxOutputTokens`, `signal` and `timeoutMs` (per attempt; default `FRIDAY_LLM_TIMEOUT_MS`). The result is `{ text, model, usage: { inputTokens, outputTokens, thoughtTokens? } }`, plus `json` when a schema was given. Core runs at most `FRIDAY_LLM_CONCURRENCY` calls at a time across all modules (the rest wait in order) and logs one line per call with the module id, model, token counts and latency, never the content.
+Request fields: `system`, exactly one of `prompt` (string) or `messages` (`{ role: "user" | "model", text }[]`, in order), and optionally `schema`, `model`, `temperature`, `maxOutputTokens`, `signal`, `timeoutMs` (per attempt; default `FRIDAY_LLM_TIMEOUT_MS`) and `maxRetryWaitMs` (the longest wait before retrying a rate-limited call; default `FRIDAY_LLM_MAX_RETRY_WAIT_MS`, 60000; pass a small value from anything interactive). The result is `{ text, model, usage: { inputTokens, outputTokens, thoughtTokens? } }`, plus `json` when a schema was given. Core runs at most `FRIDAY_LLM_CONCURRENCY` calls at a time across all modules (the rest wait in order) and logs one line per call with the module id, model, token counts and latency, never the content.
 
 Every rejection is an `LlmError` with a `kind`:
 
 | Kind | Meaning | Retry? |
 |---|---|---|
-| `unavailable` | Unreachable, rate-limited, provider error, key not configured, or timed out. Core has already retried transient errors twice. | Later (next job run), not in a tight loop. |
+| `unavailable` | Unreachable, rate-limited, provider error, key not configured, or timed out. Core has already retried transient errors twice, waiting as long as Gemini asked after a 429 (up to `maxRetryWaitMs`). A longer requested wait or an exhausted daily quota fails at once, with the wait or the quota in the message. | Later (next job run), not in a tight loop. |
 | `invalid_output` | With a schema: the answer was not JSON, did not match the schema, or was truncated at `maxOutputTokens`. `raw` carries the text (max 2000 characters). | Optional. Re-asking the same prompt often gives the same answer; skipping the item is usually better. |
 | `blocked` | The provider refused the prompt or stopped for safety. `reason` carries the provider's reason (e.g. `SAFETY`). | No, not with the same input. |
 | `invalid_request` | Both or neither of `prompt`/`messages`, a schema that is not valid JSON Schema, or a request Gemini rejects (for example an unsupported schema). | No, fix the request. |

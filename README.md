@@ -161,11 +161,13 @@ Work that happens outside a conversation (a nightly pass over transcripts, summa
 | `FRIDAY_TEXT_MODEL_FAST` | `FRIDAY_TEXT_MODEL` | Model for the `fast` tier. |
 | `FRIDAY_LLM_CONCURRENCY` | `2` | Model calls in flight at once across all modules; the rest wait in order. |
 | `FRIDAY_LLM_TIMEOUT_MS` | `120000` | Per-attempt limit, unless a request sets `timeoutMs`. |
+| `FRIDAY_LLM_MAX_RETRY_WAIT_MS` | `60000` | Longest wait before retrying a rate-limited call (HTTP 429). Core waits as long as Gemini asks, up to this; a longer requested wait or an exhausted daily quota fails at once. A request's `maxRetryWaitMs` overrides it. |
 
 These calls cost money even when nobody is talking. Every call logs one line when it settles, with the module, the model (and the version that answered), token counts, latency, attempts and outcome, and never the prompt or the answer:
 
 ```
 llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok in=1834 out=212 think=640 2.4s (1 attempt)
+llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok in=1834 out=212 think=640 41.9s (2 attempts: 429 wait 39s)
 ```
 
 ## Remote modules

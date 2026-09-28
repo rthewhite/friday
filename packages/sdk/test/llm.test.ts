@@ -17,6 +17,14 @@ test("checkRequest accepts exactly one of prompt and messages", () => {
   assert.throws(() => checkRequest({ prompt: "x", model: "huge" as "fast" }), kind("invalid_request"));
 });
 
+test("checkRequest accepts a non-negative maxRetryWaitMs and rejects anything else", () => {
+  checkRequest({ prompt: "x", maxRetryWaitMs: 0 });
+  checkRequest({ prompt: "x", maxRetryWaitMs: 5000 });
+  for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, "60" as unknown as number]) {
+    assert.throws(() => checkRequest({ prompt: "x", maxRetryWaitMs: bad }), kind("invalid_request"));
+  }
+});
+
 test("checkRequest rejects a schema that does not compile", () => {
   checkRequest({ prompt: "x", schema: facts });
   assert.throws(() => checkRequest({ prompt: "x", schema: { type: "nonsense" } }), (e) => kind("invalid_request")(e) && /not a valid JSON Schema/.test((e as Error).message));
