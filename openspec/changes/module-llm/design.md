@@ -87,3 +87,14 @@ Content is never logged, because prompts will contain transcripts.
 ## Migration Plan
 
 No schema or data changes. New env vars (`FRIDAY_TEXT_MODEL`, `FRIDAY_TEXT_MODEL_FAST`, `FRIDAY_LLM_CONCURRENCY`, `FRIDAY_LLM_TIMEOUT_MS`) have defaults and are documented in `.env.example`. Rollback means deploying the previous image. Nothing uses `ctx.llm` until the brain change lands.
+
+## Implementation notes
+
+- **`result.model` is the configured name, the log shows both.** The result names the model core asked for (`FRIDAY_TEXT_MODEL` or the fast one), as the tier scenario requires. `TextResponse.model` carries the provider's `modelVersion`, and the log line appends it when it differs: `llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok ...`.
+- **Statuses outside the table.** 408 is retried like 429/5xx (the genai SDK treats it as transient too). Other HTTP errors (401, 403, ...) are `unavailable` without retry. `FinishReason` `IMAGE_SAFETY` and `IMAGE_PROHIBITED_CONTENT` count as `blocked` alongside the listed reasons.
+- **ajv runs with `strict: false` and `validateFormats: false`.** Gemini-specific keywords such as `propertyOrdering` must not make a schema `invalid_request`, and `format` values are passed to Gemini but not checked locally (no `ajv-formats`). A schema that fails ajv's meta-schema check is still `invalid_request`.
+- **Usage carries thought tokens.** `LlmUsage` has an optional `thoughtTokens` next to `inputTokens` / `outputTokens`; core always fills it.
+- **Settings are a function of the environment.** `llmSettings(env)` in `config.ts` computes the four values and is spread into `settings`, so defaults and the fast-tier fallback are unit-tested without re-importing the module. An invalid or non-positive `FRIDAY_LLM_CONCURRENCY` falls back to 2.
+- **Error log lines include the error message** (capped at 200 characters), which is ours or the provider's status text. The raw output of `invalid_output` is never logged.
+- **Test host details.** The fake answers under model name `fake-standard` / `fake-fast` with zero usage. `host.llmRequests` records the requests that passed `checkRequest` and reached the fake. Non-`LlmError` throws from the fake become `unavailable`, and an aborted signal gives `cancelled`, so every rejection carries a kind.
+- **Model check (task 2.1)** used the key in the repository's local `.env`, read-only, not the homelab key. The key was on a tight per-minute quota at the time: the live test succeeded after one or two 429 retries, which also exercised the retry path against the real API. Per-minute quota exhaustion can outlast the 1 s / 4 s retries and then surfaces as `unavailable`.

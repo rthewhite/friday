@@ -21,5 +21,5 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
+- [x] 4.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
 - [ ] 4.2 Deploy to the homelab and verify with a temporary verification job (removed afterwards) that calls `ctx.llm.generate` with a schema: the run is `ok` on the Jobs page, and the core log shows one `llm:` line with the model and token counts and no content
