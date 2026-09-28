@@ -156,17 +156,19 @@ export class ConversationRecorder {
 
   /** Write the exchange in order and start a new one. */
   private flush(): void {
+    // A new conversation starts when its exchange started, not when it is first written.
+    const started = [...this.question, ...this.body].map((x) => x.at).sort()[0];
     for (const s of this.question) {
       const text = s.text.trim();
-      if (text) this.write({ kind: "user", at: s.at, input: s.input, text });
+      if (text) this.write({ kind: "user", at: s.at, input: s.input, text }, started);
     }
     for (const item of this.body) {
       if (item.kind === "assistant") {
         const text = item.text.trim();
-        if (text) this.write({ kind: "assistant", at: item.at, text, interrupted: item.interrupted });
+        if (text) this.write({ kind: "assistant", at: item.at, text, interrupted: item.interrupted }, started);
         continue;
       }
-      item.seq = this.reserve();
+      item.seq = this.reserve(started);
       if (item.seq === undefined) continue;
       if (item.settled) this.writeTool(item);
       else this.awaiting.add(item);
@@ -191,16 +193,16 @@ export class ConversationRecorder {
     this.append(item.seq!, { kind: "tool", at: item.at, name: item.name, args: item.args, result: item.settled ? item.result : undefined });
   }
 
-  private write(e: NewEntry): void {
-    const seq = this.reserve();
+  private write(e: NewEntry, started?: string): void {
+    const seq = this.reserve(started);
     if (seq !== undefined) this.append(seq, e);
   }
 
-  /** Next position; creates the conversation on its first entry. */
-  private reserve(): number | undefined {
+  /** Next position; creates the conversation (started at `started`) on its first entry. */
+  private reserve(started?: string): number | undefined {
     if (!this.id) {
       try {
-        this.id = this.store.create(this.meta);
+        this.id = this.store.create(this.meta, started);
       } catch (e) {
         this.fail("create", e);
         return undefined;

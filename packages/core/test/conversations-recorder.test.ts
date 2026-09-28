@@ -57,10 +57,14 @@ test("the conversation is created on its first entry, held live while recording,
   const r = s.store.recorder({ channel: "voice", device: "kitchen" });
   r.user("Hi", "speech");
   assert.equal(r.conversationId, undefined, "fragments alone do not create it");
+  s.clock.advance(3000);
   r.assistant("Hello.");
+  s.clock.advance(2000);
   r.turnComplete();
   const id = r.conversationId!;
   assert.ok(id);
+  assert.equal(s.store.get(id)!.startedAt, "2026-10-01T10:00:00.000Z", "started when the first fragment arrived");
+  assert.equal(s.store.get(id)!.lastActivityAt, "2026-10-01T10:00:05.000Z");
   assert.equal(s.store.isLive(id), true);
   assert.equal(s.store.get(id)!.state, "active");
   r.end("ended: no follow-up");

@@ -173,13 +173,12 @@ export class ConversationStore {
     }
   }
 
-  /** A new, active conversation with no entries. Recorders call this on their first entry. */
-  create(meta: ConversationMeta): string {
+  /** A new, active conversation with no entries. Recorders call this on their first entry, passing its time. */
+  create(meta: ConversationMeta, startedAt = this.iso()): string {
     const id = randomUUID();
-    const at = this.iso();
     this.db
       .prepare("INSERT INTO conversations (id, channel, device, started_at, last_activity_at, entry_count) VALUES (?, ?, ?, ?, ?, 0)")
-      .run(id, meta.channel, meta.device || null, at, at);
+      .run(id, meta.channel, meta.device || null, startedAt, this.iso());
     return id;
   }
 
