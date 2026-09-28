@@ -115,7 +115,7 @@ export class McpSource {
       this.state.set(name, { status: "loaded", client });
       this.log.log(`mcp: ${name} -> ${this.registry.names(mcpOwner(name)).length} tools`);
     } catch (e) {
-      const error = scrub(e instanceof Error ? e.message : String(e), secrets);
+      const error = scrub(describe(e), secrets);
       this.state.set(name, { status: "failed", error });
       this.log.error(`mcp: server "${name}" failed to load: ${error}`);
     }
@@ -169,6 +169,14 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     timer = setTimeout(() => reject(new Error(`timed out after ${ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`}`)), ms);
   });
   return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Error message plus its cause's code, so "fetch failed" becomes "fetch failed (ECONNREFUSED)". */
+function describe(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = e.cause as { code?: unknown; message?: unknown } | undefined;
+  const detail = typeof cause?.code === "string" ? cause.code : typeof cause?.message === "string" ? cause.message : undefined;
+  return detail && !e.message.includes(detail) ? `${e.message} (${detail})` : e.message;
 }
 
 /** The whole value plus its long words, so `Bearer <token>` is also caught when only the token is echoed. */

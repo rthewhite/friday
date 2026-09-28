@@ -59,7 +59,7 @@ test("an unreachable server fails alone; the other loads with the secret header 
     await src.load();
     const [down, home] = src.servers();
     assert.equal(down.status, "failed");
-    assert.ok(down.error);
+    assert.match(down.error!, /^fetch failed \(.+\)$/, "the cause is included");
     assert.deepEqual(down.tools, []);
     assert.deepEqual(home, { name: "home", status: "loaded", tools: ["home__turn_on", "home__turn_off"] });
     assert.deepEqual(registry.names(), ["home__turn_on", "home__turn_off"]);
