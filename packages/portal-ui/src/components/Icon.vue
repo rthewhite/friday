@@ -12,6 +12,7 @@ const paths: Record<string, string> = {
   chevron: "M9 6l6 6-6 6-1.4-1.4L12.2 12 7.6 7.4 9 6Z",
   server: "M4 4h16v6H4V4Zm0 10h16v6H4v-6Zm3-8v2h2V6H7Zm0 10v2h2v-2H7Z",
   link: "M10 17H7a5 5 0 0 1 0-10h3v2H7a3 3 0 0 0 0 6h3v2Zm4-10h3a5 5 0 0 1 0 10h-3v-2h3a3 3 0 0 0 0-6h-3V7Zm-6 4h8v2H8v-2Z",
+  clock: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm-1 3v6.2l5.2 3.1 1-1.64-4.2-2.5V7h-2Z",
 };
 withDefaults(defineProps<{ name?: string; size?: number }>(), { size: 16 });
 </script>

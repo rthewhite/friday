@@ -47,6 +47,7 @@ describe("portal-ui components render", () => {
   });
   it("Icon renders svg for known names and text fallback otherwise", async () => {
     expect(await render(Icon, { name: "mic" })).toContain("<svg");
+    expect(await render(Icon, { name: "clock" })).toContain("<svg");
     expect(await render(Icon, { name: "🎙" })).toContain("🎙");
   });
   it("Drawer renders into body only when open", async () => {

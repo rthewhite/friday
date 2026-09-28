@@ -30,9 +30,9 @@
 
 ## 5. Portal Jobs page
 
-- [ ] 5.1 Add a `clock` icon to `@friday/portal-ui` `Icon.vue`, and verify it renders in the portal-ui component test
-- [ ] 5.2 Add the `/settings/jobs` route and the `Jobs` item in the `System` nav group, and verify the sidebar shows Configuration, Remote modules and Jobs linking to their routes
-- [ ] 5.3 Build `pages/settings/JobsPage.vue`: a table (status dot for last outcome or running, name, owner, readable schedule, next run, last run with duration, `formatDateTime` times), a row drawer with description, schedule, run history and `Run now` (disabled while running), a `Refresh` header action, and 3 s polling while any job runs. Verify `pnpm --filter @friday/portal build` passes and the page works against a local core with a test job: run now, watch it finish, and see a failure's error in the history
+- [x] 5.1 Add a `clock` icon to `@friday/portal-ui` `Icon.vue`, and verify it renders in the portal-ui component test
+- [x] 5.2 Add the `/settings/jobs` route and the `Jobs` item in the `System` nav group, and verify the sidebar shows Configuration, Remote modules and Jobs linking to their routes
+- [x] 5.3 Build `pages/settings/JobsPage.vue`: a table (status dot for last outcome or running, name, owner, readable schedule, next run, last run with duration, `formatDateTime` times), a row drawer with description, schedule, run history and `Run now` (disabled while running), a `Refresh` header action, and 3 s polling while any job runs. Verify `pnpm --filter @friday/portal build` passes and the page works against a local core with a test job: run now, watch it finish, and see a failure's error in the history
 
 ## 6. Integration
 
