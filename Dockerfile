@@ -27,8 +27,7 @@ COPY --from=build /out/ ./
 COPY --from=build /app/packages/portal/dist/ web/
 # friday.db lives here; in k8s a PersistentVolumeClaim is mounted over it.
 RUN mkdir -p /data && chown node:node /data
-# Runs as the unprivileged node user. mcp.json (if any) is mounted here from a
-# Secret at runtime; FRIDAY_MCP_CONFIG points at it (see deploy/k8s.yaml).
+# Runs as the unprivileged node user.
 USER node
 EXPOSE 8080
 CMD ["node", "dist/server.js"]

@@ -23,7 +23,7 @@ async function core(opts: { keys?: string; pingMs?: number; helloTimeoutMs?: num
   const log = { log: (...a: unknown[]) => logs.push(a.join(" ")), warn: (...a: unknown[]) => logs.push("warn " + a.join(" ")), error: (...a: unknown[]) => logs.push("error " + a.join(" ")) };
   const registry = new ToolRegistry(quiet);
   const host = new ModuleHost(registry, { env: {}, log: quiet });
-  const mcp = new McpSource(registry, quiet);
+  const mcp = new McpSource(registry, undefined, { log: quiet });
   const remote = new RemoteHost({ registry, keys: new EnvKeyStore(opts.keys ?? "sim=secret,other=o"), pingMs: opts.pingMs ?? 0, helloTimeoutMs: opts.helloTimeoutMs, callTimeoutMs: opts.callTimeoutMs, log });
   const server = createServer(createApp({ registry, host, mcp, remote, webDir: "/nonexistent" }));
   remote.attach(server);

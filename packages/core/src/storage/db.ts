@@ -11,6 +11,36 @@ export interface Migration {
 
 export const migrations: Migration[] = [
   {
+    version: 5,
+    name: "mcp-servers",
+    // HTTP MCP server definitions. Headers live in their own table in the config_values layout
+    // (plaintext or AES-256-GCM ciphertext) and go away with their server.
+    sql: `
+      CREATE TABLE mcp_servers (
+        name TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        url TEXT NOT NULL,
+        include_json TEXT,
+        exclude_json TEXT,
+        scheduling TEXT,
+        prefix TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE mcp_server_headers (
+        server TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        secret INTEGER NOT NULL,
+        plaintext TEXT,
+        ciphertext BLOB,
+        iv BLOB,
+        tag BLOB,
+        PRIMARY KEY (server, name)
+      );
+    `,
+  },
+  {
     version: 4,
     name: "conversations",
     // Transcript text only. preview and entry_count are kept on the conversation so listing never reads entries.

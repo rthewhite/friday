@@ -2,10 +2,10 @@
 # with ${IMAGE_TAG} replaced by the commit SHA.
 #
 # Namespace, deployer ServiceAccount, RBAC and the registry-pull secret are
-# created by the homelab Ansible (app-namespaces role), not here. The two
-# application secrets referenced below (friday-secrets, friday-mcp) are created
-# by hand — the deployer is deliberately denied access to Secrets. See
-# infra/README.md.
+# created by the homelab Ansible (app-namespaces role), not here. The
+# application secret referenced below (friday-secrets) is created by hand — the
+# deployer is deliberately denied access to Secrets. See infra/README.md.
+# MCP servers are configured in the portal and stored in friday.db.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,8 +40,6 @@ spec:
               value: "0.0.0.0"
             - name: FRIDAY_PORT
               value: "8080"
-            - name: FRIDAY_MCP_CONFIG
-              value: /etc/friday/mcp.json
             - name: FRIDAY_DATA_DIR
               value: /data
           # GEMINI_API_KEY and FRIDAY_MASTER_KEY are required here. Module config
@@ -51,9 +49,6 @@ spec:
             - secretRef:
                 name: friday-secrets
           volumeMounts:
-            - name: mcp
-              mountPath: /etc/friday
-              readOnly: true
             - name: data
               mountPath: /data
           resources:
@@ -75,12 +70,6 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 10
       volumes:
-        - name: mcp
-          secret:
-            secretName: friday-mcp
-            # MCP is optional: with no secret the mount is empty and the
-            # loader treats the missing file as "no MCP servers".
-            optional: true
         # friday.db: encrypted configuration, remote module keys, module storage.
         # Single replica + Recreate, so one RWO claim is enough.
         - name: data

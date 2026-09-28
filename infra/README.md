@@ -52,14 +52,13 @@ Assistant) and remote module keys are managed in the portal under Settings and
 stored encrypted in `friday.db` on the `friday-data` PersistentVolumeClaim; the
 environment remains a fallback, so a `.env` with everything still works. Core
 reads its key at each voice session and model call, so a key saved in the portal
-applies without a restart.
-`friday-mcp` is optional and is mounted as `/etc/friday/mcp.json`.
+applies without a restart. MCP servers, including their tokens, are configured
+under Settings > Configuration > MCP servers and stored in `friday.db` as well.
 
 ```bash
 # Generate the master key once and keep a copy in your password manager.
 echo "FRIDAY_MASTER_KEY=$(openssl rand -base64 32)" >> .env
 kubectl -n friday create secret generic friday-secrets --from-env-file=.env
-kubectl -n friday create secret generic friday-mcp --from-file=mcp.json=mcp.json
 ```
 
 ### The master key
@@ -82,8 +81,10 @@ To rotate the Gemini key: save the new one on Settings > Configuration > Secrets
 `kubectl -n friday delete secret friday-secrets` and recreate, then
 `kubectl -n friday rollout restart deploy/friday` (env is read at start).
 
-Do not put `FRIDAY_HOST`, `FRIDAY_PORT` or `FRIDAY_MCP_CONFIG` in the secret;
-the Deployment sets them.
+Do not put `FRIDAY_HOST` or `FRIDAY_PORT` in the secret; the Deployment sets them.
+Clusters upgraded from a version that read `mcp.json` can delete the old
+`friday-mcp` secret once the servers are re-entered in the portal:
+`kubectl -n friday delete secret friday-mcp`.
 
 Remote modules authenticate with keys created in the portal (Settings > Remote
 modules; the key is shown once). `FRIDAY_MODULE_KEYS` in the secret still works as

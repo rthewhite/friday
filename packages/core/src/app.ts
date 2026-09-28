@@ -5,6 +5,7 @@ import { extname, resolve, sep } from "node:path";
 import type { ToolRegistry } from "@friday/sdk";
 import type { ModuleEntry, ModuleHost } from "./module-host.js";
 import { mcpOwner, type McpSource } from "./tools/mcp.js";
+import { McpInputError, McpServerExists, McpStoreDisabled, parseServerInput, type McpServerStore, type StoredServer } from "./tools/mcp-store.js";
 import type { RemoteEntry, RemoteHost } from "./remote/host.js";
 import { adaptRequest, adaptResponse, readBody, Router, sendJson } from "./router.js";
 import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/config-store.js";
@@ -35,6 +36,8 @@ export interface AppDeps {
   registry: ToolRegistry;
   host: ModuleHost;
   mcp: McpSource;
+  /** MCP server definitions; without it the MCP server API answers 503. */
+  mcpStore?: McpServerStore;
   remote?: RemoteHost;
   webDir: string;
   /** Platform services; optional so tests can build a minimal app. */
@@ -48,15 +51,16 @@ export interface AppDeps {
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
 
 /** In-process modules, then MCP servers, then connected remotes: the shape /api/modules returns. */
-export function moduleListing({ host, mcp, registry, remote }: Pick<AppDeps, "host" | "mcp" | "registry" | "remote">): ApiModuleEntry[] {
+export function moduleListing({ host, mcp, remote }: Pick<AppDeps, "host" | "mcp" | "remote">): ApiModuleEntry[] {
   return [
     ...host.loaded(),
-    ...mcp.servers().map((name) => ({
+    ...mcp.servers().map(({ name, status, error, tools }): ModuleEntry => ({
       id: mcpOwner(name),
       label: name,
       description: "MCP server",
-      status: "loaded" as const,
-      tools: registry.names(mcpOwner(name)),
+      status,
+      ...(error ? { error } : {}),
+      tools,
       ui: false,
     })),
     ...(remote?.connected() ?? []),
@@ -125,6 +129,31 @@ export function configListing({ host, configStore, env = process.env }: Pick<App
   return [...byKey.values()];
 }
 
+/** A stored definition (secret entries without values) merged with its connection state. */
+function mcpServerEntry({ mcp }: Pick<AppDeps, "mcp">, s: StoredServer) {
+  const state = mcp.stateOf(s.name) ?? (s.enabled ? { status: "failed" as const, error: "not connected", tools: [] } : { status: "disabled" as const, tools: [] });
+  return { ...s, status: state.status, ...(state.error ? { error: state.error } : {}), tools: state.tools };
+}
+
+/** Parse the JSON body and map MCP store errors to 400 / 409 / 503. */
+async function mcpWrite(deps: AppDeps, req: IncomingMessage, res: ServerResponse, fn: (store: McpServerStore, body: unknown) => Promise<void>): Promise<void> {
+  if (!deps.mcpStore) return sendJson(res, { error: "no MCP server store" }, 503);
+  let body: unknown;
+  try {
+    body = JSON.parse((await readBody(req)) || "{}");
+  } catch {
+    return sendJson(res, { error: "invalid JSON" }, 400);
+  }
+  try {
+    await fn(deps.mcpStore, body);
+  } catch (e) {
+    if (e instanceof McpInputError) return sendJson(res, { error: e.message }, 400);
+    if (e instanceof McpServerExists) return sendJson(res, { error: e.message }, 409);
+    if (e instanceof McpStoreDisabled) return sendJson(res, { error: e.message }, 503);
+    throw e;
+  }
+}
+
 export function createApp(deps: AppDeps) {
   const webRoot = resolve(deps.webDir);
   const router = new Router()
@@ -163,6 +192,38 @@ export function createApp(deps: AppDeps) {
       deps.configStore.delete(scope, key);
       res.statusCode = 204;
       res.end();
+    })
+    .add("GET", "/api/mcp/servers", (_req, res) => {
+      const store = deps.mcpStore;
+      sendJson(res, { secretsEnabled: store?.secretsEnabled === true, servers: store?.list().map((s) => mcpServerEntry(deps, s)) ?? [] });
+    })
+    .add("POST", "/api/mcp/servers", (req, res) =>
+      mcpWrite(deps, req, res, async (store, body) => {
+        const created = store.create(parseServerInput(body));
+        await deps.mcp.apply(created.name);
+        sendJson(res, mcpServerEntry(deps, store.get(created.name)!), 201);
+      }),
+    )
+    .add("PUT", "/api/mcp/servers/:name", (req, res, { name }) =>
+      mcpWrite(deps, req, res, async (store, body) => {
+        if (!store.get(name)) return sendJson(res, { error: `unknown MCP server "${name}"` }, 404);
+        store.update(parseServerInput(body, name));
+        await deps.mcp.apply(name);
+        sendJson(res, mcpServerEntry(deps, store.get(name)!));
+      }),
+    )
+    .add("DELETE", "/api/mcp/servers/:name", async (_req, res, { name }) => {
+      if (!deps.mcpStore) return sendJson(res, { error: "no MCP server store" }, 503);
+      if (!deps.mcpStore.delete(name)) return sendJson(res, { error: `unknown MCP server "${name}"` }, 404);
+      await deps.mcp.apply(name);
+      res.statusCode = 204;
+      res.end();
+    })
+    .add("POST", "/api/mcp/servers/:name/reconnect", async (_req, res, { name }) => {
+      if (!deps.mcpStore) return sendJson(res, { error: "no MCP server store" }, 503);
+      if (!deps.mcpStore.get(name)) return sendJson(res, { error: `unknown MCP server "${name}"` }, 404);
+      await deps.mcp.apply(name);
+      sendJson(res, mcpServerEntry(deps, deps.mcpStore.get(name)!));
     })
     .add("GET", "/api/conversations", (_req, res, _params, url) => {
       if (!deps.conversations) return sendJson(res, { conversations: [], next: null });
@@ -251,8 +312,11 @@ export function createApp(deps: AppDeps) {
     return true;
   };
 
-  return async (req: IncomingMessage, res: ServerResponse) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://x");
+    if (url.pathname.startsWith("/api/") && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
+      return sendJson(res, { error: "cross-origin requests may not change Friday" }, 403);
+    }
     if (await router.dispatch(req, res, url)) return;
     if (await moduleRoute(req, res, url)) return;
     if (RESERVED.some((p) => url.pathname === p || url.pathname.startsWith(p + "/"))) {
@@ -282,6 +346,36 @@ export function createApp(deps: AppDeps) {
     res.statusCode = 404;
     res.end("not found");
   };
+
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      await handle(req, res);
+    } catch (e) {
+      // A failing route answers 500 instead of becoming an unhandled rejection that ends the process.
+      console.error(`${req.method} ${req.url} failed`, e);
+      if (!res.headersSent) sendJson(res, { error: "internal error" }, 500);
+      else res.end();
+    }
+  };
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * True when a browser sent this request from another site. The portal has no login, so without this a
+ * web page visited on the LAN could POST to the API (a CORS "simple request" needs no preflight) and,
+ * for example, add an MCP server or overwrite configuration. Non-browser clients send neither header and pass.
+ */
+export function isCrossOrigin(req: IncomingMessage): boolean {
+  const site = req.headers["sec-fetch-site"];
+  if (typeof site === "string" && site !== "same-origin" && site !== "none") return true;
+  const origin = req.headers.origin;
+  if (typeof origin !== "string") return false;
+  try {
+    return new URL(origin).host !== req.headers.host;
+  } catch {
+    return true; // "null" and other opaque origins
+  }
 }
 
 async function serveFile(res: ServerResponse, file: string, immutable: boolean): Promise<boolean> {

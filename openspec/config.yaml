@@ -12,7 +12,9 @@ context: |
   declarations() at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
   before reaching Gemini. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
-  transport-agnostic GeminiSession. MCP servers come from mcp.json via packages/core/src/tools/mcp.ts. Remote modules (remote/*,
+  transport-agnostic GeminiSession. MCP servers (streamable HTTP only, no stdio) are stored in friday.db (mcp_servers; secret header
+  values encrypted like config secrets), managed via /api/mcp/servers and Settings > Configuration > MCP servers, and
+  connected per server by packages/core/src/tools/mcp.ts (store: mcp-store.ts). Remote modules (remote/*,
   e.g. simracing on the gaming PC) run the same module via runRemote from @friday/sdk/remote: they dial
   /ws/modules, authenticate with FRIDAY_MODULE_KEYS, serve MCP over the socket; core registers their tools
   as <id>__<tool> with owner remote:<id> for the life of the connection (packages/core/src/remote/).

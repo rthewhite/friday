@@ -52,7 +52,7 @@ async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string
   const keys = new SqliteKeyStore(db);
   const conversations = new ConversationStore(db, { log: quiet });
   const remote = new RemoteHost({ registry, keys: new CompositeKeyStore([keys, new EnvKeyStore(opts.envKeys)]), pingMs: 0, log: quiet });
-  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, quiet), remote, webDir: "/nonexistent", configStore, keys, env, conversations }));
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), remote, webDir: "/nonexistent", configStore, keys, env, conversations }));
   remote.attach(server);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -247,7 +247,7 @@ test("jobs API: listing, runs newest first, run now 202, conflict 409, unknown 4
   const broken = defineModule({ manifest: { id: "broken", label: "B" }, init(ctx) { ctx.jobs.schedule({ name: "x", everyMs: 1000, run() {} }); throw new Error("no"); } });
   const off = defineModule({ manifest: { id: "off", label: "Off" }, init(ctx) { ctx.jobs.schedule({ name: "x", everyMs: 1000, run() {} }); } });
   await host.load([brain, broken, off]);
-  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, quiet), webDir: "/nonexistent", jobs }));
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), webDir: "/nonexistent", jobs }));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
