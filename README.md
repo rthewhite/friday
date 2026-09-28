@@ -255,7 +255,7 @@ Add MCP servers under **Settings > Configuration > MCP servers**. They are store
 - **Tools** are registered as `<prefix>__<tool>` (the prefix defaults to the server name; owner `mcp:<server>` in `/api/modules`). Use the include and exclude lists to trim large servers, and scheduling to control how Gemini surfaces results.
 - **API**: `GET/POST /api/mcp/servers`, `PUT/DELETE /api/mcp/servers/:name`, `POST /api/mcp/servers/:name/reconnect`. Secret values are never returned.
 
-Stdio servers are trusted code: anyone who can reach the portal can make Friday spawn a command, and a stdio server inherits Friday's environment (including `FRIDAY_MASTER_KEY` and `GEMINI_API_KEY`) plus its own env values. Keep the portal on a trusted network and prefer HTTP servers where you can.
+Stdio servers are trusted code: anyone who can reach the portal can make Friday spawn a command, and a stdio server inherits Friday's environment (including `FRIDAY_MASTER_KEY` and `GEMINI_API_KEY`) plus its own env values. Keep the portal on a trusted network and prefer HTTP servers where you can. Friday refuses API writes from other origins, so a web page you visit cannot add a server through your browser.
 
 `mcp.json` and `FRIDAY_MCP_CONFIG` are no longer read. When upgrading, re-enter each server from the old file in the portal, then delete the file (and, in k8s, the `friday-mcp` secret).
 

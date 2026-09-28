@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -36,10 +36,24 @@ async function start(opts: { masterKey?: Buffer | null } = {}) {
     bodies.push(text);
     return { status: res.status, json: text ? JSON.parse(text) : undefined };
   };
+  /** Raw request with browser-style headers (fetch would add its own). */
+  const raw = (method: string, path: string, headers: Record<string, string>, body = "") =>
+    new Promise<{ status: number; text: string }>((ok, fail) => {
+      const req = request(base + path, { method, headers }, (res) => {
+        let text = "";
+        res.on("data", (c) => (text += c));
+        res.on("end", () => ok({ status: res.statusCode!, text }));
+      });
+      req.on("error", fail);
+      req.end(body);
+    });
   return {
     call,
+    raw,
+    base,
     bodies,
     mcp,
+    store,
     close: async () => {
       await mcp.close();
       server.close();
@@ -198,5 +212,44 @@ test("no response from the MCP or module APIs ever contains a secret value", asy
   } finally {
     await s.close();
     await f.close();
+  }
+});
+
+test("API writes from another origin are refused, so a web page cannot define a stdio server", async () => {
+  const s = await start();
+  try {
+    const host = new URL(s.base).host;
+    const evil = JSON.stringify({ name: "x", transport: "stdio", command: "/bin/sh", args: ["-c", "exit 0"] });
+    const attempts: Record<string, string>[] = [
+      { "content-type": "text/plain", origin: "https://evil.example" },
+      { "content-type": "text/plain", "sec-fetch-site": "cross-site" },
+      { "content-type": "text/plain", "sec-fetch-site": "same-site", origin: `http://${host}` },
+      { "content-type": "text/plain", origin: "null" },
+    ];
+    for (const headers of attempts) {
+      const r = await s.raw("POST", "/api/mcp/servers", headers, evil);
+      assert.equal(r.status, 403, JSON.stringify(headers));
+    }
+    assert.equal((await s.raw("POST", "/api/mcp/servers/x/reconnect", { origin: "https://evil.example" })).status, 403);
+    assert.equal((await s.raw("DELETE", "/api/mcp/servers/x", { "sec-fetch-site": "cross-site" })).status, 403);
+    assert.deepEqual((await s.call("GET", "/api/mcp/servers")).json.servers, []);
+    // Reads stay open, and the portal's own same-origin requests pass.
+    assert.equal((await s.raw("GET", "/api/mcp/servers", { origin: "https://evil.example", "sec-fetch-site": "cross-site" })).status, 200);
+    const own = await s.raw("POST", "/api/mcp/servers", { "content-type": "application/json", origin: `http://${host}`, "sec-fetch-site": "same-origin" }, JSON.stringify({ name: "ok", transport: "http", url: "http://127.0.0.1:1/mcp", enabled: false }));
+    assert.equal(own.status, 201);
+  } finally {
+    await s.close();
+  }
+});
+
+test("an unexpected error in a route answers 500 and the server keeps serving", async () => {
+  const s = await start();
+  try {
+    s.store.create = () => { throw new Error("SQLITE_FULL: database or disk is full"); };
+    const r = await s.call("POST", "/api/mcp/servers", { name: "x", transport: "http", url: "http://127.0.0.1:1/mcp" });
+    assert.deepEqual([r.status, r.json], [500, { error: "internal error" }]);
+    assert.equal((await s.call("GET", "/api/mcp/servers")).status, 200);
+  } finally {
+    await s.close();
   }
 });

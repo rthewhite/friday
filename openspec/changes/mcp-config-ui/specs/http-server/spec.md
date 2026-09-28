@@ -37,3 +37,29 @@ On startup the server SHALL load in-process modules through the module host and 
 #### Scenario: Disabled MCP server
 - **WHEN** stored server `home` has `enabled: false`
 - **THEN** `mcp:home` appears with status `disabled` and an empty `tools` array
+
+## ADDED Requirements
+
+### Requirement: Cross-origin API writes are refused
+
+The server SHALL answer 403 to any `/api/` request with a method other than GET, HEAD or OPTIONS when the request carries a `Sec-Fetch-Site` header other than `same-origin` or `none`, or an `Origin` header whose host differs from the request's `Host` (including an opaque `null` origin). Requests without either header, such as those from scripts and remote tooling, SHALL be unaffected. This prevents a web page visited on the LAN from changing Friday through the unauthenticated API, for example by defining a stdio MCP server with a CORS simple request.
+
+#### Scenario: Cross-site page posts a stdio server
+- **WHEN** a request to `POST /api/mcp/servers` carries `Origin: https://evil.example` and a `text/plain` body defining a stdio server
+- **THEN** the response is 403 and no server is stored or spawned
+
+#### Scenario: Portal request
+- **WHEN** the portal on the same origin sends `POST /api/mcp/servers` with `Sec-Fetch-Site: same-origin`
+- **THEN** the request is handled normally
+
+#### Scenario: Reads stay open
+- **WHEN** a cross-site request uses GET
+- **THEN** it is handled normally
+
+### Requirement: Unexpected route errors answer 500
+
+An error that a route handler does not handle SHALL be logged and answered with 500 and `{ "error": "internal error" }`, and SHALL NOT stop the process.
+
+#### Scenario: Storage failure during a write
+- **WHEN** storing an MCP server throws an unexpected database error
+- **THEN** the response is 500 and the server keeps serving later requests

@@ -312,8 +312,11 @@ export function createApp(deps: AppDeps) {
     return true;
   };
 
-  return async (req: IncomingMessage, res: ServerResponse) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://x");
+    if (url.pathname.startsWith("/api/") && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
+      return sendJson(res, { error: "cross-origin requests may not change Friday" }, 403);
+    }
     if (await router.dispatch(req, res, url)) return;
     if (await moduleRoute(req, res, url)) return;
     if (RESERVED.some((p) => url.pathname === p || url.pathname.startsWith(p + "/"))) {
@@ -343,6 +346,36 @@ export function createApp(deps: AppDeps) {
     res.statusCode = 404;
     res.end("not found");
   };
+
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      await handle(req, res);
+    } catch (e) {
+      // A failing route answers 500 instead of becoming an unhandled rejection that ends the process.
+      console.error(`${req.method} ${req.url} failed`, e);
+      if (!res.headersSent) sendJson(res, { error: "internal error" }, 500);
+      else res.end();
+    }
+  };
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * True when a browser sent this request from another site. The portal has no login, so without this a
+ * web page visited on the LAN could POST to the API (a CORS "simple request" needs no preflight) and,
+ * for example, define a stdio MCP server. Non-browser clients send neither header and pass.
+ */
+export function isCrossOrigin(req: IncomingMessage): boolean {
+  const site = req.headers["sec-fetch-site"];
+  if (typeof site === "string" && site !== "same-origin" && site !== "none") return true;
+  const origin = req.headers.origin;
+  if (typeof origin !== "string") return false;
+  try {
+    return new URL(origin).host !== req.headers.host;
+  } catch {
+    return true; // "null" and other opaque origins
+  }
 }
 
 async function serveFile(res: ServerResponse, file: string, immutable: boolean): Promise<boolean> {

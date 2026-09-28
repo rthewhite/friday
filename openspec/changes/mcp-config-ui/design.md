@@ -127,9 +127,17 @@ Drawer controls use the same native `<select>`, checkbox and `surface-inset` sty
 - Store tests cover the merge table in D2, AAD binding (swapping a ciphertext between entries fails), and the wrong-master-key path.
 - API tests in `app.test.ts` cover 201/200/204/400/404/409/503 and assert that no response body contains a secret value.
 
+### D9. Refuse cross-origin API writes (added after security review)
+
+The security review found that `POST /api/mcp/servers` accepted a `text/plain` body. A cross-origin `fetch(..., { mode: "no-cors" })` is a CORS simple request, so there's no preflight, and any web page a LAN user opened could define and immediately spawn a stdio server. That widened the accepted "anyone who can reach the portal" risk to "any website a LAN user visits".
+
+The fix is one guard at the top of the request handler. For non-GET/HEAD/OPTIONS `/api/` requests, it answers 403 when `Sec-Fetch-Site` is present and isn't `same-origin` or `none`, or when `Origin` is present and doesn't match `Host`. It protects every write route, including `/api/config`, `/api/keys` and module routes, and it covers body-less POSTs such as reconnect.
+
+*Alternative:* require `Content-Type: application/json`. That forces a preflight for body-carrying writes, but it doesn't cover body-less POSTs, so it would only be a supplement. The same handler now also catches unexpected route errors and answers 500, instead of leaving an unhandled rejection.
+
 ## Risks / Trade-offs
 
-- **[Accepted] Anyone who can reach the portal can run commands through stdio servers.** The portal has no authentication, and a stdio definition spawns an arbitrary command in the container. Before this change that took cluster access. The user chose to treat the portal as a trusted, LAN-only admin surface. → Documented in the README MCP section; revisit if the portal gets authentication or is exposed beyond the LAN.
+- **[Accepted] Anyone who can reach the portal can run commands through stdio servers.** Cross-origin writes are refused (D9), so a web page opened on the LAN cannot do this through the user's browser. The portal has no authentication, and a stdio definition spawns an arbitrary command in the container. Before this change that took cluster access. The user chose to treat the portal as a trusted, LAN-only admin surface. → Documented in the README MCP section; revisit if the portal gets authentication or is exposed beyond the LAN.
 - **[Risk] Secrets can leak through error messages.** An MCP SDK or transport error might echo request details. → Store and resolve errors are built from entry names only. Errors reported for HTTP connections are reduced to the message, never headers. A test asserts that the secret never appears in `error` or in log output.
 - **[Risk] A slow server holds a request open for up to 10 seconds.** → The timeout is bounded, the busy state shows in the UI, and serialization is per server, so other servers are unaffected.
 - **[Trade-off] Stdio env values are merged into the full `process.env`, as today.** A stdio server therefore also sees `FRIDAY_MASTER_KEY` and `GEMINI_API_KEY`. This is unchanged behaviour but more visible now that users define the commands. → Kept for compatibility (npx needs `PATH` and `HOME`); noted in the README.
