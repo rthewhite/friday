@@ -53,7 +53,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env }));
+const server = createServer(createApp({ registry, host, mcp, remote, webDir: settings.webDir, configStore, keys, env: process.env, conversations }));
 attachAudioWs(server, { registry, conversations });
 remote.attach(server);
 

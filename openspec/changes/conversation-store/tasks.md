@@ -16,7 +16,7 @@
 
 - [x] 3.1 Add an optional `recorder` to `SessionOptions` and call it from `handle` (input/output transcription, `interrupted`, `turnComplete`), `sendText` (input `text`), `runTool` (handle around the call), and `emitClosed` (`end(reason)`). Verify `session.test.ts` cases: typed text is recorded as `text`, `end_conversation` gives end reason `ended: done`, and emitted events are identical with and without a recorder
 - [x] 3.2 In `serveWs`, create a recorder per connection with channel `voice` and the `device` query value, and pass it to the default `GeminiSession`. Keep `createSession` injection working. Verify `ws.test.ts` records `device=kitchen`, and records no device without the parameter
-- [ ] 3.3 Wire the store into `server.ts` (created after the database, sweep started, sweep stopped on shutdown, passed to `attachAudioWs` and `createApp`), and verify by talking to a local core and seeing the conversation row with entries in `friday.db`
+- [x] 3.3 Wire the store into `server.ts` (created after the database, sweep started, sweep stopped on shutdown, passed to `attachAudioWs` and `createApp`), and verify by talking to a local core and seeing the conversation row with entries in `friday.db`
 
 ## 4. Module access
 
@@ -31,8 +31,8 @@
 
 ## 6. Conversations API
 
-- [ ] 6.1 Add `GET /api/conversations` (limit, `before` cursor), `GET /api/conversations/:id`, and `DELETE /api/conversations/:id` (204, 404, and 409 while a recorder is live) to `createApp`. Verify with `platform-api.test.ts` cases for the summary shape, paging over 120 rows, full entries, 404, and 409 during a live session
-- [ ] 6.2 Add a README section on conversations (what is stored, text only, retention, deleting, the env vars), and verify its `curl` examples against a local core
+- [x] 6.1 Add `GET /api/conversations` (limit, `before` cursor), `GET /api/conversations/:id`, and `DELETE /api/conversations/:id` (204, 404, and 409 while a recorder is live) to `createApp`. Verify with `platform-api.test.ts` cases for the summary shape, paging over 120 rows, full entries, 404, and 409 during a live session
+- [x] 6.2 Add a README section on conversations (what is stored, text only, retention, deleting, the env vars), and verify its `curl` examples against a local core
 
 ## 7. Portal Conversations page
 

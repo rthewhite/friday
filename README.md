@@ -99,6 +99,21 @@ The browser UI is a Vue single-page app served by core at `/` with an SPA fallba
 
 The portal's build step scans the workspace for `friday.ui` declarations and generates the import list, so no shell code changes are needed. Nav items for modules that are disabled or failed are hidden, and their pages show a notice. See `modules/media/src/ui` for the first example.
 
+## Conversations
+
+Friday keeps a text record of every conversation in `friday.db`, for the portal's history and for background work that reads what was said.
+
+- **What is stored.** Transcript text only, never audio. A conversation has a channel (`voice` today, `chat` later), the client's `?device=` when it sends one, its start and last-activity times, and how it ended (`ended: done`, `ended: no follow-up`, `client closed`). Its entries are the user's turns, marked `speech` (Gemini's transcription, noisy) or `text` (typed, exact); Friday's answers, marked interrupted on a barge-in; and each tool call with its arguments and result, cut at 4000 characters. A session in which nothing was said, such as a false wake, leaves nothing behind. Whoever speaks near a Voice PE ends up in the record.
+- **Quiet.** A voice conversation goes quiet when its session closes; any conversation goes quiet after `FRIDAY_CONVERSATION_QUIET_MINUTES` (default 30) without activity. In-process modules read conversations and hear when one goes quiet through `ctx.conversations` (see `packages/sdk/README.md`).
+- **Retention.** A nightly core job at 04:00 deletes conversations whose last activity is older than `FRIDAY_CONVERSATION_RETENTION_DAYS` (default 90). `0` keeps them forever.
+- **Browsing and deleting.** The portal's `Conversations` page (under Assistant) lists them, shows the transcript and tool activity in a side panel, and deletes a conversation after confirmation. Over HTTP:
+
+```sh
+curl -s 'localhost:8080/api/conversations?limit=20'        # {"conversations":[...],"next":...}; pass next as ?before= for the next page
+curl -s 'localhost:8080/api/conversations/<id>'            # one conversation with all its entries
+curl -s -X DELETE 'localhost:8080/api/conversations/<id>'  # 204; 409 while its session is still open; 404 when unknown
+```
+
 ## Configuration, storage and keys
 
 Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) for three things:
@@ -195,7 +210,7 @@ Keep the total tool count modest: Gemini reads every declaration and caps at 512
 
 `WS /ws/audio` carries raw PCM both ways; see the protocol in `packages/core/src/transports/ws.ts`. The web UI and the Voice PE client speak the same protocol. Transports wrap `GeminiSession` (`packages/core/src/session.ts`), so tools and prompt behaviour are shared. A WebRTC transport can be added alongside it later.
 
-- Clients may append `?device=<id>`; the id is logged with the session and otherwise ignored for now. Unknown query parameters are ignored.
+- Clients may append `?device=<id>`; the id is logged with the session and recorded as the device of its conversation (see [Conversations](#conversations)). Unknown query parameters are ignored.
 - Binary frames may be any size; batching 100 ms (3200 bytes) per frame is fine for microcontrollers.
 - The server pings every `FRIDAY_WS_PING_MS` (default 20000) and drops connections that stop answering, which also closes the Gemini session. Set to `0` to disable.
 
