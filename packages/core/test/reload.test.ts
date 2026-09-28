@@ -2,8 +2,44 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defineModule, ToolRegistry } from "@friday/sdk";
 import { ModuleHost } from "../src/module-host.js";
+import { setup } from "./conversation-fixtures.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
+
+test("after a reload the old onQuiet handler no longer fires and the new one does; a failed init leaves none", async () => {
+  const { store } = setup();
+  const fired: number[] = [];
+  let generation = 0, fail = false;
+  const m = defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    init(ctx) {
+      const g = ++generation;
+      ctx.conversations.onQuiet(() => void fired.push(g));
+      if (fail) throw new Error("broken");
+    },
+  });
+  const h = new ModuleHost(new ToolRegistry(quiet), { env: {}, log: quiet, conversations: (id) => store.forOwner(id) });
+  await h.load([m]);
+  const quietOne = async () => {
+    const id = store.create({ channel: "chat" });
+    store.markQuiet(id);
+    await new Promise((r) => setImmediate(r));
+  };
+  await quietOne();
+  assert.deepEqual(fired, [1]);
+  await h.reload("brain");
+  await quietOne();
+  assert.deepEqual(fired, [1, 2]);
+  fail = true;
+  assert.equal((await h.reload("brain"))?.status, "failed");
+  await quietOne();
+  assert.deepEqual(fired, [1, 2], "neither the disposed nor the failed init's handler fires");
+  fail = false;
+  await h.reload("brain");
+  await h.dispose();
+  await quietOne();
+  assert.deepEqual(fired, [1, 2]);
+});
 
 test("reload turns a failed module into loaded once its config exists, and disposes on subsequent reloads", async () => {
   const store = new Map<string, string>();

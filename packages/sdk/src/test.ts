@@ -7,12 +7,15 @@ import { RouteTable, type HttpMethod, type RouteRequest, type RouteResponse } fr
 import type { FridayModule, ModuleLogger } from "./module.js";
 import { ToolRegistry, type CallResult } from "./registry.js";
 import { MemoryStorage } from "./storage.js";
+import { MemoryConversations } from "./conversations.js";
 
 export interface TestHostOptions {
   /** Configuration the module sees. Defaults to an empty environment, not `process.env`. */
   env?: Env;
   /** Capture module log output; defaults to a silent logger. */
   log?: ModuleLogger;
+  /** Conversations the module sees as `ctx.conversations`; seed before init when the module reads them there. */
+  conversations?: MemoryConversations;
 }
 
 export interface TestResponse {
@@ -27,6 +30,8 @@ export interface TestHost {
   registry: ToolRegistry;
   /** In-memory storage the module saw as `ctx.storage`. */
   storage: MemoryStorage;
+  /** In-memory conversations the module saw as `ctx.conversations`: `seed(...)`, then `markQuiet(id)` to fire `onQuiet`. */
+  conversations: MemoryConversations;
   /** Registered module routes as `GET search`. */
   routes: string[];
   /** Invoke a module route in memory. `path` is relative to the module mount and may carry a query string. */
@@ -43,12 +48,14 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   const registry = new ToolRegistry(log);
   const table = new RouteTable();
   const storage = new MemoryStorage();
-  await module.init(createContext(module.manifest, { env, registry, log, storage, http: { route: (method, path, handler) => table.add({ method, path, handler }) } }));
+  const conversations = opts.conversations ?? new MemoryConversations(log);
+  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, http: { route: (method, path, handler) => table.add({ method, path, handler }) } }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args) => registry.callTool(name, args),
     registry,
     storage,
+    conversations,
     routes: table.list().map((r) => `${r.method} ${r.path.replace(/^\//, "")}`),
     async request(method, pathWithQuery, body, headers = {}) {
       const [path, qs = ""] = pathWithQuery.split("?");
@@ -75,6 +82,9 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
       if (!sent) out.status = 204;
       return out;
     },
-    dispose: async () => void (await module.dispose?.()),
+    dispose: async () => {
+      conversations.clearSubscriptions();
+      await module.dispose?.();
+    },
   };
 }

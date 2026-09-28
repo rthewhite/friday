@@ -20,10 +20,10 @@
 
 ## 4. Module access
 
-- [ ] 4.1 Add `ModuleConversations` types to `@friday/sdk`, add `conversations` to `ModuleContext` and `createContext` (default throws `conversations are not available in this host`), and export the types. Verify a remote-runner test that `ctx.conversations.list()` rejects with that message
-- [ ] 4.2 Pass `conversations: (id) => store.forOwner(id)` from `ModuleHost`, and drop that owner's `onQuiet` subscriptions on teardown and init failure. Verify `reload.test.ts`: after a reload the old handler doesn't fire and the new one does
-- [ ] 4.3 Add `MemoryConversations` to the test host (`host.conversations.seed(...)`, `host.conversations.markQuiet(id)`), and verify with test-host tests that `onQuiet` fires and `get` returns seeded entries
-- [ ] 4.4 Document `ctx.conversations` (the watermark pattern with `ctx.storage`, and triggering a job from `onQuiet`) in `packages/sdk/README.md`, and verify the example compiles by using it in a test
+- [x] 4.1 Add `ModuleConversations` types to `@friday/sdk`, add `conversations` to `ModuleContext` and `createContext` (default throws `conversations are not available in this host`), and export the types. Verify a remote-runner test that `ctx.conversations.list()` rejects with that message
+- [x] 4.2 Pass `conversations: (id) => store.forOwner(id)` from `ModuleHost`, and drop that owner's `onQuiet` subscriptions on teardown and init failure. Verify `reload.test.ts`: after a reload the old handler doesn't fire and the new one does
+- [x] 4.3 Add `MemoryConversations` to the test host (`host.conversations.seed(...)`, `host.conversations.markQuiet(id)`), and verify with test-host tests that `onQuiet` fires and `get` returns seeded entries
+- [x] 4.4 Document `ctx.conversations` (the watermark pattern with `ctx.storage`, and triggering a job from `onQuiet`) in `packages/sdk/README.md`, and verify the example compiles by using it in a test
 
 ## 5. Retention
 

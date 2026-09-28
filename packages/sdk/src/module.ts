@@ -1,5 +1,6 @@
 import type { ModuleHttp } from "./http.js";
 import type { ModuleStorage } from "./storage.js";
+import type { ModuleConversations } from "./conversations.js";
 import type { Tool } from "./tool.js";
 
 /** A configuration value the module reads through `ctx.config`. */
@@ -39,6 +40,8 @@ export interface ModuleContext {
   http: ModuleHttp;
   /** Persistent key-value storage namespaced to this module. Not available to remote modules. */
   storage: ModuleStorage;
+  /** Read access to recorded conversations, and quiet notifications. Not available to remote modules. */
+  conversations: ModuleConversations;
 }
 
 export interface FridayModule {

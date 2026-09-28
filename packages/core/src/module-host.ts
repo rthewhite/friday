@@ -8,6 +8,7 @@ import {
   type ConfigResolver,
   type Env,
   type FridayModule,
+  type ModuleConversations,
   type ModuleLogger,
   type ModuleStorage,
   type ToolRegistry,
@@ -34,6 +35,8 @@ export interface ModuleHostOptions {
   resolve?: (moduleId: string) => ConfigResolver;
   /** Per-module persistent storage. Defaults to an unavailable stub. */
   storage?: (moduleId: string) => ModuleStorage;
+  /** Per-module conversation access. Defaults to an unavailable stub. */
+  conversations?: (moduleId: string) => ModuleConversations;
 }
 
 interface Entry {
@@ -48,6 +51,8 @@ export class ModuleHost {
   private readonly env: Env;
   private readonly log: ModuleLogger;
   private readonly resolve: (moduleId: string) => ConfigResolver;
+  /** Unsubscribers of each module's onQuiet handlers, dropped on teardown and failed init. */
+  private readonly quietSubs = new Map<string, (() => void)[]>();
 
   constructor(private readonly registry: ToolRegistry, private readonly opts: ModuleHostOptions = {}) {
     this.env = opts.env ?? process.env;
@@ -85,7 +90,7 @@ export class ModuleHost {
       const resolve = this.resolve(id);
       assertConfig(module.manifest, resolve);
       const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id) }));
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), conversations: this.conversationsFor(id) }));
       entry.status = "loaded";
       entry.error = undefined;
       const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
@@ -95,6 +100,7 @@ export class ModuleHost {
       entry.error = e instanceof Error ? e.message : String(e);
       this.registry.removeOwner(id);
       routes.clear();
+      this.dropSubscriptions(id);
       this.log.error(`module ${id} failed to load: ${entry.error}`);
     }
   }
@@ -103,11 +109,31 @@ export class ModuleHost {
     const id = entry.module.manifest.id;
     entry.routes.clear();
     this.registry.removeOwner(id);
+    this.dropSubscriptions(id);
     try {
       await entry.module.dispose?.();
     } catch (err) {
       this.log.error(`module ${id} failed to dispose:`, err);
     }
+  }
+
+  /** `ctx.conversations` with its onQuiet subscriptions tracked so a reload or dispose can drop them. */
+  private conversationsFor(id: string): ModuleConversations | undefined {
+    const c = this.opts.conversations?.(id);
+    if (!c) return undefined;
+    return {
+      ...c,
+      onQuiet: (handler) => {
+        const off = c.onQuiet(handler);
+        this.quietSubs.set(id, [...(this.quietSubs.get(id) ?? []), off]);
+        return off;
+      },
+    };
+  }
+
+  private dropSubscriptions(id: string): void {
+    for (const off of this.quietSubs.get(id) ?? []) off();
+    this.quietSubs.delete(id);
   }
 
   loaded(): ModuleEntry[] {

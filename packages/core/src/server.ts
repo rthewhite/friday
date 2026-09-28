@@ -27,6 +27,7 @@ const host = new ModuleHost(registry, {
   enabled: process.env.FRIDAY_MODULES,
   resolve: createResolver(configStore, process.env),
   storage: (id) => new SqliteModuleStorage(db, id),
+  conversations: (id) => conversations.forOwner(id),
 });
 const mcp = new McpSource(registry);
 const remote = new RemoteHost({
