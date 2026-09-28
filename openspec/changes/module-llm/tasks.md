@@ -16,8 +16,8 @@
 
 ## 3. Wiring
 
-- [ ] 3.1 Pass `llm: (id) => service.forOwner(id)` from `ModuleHost` into `createContext`, and create the service in `server.ts` with `GeminiTextModel`. Verify a `module-host.test.ts` case that a module's call is attributed to its id in the log
-- [ ] 3.2 Add a README section on text generation for modules (what it's for, the env vars, cost visibility through logs), and verify it matches `.env.example`
+- [x] 3.1 Pass `llm: (id) => service.forOwner(id)` from `ModuleHost` into `createContext`, and create the service in `server.ts` with `GeminiTextModel`. Verify a `module-host.test.ts` case that a module's call is attributed to its id in the log
+- [x] 3.2 Add a README section on text generation for modules (what it's for, the env vars, cost visibility through logs), and verify it matches `.env.example`
 
 ## 4. Integration
 

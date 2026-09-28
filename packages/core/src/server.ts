@@ -13,6 +13,8 @@ import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
 import { attachAudioWs } from "./transports/ws.js";
 import { createApp } from "./app.js";
+import { GeminiTextModel } from "./llm/gemini.js";
+import { LlmService } from "./llm/service.js";
 
 const db = openDatabase(settings.dataDir);
 const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
@@ -21,10 +23,17 @@ for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.k
 const keys = new SqliteKeyStore(db);
 
 const registry = new ToolRegistry();
+const llm = new LlmService({
+  model: new GeminiTextModel(settings.apiKey),
+  models: { standard: settings.textModel, fast: settings.textModelFast },
+  concurrency: settings.llmConcurrency,
+  timeoutMs: settings.llmTimeoutMs,
+});
 const host = new ModuleHost(registry, {
   enabled: process.env.FRIDAY_MODULES,
   resolve: createResolver(configStore, process.env),
   storage: (id) => new SqliteModuleStorage(db, id),
+  llm: (id) => llm.forOwner(id),
 });
 const mcp = new McpSource(registry);
 const remote = new RemoteHost({

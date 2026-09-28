@@ -109,6 +109,23 @@ Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) fo
 
 The Modules page has a `Reload` button per in-process module, and `POST /api/modules/<id>/reload` does the same over HTTP. See `infra/README.md` for generating the master key and what happens if it is lost.
 
+## Text generation for modules
+
+Work that happens outside a conversation (a nightly pass over transcripts, summaries, classification) can call a text model through `ctx.llm.generate`. Core owns the provider (Gemini `generateContent`, not Live), the key (the same `GEMINI_API_KEY`) and the model choice; modules pick a tier (`standard` or `fast`) and can ask for JSON validated against a schema. Failures are typed (`unavailable`, `invalid_output`, `blocked`, `invalid_request`, `cancelled`), calls take an abort signal, and transient errors are retried twice. Remote modules don't get it. See `packages/sdk/README.md` for the request shape and error handling.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FRIDAY_TEXT_MODEL` | `gemini-flash-latest` | Model for the `standard` tier. The alias follows Google's current Flash model; pin a name for stable behaviour. |
+| `FRIDAY_TEXT_MODEL_FAST` | `FRIDAY_TEXT_MODEL` | Model for the `fast` tier. |
+| `FRIDAY_LLM_CONCURRENCY` | `2` | Model calls in flight at once across all modules; the rest wait in order. |
+| `FRIDAY_LLM_TIMEOUT_MS` | `120000` | Per-attempt limit, unless a request sets `timeoutMs`. |
+
+These calls cost money even when nobody is talking. Every call logs one line when it settles, with the module, the model (and the version that answered), token counts, latency, attempts and outcome, and never the prompt or the answer:
+
+```
+llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok in=1834 out=212 think=640 2.4s (1 attempt)
+```
+
 ## Remote modules
 
 A module does not have to run inside Friday. `runRemote` from `@friday/sdk/remote` runs the same `defineModule` on another machine, dials `ws(s)://<friday>/ws/modules`, authenticates with a key, and serves its tools over MCP on that socket. While the connection is up its tools are registered as `<id>__<tool>` and listed under `/api/modules` with status `connected`; when the process stops or the network drops, they are removed. The remote reconnects with backoff (1 s to 30 s) and only gives up when Friday rejects the key.

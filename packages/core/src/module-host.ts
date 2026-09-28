@@ -8,6 +8,7 @@ import {
   type ConfigResolver,
   type Env,
   type FridayModule,
+  type ModuleLlm,
   type ModuleLogger,
   type ModuleStorage,
   type ToolRegistry,
@@ -34,6 +35,8 @@ export interface ModuleHostOptions {
   resolve?: (moduleId: string) => ConfigResolver;
   /** Per-module persistent storage. Defaults to an unavailable stub. */
   storage?: (moduleId: string) => ModuleStorage;
+  /** Per-module text generation (calls attributed to the id). Defaults to an unavailable stub. */
+  llm?: (moduleId: string) => ModuleLlm;
 }
 
 interface Entry {
@@ -85,7 +88,7 @@ export class ModuleHost {
       const resolve = this.resolve(id);
       assertConfig(module.manifest, resolve);
       const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id) }));
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), llm: this.opts.llm?.(id) }));
       entry.status = "loaded";
       entry.error = undefined;
       const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
