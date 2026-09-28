@@ -54,9 +54,9 @@
 
 ## 5. Deploy and docs
 
-- [ ] 5.1 Remove the `FRIDAY_MCP_CONFIG` env var, the `mcp` volume mount, the `friday-mcp` Secret volume and its mention in the header comment from `deploy/k8s.yaml`. Verify with `kubectl apply --dry-run=client -f deploy/k8s.yaml` (or a YAML lint) and `grep -n mcp deploy/k8s.yaml` showing no leftovers.
-- [ ] 5.2 Rewrite the README MCP section: configure servers in `Settings > Configuration > MCP servers`, mark tokens as secret (requires `FRIDAY_MASTER_KEY`), and note the stdio trust caveats from the design's Risks (the portal can spawn commands; stdio servers inherit the process environment). Replace `mcp.json` in the architecture diagram, delete `mcp.example.json`, and drop `mcp.json` from `.gitignore` or keep it with a "legacy" comment. Verify that `grep -rn "mcp.json\|FRIDAY_MCP_CONFIG" --exclude-dir=node_modules --exclude-dir=openspec .` returns nothing outside the git-ignored local file.
-- [ ] 5.3 Update the project context in `openspec/config.yaml`, which says "MCP servers come from mcp.json via packages/core/src/tools/mcp.ts", to describe the stored servers and `/api/mcp/servers`. Verify that `openspec instructions proposal --change mcp-config-ui` no longer mentions `mcp.json`.
+- [x] 5.1 Remove the `FRIDAY_MCP_CONFIG` env var, the `mcp` volume mount, the `friday-mcp` Secret volume and its mention in the header comment from `deploy/k8s.yaml`. Verify with `kubectl apply --dry-run=client -f deploy/k8s.yaml` (or a YAML lint) and `grep -n mcp deploy/k8s.yaml` showing no leftovers.
+- [x] 5.2 Rewrite the README MCP section: configure servers in `Settings > Configuration > MCP servers`, mark tokens as secret (requires `FRIDAY_MASTER_KEY`), and note the stdio trust caveats from the design's Risks (the portal can spawn commands; stdio servers inherit the process environment). Replace `mcp.json` in the architecture diagram, delete `mcp.example.json`, and drop `mcp.json` from `.gitignore` or keep it with a "legacy" comment. Verify that `grep -rn "mcp.json\|FRIDAY_MCP_CONFIG" --exclude-dir=node_modules --exclude-dir=openspec .` returns nothing outside the git-ignored local file.
+- [x] 5.3 Update the project context in `openspec/config.yaml`, which says "MCP servers come from mcp.json via packages/core/src/tools/mcp.ts", to describe the stored servers and `/api/mcp/servers`. Verify that `openspec instructions proposal --change mcp-config-ui` no longer mentions `mcp.json`.
 
 ## 6. Integration and rollout
 

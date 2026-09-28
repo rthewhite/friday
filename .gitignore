@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+# Legacy MCP config (no longer read; servers live in friday.db). Kept so an old local copy is never committed.
 mcp.json
 
 # ESPHome

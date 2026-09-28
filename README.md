@@ -8,7 +8,7 @@ browser portal (Vue)   ── WebSocket PCM ──┐
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
                                                ├─► modules/builtin   time, timers, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
-                                               ├─► MCP servers       mcp.json
+                                               ├─► MCP servers       configured in the portal (stdio or HTTP)
                                                └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
 
@@ -17,7 +17,7 @@ The repo is a pnpm workspace:
 | Package | Path | What |
 |---|---|---|
 | `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
-| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, module host, MCP loader, serves the portal |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, module host, MCP servers, serves the portal |
 | `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Modules, and module pages |
 | `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
@@ -248,7 +248,16 @@ The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_ch
 
 ## MCP servers
 
-Copy `mcp.example.json` to `mcp.json` (git-ignored) and list servers. Both stdio (`command`/`args`) and streamable HTTP (`url`/`headers`) transports work. Each MCP tool is registered as `<server>__<tool>` (owner `mcp:<server>` in `/api/modules`); use `include`/`exclude` to trim large servers and `scheduling` to control how Gemini surfaces results. Override the path with `FRIDAY_MCP_CONFIG`.
+Add MCP servers under **Settings > Configuration > MCP servers**. They are stored in `friday.db` and changes apply right away: saving a server reconnects just that server and shows whether it loaded, with the error when it didn't. Voice sessions that are already open keep their tools; the next session sees the change.
+
+- **Transports**: streamable HTTP (`url` plus headers) or stdio (a `command` with arguments, plus env values).
+- **Tokens**: mark a header or env value as *secret* (for example `Authorization: Bearer …` for Home Assistant). Secret values are encrypted with `FRIDAY_MASTER_KEY`, never shown again, and kept when you leave them blank while editing. Without a master key only plain values can be saved.
+- **Tools** are registered as `<prefix>__<tool>` (the prefix defaults to the server name; owner `mcp:<server>` in `/api/modules`). Use the include and exclude lists to trim large servers, and scheduling to control how Gemini surfaces results.
+- **API**: `GET/POST /api/mcp/servers`, `PUT/DELETE /api/mcp/servers/:name`, `POST /api/mcp/servers/:name/reconnect`. Secret values are never returned.
+
+Stdio servers are trusted code: anyone who can reach the portal can make Friday spawn a command, and a stdio server inherits Friday's environment (including `FRIDAY_MASTER_KEY` and `GEMINI_API_KEY`) plus its own env values. Keep the portal on a trusted network and prefer HTTP servers where you can.
+
+`mcp.json` and `FRIDAY_MCP_CONFIG` are no longer read. When upgrading, re-enter each server from the old file in the portal, then delete the file (and, in k8s, the `friday-mcp` secret).
 
 Keep the total tool count modest: Gemini reads every declaration and caps at 512.
 
