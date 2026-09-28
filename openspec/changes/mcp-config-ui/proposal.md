@@ -22,8 +22,8 @@ _None._ MCP configuration stays within the existing `mcp-tools` capability.
 
 ### Modified Capabilities
 
-- `mcp-tools`: "Configuration file" is replaced by database-stored server definitions with secret header/env values, a CRUD API, and per-server reconnect on change. Failure isolation now also covers runtime reconnects.
-- `secret-management`: "Configuration page" gains the `MCP servers` tab and its drawer. Encryption rules are extended to MCP header/env secrets.
+- `mcp-tools`: "Configuration file" is replaced by database-stored server definitions with secret header/env values (encrypted with the same AES-256-GCM scheme as config secrets), a CRUD API, and per-server reconnect on change. Failure isolation now also covers runtime reconnects.
+- `secret-management`: "Configuration page" gains the `MCP servers` tab and its drawer.
 - `http-server`: `/api/modules` lists all configured MCP servers with `loaded`, `failed` or `disabled` status and an error, instead of always `loaded`. The startup requirement attaches MCP servers from storage.
 
 ## Impact
