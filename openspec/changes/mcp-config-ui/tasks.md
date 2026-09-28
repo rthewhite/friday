@@ -39,18 +39,18 @@
 
 ## 4. Portal: MCP servers tab
 
-- [ ] 4.1 Add the `mcp` tab (label `MCP servers`, count = number of servers) to `packages/portal/src/pages/settings/ConfigurationPage.vue`. It renders a new `McpServersTab.vue` and makes the header action `New server` when active. `?tab=mcp&server=<name>` opens that server's drawer. Verify that `pnpm --filter @friday/portal build` succeeds and that `/settings/config?tab=mcp&server=home` opens the drawer in `pnpm dev`.
-- [ ] 4.2 Implement the table in `McpServersTab.vue`: status dot (`loaded`, `failed`, `disabled`), name, transport (`stdio` or `HTTP`), tool count and updated time, loaded from `GET /api/mcp/servers`. Verify in `pnpm dev` against a stored server that the row shows the right status and tool count.
-- [ ] 4.3 Implement the drawer form described in D7:
+- [x] 4.1 Add the `mcp` tab (label `MCP servers`, count = number of servers) to `packages/portal/src/pages/settings/ConfigurationPage.vue`. It renders a new `McpServersTab.vue` and makes the header action `New server` when active. `?tab=mcp&server=<name>` opens that server's drawer. Verify that `pnpm --filter @friday/portal build` succeeds and that `/settings/config?tab=mcp&server=home` opens the drawer in `pnpm dev`.
+- [x] 4.2 Implement the table in `McpServersTab.vue`: status dot (`loaded`, `failed`, `disabled`), name, transport (`stdio` or `HTTP`), tool count and updated time, loaded from `GET /api/mcp/servers`. Verify in `pnpm dev` against a stored server that the row shows the right status and tool count.
+- [x] 4.3 Implement the drawer form described in D7:
   - name, editable only when adding, and an enabled checkbox;
   - a transport `<select>` that switches between `command` plus an `args` textarea (one per line) and a `url` field;
   - an env or header row list with name, value, a secret checkbox and remove;
   - `include` and `exclude` textareas, a `scheduling` select and `prefix`.
 
   Verify that the portal build type-checks and that switching transport keeps the other fields' values in the form.
-- [ ] 4.4 Implement secret handling in the drawer. A stored secret shows as a password input with placeholder `•••••• stored, leave blank to keep` and is sent as `{ name, secret: true }` when blank. Without a master key, show the existing secrets banner and disable the secret checkbox on new rows. Verify in `pnpm dev` that saving `home` with a secret `Authorization` header and reopening shows it masked with no value (network tab shows no value), and that a restart without `FRIDAY_MASTER_KEY` shows the banner.
-- [ ] 4.5 Implement `Save` (busy state while waiting for the response), `Reconnect` (existing enabled servers), and a two-step `Delete` → `Confirm delete`. Show the server's `error` in the drawer when it has failed, and refresh the row from the response. Verify in `pnpm dev`: an unreachable URL shows `failed` with the error; adding `include` for one tool drops the tool count to 1 without re-entering the token; delete removes the row.
-- [ ] 4.6 Verify the Modules page (`ModulesPage.vue`) shows failed and disabled MCP servers with the right dot and kind `MCP server`, still with no reload action. Change it only if needed, and verify in `pnpm dev`.
+- [x] 4.4 Implement secret handling in the drawer. A stored secret shows as a password input with placeholder `•••••• stored, leave blank to keep` and is sent as `{ name, secret: true }` when blank. Without a master key, show the existing secrets banner and disable the secret checkbox on new rows. Verify in `pnpm dev` that saving `home` with a secret `Authorization` header and reopening shows it masked with no value (network tab shows no value), and that a restart without `FRIDAY_MASTER_KEY` shows the banner.
+- [x] 4.5 Implement `Save` (busy state while waiting for the response), `Reconnect` (existing enabled servers), and a two-step `Delete` → `Confirm delete`. Show the server's `error` in the drawer when it has failed, and refresh the row from the response. Verify in `pnpm dev`: an unreachable URL shows `failed` with the error; adding `include` for one tool drops the tool count to 1 without re-entering the token; delete removes the row.
+- [x] 4.6 Verify the Modules page (`ModulesPage.vue`) shows failed and disabled MCP servers with the right dot and kind `MCP server`, still with no reload action. Change it only if needed, and verify in `pnpm dev`.
 
 ## 5. Deploy and docs
 

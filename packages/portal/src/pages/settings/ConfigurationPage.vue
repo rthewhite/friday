@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
+import McpServersTab from "./McpServersTab.vue";
 
 interface Entry extends Record<string, unknown> {
   key: string;
@@ -16,12 +17,14 @@ interface Entry extends Record<string, unknown> {
   updatedAt?: string;
   value?: string;
 }
-type Tab = "config" | "secrets";
+type Tab = "config" | "secrets" | "mcp";
 
 const route = useRoute();
 const router = useRouter();
-const tab = computed<Tab>(() => (route.query.tab === "secrets" ? "secrets" : "config"));
-const setTab = (t: string) => router.replace({ query: { ...route.query, tab: t, key: undefined } });
+const tab = computed<Tab>(() => (route.query.tab === "secrets" || route.query.tab === "mcp" ? route.query.tab : "config"));
+const setTab = (t: string) => router.replace({ query: { ...route.query, tab: t, key: undefined, server: undefined } });
+const mcpTab = ref<InstanceType<typeof McpServersTab> | null>(null);
+const mcpCount = ref(0);
 
 const secretsEnabled = ref(true);
 const entries = ref<Entry[]>([]);
@@ -47,6 +50,7 @@ const rows = computed(() => (tab.value === "secrets" ? secrets.value : plain.val
 const tabs = computed(() => [
   { id: "config", label: "Configuration", count: plain.value.length },
   { id: "secrets", label: "Secrets", count: secrets.value.length },
+  { id: "mcp", label: "MCP servers", count: mcpCount.value },
 ]);
 const columns = computed<Column[]>(() => [
   { key: "status", label: "", width: "3rem", align: "center" as const },
@@ -122,64 +126,70 @@ async function run(f: () => Promise<void>) {
 </script>
 
 <template>
-  <PageLayout eyebrow="System" title="Configuration" subtitle="Configuration and secrets requested by Friday's modules. Stored values win over the environment.">
+  <PageLayout eyebrow="System" title="Configuration" subtitle="Configuration and secrets requested by Friday's modules, and the MCP servers Friday connects to. Stored values win over the environment.">
     <template #actions>
-      <Button variant="ghost" :disabled="busy" @click="load"><Icon name="refresh" />Refresh</Button>
-      <Button :disabled="tab === 'secrets' && !secretsEnabled" @click="openAdd"><Icon name="plus" />{{ tab === "secrets" ? "New secret" : "New value" }}</Button>
+      <Button variant="ghost" :disabled="busy" @click="tab === 'mcp' ? mcpTab?.load() : load()"><Icon name="refresh" />Refresh</Button>
+      <Button v-if="tab === 'mcp'" @click="mcpTab?.openAdd()"><Icon name="plus" />New server</Button>
+      <Button v-else :disabled="tab === 'secrets' && !secretsEnabled" @click="openAdd"><Icon name="plus" />{{ tab === "secrets" ? "New secret" : "New value" }}</Button>
     </template>
 
     <Tabs :items="tabs" :model-value="tab" @update:model-value="setTab" />
 
-    <Card v-if="tab === 'secrets' && !secretsEnabled">
-      <p class="text-f-warning">
-        Secrets are disabled because <code class="font-mono">FRIDAY_MASTER_KEY</code> is not set. Generate one with <code class="font-mono">openssl rand -base64 32</code>, add it to the server's secret, and restart. Plain configuration keeps working.
-      </p>
-    </Card>
-    <p v-if="error" class="text-f-error">{{ error }}</p>
-    <p v-if="notice" class="text-f-text-muted">{{ notice }}</p>
+    <!-- Always mounted so the tab count is known; hidden unless active. -->
+    <McpServersTab v-show="tab === 'mcp'" ref="mcpTab" @count="mcpCount = $event" />
 
-    <DataTable :columns="columns" :rows="rows" row-key="key" clickable :empty="tab === 'secrets' ? 'No secrets declared' : 'No configuration declared'" @row-click="openEntry">
-      <template #cell-status="{ row }"><StatusDot :tone="tone((row as Entry).status)" :title="(row as Entry).status" /></template>
-      <template #cell-key="{ row }">
-        <code class="font-mono text-f-text-bright">{{ (row as Entry).key }}</code>
-        <span v-if="(row as Entry).required" class="ml-2 text-xs text-f-text-muted">required</span>
-      </template>
-      <template #cell-description="{ row }"><span class="text-f-text-muted">{{ (row as Entry).description ?? "" }}</span></template>
-      <template #cell-modules="{ row }">
-        <div class="flex flex-wrap gap-1.5">
-          <Chip v-for="m in (row as Entry).modules" :key="m.id">{{ m.id }}</Chip>
-          <Chip v-if="!(row as Entry).modules.length">global</Chip>
+    <template v-if="tab !== 'mcp'">
+      <Card v-if="tab === 'secrets' && !secretsEnabled">
+        <p class="text-f-warning">
+          Secrets are disabled because <code class="font-mono">FRIDAY_MASTER_KEY</code> is not set. Generate one with <code class="font-mono">openssl rand -base64 32</code>, add it to the server's secret, and restart. Plain configuration keeps working.
+        </p>
+      </Card>
+      <p v-if="error" class="text-f-error">{{ error }}</p>
+      <p v-if="notice" class="text-f-text-muted">{{ notice }}</p>
+
+      <DataTable :columns="columns" :rows="rows" row-key="key" clickable :empty="tab === 'secrets' ? 'No secrets declared' : 'No configuration declared'" @row-click="openEntry">
+        <template #cell-status="{ row }"><StatusDot :tone="tone((row as Entry).status)" :title="(row as Entry).status" /></template>
+        <template #cell-key="{ row }">
+          <code class="font-mono text-f-text-bright">{{ (row as Entry).key }}</code>
+          <span v-if="(row as Entry).required" class="ml-2 text-xs text-f-text-muted">required</span>
+        </template>
+        <template #cell-description="{ row }"><span class="text-f-text-muted">{{ (row as Entry).description ?? "" }}</span></template>
+        <template #cell-modules="{ row }">
+          <div class="flex flex-wrap gap-1.5">
+            <Chip v-for="m in (row as Entry).modules" :key="m.id">{{ m.id }}</Chip>
+            <Chip v-if="!(row as Entry).modules.length">global</Chip>
+          </div>
+        </template>
+        <template #cell-updatedAt="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ when((row as Entry).updatedAt) }}</span></template>
+      </DataTable>
+
+      <Drawer v-model:open="open" :title="adding ? (isSecret ? 'New secret' : 'New value') : draft.key" :subtitle="selected?.description">
+        <div v-if="selected?.modules.length" class="flex flex-wrap items-center gap-1.5 text-sm text-f-text-muted">
+          Requested by <Chip v-for="m in selected.modules" :key="m.id">{{ m.id }}{{ m.required ? " · required" : "" }}</Chip>
         </div>
-      </template>
-      <template #cell-updatedAt="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ when((row as Entry).updatedAt) }}</span></template>
-    </DataTable>
-
-    <Drawer v-model:open="open" :title="adding ? (isSecret ? 'New secret' : 'New value') : draft.key" :subtitle="selected?.description">
-      <div v-if="selected?.modules.length" class="flex flex-wrap items-center gap-1.5 text-sm text-f-text-muted">
-        Requested by <Chip v-for="m in selected.modules" :key="m.id">{{ m.id }}{{ m.required ? " · required" : "" }}</Chip>
-      </div>
-      <div v-if="selected" class="flex items-center gap-2 text-sm">
-        <StatusDot :tone="tone(selected.status)" :label="selected.status" />
-        <span v-if="selected.scope" class="text-f-text-muted">stored for {{ selected.scope }}</span>
-        <span v-else-if="selected.status === 'env'" class="text-f-text-muted">from the environment</span>
-      </div>
-      <Input v-if="adding" v-model="draft.key" label="Key" placeholder="MY_SETTING" />
-      <Input v-model="draft.value" :type="isSecret ? 'password' : 'text'" label="Value" :placeholder="isSecret ? 'Enter a new value' : ''" />
-      <label class="flex flex-col gap-1 text-sm">
-        <span class="text-f-text-muted">Scope</span>
-        <select v-model="draft.scope" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
-          <option v-for="s in scopeOptions" :key="s" :value="s">{{ s === "global" ? "global (all modules)" : `${s} only` }}</option>
-        </select>
-      </label>
-      <p v-if="isSecret" class="text-xs text-f-text-muted">Stored encrypted. Not shown again after saving.</p>
-      <p v-if="draft.scope === 'core'" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
-      <template #footer>
-        <Button v-if="selected?.scope" variant="danger" :disabled="busy" @click="clear">Clear</Button>
-        <span class="flex-1"></span>
-        <Button :variant="canReload ? 'ghost' : undefined" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(false)">Save</Button>
-        <Button v-if="canReload" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(true)">Save and reload {{ draft.scope }}</Button>
-      </template>
-    </Drawer>
+        <div v-if="selected" class="flex items-center gap-2 text-sm">
+          <StatusDot :tone="tone(selected.status)" :label="selected.status" />
+          <span v-if="selected.scope" class="text-f-text-muted">stored for {{ selected.scope }}</span>
+          <span v-else-if="selected.status === 'env'" class="text-f-text-muted">from the environment</span>
+        </div>
+        <Input v-if="adding" v-model="draft.key" label="Key" placeholder="MY_SETTING" />
+        <Input v-model="draft.value" :type="isSecret ? 'password' : 'text'" label="Value" :placeholder="isSecret ? 'Enter a new value' : ''" />
+        <label class="flex flex-col gap-1 text-sm">
+          <span class="text-f-text-muted">Scope</span>
+          <select v-model="draft.scope" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
+            <option v-for="s in scopeOptions" :key="s" :value="s">{{ s === "global" ? "global (all modules)" : `${s} only` }}</option>
+          </select>
+        </label>
+        <p v-if="isSecret" class="text-xs text-f-text-muted">Stored encrypted. Not shown again after saving.</p>
+        <p v-if="draft.scope === 'core'" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
+        <template #footer>
+          <Button v-if="selected?.scope" variant="danger" :disabled="busy" @click="clear">Clear</Button>
+          <span class="flex-1"></span>
+          <Button :variant="canReload ? 'ghost' : undefined" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(false)">Save</Button>
+          <Button v-if="canReload" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(true)">Save and reload {{ draft.scope }}</Button>
+        </template>
+      </Drawer>
+    </template>
   </PageLayout>
 </template>
 
