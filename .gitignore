@@ -9,3 +9,6 @@ esphome/.esphome/
 __pycache__/
 packages/portal/src/modules.gen.ts
 data/
+
+# Claude Code agent worktrees
+.claude/worktrees/
