@@ -41,6 +41,7 @@ export default defineModule({
 | `log` | `log`, `warn`, `error`, prefixed with `[<id>]`. |
 | `jobs.schedule(job)` | Declares a background job `<id>/<name>` with a `cron` expression (in `FRIDAY_TIMEZONE`) or `everyMs` (at least 1000). Throws on an invalid declaration, so the module fails to load. In-process modules only; on the remote runner it throws `jobs are not available in this host`. |
 | `jobs.trigger(name)` | Starts one of the module's own jobs now (trigger `module`); returns `{ started: false }` when it is already running. |
+| `llm.generate(request)` | Text generation through core's model. See [Text generation](#text-generation). |
 
 Mark credentials and tokens with `secret: true`. Secrets are stored encrypted and never displayed in the portal; plain keys are shown and edited inline. Retrieval is identical for both: `ctx.config.get` / `require`.
 
@@ -85,6 +86,61 @@ A handler returns a plain object. Two keys are reserved and stripped before the 
 - `endConversation`: a reason string asking the session to close after the model's current turn.
 
 Throwing from a handler yields `{ error: "<message>" }` with `INTERRUPT` so the model can tell the user.
+
+## Text generation
+
+`ctx.llm.generate` runs a one-shot text model call outside any voice session, for background work such as summaries, classification or extraction. Core owns the provider (Gemini), the key and the model; a module picks a tier, never a model name or credentials. Remote modules get a `ctx.llm` that always rejects with `unavailable`.
+
+```ts
+import { LlmError, type ModuleContext } from "@friday/sdk";
+
+const factsSchema = {
+  type: "object",
+  properties: { facts: { type: "array", items: { type: "string" } } },
+  required: ["facts"],
+};
+
+async function extractFacts(ctx: ModuleContext, transcript: string, signal?: AbortSignal): Promise<string[] | undefined> {
+  try {
+    const r = await ctx.llm.generate<{ facts: string[] }>({
+      system: "Extract durable facts about the user. Return an empty list when there are none.",
+      prompt: transcript,             // or messages: [{ role: "user", text }, { role: "model", text }, ...]
+      schema: factsSchema,            // optional; the answer is parsed and validated, and returned as r.json
+      model: "fast",                  // "standard" (default) or "fast"
+      signal,                         // aborting rejects with "cancelled"
+    });
+    return r.json!.facts;             // r.text, r.model and r.usage are always present
+  } catch (e) {
+    if (e instanceof LlmError && e.kind === "unavailable") return undefined;   // try again on the next run
+    if (e instanceof LlmError && e.kind === "invalid_output") ctx.log.warn(`bad answer: ${e.message}`);
+    throw e;
+  }
+}
+```
+
+Request fields: `system`, exactly one of `prompt` (string) or `messages` (`{ role: "user" | "model", text }[]`, in order), and optionally `schema`, `model`, `temperature`, `maxOutputTokens`, `signal` and `timeoutMs` (per attempt; default `FRIDAY_LLM_TIMEOUT_MS`). The result is `{ text, model, usage: { inputTokens, outputTokens, thoughtTokens? } }`, plus `json` when a schema was given. Core runs at most `FRIDAY_LLM_CONCURRENCY` calls at a time across all modules (the rest wait in order) and logs one line per call with the module id, model, token counts and latency, never the content.
+
+Every rejection is an `LlmError` with a `kind`:
+
+| Kind | Meaning | Retry? |
+|---|---|---|
+| `unavailable` | Unreachable, rate-limited, provider error, key not configured, or timed out. Core has already retried transient errors twice. | Later (next job run), not in a tight loop. |
+| `invalid_output` | With a schema: the answer was not JSON, did not match the schema, or was truncated at `maxOutputTokens`. `raw` carries the text (max 2000 characters). | Optional. Re-asking the same prompt often gives the same answer; skipping the item is usually better. |
+| `blocked` | The provider refused the prompt or stopped for safety. `reason` carries the provider's reason (e.g. `SAFETY`). | No, not with the same input. |
+| `invalid_request` | Both or neither of `prompt`/`messages`, a schema that is not valid JSON Schema, or a request Gemini rejects (for example an unsupported schema). | No, fix the request. |
+| `cancelled` | The `signal` was aborted. | No. |
+
+A conforming empty answer (`{ "facts": [] }`) resolves normally, so "nothing found" and "bad answer" are distinguishable.
+
+Schemas are plain JSON Schema objects, passed to Gemini as `responseJsonSchema` and checked locally with ajv. Gemini supports a subset: `type` (`string`, `number`, `integer`, `boolean`, `object`, `array`, `null`, or a list of these), `title`, `description`, `enum`, `properties`, `required`, `additionalProperties`, `items`, `prefixItems`, `minItems`, `maxItems`, `minimum`, `maximum`, `format` (`date-time`, `date`, `time`; not checked locally), `anyOf`, `$ref` and `$defs`, and `propertyOrdering`. Keep schemas small and flat; a schema that passes ajv but that Gemini rejects fails with `invalid_request` and Gemini's message.
+
+In tests, pass a fake model to `createTestHost`. It receives each request and returns the raw text the model would answer, or throws an `LlmError`. The test host applies the same request checks and schema validation as core (so a non-conforming fake answer gives `invalid_output`), skips the queue, retries and timeout, and records the requests that reached the fake in `host.llmRequests`. Without `llm`, calls reject with `unavailable`.
+
+```ts
+const h = await createTestHost(brain, { llm: (req) => (req.schema ? '{"facts": []}' : "A short summary.") });
+// ... exercise the module ...
+assert.equal(h.llmRequests[0].system, "Extract durable facts about the user. Return an empty list when there are none.");
+```
 
 ## Testing a module
 

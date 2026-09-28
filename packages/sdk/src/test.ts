@@ -5,6 +5,7 @@
 import { assertConfig, createContext, prefixedLogger, type Env } from "./context.js";
 import { RouteTable, type HttpMethod, type RouteRequest, type RouteResponse } from "./http.js";
 import { validateJob, type JobOutcome, type JobSpec, type JobTrigger } from "./jobs.js";
+import { checkRequest, LlmError, parseOutput, type LlmRequest, type ModuleLlm } from "./llm.js";
 import type { FridayModule, ModuleLogger } from "./module.js";
 import { ToolRegistry, type CallResult } from "./registry.js";
 import { MemoryStorage } from "./storage.js";
@@ -14,7 +15,14 @@ export interface TestHostOptions {
   env?: Env;
   /** Capture module log output; defaults to a silent logger. */
   log?: ModuleLogger;
+  /**
+   * Fake text model behind `ctx.llm`: return the raw text the model would answer, or throw an `LlmError`.
+   * Requests are checked and schema output validated as in core. Without it, calls reject with `unavailable`.
+   */
+  llm?: FakeLlm;
 }
+
+export type FakeLlm = (request: LlmRequest) => string | Promise<string>;
 
 export interface TestResponse {
   status: number;
@@ -41,6 +49,8 @@ export interface TestHost {
   registry: ToolRegistry;
   /** In-memory storage the module saw as `ctx.storage`. */
   storage: MemoryStorage;
+  /** Requests that reached the fake model through `ctx.llm`, in call order. */
+  llmRequests: LlmRequest[];
   /** Registered module routes as `GET search`. */
   routes: string[];
   /** Invoke a module route in memory. `path` is relative to the module mount and may carry a query string. */
@@ -61,6 +71,8 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   const registry = new ToolRegistry(log);
   const table = new RouteTable();
   const storage = new MemoryStorage();
+  const llmRequests: LlmRequest[] = [];
+  const llm = opts.llm && fakeLlm(opts.llm, llmRequests);
   const id = module.manifest.id;
   const specs = new Map<string, JobSpec>();
   const running = new Set<string>();
@@ -91,12 +103,13 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
       return { started: true };
     },
   };
-  await module.init(createContext(module.manifest, { env, registry, log, storage, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) } }));
+  await module.init(createContext(module.manifest, { env, registry, log, storage, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args) => registry.callTool(name, args),
     registry,
     storage,
+    llmRequests,
     routes: table.list().map((r) => `${r.method} ${r.path.replace(/^\//, "")}`),
     async request(method, pathWithQuery, body, headers = {}) {
       const [path, qs = ""] = pathWithQuery.split("?");
@@ -126,5 +139,28 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
     jobs,
     runJob: (name) => runJob(name, "manual"),
     dispose: async () => void (await module.dispose?.()),
+  };
+}
+
+/** Same checks and validation as core; no queue, retries or timeout. */
+function fakeLlm(fake: FakeLlm, requests: LlmRequest[]): ModuleLlm {
+  const cancelled = () => new LlmError("cancelled", "text generation was cancelled");
+  return {
+    async generate<T>(req: LlmRequest) {
+      checkRequest(req);
+      if (req.signal?.aborted) throw cancelled();
+      requests.push(req);
+      let text: string;
+      try {
+        text = await fake(req);
+      } catch (e) {
+        if (e instanceof LlmError) throw e;
+        throw new LlmError("unavailable", e instanceof Error ? e.message : String(e), { cause: e });
+      }
+      if (req.signal?.aborted) throw cancelled();
+      const model = `fake-${req.model ?? "standard"}`;
+      const usage = { inputTokens: 0, outputTokens: 0 };
+      return req.schema ? { text, json: parseOutput<T>(req.schema, text), model, usage } : { text, model, usage };
+    },
   };
 }

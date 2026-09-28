@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defineModule, ToolRegistry, type ModuleLogger } from "@friday/sdk";
+import { defineModule, LlmError, ToolRegistry, type ModuleLogger } from "@friday/sdk";
 import { ModuleHost } from "../src/module-host.js";
 import { DatabaseSync } from "node:sqlite";
 import { migrate, migrations } from "../src/storage/db.js";
 import { JobStore } from "../src/jobs/store.js";
 import { Scheduler } from "../src/jobs/scheduler.js";
 import { FakeClock } from "./fake-clock.js";
+import { LlmService } from "../src/llm/service.js";
 
 function logger() {
   const lines: string[] = [];
@@ -158,4 +159,24 @@ test("dispose cancels a running job before module.dispose runs", async () => {
   assert.deepEqual(order, ["aborted", "dispose"]);
   assert.equal(store.runs("brain/nightly")[0].outcome, "cancelled");
   assert.deepEqual(scheduler.list(), []);
+});
+
+test("ctx.llm calls are attributed to the module id; without a service they are unavailable", async () => {
+  const { lines, log } = logger();
+  const service = new LlmService({
+    model: { generate: async (req) => ({ text: `echo ${req.model}`, model: req.model, usage: { inputTokens: 3, outputTokens: 2, thoughtTokens: 0 } }) },
+    models: { standard: "std", fast: "quick" },
+    concurrency: 2,
+    timeoutMs: 1000,
+    log,
+  });
+  const results: unknown[] = [];
+  const m = defineModule({ manifest: { id: "brain", label: "Brain" }, init: async (ctx) => void results.push((await ctx.llm.generate({ prompt: "hello" })).text) });
+  await new ModuleHost(new ToolRegistry(log), { env: {}, log, llm: (id) => service.forOwner(id) }).load([m]);
+  assert.deepEqual(results, ["echo std"]);
+  assert.ok(lines.some((l) => /^log llm: \[brain\] std ok in=3 out=2 /.test(l)), lines.join("\n"));
+
+  const bare = defineModule({ manifest: { id: "bare", label: "Bare" }, init: async (ctx) => void (await ctx.llm.generate({ prompt: "x" }).catch((e) => results.push(e instanceof LlmError && e.kind))) });
+  await new ModuleHost(new ToolRegistry(log), { env: {}, log }).load([bare]);
+  assert.deepEqual(results, ["echo std", "unavailable"]);
 });

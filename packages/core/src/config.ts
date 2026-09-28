@@ -5,6 +5,21 @@ import { dirname, resolve } from "node:path";
 /** packages/core/{src,dist}/config.ts -> packages/portal/dist. Override with FRIDAY_WEB_DIR (the image sets it). */
 const defaultWebDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "portal", "dist");
 
+/** Text generation for modules (`ctx.llm`). A function of the environment so the defaults are testable. */
+export function llmSettings(env: Record<string, string | undefined>) {
+  const textModel = env.FRIDAY_TEXT_MODEL || "gemini-flash-latest";
+  return {
+    /** Model for the `standard` tier. The default alias follows Google's current Flash model. */
+    textModel,
+    /** Model for the `fast` tier; falls back to the standard model. */
+    textModelFast: env.FRIDAY_TEXT_MODEL_FAST || textModel,
+    /** Model calls in flight at once, across all modules; further calls queue in order. */
+    llmConcurrency: Math.max(1, Math.floor(Number(env.FRIDAY_LLM_CONCURRENCY) || 2)),
+    /** Per-attempt limit for a model call unless the request sets `timeoutMs`. */
+    llmTimeoutMs: Number(env.FRIDAY_LLM_TIMEOUT_MS) || 120000,
+  };
+}
+
 export const settings = {
   apiKey: process.env.GEMINI_API_KEY ?? "",
   model: process.env.FRIDAY_MODEL ?? "gemini-3.8-live",
@@ -40,6 +55,8 @@ export const settings = {
   jobHistory: Number(process.env.FRIDAY_JOB_HISTORY ?? 50),
   /** Delay before the one catch-up run of a job whose due time passed while Friday was down. */
   jobCatchupDelayMs: Number(process.env.FRIDAY_JOB_CATCHUP_DELAY_MS ?? 30000),
+  /** textModel, textModelFast, llmConcurrency, llmTimeoutMs. */
+  ...llmSettings(process.env),
   systemPrompt: `You are Friday, a concise and friendly voice assistant.
 Keep spoken answers short. Use tools whenever they can answer the question
 instead of guessing. Answer in the language the user speaks.

@@ -15,6 +15,8 @@ import { attachAudioWs } from "./transports/ws.js";
 import { createApp } from "./app.js";
 import { JobStore } from "./jobs/store.js";
 import { Scheduler } from "./jobs/scheduler.js";
+import { GeminiTextModel } from "./llm/gemini.js";
+import { LlmService } from "./llm/service.js";
 
 const db = openDatabase(settings.dataDir);
 const configStore = new ConfigStore(db, parseMasterKey(settings.masterKey));
@@ -27,11 +29,18 @@ if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the la
 const jobs = new Scheduler({ store: jobStore, timezone: settings.timezone, catchupDelayMs: settings.jobCatchupDelayMs });
 
 const registry = new ToolRegistry();
+const llm = new LlmService({
+  model: new GeminiTextModel(settings.apiKey),
+  models: { standard: settings.textModel, fast: settings.textModelFast },
+  concurrency: settings.llmConcurrency,
+  timeoutMs: settings.llmTimeoutMs,
+});
 const host = new ModuleHost(registry, {
   enabled: process.env.FRIDAY_MODULES,
   resolve: createResolver(configStore, process.env),
   storage: (id) => new SqliteModuleStorage(db, id),
   jobs: (id) => jobs.forOwner(id),
+  llm: (id) => llm.forOwner(id),
 });
 const mcp = new McpSource(registry);
 const remote = new RemoteHost({
