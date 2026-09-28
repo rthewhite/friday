@@ -8,11 +8,15 @@ A `GeminiSession` bridges one client conversation to the Gemini Live API. It is 
 
 ### Requirement: Session opens against Gemini Live with the configured model and voice
 
-The session SHALL connect to Gemini Live using the model from `FRIDAY_MODEL` (default `gemini-3.8-live`), the prebuilt voice from `FRIDAY_VOICE` (default `Aoede`), audio-only response modality, input and output audio transcription enabled, the Friday system prompt, and the declarations of every registered tool. The session SHALL configure Gemini's automatic speech detection with the start-of-speech sensitivity from `FRIDAY_VAD_START_SENSITIVITY` (`LOW` by default, `HIGH` optional) and the minimum speech duration from `FRIDAY_VAD_PREFIX_MS` (default 200), so that residual echo of Friday's own voice on speaker devices does not register as the user interrupting.
+The session SHALL connect to Gemini Live using the Gemini API key resolved from core's configuration at the moment the session opens (as specified in `secret-management`), the model from `FRIDAY_MODEL` (default `gemini-3.8-live`), the prebuilt voice from `FRIDAY_VOICE` (default `Aoede`), audio-only response modality, input and output audio transcription enabled, the Friday system prompt, and the declarations of every registered tool. The session SHALL configure Gemini's automatic speech detection with the start-of-speech sensitivity from `FRIDAY_VAD_START_SENSITIVITY` (`LOW` by default, `HIGH` optional) and the minimum speech duration from `FRIDAY_VAD_PREFIX_MS` (default 200), so that residual echo of Friday's own voice on speaker devices does not register as the user interrupting.
 
 #### Scenario: Session opens
 - **WHEN** a transport opens a session
 - **THEN** a Gemini Live connection is established with the configured model, voice, system prompt, speech detection settings and all tool declarations
+
+#### Scenario: Key changed between sessions
+- **WHEN** a new `GEMINI_API_KEY` is saved in the portal while a session is open
+- **THEN** the open session keeps its connection, and the next session connects with the new key
 
 #### Scenario: Gemini is unavailable
 - **WHEN** the Live connection cannot be established

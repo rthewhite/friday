@@ -47,7 +47,9 @@ Every rejection from `ctx.llm.generate` SHALL be an error whose `kind` is one of
 - `invalid_request`
 - `cancelled`: the caller's signal was aborted.
 
-Rate limits, provider-side errors and network errors SHALL be retried up to 2 times with increasing delay before rejecting with `unavailable`. Other kinds SHALL NOT be retried.
+Rate limits, provider-side errors and network errors SHALL be retried up to 2 times before rejecting with `unavailable`. Other kinds SHALL NOT be retried.
+
+When a rate-limit response states how long to wait, the next attempt SHALL wait that long, and otherwise the delay SHALL increase per attempt. The wait SHALL be bounded by the request's `maxRetryWaitMs`, or by `FRIDAY_LLM_MAX_RETRY_WAIT_MS` (default 60000) when the request sets none. A rate limit whose stated wait exceeds that bound, or whose exhausted quota is a daily quota, SHALL NOT be retried: the call SHALL reject with `unavailable` at once, with a message stating the requested wait or the quota. Waiting SHALL end as soon as the caller's signal is aborted, with `cancelled`.
 
 #### Scenario: Transient error
 - **WHEN** the provider returns HTTP 503 once and then succeeds
@@ -56,6 +58,22 @@ Rate limits, provider-side errors and network errors SHALL be retried up to 2 ti
 #### Scenario: Persistent outage
 - **WHEN** the provider keeps returning HTTP 503
 - **THEN** the call rejects with `unavailable` after 3 attempts in total
+
+#### Scenario: Rate limit with a stated wait
+- **WHEN** the provider answers HTTP 429 asking to retry after 37 seconds, and then succeeds
+- **THEN** the second attempt starts about 37 seconds after the first failed, and the call resolves with the successful response
+
+#### Scenario: Stated wait exceeds the bound
+- **WHEN** the provider answers HTTP 429 asking to retry after 90 seconds and the bound is 60 seconds
+- **THEN** the call rejects with `unavailable` without another attempt, and the message states the 90-second wait
+
+#### Scenario: Daily quota exhausted
+- **WHEN** the provider answers HTTP 429 naming an exhausted per-day quota
+- **THEN** the call rejects with `unavailable` without another attempt, and the message names the daily quota
+
+#### Scenario: Cancelled while waiting
+- **WHEN** a call is waiting to retry after a rate limit and its signal is aborted
+- **THEN** it rejects with `cancelled` immediately
 
 #### Scenario: Blocked prompt
 - **WHEN** the provider blocks the prompt for safety
@@ -79,11 +97,15 @@ A call SHALL reject with `cancelled` as soon as its signal is aborted, whether i
 
 ### Requirement: Core owns the provider, the key and the models
 
-Core SHALL serve `ctx.llm` from Gemini through `@google/genai`, using the existing `GEMINI_API_KEY`, separately from the Live session. The `standard` tier SHALL use `FRIDAY_TEXT_MODEL`, and the `fast` tier SHALL use `FRIDAY_TEXT_MODEL_FAST`, falling back to `FRIDAY_TEXT_MODEL`. Modules SHALL NOT be able to name a model or supply credentials.
+Core SHALL serve `ctx.llm` from Gemini through `@google/genai`, separately from the Live session, using the Gemini API key resolved from core's configuration on each call (as specified in `secret-management`). The `standard` tier SHALL use `FRIDAY_TEXT_MODEL`, and the `fast` tier SHALL use `FRIDAY_TEXT_MODEL_FAST`, falling back to `FRIDAY_TEXT_MODEL`. Modules SHALL NOT be able to name a model or supply credentials.
 
 #### Scenario: Tier selection
 - **WHEN** `FRIDAY_TEXT_MODEL_FAST` is unset and a module asks for tier `fast`
 - **THEN** the call uses `FRIDAY_TEXT_MODEL`, and the result names that model
+
+#### Scenario: Key changed in the portal
+- **WHEN** a new `GEMINI_API_KEY` is saved for scope `core`
+- **THEN** the next `ctx.llm` call authenticates with the new key, without a restart
 
 ### Requirement: Concurrency is bounded
 
@@ -95,11 +117,15 @@ Core SHALL run at most `FRIDAY_LLM_CONCURRENCY` (default 2) model calls at a tim
 
 ### Requirement: Usage is logged without content
 
-Every call SHALL be logged once when it settles, with the calling module's id, the model, the input and output token counts, the latency, and the outcome (`ok`, or the error kind). Prompts, messages and responses SHALL NOT be logged.
+Every call SHALL be logged once when it settles, with the calling module's id, the model, the input and output token counts, the latency, the outcome (`ok`, or the error kind), and, when attempts failed, the reason for each failed attempt: the HTTP status or `network`, and the wait before the next attempt. Prompts, messages and responses SHALL NOT be logged.
 
 #### Scenario: Log line
 - **WHEN** module `brain` makes a successful call
 - **THEN** one log line names `brain`, the model, the token counts, the duration, and `ok`, and contains none of the prompt text
+
+#### Scenario: Retries are explained
+- **WHEN** a call succeeds on its third attempt after a 429 with a 37-second wait and a 503
+- **THEN** its log line records 3 attempts with the reasons `429` (with the 37-second wait) and `503`
 
 ### Requirement: Text generation is available only in-process
 
