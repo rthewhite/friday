@@ -42,5 +42,5 @@
 
 ## 8. Integration
 
-- [ ] 8.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
+- [x] 8.1 Run `pnpm test` and `pnpm -r typecheck` across the workspace, and verify both pass
 - [ ] 8.2 Deploy to the homelab and verify: a Voice PE conversation appears with its device, spoken turns and tool activity; a barge-in shows an interrupted answer followed by the user's words; typing on the Talk page records `text` input; and the Jobs page lists `core/conversation-retention` with its next run at 04:00

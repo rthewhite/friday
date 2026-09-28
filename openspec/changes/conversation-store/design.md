@@ -79,3 +79,17 @@ Routes go in `createApp`: `GET /api/conversations` (cursor `before` = the `last_
 ## Migration Plan
 
 Migration 4 only creates tables. Rollback means deploying the previous image, which ignores them. New env vars (`FRIDAY_CONVERSATION_RETENTION_DAYS`, `FRIDAY_CONVERSATION_QUIET_MINUTES`) have defaults and are documented in `.env.example`. After the deploy, check the first stored voice conversation in the portal against what was said.
+
+## Implementation notes
+
+- **Entries are written when the exchange settles, not at the first assistant output.** The recorder keeps the current exchange in memory (user segments, then assistant text and tool calls in order) and writes it on `turnComplete`, `interrupted` or `end()`. A late user fragment then joins the question without rewriting a stored row, so entries stay append-only. A question that is transcribed entirely after the answer started is still placed first. Tool entries take their position in call order and are written once they are both placed and settled, or at `end()` without a result. Durability is still per turn, as the Non-Goals intend.
+- **Typed text is never merged with speech.** Each typed message is its own user entry. Typed text that arrives during an answer starts the next exchange, and is not appended to the question.
+- **Start time is the first entry's time.** The conversation row is created lazily at the first write, but `started_at` is the time of the earliest item in that exchange. `last_activity_at` is the time of the latest write.
+- **An append clears the end.** Appending to a quiet conversation clears `quiet_at`, `ended_at` and `end_reason`, so a resumed thread that later goes idle has no stale end reason.
+- **Live tracking lives in the store.** Recorders come from `store.recorder({ channel, device })` and `attach`/`detach` their conversation. The sweep, `prune` and `DELETE` (409) skip attached conversations.
+- **API shape.** `GET /api/conversations` returns `{ conversations, next }`. `next` is an opaque base64url cursor, or `null` on the last page, and an invalid cursor answers 400. Summaries also carry `quietAt`, the field a watermark consumer stores.
+- **Transport injection.** `createSession(onEvent, recorder?)` in `AudioWsOptions` receives the connection's recorder as a second argument, so injected sessions can drive it or ignore it.
+- **Subscriptions per module.** `ModuleHost` wraps `ctx.conversations.onQuiet` and keeps each module's unsubscribers itself, dropping them on teardown and on a failed init. This works with any `conversations` factory, not only `store.forOwner`.
+- **Test host.** `host.conversations.markQuiet(id, at?)` always fires, because it is an explicit test action. It awaits the handlers and returns the event.
+- **Migration version.** This change uses version 4, because `background-jobs` owns version 3.
+- **Retention (group 5) is implemented after `background-jobs` lands.** `store.prune(cutoff, 500)` deletes one batch in a transaction, skips live conversations and returns the count. The job loops on it and checks its abort signal between batches. The SDK README example nudges through a promise queue rather than `ctx.jobs.trigger`, which does not exist before that change. The job alternative is described in prose.
