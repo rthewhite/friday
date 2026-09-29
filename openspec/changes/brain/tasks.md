@@ -14,8 +14,8 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 2. Store
 
-- [ ] 2.1 Implement name keys (NFC, trim, collapse whitespace, lower-case), field validation (name and alias rules, 20 aliases, 20000-character body, type enum, `profile` reserved) and typed store errors (`invalid`, `stale`, `name_taken`, `tombstoned`, `not_found`, `profile`). Verify with unit tests in `test/store.test.ts` for each rule
-- [ ] 2.2 Implement `BrainStore` with the single `writeRevision` path inside `ctx.db.transaction`:
+- [x] 2.1 Implement name keys (NFC, trim, collapse whitespace, lower-case), field validation (name and alias rules, 20 aliases, 20000-character body, type enum, `profile` reserved) and typed store errors (`invalid`, `stale`, `name_taken`, `tombstoned`, `not_found`, `profile`). Verify with unit tests in `test/store.test.ts` for each rule
+- [x] 2.2 Implement `BrainStore` with the single `writeRevision` path inside `ctx.db.transaction`:
   - `create`, `save` (base revision check; rename keeps the old name as an alias unless removed), `get`, `list`, `revisions`, `revision`;
   - the tombstone guard for non-`user` authors, and a `user` create or rename lifting it;
   - `brain__names` replaced per write.
@@ -28,7 +28,7 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
   - profile rename/retype refused;
   - a non-user write with a tombstoned name refused, and a user create lifting it;
   - a failing write leaving no partial rows.
-- [ ] 2.3 Implement `restore` (new `user` revision noting the restored id), `softDelete` (not the profile, frees names), `undelete` (`name_taken` naming the collisions) and `purge`:
+- [x] 2.3 Implement `restore` (new `user` revision noting the restored id), `softDelete` (not the profile, frees names), `undelete` (`name_taken` naming the collisions) and `purge`:
   - soft-deleted pages only, with the exact-name confirmation;
   - tombstones for the name and aliases not owned by live pages;
   - inbound links unlinked as `user` revisions with a note;
