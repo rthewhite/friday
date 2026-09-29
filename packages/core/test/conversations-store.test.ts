@@ -303,6 +303,8 @@ test("search: tool names and arguments are indexed, results are not", () => {
     ],
   ]);
   assert.deepEqual(store.search({ query: "Arrival" }), []);
+  assert.deepEqual(store.search({ query: "title" }), [], "argument keys are not indexed");
+  assert.deepEqual(ids(store.search({ query: "apple" })), [id], "the tool name is");
 });
 
 test("search: conversations deleted through the API or by retention are gone", () => {

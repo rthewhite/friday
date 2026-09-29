@@ -47,9 +47,12 @@ test("inWindow is half-open", () => {
   assert.equal(inWindow("2020-01-01T00:00:00.000Z", {}), true);
 });
 
-test("searchableText holds text, or a tool's name and arguments but never its result", () => {
+test("searchableText holds text, or a tool's name and argument values, never keys or its result", () => {
   assert.equal(searchableText(user(1, "hello")), "hello");
-  assert.equal(searchableText(tool(2, "play_on_apple_tv", { title: "Dune" }, { playing: "Arrival" })), 'play_on_apple_tv {"title":"Dune"}');
+  assert.equal(searchableText(tool(2, "play_on_apple_tv", { title: "Dune" }, { playing: "Arrival" })), "play_on_apple_tv Dune");
+  assert.equal(searchableText(tool(3, "play", { title: "Dune", options: { subtitles: ["Nederlands"], episode: 4, hd: true } })), "play Dune Nederlands 4");
+  assert.equal(searchableText({ ...tool(4, "note", '{"text":"a long letter about the gutt'), truncated: true } as ConversationEntry), 'note {"text":"a long letter about the gutt');
+  assert.equal(searchableText(tool(5, "get_current_time", {})), "get_current_time");
 });
 
 test("a snippet is the matching entry with its neighbours, and a shown match starts no new one", () => {

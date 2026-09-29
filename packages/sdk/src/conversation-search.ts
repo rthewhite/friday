@@ -99,10 +99,22 @@ export function inWindow(at: string, s: Pick<ValidSearch, "since" | "until">): b
   return (!s.since || t >= Date.parse(s.since)) && (!s.until || t < Date.parse(s.until));
 }
 
-/** What the index holds for an entry: its text, or a tool's name and arguments (never the result). */
+/** The string and number values in a JSON value, depth first, without its keys. */
+function values(v: unknown): string[] {
+  if (typeof v === "string") return [v];
+  if (typeof v === "number") return [String(v)];
+  if (Array.isArray(v)) return v.flatMap(values);
+  if (v && typeof v === "object") return Object.values(v).flatMap(values);
+  return [];
+}
+
+/**
+ * What the index holds for an entry: its text, or a tool's name and the values in its arguments (not their keys,
+ * never the result). Arguments cut short are no longer JSON, so their text goes in as it is.
+ */
 export function searchableText(e: ConversationEntry): string {
   if (e.kind !== "tool") return e.text;
-  return `${e.name} ${typeof e.args === "string" ? e.args : (JSON.stringify(e.args) ?? "")}`;
+  return [e.name, ...values(e.args)].join(" ");
 }
 
 /** A candidate for ranking: how many distinct words it matched, and its recency. */

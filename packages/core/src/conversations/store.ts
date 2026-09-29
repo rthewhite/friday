@@ -312,16 +312,19 @@ export class ConversationStore {
         found.set(r.id, { lastActivityAt: r.last_activity_at, seqs: new Set(), words: new Set() });
       }
     } else {
-      const sql = `SELECT e.conversation_id AS id, e.seq, c.last_activity_at FROM conversation_search s
-                   JOIN conversation_entries e ON e.rowid = s.rowid JOIN conversations c ON c.id = e.conversation_id
-                   WHERE conversation_search MATCH ?${[...window, ...scope].map((w) => ` AND ${w}`).join("")}`;
+      // One row per conversation and word, with the matching entries' seqs, so a common word costs one row per
+      // conversation rather than one per entry.
+      const sql = `SELECT e.conversation_id AS id, c.last_activity_at, group_concat(e.seq) AS seqs FROM conversation_search s
+                   JOIN conversation_entries e ON e.id = s.rowid JOIN conversations c ON c.id = e.conversation_id
+                   WHERE conversation_search MATCH ?${[...window, ...scope].map((w) => ` AND ${w}`).join("")}
+                   GROUP BY e.conversation_id`;
       const stmt = this.db.prepare(sql);
       for (const word of s.words) {
         // A quoted FTS5 string, so the user's words are never read as query syntax.
         const phrase = `"${word.replaceAll('"', '""')}"`;
-        for (const r of stmt.all(phrase, ...windowParams, ...scopeParams) as { id: string; seq: number; last_activity_at: string }[]) {
+        for (const r of stmt.all(phrase, ...windowParams, ...scopeParams) as { id: string; last_activity_at: string; seqs: string }[]) {
           const hit = found.get(r.id) ?? { lastActivityAt: r.last_activity_at, seqs: new Set<number>(), words: new Set<string>() };
-          hit.seqs.add(r.seq);
+          for (const seq of r.seqs.split(",")) hit.seqs.add(Number(seq));
           hit.words.add(word);
           found.set(r.id, hit);
         }
@@ -333,8 +336,9 @@ export class ConversationStore {
       .sort(compareMatches)
       .slice(0, s.limit);
     const conversation = this.db.prepare(`SELECT ${COLUMNS} FROM conversations WHERE id = ?`);
+    // Snippets never carry a tool's result, so it is not read.
     const entries = this.db.prepare(
-      `SELECT seq, kind, input, text, interrupted, tool_name, tool_args, tool_result, truncated, at FROM conversation_entries e
+      `SELECT seq, kind, input, text, interrupted, tool_name, tool_args, NULL AS tool_result, truncated, at FROM conversation_entries e
        WHERE e.conversation_id = ?${window.map((w) => ` AND ${w}`).join("")} ORDER BY seq`,
     );
     return ranked.map((r) => {

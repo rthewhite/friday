@@ -126,8 +126,8 @@ function recalled(e: SnippetEntry): RecalledEntry {
 
 /**
  * Design D6: dates as whole local days (until inclusive), brain_recall's word rules, the caller's own conversation
- * excluded, at most 5 conversations cut to 8000 characters of JSON from the lowest-ranked end. Refused input is an
- * `{ error }` result the model can act on.
+ * excluded, at most 5 conversations cut to 8000 characters of JSON from the lowest-ranked end. Refused input,
+ * including a query with no searchable words, is an `{ error }` result the model can act on.
  */
 export async function recallConversations(
   conversations: Pick<ModuleConversations, "search">,
@@ -138,17 +138,23 @@ export async function recallConversations(
   const bounds: { since?: string; until?: string } = {};
   for (const [name, value] of [["since", since], ["until", until]] as const) {
     if (value === undefined || value === "") continue;
+    // until is inclusive: the window ends where the next day starts (which must be a date too: not after 9999).
     const start = typeof value === "string" ? startOfLocalDay(value, zone) : undefined;
-    if (!start) return { error: `${name} must be a date as YYYY-MM-DD, got ${JSON.stringify(value)}` };
-    // until is inclusive: the window ends where the next day starts.
-    bounds[name] = (name === "until" ? startOfLocalDay(nextDay(value), zone)! : start).toISOString();
+    const bound = start && name === "until" ? startOfLocalDay(nextDay(value), zone) : start;
+    if (!bound) return { error: `${name} must be a date as YYYY-MM-DD, got ${JSON.stringify(value)}` };
+    bounds[name] = bound.toISOString();
   }
   if (since && until && since > until) return { error: `since (${since}) is after until (${until})` };
+  const words = searchTerms(query);
+  // A query whose every word is dropped would otherwise search nothing and read as "the latest conversations".
+  if (query?.trim() && !words.length) {
+    return { error: `query ${JSON.stringify(query)} has no searchable words: use words of 3 or more letters that aren't filler words, e.g. "television" rather than "TV"` };
+  }
 
   let matches: ConversationMatch[];
   try {
     matches = await conversations.search({
-      query: searchTerms(query).join(" "),
+      query: words.join(" "),
       ...bounds,
       channel,
       exclude: current ? [current] : [],
@@ -166,11 +172,15 @@ export async function recallConversations(
     started: localDateTime(m.startedAt, zone),
     snippets: m.snippets.map((s) => s.map(recalled)),
   }));
-  while (found.length && JSON.stringify({ found: found.length, conversations: found }).length > RECALL_CONVERSATIONS_CHARS) found.pop();
   if (!found.length) {
-    const days = since || until ? ` between ${since ?? "the start"} and ${until ?? "today"}` : "";
+    const days = since || until ? ` between ${since || "the start"} and ${until || "today"}` : "";
     return { found: 0, message: `No earlier conversations matched${days}.` };
   }
+  const size = () => JSON.stringify({ found: found.length, conversations: found }).length;
+  // Drop the lowest-ranked conversations first; the best match is always kept, down to its first snippet
+  // (at most 3 entries of 300 characters, so it fits).
+  while (found.length > 1 && size() > RECALL_CONVERSATIONS_CHARS) found.pop();
+  while (found[0].snippets.length > 1 && size() > RECALL_CONVERSATIONS_CHARS) found[0].snippets.pop();
   return { found: found.length, conversations: found };
 }
 

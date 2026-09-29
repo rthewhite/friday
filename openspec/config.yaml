@@ -52,7 +52,7 @@ context: |
   Platform storage: core owns friday.db (node:sqlite, FRIDAY_DATA_DIR, PVC in k8s; packages/core/src/storage)
   with versioned migrations; modules get ctx.storage (module_kv). Conversations (packages/core/src/conversations/,
   ctx.conversations list/get/search/onQuiet) are indexed by migration 6: contentless trigram FTS5 conversation_search
-  keyed by the entry rowid, kept by triggers, over text and tool name + args (never results); search is one MATCH per
+  keyed by conversation_entries.id (an explicit INTEGER PRIMARY KEY, stable across VACUUM), kept by triggers, over text and tool name + argument values (never keys or results); search is one MATCH per
   word (3+ chars), ranked by distinct words then recency, with snippets built by @friday/sdk's shared
   conversation-search rules (MemoryConversations uses them too). In-process modules may also declare numbered
   migrations (run before init, versions in module_schema) and use ctx.db: a synchronous node:sqlite handle

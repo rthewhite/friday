@@ -326,6 +326,37 @@ test("without parameters: the most recent conversations, at most 5; nothing foun
   assert.deepEqual(await recallConversations({ query: "boiler", since: "2026-09-01", until: "2026-09-02" }), { found: 0, message: "No earlier conversations matched between 2026-09-01 and 2026-09-02." });
 });
 
+test("a query with no searchable words is an error, not a list of the latest conversations", async () => {
+  const { recallConversations } = await conversations({ entries: [said("user", "the TV is broken", "2026-09-28T10:00:00.000Z")] });
+  assert.match((await recallConversations({ query: "TV" })).error, /^query "TV" has no searchable words: .*"television" rather than "TV"/);
+  assert.match((await recallConversations({ query: "what did we", since: "2026-09-28" })).error, /no searchable words/);
+  assert.equal((await recallConversations({ query: "  ", since: "2026-09-28" })).found, 1, "a blank query is no query");
+});
+
+test("a best match over 8000 characters on its own is kept, with its later snippets dropped", async () => {
+  // Control characters take 6 characters each in JSON, so three full snippets of these can't fit.
+  const noisy = `boiler ${"\u0001".repeat(400)}`;
+  const { ids, recallConversations } = await conversations(
+    { lastActivityAt: "2026-09-28T10:00:00.000Z", entries: Array.from({ length: 9 }, (_, j) => said(j % 2 ? "assistant" : "user", noisy, `2026-09-28T10:0${j}:00.000Z`)) },
+    { lastActivityAt: "2026-09-20T10:00:00.000Z", entries: [said("user", "boiler", "2026-09-20T10:00:00.000Z")] },
+  );
+  const r = await recallConversations({ query: "boiler" });
+  assert.ok(JSON.stringify(r).length <= 8000, `${JSON.stringify(r).length} characters`);
+  assert.equal(r.found, 1);
+  assert.equal(r.conversations[0].id, ids[0]);
+  assert.ok(r.conversations[0].snippets.length >= 1 && r.conversations[0].snippets.length < 3);
+});
+
+test("the no-match message names an open end even when the model passes an empty date", async () => {
+  const { recallConversations } = await conversations();
+  assert.deepEqual(await recallConversations({ query: "boiler", since: "", until: "2026-09-02" }), { found: 0, message: "No earlier conversations matched between the start and 2026-09-02." });
+});
+
+test("an until whose next day is past year 9999 is a date error, not a crash", async () => {
+  const { recallConversations } = await conversations();
+  assert.deepEqual(await recallConversations({ until: "9999-12-31" }), { error: 'until must be a date as YYYY-MM-DD, got "9999-12-31"' });
+});
+
 test("the channel parameter narrows to voice or chat", async () => {
   const { ids, recallConversations } = await conversations(
     { channel: "voice", entries: [said("user", "boiler", "2026-09-28T10:00:00.000Z")] },
