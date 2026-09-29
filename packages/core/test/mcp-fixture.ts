@@ -12,6 +12,8 @@ export interface McpFixture {
   requests: IncomingHttpHeaders[];
   /** Tool names served by tools/list; mutable. */
   tools: string[];
+  /** Params of every tools/call received, in order. */
+  calls: { name: string; arguments?: Record<string, unknown> }[];
   /** Answer every request with this HTTP status instead of MCP (e.g. 401); undefined serves normally. */
   rejectWith?: number;
   /** Never answer tools/list. */
@@ -20,7 +22,7 @@ export interface McpFixture {
 }
 
 export async function startMcpFixture(tools: string[] = ["turn_on", "turn_off"]): Promise<McpFixture> {
-  const f: McpFixture = { url: "", requests: [], tools, hangListTools: false, close: async () => {} };
+  const f: McpFixture = { url: "", requests: [], tools, calls: [], hangListTools: false, close: async () => {} };
   const http = createServer(async (req, res) => {
     f.requests.push(req.headers);
     if (f.rejectWith) {
@@ -33,7 +35,10 @@ export async function startMcpFixture(tools: string[] = ["turn_on", "turn_off"])
       if (f.hangListTools) await new Promise(() => {});
       return { tools: f.tools.map((name) => ({ name, description: `${name} tool`, inputSchema: { type: "object" as const } })) };
     });
-    server.setRequestHandler(CallToolRequestSchema, async ({ params }) => ({ content: [{ type: "text", text: JSON.stringify({ called: params.name }) }] }));
+    server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+      f.calls.push(structuredClone(params));
+      return { content: [{ type: "text", text: JSON.stringify({ called: params.name }) }] };
+    });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => void transport.close().then(() => server.close()));
     await server.connect(transport);

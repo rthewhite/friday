@@ -279,13 +279,28 @@ export class ConversationStore {
     }
     const window: string[] = [];
     const windowParams: string[] = [];
-    if (s.since) window.push("e.at >= ?"), windowParams.push(s.since);
-    if (s.until) window.push("e.at < ?"), windowParams.push(s.until);
+    if (s.since) {
+      window.push("e.at >= ?");
+      windowParams.push(s.since);
+    }
+    if (s.until) {
+      window.push("e.at < ?");
+      windowParams.push(s.until);
+    }
     const scope: string[] = [];
     const scopeParams: string[] = [];
-    if (s.channel) scope.push("c.channel = ?"), scopeParams.push(s.channel);
-    if (s.device !== undefined) scope.push("c.device = ?"), scopeParams.push(s.device);
-    if (s.exclude.length) scope.push(`c.id NOT IN (${s.exclude.map(() => "?").join(", ")})`), scopeParams.push(...s.exclude);
+    if (s.channel) {
+      scope.push("c.channel = ?");
+      scopeParams.push(s.channel);
+    }
+    if (s.device !== undefined) {
+      scope.push("c.device = ?");
+      scopeParams.push(s.device);
+    }
+    if (s.exclude.length) {
+      scope.push(`c.id NOT IN (${s.exclude.map(() => "?").join(", ")})`);
+      scopeParams.push(...s.exclude);
+    }
 
     const found = new Map<string, { lastActivityAt: string; seqs: Set<number>; words: Set<string> }>();
     if (!s.words.length) {

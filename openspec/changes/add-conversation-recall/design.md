@@ -63,13 +63,13 @@ The store splits `query` into words using the SDK rule (D4). For each word it ru
 
 There are at most 8 words from the brain tool, and a household corpus. The store then:
 
-1. **Ranks** conversations by the number of distinct words hit, then by `last_activity_at DESC, id DESC`, and keeps `limit`.
+1. **Ranks** conversations with `compareMatches` from `@friday/sdk`: by the number of distinct words hit, then by `last_activity_at DESC, id DESC`. It keeps `limit`.
 2. **Loads** the in-window entries for those conversations only, in one query per conversation.
-3. **Builds** the matches with `buildMatches(entries, hits)` from `@friday/sdk`. `MemoryConversations` calls the same function.
+3. **Builds** each conversation's snippets with `snippetsFor(entries, matchingSeqs)` from `@friday/sdk`. `MemoryConversations` calls the same two functions.
 
 With no words, step 1 is "conversations with any entry in the window, most recent first", and the snippet is the first 3 in-window entries.
 
-The rules `buildMatches` applies:
+The rules `snippetsFor` applies:
 - **Snippet shape:** each snippet is a matching entry plus its in-window neighbours.
 - **Overlaps:** a matching entry already shown in an earlier snippet doesn't start a new one, so adjacent matches don't repeat text.
 - **Count:** at most 3 snippets.
@@ -82,7 +82,7 @@ The rules `buildMatches` applies:
 `packages/sdk/src/conversation-search.ts` exports:
 - **The types:** `SearchConversationsOptions`, `ConversationMatch` (a summary plus `snippets: SnippetEntry[][]`) and `SnippetEntry`. `SnippetEntry` is a user or assistant entry with `text`, or a tool entry with `name` and `args`, and never has `result`.
 - **The word rule:** `queryWords(query)` splits on non-letter and non-digit characters, keeps words of 3+ characters, and removes duplicates after folding.
-- **`buildMatches` and the ranking comparator.**
+- **Ranking and snippets:** `compareMatches` (the ranking comparator) and `snippetsFor`. There are also the helpers both stores need to find hits the same way: `foldSearchText`, `searchableText` (what the index holds for an entry) and `inWindow`.
 - **Validation:** `validateSearch(opts)`, which covers the channel, parseable instants, `since <= until`, and limit clamping (default 5, 1 to 20). Both stores use it, so core and the test host refuse the same inputs. Core converts its failure to `InvalidQuery`, and `forOwner` exposes it as a rejected promise.
 
 `MemoryConversations.search` finds hits by substring on text folded as NFD, with combining marks stripped and lower-cased. On household text this behaves the same as trigram matching.
