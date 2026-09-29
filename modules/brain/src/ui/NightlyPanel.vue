@@ -50,8 +50,9 @@ async function revert(p: RunPageView) {
   stale.value = null;
   try {
     const { reverted } = await api<{ reverted: string[] }>("POST", `runs/${selected.value.run.id}/pages/${encodeURIComponent(p.pageId)}/revert`, { base: p.currentRevisionId });
-    notice.value = `Reverted ${reverted.join(" and ")}.`;
+    // Reload the run first: open() clears the notice.
     await open(selected.value.run.id);
+    notice.value = `Reverted ${reverted.join(" and ")}.`;
   } catch (e) {
     if (e instanceof ApiError && e.code === "stale") stale.value = p.pageId;
     else error.value = e instanceof Error ? e.message : String(e);
