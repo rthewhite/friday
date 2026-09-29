@@ -161,15 +161,40 @@ curl -s -X DELETE 'localhost:8080/api/conversations/<id>'  # 204; 409 while its 
 The `brain` module (`modules/brain`) is Friday's long-term memory for the household. It holds small markdown pages about the people, places and projects in your life, plus one **profile** page about you and the household. There is one brain per household: Friday can't tell voices apart, so pages aren't per person.
 
 - **What Friday sees.** Every voice session and chat turn starts with the profile, an index of the 50 most recently updated pages (name, type, aliases and a one-line hint) and short instructions. For anything in the index, or anything that might have been noted before, Friday calls `brain_recall`. That tool finds pages by exact name or alias plus a word search over names, aliases and text. The search ignores case and accents, and English and Dutch filler words.
-- **How it learns.** When you ask Friday to remember something, or share a lasting fact, it calls `brain_remember`. The tool appends a dated note (`- 2026-09-29: Birthday is 3 November`) under `## Notes` on the right page, creating the page if needed. `entity: "profile"` targets the profile. Friday never rewrites or deletes what is there; a correction is a newer note, and when two notes contradict, the newer one holds. A later nightly pass (`brain-nightly`) will fold the notes into tidy page text. Until then, tidy pages by hand. Notes are dated in `FRIDAY_TIMEZONE`.
+- **How it learns.** When you ask Friday to remember something, or share a lasting fact, it calls `brain_remember`. The tool appends a dated note (`- 2026-09-29: Birthday is 3 November`) under `## Notes` on the right page, creating the page if needed. `entity: "profile"` targets the profile. Friday never rewrites or deletes what is there; a correction is a newer note, and when two notes contradict, the newer one holds. The nightly pass (below) folds the notes into tidy page text. Notes are dated in `FRIDAY_TIMEZONE`.
 - **Profile budget.** `BRAIN_PROFILE_TOKEN_BUDGET` (default 800, estimated as characters / 4) is a soft target. A "remember" on the profile is never refused; the portal shows the usage and marks an over-budget profile. The prompt context stays under 10000 characters by shortening the index first, and cutting the profile only as a last resort.
 - **Curating.** `Brain` under Modules (`/m/brain`) lists the pages, with the profile pinned on top and a search box. A page shows its rendered text (raw HTML is shown as text, never run) with clickable `[[links]]` and its backlinks. Dangling links offer to create the page. `Edit` warns when the page changed since you opened it, for example because Friday just remembered something, and offers to discard your edits or overwrite. `History` has every revision with a line diff and `Restore this version`. Renaming keeps the old name as an alias so links keep working.
 - **Forgetting.** `Delete` moves a page to "Recently deleted", from where it can be restored. `Delete forever` needs the page's name typed to confirm. It removes the page and its history, turns links to it on other pages into plain text, and tombstones its names, so Friday won't recreate the page on its own; you can still create it again yourself. Conversation transcripts and older revisions of other pages may still mention it. Memory is stored in plaintext in `friday.db`, next to the conversations.
 
-Over HTTP (the portal's API; see `modules/brain/src/routes.ts`):
+### The nightly pass
+
+The job `brain/nightly` (Jobs page; `BRAIN_NIGHTLY_CRON`, default `0 3 * * *` in `FRIDAY_TIMEZONE`, `off` disables it and needs a module reload) keeps the brain accurate without you doing it. It has two steps:
+
+1. **Extract.** It reads the conversations that finished since the last run, oldest first and at most `BRAIN_NIGHTLY_MAX_CONVERSATIONS` (default 30) per run, and asks the text model for lasting facts. A resumed conversation is read again, but only its new entries count. Conversations with almost no user text are skipped without a model call. The first run works through the retained backlog over several nights.
+   - **What it reads:** what you said or typed, Friday's answers, and which tools were called with which arguments. **Never tool results:** they are data fetched from elsewhere (a web page, an API) and may try to steer the model.
+   - **What it notes:** only facts you stated or confirmed, still true in a month, about your household's world. "No notes" is the normal answer. It skips what is true only inside the conversation, what can be looked up live, moods, what only Friday said, what a page already holds, and forgotten names. A device name (`kitchen`) is never a person. Facts about "me" go on the profile.
+   - **How:** exactly like `brain_remember`, as dated notes on the right page (created if needed), marked `extraction` with the conversation as source. A note is dated with the conversation's day, so a fact you already had Friday remember that day isn't added twice. Extraction never changes existing text.
+2. **Consolidate.** When pages changed since the last tidy-up, one model call proposes a plan over the whole brain: rewrite a page (fold its notes into the text, dedupe, keep the newer fact, add `[[links]]`), create a page (for example to move detail off an over-budget profile), or merge two pages about the same thing (the absorbed page is deleted and its names become aliases). Every line a plan removes on purpose, like a superseded fact, must be declared with a reason. The plan is applied in one transaction, all or nothing, and refused when it targets a page that changed meanwhile, empties a page, renames or merges the profile, uses a forgotten or taken name, grows an over-budget profile, or **loses a line it didn't declare** (checked mechanically). A refused plan is sent back once with the reasons; otherwise nothing changes that night.
+
+Changes apply directly, with no approval queue; everything is reviewable and revertible afterwards. The **`Nightly` tab** on `/m/brain` lists recent runs with their summary (`5 conversations (2 trivial), 4 notes; 3 pages rewritten, 1 merge, 2 lines dropped`). A run shows each page it changed with a diff from before to after, the dropped lines with their reasons, and its source conversations (marked gone once retention deleted them). `Revert` undoes a page as a new revision; reverting a merge also brings the absorbed page back, and a page edited after the run is left alone (open it and restore from its history). `Run now` on the Jobs page runs the pass immediately.
+
+**Cost and model.** At most 30 extraction calls and 1 or 2 consolidation calls a night, on the `standard` tier (`FRIDAY_TEXT_MODEL`, default `gemini-flash-latest`), sharing `FRIDAY_LLM_CONCURRENCY` with everything else and logged without content. A stronger `FRIDAY_TEXT_MODEL` gives better merges and fewer refused plans when memory quality matters. Conversation content goes to the text model, as it does for chat.
+
+**Measuring the prompts.** `modules/brain/test/fixtures/nightly/` holds synthetic conversations with facts that must be noted and content that must not be (a birthday said in passing, a correction, an injected tool result, a device-named voice session, a Dutch conversation, …) plus consolidation cases. `pnpm test` runs them against a fake model; to check the real one:
+
+```sh
+pnpm --filter @friday/module-brain eval             # every fixture against FRIDAY_TEXT_MODEL (reads GEMINI_API_KEY from .env)
+pnpm --filter @friday/module-brain eval dutch       # one fixture
+```
+
+It prints `PASS` or `FAIL` per expectation and is never part of CI.
+
+Over HTTP (the portal's API; see `modules/brain/src/routes.ts` and `src/nightly/review.ts`):
 
 ```sh
 curl -s localhost:8080/api/modules/brain/pages               # {"profile":{"usedTokens","budgetTokens","overBudget"},"pages":[...],"deleted":[...]}
+curl -s 'localhost:8080/api/modules/brain/runs?limit=14'     # nightly runs, newest first
+curl -s localhost:8080/api/modules/brain/runs/<id>           # the pages a run changed, with before/after, dropped lines and sources
 curl -s localhost:8080/api/modules/brain/pages/profile       # one page with revisions, links and backlinks
 curl -s -X POST localhost:8080/api/modules/brain/pages -H 'content-type: application/json' -d '{"name":"Anouk","type":"person","aliases":["Noukie"]}'
 ```

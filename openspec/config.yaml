@@ -29,7 +29,11 @@ context: |
   extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall
   (name/alias match plus substring search); its prompt context (profile + index of 50 recent pages, under 10000
   chars) goes into every voice/chat prompt; no tool deletes. Portal /m/brain curates (edit with stale check,
-  history/restore, soft delete, purge with tombstones); routes under /api/modules/brain/.
+  history/restore, soft delete, purge with tombstones); routes under /api/modules/brain/. The job brain/nightly
+  (src/nightly/, BRAIN_NIGHTLY_CRON) extracts sourced notes from quiet conversations (watermark and progress in
+  ctx.storage, tool results never sent) and consolidates with one validated all-or-nothing plan (declared drops,
+  mechanical loss check, one repair round); runs are recorded in brain__runs and reviewed/reverted in the Nightly
+  tab (/api/modules/brain/runs). Fixtures in test/fixtures/nightly; `pnpm --filter @friday/module-brain eval`.
   Portal (packages/portal): Vue 3 + Vite + Tailwind 4 SPA served by core from packages/portal/dist
   (FRIDAY_WEB_DIR) with SPA fallback; pages Talk (voice client, AudioWorklet in public/), Chat
   (/chat, /chat/:id; markdown-it with HTML off), Conversations, Modules, and

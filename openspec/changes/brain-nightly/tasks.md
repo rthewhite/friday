@@ -68,8 +68,8 @@ Prerequisite: `brain` is merged into `main` (store with `writeRevision`, `append
 ## 6. Eval, docs and integration
 
 - [x] 6.1 Add `scripts/eval.ts` and the `eval` script: fixtures through `createTestHost` with an `llm` function calling Gemini via `@google/genai` (dev dependency) with `responseJsonSchema`, using `GEMINI_API_KEY` and `FRIDAY_TEXT_MODEL`, printing pass or fail per expectation. Verify by running it with a real key and recording the results for `gemini-flash-latest` in the PR description. Tune the loss threshold and trivial cut-off only if the fixtures demand it
-- [ ] 6.2 Document the nightly pass in the README (what it reads and never reads, notes then consolidation, declared drops, the `Nightly` tab and revert, cost, the recommended stronger `FRIDAY_TEXT_MODEL`, the eval command) and `BRAIN_NIGHTLY_CRON` / `BRAIN_NIGHTLY_MAX_CONVERSATIONS` in `.env.example`. Verify the documented eval command runs as written
-- [ ] 6.3 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
+- [x] 6.2 Document the nightly pass in the README (what it reads and never reads, notes then consolidation, declared drops, the `Nightly` tab and revert, cost, the recommended stronger `FRIDAY_TEXT_MODEL`, the eval command) and `BRAIN_NIGHTLY_CRON` / `BRAIN_NIGHTLY_MAX_CONVERSATIONS` in `.env.example`. Verify the documented eval command runs as written
+- [x] 6.3 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
 - [ ] 6.4 End-to-end on a local core with a real key:
   - hold two chat conversations that mention lasting facts without asking to remember;
   - let them go quiet (`FRIDAY_CONVERSATION_QUIET_MINUTES=1`);
