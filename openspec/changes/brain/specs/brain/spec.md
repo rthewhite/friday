@@ -174,7 +174,7 @@ The module SHALL serve under `/api/modules/brain/`:
 - `PUT pages/:id`: save name, type, aliases and body based on a given revision.
 - `POST pages/:id/restore`: make a given revision's content current as a new revision with author `user` and a note naming the restored revision.
 
-Errors SHALL respond with a code: 400 `invalid` or `profile`, 404 `not_found`, and 409 `name_taken`, `stale` or `tombstoned`.
+Errors SHALL respond with a code: 400 `invalid` or `profile`, 404 `not_found`, and 409 `name_taken`, `stale`, `tombstoned` or `not_deleted` (a purge of a page that isn't deleted).
 
 #### Scenario: Save and read back
 - **WHEN** the portal saves page `Anouk` with a new body based on its current revision

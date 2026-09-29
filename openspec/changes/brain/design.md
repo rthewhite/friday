@@ -64,7 +64,7 @@ A `BrainStore` class over `ctx.db`. Every mutation (`create`, `save`, `appendNot
 - **Refuses tombstoned names** for every author except `user`. A `user` write lifts the tombstone, because the user is explicitly recreating it.
 - **Replaces the page's `brain__names` rows** and inserts the revision.
 
-Errors are typed (`invalid`, `stale`, `name_taken`, `tombstoned`, `not_found`, `profile`), and routes and tools map them to responses. `brain-nightly` will add its authors on this same path, so its guards come from here too.
+Errors are typed (`invalid`, `stale`, `name_taken`, `tombstoned`, `not_found`, `profile`, `not_deleted`), and routes and tools map them to responses. `brain-nightly` will add its authors on this same path, so its guards come from here too.
 
 ### D3. `brain_remember` appends to a `## Notes` section
 
@@ -143,11 +143,11 @@ All routes are under `/api/modules/brain/`. JSON errors are `{ error, code }` wi
 | `GET pages/:id` | The page, `revisions` (id, author, createdAt, note, sources, newest first), `links` (outgoing `{ target, pageId? }`) and `backlinks` (`{ pageId, name, line }`). Soft-deleted pages are readable too, for the "Recently deleted" view. |
 | `GET pages/:id/revisions/:rev` | The full snapshot. |
 | `POST pages` | `{ name, type, aliases?, body? }` → 201, or 409 `name_taken`. A user create lifts a tombstone. |
-| `PUT pages/:id` | `{ name, type, aliases, body, baseRevision }` → 200, 409 `stale` (with the current page), 409 `name_taken`, 400 `invalid` or `profile`. |
+| `PUT pages/:id` | `{ name, type, aliases, body, baseRevision, keepOldName? }` → 200, 409 `stale` (with the current page), 409 `name_taken`, 400 `invalid` or `profile`. `keepOldName` (default true) adds the old name as an alias on a rename; the editor's checkbox sets it (D5). |
 | `POST pages/:id/restore` | `{ revisionId, baseRevision }` → 200, a new revision with note `restored revision <n>`. |
 | `DELETE pages/:id` | Soft delete → 204. 400 `profile` for the profile. |
 | `POST pages/:id/undelete` | 200, or 409 `name_taken` naming the colliding names. |
-| `POST pages/:id/purge` | `{ confirm: <exact name> }`. Soft-deleted pages only, otherwise 409. A confirm mismatch is 400. Returns `{ unlinked: [names of rewritten pages] }`. |
+| `POST pages/:id/purge` | `{ confirm: <exact name> }`. Soft-deleted pages only, otherwise 409 `not_deleted`. A confirm mismatch is 400. Returns `{ unlinked: [names of rewritten pages] }`. |
 
 Purge order inside one transaction:
 
