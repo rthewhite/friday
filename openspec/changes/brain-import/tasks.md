@@ -19,13 +19,13 @@
 
 ## 2. Script
 
-- [ ] 2.1 Write `modules/brain/scripts/import-jarvis.ts` and the `import-jarvis` package script (design D4):
+- [x] 2.1 Write `modules/brain/scripts/import-jarvis.ts` and the `import-jarvis` package script (design D4):
   - read a Jarvis SQLite copy read-only with `node:sqlite` for one user (default `rdewit`), splitting profile, live and deleted pages, parsing aliases, reading tombstones;
   - build the payload and refuse above 1 MB;
   - always dry-run first and print the report; `--apply` imports only when there are no problems.
 
   Verify with `test/import-jarvis.test.ts`: a temporary SQLite file with Jarvis's `documents` and `document_tombstones` tables (two users, a profile, live, deleted and tombstoned rows) yields the right payload for `rdewit` only. The payload reader is exported so the test can call it without HTTP
-- [ ] 2.2 Document the import in the README's Memory section (what is imported and not, the runbook commands from design D5, the empty-brain rule, turning the nightly pass off first to review). Verify the documented commands match the script's flags by running the script's `--help`
+- [x] 2.2 Document the import in the README's Memory section (what is imported and not, the runbook commands from design D5, the empty-brain rule, turning the nightly pass off first to review). Verify the documented commands match the script's flags by running the script's `--help`
 
 ## 3. Integration
 

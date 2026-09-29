@@ -71,7 +71,7 @@ test("an import creates the pages, deleted pages and tombstones, with one noted 
   const family = list.pages.find((p: any) => p.name === "Family");
   const detail = (await h.request("GET", `pages/${family.id}`)).body as any;
   assert.deepEqual(detail.links.map((l: any) => [l.target, !!l.pageId]), [["Anouk", true], ["Bram", false]]);
-  assert.equal((await h.call("brain_recall", { entity: "noukie", query: "sister" })).result.pages[0].name, "Anouk");
+  assert.equal(((await h.call("brain_recall", { entity: "noukie", query: "sister" })).result as { pages: { name: string }[] }).pages[0]!.name, "Anouk");
 });
 
 test("an imported tombstone keeps the name forgotten", async () => {

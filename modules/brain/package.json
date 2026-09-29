@@ -18,7 +18,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
-    "eval": "node --env-file-if-exists=../../.env --import tsx scripts/eval.ts"
+    "eval": "node --env-file-if-exists=../../.env --import tsx scripts/eval.ts",
+    "import-jarvis": "node --import tsx scripts/import-jarvis.ts"
   },
   "dependencies": {
     "@friday/sdk": "workspace:*"
