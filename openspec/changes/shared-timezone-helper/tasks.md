@@ -20,4 +20,4 @@
 
 ## 5. Integration
 
-- [ ] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`; verify all green, and confirm with `grep -rn "Europe/Amsterdam" packages/*/src modules/*/src` that the literal remains only in `packages/sdk/src/time.ts` (plus schema examples in tool descriptions)
+- [x] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`; verify all green, and confirm with `grep -rn "Europe/Amsterdam" packages/*/src modules/*/src` that the literal remains only in `packages/sdk/src/time.ts` (plus schema examples in tool descriptions)
