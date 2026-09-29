@@ -231,6 +231,35 @@ test("an unavailable model stops extraction as partial, and the next run starts 
   assert.deepEqual(t.extractions.slice(1).map((r) => r.prompt!.match(/(first|second) conversation/)![1]), ["first", "second"]);
 });
 
+test("an aborted run stops at the next conversation, is partial, and skips consolidation", async () => {
+  const { RunStore } = await import("../src/nightly/runs.js");
+  const { runNightly } = await import("../src/nightly/job.js");
+  const { runExtract } = await import("../src/nightly/extract.js");
+  const t = await host();
+  quietConversation(t.h, "c1", "first conversation with some words", "2026-09-29T10:00:00Z");
+  quietConversation(t.h, "c2", "second conversation with some words", "2026-09-29T11:00:00Z");
+  const ac = new AbortController();
+  const deps = {
+    store: new BrainStore(t.h.db),
+    conversations: t.h.conversations,
+    // The first model call finishes, then the job is cancelled (timeout, reload or shutdown).
+    llm: { generate: async () => { ac.abort(); return { text: "{\"notes\":[]}", json: { notes: [] }, model: "fake", usage: { inputTokens: 0, outputTokens: 0 } }; } },
+    storage: t.h.storage,
+    log: { log() {}, warn() {}, error() {} },
+    maxConversations: () => 30,
+    zone: () => "Europe/Amsterdam",
+  };
+  let consolidated = false;
+  const { run, summary } = await runNightly(new RunStore(t.h.db), { extract: (s) => runExtract(deps as never, s), consolidate: async () => { consolidated = true; return { ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }; } }, "schedule", ac.signal);
+  assert.equal(run.outcome, "partial");
+  assert.equal(run.error, "cancelled");
+  assert.equal(run.conversations, 1);
+  assert.equal(consolidated, false);
+  assert.match(summary, /\[partial: cancelled\]/);
+  // The watermark stops after the first conversation, so the next run starts with the second.
+  assert.equal(await t.h.storage.get("extract:watermark"), "2026-09-29T10:00:00Z");
+});
+
 test("a deleted conversation is skipped and its progress forgotten", async () => {
   const t = await host();
   quietConversation(t.h, "c1", "a conversation that will be deleted later", "2026-09-29T10:00:00Z");
