@@ -38,8 +38,8 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 3. Links and search
 
-- [ ] 3.1 Implement `src/links.ts` (no Node or DB imports, shared with the UI): parse `[[Name]]` targets, context lines cut to 160 characters, and unlink (rewrite `[[Name]]` to `Name` for a set of name keys). Add resolved/dangling outgoing links and backlinks in the store. Verify with `test/links.test.ts`: backlink with its line, resolution through an alias, dangling target, links in deleted pages ignored, and unlink leaving other links intact
-- [ ] 3.2 Implement search (fold case and accents, split on non-letter/digit, drop words of 2 characters or fewer and the English/Dutch stopword list, at most 8 words, count distinct words in name, aliases and body with name/alias hits weighted double, ties by `updated_at`, profile and deleted pages excluded). Verify with `test/search.test.ts`: wifi-password-on-`Home`, "cafe" finding "café", a Dutch stopword query, name hit outranking a body mention, and a 9-word query using 8
+- [x] 3.1 Implement `src/links.ts` (no Node or DB imports, shared with the UI): parse `[[Name]]` targets, context lines cut to 160 characters, and unlink (rewrite `[[Name]]` to `Name` for a set of name keys). Add resolved/dangling outgoing links and backlinks in the store. Verify with `test/links.test.ts`: backlink with its line, resolution through an alias, dangling target, links in deleted pages ignored, and unlink leaving other links intact
+- [x] 3.2 Implement search (fold case and accents, split on non-letter/digit, drop words of 2 characters or fewer and the English/Dutch stopword list, at most 8 words, count distinct words in name, aliases and body with name/alias hits weighted double, ties by `updated_at`, profile and deleted pages excluded). Verify with `test/search.test.ts`: wifi-password-on-`Home`, "cafe" finding "café", a Dutch stopword query, name hit outranking a body mention, and a 9-word query using 8
 
 ## 4. Tools
 
