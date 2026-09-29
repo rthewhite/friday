@@ -17,8 +17,8 @@
 
 ## 4. Tool
 
-- [ ] 4.1 Port `travel-time.ts` (`getTravelTime`, taking the time zone) and `test/travel-time.test.ts`; verify the ported cases pass
-- [ ] 4.2 Define `get_travel_time` in `src/index.ts` with a `Type` schema matching the Jarvis parameter descriptions, the client built from `ctx.config.require("TOMTOM_API_KEY")`, the zone from `ctx.config.get("FRIDAY_TIMEZONE")`, and `ctx.log` as the logger; add `test/module.test.ts` with `createTestHost` covering: missing key fails the module naming `TOMTOM_API_KEY`, the tool is offered on voice and chat, an end-to-end call against a fake `fetch` returns the spec's result shape, a bare local `departAt` reaches TomTom with the `FRIDAY_TIMEZONE` offset, and a 403 yields an `{ error }` result without the key; verify `pnpm --filter @friday/module-travel test` and `typecheck` pass
+- [x] 4.1 Port `travel-time.ts` (`getTravelTime`, taking the time zone) and `test/travel-time.test.ts`; verify the ported cases pass
+- [x] 4.2 Define `get_travel_time` in `src/index.ts` with a `Type` schema matching the Jarvis parameter descriptions, the client built from `ctx.config.require("TOMTOM_API_KEY")`, the zone from `ctx.config.get("FRIDAY_TIMEZONE")`, and `ctx.log` as the logger; add `test/module.test.ts` with `createTestHost` covering: missing key fails the module naming `TOMTOM_API_KEY`, the tool is offered on voice and chat, an end-to-end call against a fake `fetch` returns the spec's result shape, a bare local `departAt` reaches TomTom with the `FRIDAY_TIMEZONE` offset, and a 403 yields an `{ error }` result without the key; verify `pnpm --filter @friday/module-travel test` and `typecheck` pass
 
 ## 5. Documentation
 
