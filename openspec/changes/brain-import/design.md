@@ -62,6 +62,8 @@ Response:
 409 { error, code: "not_empty" }
 ```
 
+`dryRun` defaults to true: only an explicit `dryRun: false` imports, so a request that forgets the flag can't write.
+
 `report` is:
 
 ```
@@ -86,7 +88,7 @@ Response:
 
 1. **Guard:** refuse with `not_empty` when `brain__pages` has any row besides the profile, or the profile's body isn't empty.
 2. **Profile:** save its body and aliases (author `user`, note `imported from jarvis`).
-3. **Deleted pages:** `create`, then `softDelete`, oldest first. Each frees its names before the next page, so deleted and live pages that share a name don't collide.
+3. **Deleted pages:** `create`, then mark deleted directly with Jarvis's `deleted_at`, removing the page's names as a soft delete does, but without a second revision. That keeps every imported page at exactly one revision. Oldest first; each frees its names before the next page, so deleted and live pages that share a name don't collide.
 4. **Live pages:** `create`, in ascending Jarvis `updated_at`. Each gets one revision (author `user`, note `imported from jarvis (created <c>, updated <u>)`).
 5. **Times:** overwrite each imported page's `created_at` and `updated_at`, and a deleted page's `deleted_at`, with Jarvis's values. This is a direct update of those columns in the same transaction. Revision times stay at the import, so the history shows when the page arrived in Friday.
 6. **Tombstones:** insert each one not skipped under D2, keyed by Friday's name key of Jarvis's `name_lower`, with Jarvis's purge time. This goes through a new store method used only by the import. Tombstones are written last, because a `user` create lifts tombstones on its names.
