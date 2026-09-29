@@ -10,8 +10,8 @@
 
 ## 2. Prompt split and chat settings
 
-- [ ] 2.1 Split the system prompt in `packages/core/src/config.ts` into `base`, `voice` and `chat` parts, with `systemPrompt` = base + voice; verify with a config test that both prompts start with the base and only voice mentions `end_conversation`
-- [ ] 2.2 Add `FRIDAY_CHAT_MODEL` (falling back to the text model) and `FRIDAY_CHAT_TOOL_TIMEOUT_MS` (default 30000) to the settings; verify with a settings test for the fallback and default, and document both in `.env.example`
+- [x] 2.1 Split the system prompt in `packages/core/src/config.ts` into `base`, `voice` and `chat` parts, with `systemPrompt` = base + voice; verify with a config test that both prompts start with the base and only voice mentions `end_conversation`
+- [x] 2.2 Add `FRIDAY_CHAT_MODEL` (falling back to the text model) and `FRIDAY_CHAT_TOOL_TIMEOUT_MS` (default 30000) to the settings; verify with a settings test for the fallback and default, and document both in `.env.example`
 
 ## 3. Conversation store for chat
 
