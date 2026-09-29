@@ -245,6 +245,27 @@ export class BrainStore {
     return row && toRevision(row);
   }
 
+  /** Names of purged pages, which only the user may bring back. */
+  tombstones(): { key: string; name: string }[] {
+    return (this.db.prepare("SELECT key, name FROM brain__tombstones ORDER BY name").all() as unknown as { key: string; name: string }[]).map((r) => ({ ...r }));
+  }
+
+  /** `[[link]]` targets on live pages that no live page answers to, deduplicated by name key. */
+  danglingTargets(): string[] {
+    const out = new Map<string, string>();
+    for (const p of this.list()) for (const l of this.links(p)) if (!l.pageId && !out.has(nameKey(l.target))) out.set(nameKey(l.target), l.target);
+    return [...out.values()];
+  }
+
+  /** Ids of live pages with a revision newer than `revisionId` written by someone other than `excluded` authors. */
+  changedSince(revisionId: number, excluded: Author[] = ["consolidation", "system"]): string[] {
+    const rows = this.db
+      .prepare(`SELECT DISTINCT r.page_id AS id FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id
+        WHERE r.id > ? AND p.deleted_at IS NULL AND r.author NOT IN (${excluded.map(() => "?").join(", ") || "''"})`)
+      .all(revisionId, ...excluded) as { id: string }[];
+    return rows.map((r) => r.id);
+  }
+
   /** A page's `[[links]]`, resolved through live names and aliases. */
   links(page: Pick<Page, "body">): OutgoingLink[] {
     return parseLinks(page.body).map(({ target, line }) => {
@@ -348,7 +369,9 @@ export class BrainStore {
    * A fact that repeats the latest note, or a note of the same day, is skipped; anything else is a new
    * note, so a correction back to an older fact is kept as the newest one.
    */
-  appendNote(entity: string, fact: string, type: PageType | undefined, date: string): RememberResult {
+  appendNote(entity: string, fact: string, type: PageType | undefined, date: string, opts: { author?: "remember" | "extraction"; sources?: string[] } = {}): RememberResult {
+    const author = opts.author ?? "remember";
+    const sources = opts.sources ?? [];
     const clean = typeof fact === "string" ? fact.replace(/\s+/g, " ").trim() : "";
     if (!clean) return { stored: false, reason: "invalid", message: "the fact is empty" };
     if (clean.length > FACT_MAX) return { stored: false, reason: "invalid", message: `a fact may be at most ${FACT_MAX} characters; store one short fact per call` };
@@ -358,13 +381,13 @@ export class BrainStore {
       return this.db.transaction((): RememberResult => {
         const target = this.resolve(String(entity ?? ""));
         if (!target) {
-          const page = this.create({ name: String(entity ?? ""), type: type ?? "other", aliases: [], body: `## Notes\n${note}` }, "remember");
+          const page = this.create({ name: String(entity ?? ""), type: type ?? "other", aliases: [], body: `## Notes\n${note}` }, author, { sources });
           return { stored: true, page: page.name, created: true };
         }
         if (alreadyNoted(target.body, clean, date)) {
           return { stored: false, reason: "already_known", page: target.name, message: `${target.name} already has this fact` };
         }
-        this.writeRevision(target, "remember", { ...target, body: appendUnderNotes(target.body, note) }, { keepOldName: false });
+        this.writeRevision(target, author, { ...target, body: appendUnderNotes(target.body, note) }, { keepOldName: false, sources });
         return { stored: true, page: target.name, created: false };
       });
     } catch (e) {

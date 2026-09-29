@@ -27,6 +27,19 @@ const STOPWORDS = new Set(
   ).split(/\s+/),
 );
 
+/**
+ * The significant words of `text`: folded, longer than 2 characters and not a stopword, or a number of
+ * any length. Distinct, in order, uncapped (the nightly pass ranks and compares with these).
+ */
+export function significantWords(text: string): string[] {
+  const out = new Set<string>();
+  for (const word of fold(text).split(/[^\p{L}\p{N}]+/u)) {
+    if (!word) continue;
+    if (/^\p{N}+$/u.test(word) || (word.length > 2 && !STOPWORDS.has(word))) out.add(word);
+  }
+  return [...out];
+}
+
 /** The distinct search terms of the inputs: folded words longer than 2 characters, stopwords removed, at most 8. */
 export function searchTerms(...inputs: (string | undefined)[]): string[] {
   const out: string[] = [];
