@@ -101,6 +101,30 @@ test("reverting a page the run created deletes it", async () => {
   assert.ok(((await h.request("GET", `pages/${garden.pageId}`)).body as { deletedAt?: string }).deletedAt);
 });
 
+test("a page someone else wrote during the run counts as changed, so revert doesn't erase that write", async () => {
+  let remembered = false;
+  const h = await createTestHost(createBrainModule({ now: () => new Date("2026-09-30T01:00:00Z") }), {
+    llm: async (req) => {
+      if ((req.schema as { properties?: Record<string, unknown> }).properties?.notes) return JSON.stringify({ notes: [] });
+      if (!remembered) {
+        remembered = true;
+        // The user asks Friday to remember something while the plan is being made.
+        await h.call("brain_remember", { entity: "Home", fact: "The spare key is under the mat." });
+      }
+      const home = h.db.prepare("SELECT p.id, p.revision_id AS rev, p.body FROM brain__names k JOIN brain__pages p ON p.id = k.page_id WHERE k.key = 'home'").get() as { id: string; rev: number; body: string };
+      return JSON.stringify({ actions: [{ kind: "rewrite", page: home.id, base: home.rev, body: "The boiler is in the attic. The spare key is under the mat.", dropped: [] }], note: "tidied Home" });
+    },
+  });
+  const home = (await h.request("POST", "pages", { name: "Home", type: "place", body: "The boiler is in the attic." })).body as { id: string };
+  assert.equal((await h.runJob("nightly")).outcome, "ok");
+  const runId = ((await h.request("GET", "runs")).body as { runs: { id: number }[] }).runs[0]!.id;
+  const page = ((await h.request("GET", `runs/${runId}`)).body as { pages: { pageId: string; changedSince: boolean; currentRevisionId: number }[] }).pages.find((p) => p.pageId === home.id)!;
+  assert.equal(page.changedSince, true);
+  const r = await h.request("POST", `runs/${runId}/pages/${home.id}/revert`, { base: page.currentRevisionId });
+  assert.equal(r.status, 409);
+  assert.match(((await h.request("GET", `pages/${home.id}`)).body as { body: string }).body, /spare key/);
+});
+
 test("a page changed after the run is refused as stale, and a deleted source is marked gone", async () => {
   const { h, run, review, page, ids } = await scene();
   const home = await page(ids.home);

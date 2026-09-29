@@ -257,13 +257,24 @@ export class BrainStore {
     return [...out.values()];
   }
 
-  /** Ids of live pages with a revision newer than `revisionId` written by someone other than `excluded` authors. */
-  changedSince(revisionId: number, excluded: Author[] = ["consolidation", "system"]): string[] {
+  /**
+   * Live pages with a revision newer than `revisionId` written by someone other than the `excluded`
+   * authors, mapped to the first such revision. Reverts of a nightly run don't count: consolidating
+   * the page again would redo what the user just undid.
+   */
+  changesSince(revisionId: number, excluded: Author[] = ["consolidation", "system"]): Map<string, number> {
     const rows = this.db
-      .prepare(`SELECT DISTINCT r.page_id AS id FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id
-        WHERE r.id > ? AND p.deleted_at IS NULL AND r.author NOT IN (${excluded.map(() => "?").join(", ") || "''"})`)
-      .all(revisionId, ...excluded) as { id: string }[];
-    return rows.map((r) => r.id);
+      .prepare(`SELECT r.page_id AS id, min(r.id) AS first FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id
+        WHERE r.id > ? AND p.deleted_at IS NULL AND r.author NOT IN (${excluded.map(() => "?").join(", ") || "''"})
+          AND (r.note IS NULL OR r.note NOT LIKE 'reverted nightly run %')
+        GROUP BY r.page_id`)
+      .all(revisionId, ...excluded) as { id: string; first: number }[];
+    return new Map(rows.map((r) => [r.id, r.first]));
+  }
+
+  /** Ids of the pages `changesSince` reports. */
+  changedSince(revisionId: number, excluded: Author[] = ["consolidation", "system"]): string[] {
+    return [...this.changesSince(revisionId, excluded).keys()];
   }
 
   /** A page's `[[links]]`, resolved through live names and aliases. */

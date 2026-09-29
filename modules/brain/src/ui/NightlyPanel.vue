@@ -99,7 +99,7 @@ const openPage = (id: string) => router.push(`/m/brain/p/${encodeURIComponent(id
           </div>
         </template>
         <p v-if="stale === p.pageId || p.changedSince" class="text-sm text-f-warning">
-          {{ p.name }} changed after this run, so it can't be reverted here.
+          {{ p.name }} was also changed by someone else during or after this run, so reverting here would undo that too.
           <button type="button" class="text-f-accent-bright hover:underline" @click="openPage(p.pageId)">Open the page</button> to restore an older version from its history.
         </p>
         <pre class="max-h-96 overflow-auto rounded-lg bg-f-bg p-3 font-mono text-xs leading-5"><template v-for="(l, i) in diffOf(p)" :key="i"><span :class="l.kind === 'add' ? 'text-f-success' : l.kind === 'del' ? 'text-f-error line-through opacity-80' : 'text-f-text-muted'">{{ l.kind === "add" ? "+ " : l.kind === "del" ? "- " : "  " }}{{ l.text }}

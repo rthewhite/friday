@@ -50,7 +50,7 @@ export function createBrainModule(opts: BrainOptions = {}) {
     migrations,
     init(ctx) {
       const store = new BrainStore(ctx.db, { now });
-      const runs = new RunStore(ctx.db, now);
+      const runs = new RunStore(ctx.db, now, () => store.lastRevisionId());
       const budget = () => {
         const n = Math.floor(Number(ctx.config.get("BRAIN_PROFILE_TOKEN_BUDGET")));
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_PROFILE_BUDGET;

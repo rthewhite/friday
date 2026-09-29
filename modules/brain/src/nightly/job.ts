@@ -86,21 +86,28 @@ export async function runNightly(runs: RunStore, steps: NightlySteps, trigger: J
   }
 }
 
-/** Schedules `nightly` from BRAIN_NIGHTLY_CRON (read at init; `off` disables it). */
+/**
+ * Schedules `nightly` from BRAIN_NIGHTLY_CRON (read at init; `off` disables it). An invalid expression
+ * disables only the job, with an error in the log: the brain itself (tools, context, portal) still loads.
+ */
 export function scheduleNightly(ctx: ModuleContext, runs: RunStore, steps: NightlySteps): void {
   const cron = (ctx.config.get("BRAIN_NIGHTLY_CRON") ?? "").trim() || DEFAULT_NIGHTLY_CRON;
   if (cron.toLowerCase() === "off") {
     ctx.log.log("nightly maintenance is off (BRAIN_NIGHTLY_CRON=off)");
     return;
   }
-  ctx.jobs.schedule({
-    name: "nightly",
-    description: "Notes lasting facts from finished conversations, then tidies the brain's pages",
-    cron,
-    timeoutMs: NIGHTLY_TIMEOUT_MS,
-    async run({ signal, trigger }) {
-      const { summary } = await runNightly(runs, steps, trigger, signal);
-      return { summary };
-    },
-  });
+  try {
+    ctx.jobs.schedule({
+      name: "nightly",
+      description: "Notes lasting facts from finished conversations, then tidies the brain's pages",
+      cron,
+      timeoutMs: NIGHTLY_TIMEOUT_MS,
+      async run({ signal, trigger }) {
+        const { summary } = await runNightly(runs, steps, trigger, signal);
+        return { summary };
+      },
+    });
+  } catch (e) {
+    ctx.log.error(`nightly maintenance is disabled: ${e instanceof Error ? e.message : String(e)} (fix BRAIN_NIGHTLY_CRON and reload the module)`);
+  }
 }

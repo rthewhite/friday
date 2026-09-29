@@ -8,7 +8,12 @@ test("brain/nightly is scheduled at 03:00 by default, from BRAIN_NIGHTLY_CRON, a
   assert.deepEqual((await createTestHost(createBrainModule())).jobs, [{ name: "nightly", cron: "0 3 * * *" }]);
   assert.deepEqual((await createTestHost(createBrainModule(), { env: { BRAIN_NIGHTLY_CRON: "30 4 * * *" } })).jobs, [{ name: "nightly", cron: "30 4 * * *" }]);
   assert.deepEqual((await createTestHost(createBrainModule(), { env: { BRAIN_NIGHTLY_CRON: "off" } })).jobs, []);
-  await assert.rejects(createTestHost(createBrainModule(), { env: { BRAIN_NIGHTLY_CRON: "nonsense" } }), /job brain\/nightly: invalid cron/);
+  // A typo disables only the job; the brain's tools and context still load.
+  const errors: string[] = [];
+  const bad = await createTestHost(createBrainModule(), { env: { BRAIN_NIGHTLY_CRON: "0 3 * *" }, log: { log() {}, warn() {}, error: (...a) => void errors.push(a.join(" ")) } });
+  assert.deepEqual(bad.jobs, []);
+  assert.deepEqual(bad.tools, ["brain_remember", "brain_recall"]);
+  assert.match(errors.join("\n"), /nightly maintenance is disabled: job brain\/nightly: invalid cron "0 3 \* \*".*fix BRAIN_NIGHTLY_CRON/);
 });
 
 test("a run on an empty brain is ok with a zero-count summary and is recorded", async () => {

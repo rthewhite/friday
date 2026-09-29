@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { LlmRequest } from "@friday/sdk";
 import { createTestHost, type TestHost } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
-import { renderConsolidation, validatePlan, type Plan } from "../src/nightly/consolidate.js";
+import { preserved, renderConsolidation, validatePlan, type Plan } from "../src/nightly/consolidate.js";
 import { BrainStore } from "../src/store.js";
 import { brainStore } from "./fixtures.js";
 import { loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
@@ -25,10 +25,10 @@ async function host(plan: PlanAnswer = () => ({ actions: [], note: "tidy" }), en
   const requests: LlmRequest[] = [];
   const h = await createTestHost(createBrainModule({ now: () => new Date("2026-09-30T01:00:00Z") }), {
     env,
-    llm: (req) => {
+    llm: async (req) => {
       if ((req.schema as { properties?: Record<string, unknown> })?.properties?.notes) return JSON.stringify({ notes: [] });
       requests.push(req);
-      const a = plan(req, requests.length);
+      const a = await plan(req, requests.length);
       return typeof a === "string" ? a : JSON.stringify(a);
     },
   });
@@ -258,6 +258,63 @@ test("a plan refused twice writes nothing, the run is partial with the reasons, 
   assert.match(t.page("Home")!.body as string, /Wifi password/);
   await t.run();
   assert.equal(t.requests.length, 4, "tried again on the next run");
+});
+
+test("a page written while the model thinks is still consolidated on the next run", async () => {
+  const t = await host(async (_req, n) => {
+    if (n === 1) {
+      // brain_remember appends to Car during the (slow) model call.
+      const car = t.page("Car")!;
+      await t.h.request("PUT", `pages/${car.id}`, { name: "Car", type: "other", aliases: [], body: `${car.body}\n## Notes\n- 2026-09-30: APK in March`, baseRevision: car.revision_id });
+    }
+    return { actions: [], note: "tidy" };
+  });
+  await t.h.request("POST", "pages", { name: "Anouk", body: "Sister" });
+  await t.h.request("POST", "pages", { name: "Car", body: "Blue Volvo" });
+  await t.run();
+  await t.run();
+  assert.equal(t.requests.length, 2, "Car's new note makes the next run look again");
+  assert.match(t.requests[1]!.messages![0]!.text, /### Car \[[^\]]+\] \(changed\)/);
+});
+
+test("changed pages beyond the bound stay pending, and only pages shown in full may be changed", async () => {
+  const t = await host();
+  for (let i = 0; i < 5; i++) await t.h.request("POST", "pages", { name: `Big ${i}`, body: `${i} ${"lorem ipsum dolor ".repeat(850)}` });
+  await t.run();
+  const first = t.requests[0]!.messages![0]!.text;
+  assert.match(first, /## Other pages \(index only, not in full\)/);
+  await t.run();
+  assert.equal(t.requests.length, 2, "the pages that were only indexed are considered again");
+
+  const { store, close } = brainStore();
+  try {
+    const p = store.create({ name: "Hidden", body: "text" }, "user");
+    assert.match(validatePlan(store, { actions: [{ kind: "rewrite", page: p.id, base: p.revisionId, body: "text!" }], note: "" }, 800, new Set()).join("\n"), /Hidden was only in the index, not shown in full/);
+  } finally {
+    close();
+  }
+});
+
+test("the loss check matches whole words: a number or word hidden inside others doesn't count as kept", () => {
+  assert.equal(preserved("- Anna has 2 cats", "Anna, 2026-09-29, scatsinger"), false);
+  assert.equal(preserved("- 2026-09-29: Birthday is 3 November", "Birthdays: 3 November"), true);
+  assert.equal(preserved("Verjaardag in mei", "verjaardagen: mei"), true);
+});
+
+test("a reverted page is not rewritten again on the next night", async () => {
+  const t = await host((_req, n) => {
+    const h = t.page("Home")!;
+    return n === 1 ? { actions: [{ kind: "rewrite", page: h.id, base: h.revision_id, body: "The boiler is in the attic. The wifi password is on the router label.", dropped: [] }], note: "tidied" } : { actions: [], note: "" };
+  });
+  await seedFixture(t.h, fixture("fold-notes"));
+  const r = await t.run();
+  assert.equal(r.row.outcome, "ok");
+  const home = t.page("Home")!;
+  const revert = await t.h.request("POST", `runs/${r.row.id}/pages/${home.id}/revert`, { base: home.revision_id });
+  assert.equal(revert.status, 200, JSON.stringify(revert.body));
+  const again = await t.run();
+  assert.equal(t.requests.length, 1, "no model call: the revert is not a change to consolidate");
+  assert.match(again.summary!, /nothing to consolidate/);
 });
 
 test("the fixture plans apply: notes folded with a declared drop, detail moved off an over-budget profile", async () => {

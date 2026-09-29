@@ -13,6 +13,9 @@ import { isLinkTarget } from "../../links.js";
 export type Resolve = (target: string) => string | undefined;
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+// No images: page bodies are written by a model (the nightly pass) and a remote image would load on
+// view, leaking that the page was opened. `![alt](url)` renders as a link to click instead.
+md.disable("image");
 
 const renderLink = md.renderer.rules.link_open ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {

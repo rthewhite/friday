@@ -164,7 +164,7 @@ test("a backlog of 70 conversations is worked through 30, 30 and 10 per run", as
   }
   assert.deepEqual(counts, [30, 30, 10, 0]);
   assert.ok(t.extractions[0]!.prompt!.includes("conversation number 0 "), "oldest first");
-  assert.equal((await t.h.storage.get("extract:watermark")), new Date(Date.parse("2026-09-01T00:00:00Z") + 69 * 60_000).toISOString());
+  assert.deepEqual((await t.h.storage.get("extract:watermark")), { quietAt: new Date(Date.parse("2026-09-01T00:00:00Z") + 69 * 60_000).toISOString(), ids: ["c69"] });
 });
 
 test("BRAIN_NIGHTLY_MAX_CONVERSATIONS sets the per-run limit", async () => {
@@ -257,7 +257,46 @@ test("an aborted run stops at the next conversation, is partial, and skips conso
   assert.equal(consolidated, false);
   assert.match(summary, /\[partial: cancelled\]/);
   // The watermark stops after the first conversation, so the next run starts with the second.
-  assert.equal(await t.h.storage.get("extract:watermark"), "2026-09-29T10:00:00Z");
+  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: "2026-09-29T10:00:00Z", ids: ["c1"] });
+});
+
+test("a retried conversation that went quiet again never moves the watermark past unhandled ones", async () => {
+  let mode: "bad-x" | "down-at-a" | "ok" = "bad-x";
+  const t = await host((req) => {
+    const p = req.prompt!;
+    if (mode === "bad-x" && p.includes("conversation x")) return "not json";
+    if (mode === "down-at-a" && p.includes("conversation a")) return new LlmError("unavailable", "quota");
+    return { notes: [] };
+  });
+  quietConversation(t.h, "x", "this is conversation x talking", "2026-09-29T09:00:00.000Z");
+  await t.run();
+  assert.ok(await t.h.storage.get("extract:retry:x"));
+  // X resumes and goes quiet later than two new conversations.
+  t.h.conversations.seed({ id: "x", channel: "chat", startedAt: "2026-09-29T09:00:00.000Z", lastActivityAt: "2026-09-29T14:00:00.000Z", quietAt: "2026-09-29T15:00:00.000Z", entries: [{ kind: "user", input: "text", text: "this is conversation x talking" }, { kind: "user", input: "text", text: "and conversation x again later on" }] });
+  quietConversation(t.h, "a", "this is conversation a talking", "2026-09-29T10:00:00.000Z");
+  quietConversation(t.h, "b", "this is conversation b talking", "2026-09-29T11:00:00.000Z");
+  mode = "down-at-a";
+  const stopped = await t.run();
+  assert.equal(stopped.row.outcome, "partial");
+  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: "2026-09-29T09:00:00.000Z", ids: ["x"] }, "not moved past A");
+  mode = "ok";
+  const before = t.extractions.length;
+  await t.run();
+  const next = t.extractions.slice(before).map((r) => /conversation (\w)/.exec(r.prompt!)![1]);
+  assert.ok(next.includes("a") && next.includes("b"), `A and B are read: ${next}`);
+});
+
+test("conversations that went quiet in the same millisecond are all read, across runs", async () => {
+  const t = await host(undefined, { BRAIN_NIGHTLY_MAX_CONVERSATIONS: "1" });
+  const same = "2026-09-29T10:00:00.000Z";
+  quietConversation(t.h, "a", "this is conversation a talking", same);
+  quietConversation(t.h, "b", "this is conversation b talking", same);
+  await t.run();
+  await t.run();
+  await t.run();
+  const read = t.extractions.map((r) => /conversation (\w)/.exec(r.prompt!)![1]).sort();
+  assert.deepEqual(read, ["a", "b"]);
+  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: same, ids: ["a", "b"] });
 });
 
 test("a deleted conversation is skipped and its progress forgotten", async () => {

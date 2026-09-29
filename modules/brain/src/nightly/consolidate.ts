@@ -99,6 +99,11 @@ function pageBlock(p: Page, changed: boolean): string {
  * neighbours first, then the rest until `max`), an index of pages beyond the bound, and forgotten names.
  */
 export function renderConsolidation(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX): string {
+  return consolidationInput(store, changed, budget, max).text;
+}
+
+/** `renderConsolidation`, plus the ids of the pages shown in full (the only ones a plan may change). */
+export function consolidationInput(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX): { text: string; full: Set<string> } {
   const pages = store.list();
   const profile = pages.find((p) => p.isProfile)!;
   const used = estimateTokens(profile.body);
@@ -118,15 +123,18 @@ export function renderConsolidation(store: BrainStore, changed: ReadonlySet<stri
 
   const blocks: string[] = [];
   const index: string[] = [];
+  const full = new Set<string>();
   let size = header.length + tail.length + 100;
   for (const p of ordered) {
     const b = pageBlock(p, changed.has(p.id));
     if (!index.length && (size + b.length + 2 <= max || p.isProfile)) {
       blocks.push(b);
+      full.add(p.id);
       size += b.length + 2;
     } else index.push(indexLine(p));
   }
-  return [header, "## Pages", ...blocks, ...(index.length ? [`## Other pages (index only, not in full)\n${index.join("\n")}`] : []), tail].join("\n\n");
+  const text = [header, "## Pages", ...blocks, ...(index.length ? [`## Other pages (index only, not in full)\n${index.join("\n")}`] : []), tail].join("\n\n");
+  return { text, full };
 }
 
 /** A line's content without list markers and a note's date prefix. */
@@ -140,15 +148,28 @@ const same = (a: string, b: string) => {
   return !!x && !!y && (x === y || x.includes(y) || y.includes(x));
 };
 
-/** Whether most significant words of `line` occur in `folded` (the plan's resulting text, folded). */
-export function preserved(line: string, folded: string): boolean {
+/**
+ * Whether most significant words of `line` occur as words of `result` (the plan's resulting text).
+ * Words match whole, or by a shared prefix of at least 4 letters for plurals and inflections
+ * ("birthday"/"birthdays", "verjaardag"/"verjaardagen"); numbers only match exactly, so a "2" isn't
+ * found inside a date and "cats" isn't found inside another word.
+ */
+export function preserved(line: string, result: string | ReadonlySet<string>): boolean {
   const words = significantWords(content(line));
   if (!words.length) return true;
-  return words.filter((w) => folded.includes(w)).length / words.length >= PRESERVED_SHARE;
+  const tokens = typeof result === "string" ? new Set(significantWords(result)) : result;
+  const found = (w: string) => {
+    if (tokens.has(w)) return true;
+    if (/^\p{N}+$/u.test(w) || w.length < 4) return false;
+    for (const t of tokens) if (t.length >= 4 && (t.startsWith(w) || w.startsWith(t))) return true;
+    return false;
+  };
+  return words.filter(found).length / words.length >= PRESERVED_SHARE;
 }
 
 /** Everything wrong with `plan`, as reasons for the model; empty when it may be applied. */
-export function validatePlan(store: BrainStore, plan: Plan, budget: number): string[] {
+/** `shown`: the pages the model saw in full; only those may be rewritten or merged (all when omitted). */
+export function validatePlan(store: BrainStore, plan: Plan, budget: number, shown?: ReadonlySet<string>): string[] {
   const reasons: string[] = [];
   if (!plan || !Array.isArray(plan.actions)) return ["the answer has no list of actions"];
   if (plan.actions.length > MAX_ACTIONS) reasons.push(`the plan has ${plan.actions.length} actions; at most ${MAX_ACTIONS}`);
@@ -156,7 +177,7 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number): str
   const touched = new Map<string, number>();
   const mergedAway = new Set(plan.actions.filter((a) => a.kind === "merge" && a.from).map((a) => a.from!));
   const resultText = plan.actions.map((a) => `${a.name ?? ""}\n${(a.aliases ?? []).join("\n")}\n${a.body ?? ""}`).join("\n");
-  const resultRaw = fold(resultText);
+  const resultWords = new Set(significantWords(resultText));
   const label = (i: number, a: PlanAction) => `action ${i + 1} (${a.kind})`;
 
   const live = (i: number, a: PlanAction, id: string | undefined, base: number | undefined, role: string): Page | undefined => {
@@ -164,6 +185,7 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number): str
     if (!p) return void reasons.push(`${label(i, a)}: ${role} ${JSON.stringify(id)} doesn't exist`);
     if (p.deletedAt) return void reasons.push(`${label(i, a)}: ${role} ${p.name} is deleted`);
     if (base !== p.revisionId) return void reasons.push(`${label(i, a)}: ${role} ${p.name} is stale: its current revision is ${p.revisionId}, not ${base}`);
+    if (shown && !shown.has(p.id)) return void reasons.push(`${label(i, a)}: ${p.name} was only in the index, not shown in full, so it can't be changed tonight`);
     const prev = touched.get(p.id);
     if (prev !== undefined) reasons.push(`${label(i, a)}: ${p.name} is already changed by action ${prev + 1}; one action per page`);
     touched.set(p.id, i);
@@ -180,7 +202,7 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number): str
       for (const line of p.body.split("\n")) {
         const c = content(line);
         if (!c || /^#{1,6}(\s|$)/.test(line.trim())) continue;
-        if (resultText.includes(c) || preserved(c, resultRaw)) continue;
+        if (resultText.includes(c) || preserved(c, resultWords)) continue;
         if ((a.dropped ?? []).some((d) => typeof d?.line === "string" && same(d.line, line))) continue;
         reasons.push(`${label(i, a)}: ${p.name} loses the line "${line.trim()}" without declaring it in dropped`);
       }
@@ -269,10 +291,17 @@ const EMPTY: Omit<ConsolidateOutcome, "ran"> = { rewrites: 0, creates: 0, merges
 /** One consolidation step: skipped when nothing changed; otherwise plan, validate, apply, repair once. */
 export async function runConsolidate(deps: ConsolidateDeps, signal: AbortSignal): Promise<ConsolidateOutcome> {
   const since = (await deps.storage.get<number>(WATERMARK)) ?? 0;
-  const changed = new Set(deps.store.changedSince(since));
+  // Taken before the model is asked: a change made while it thinks (minutes) is still "changed" next time.
+  const seenUpTo = deps.store.lastRevisionId();
+  const changes = deps.store.changesSince(since);
+  const changed = new Set(changes.keys());
   if (!changed.size) return { ran: false, ...EMPTY };
   const budget = deps.budget();
-  const prompt = `${renderConsolidation(deps.store, changed, budget)}\n\nPropose the plan (an empty plan is fine when the pages are tidy).`;
+  const input = consolidationInput(deps.store, changed, budget);
+  const prompt = `${input.text}\n\nPropose the plan (an empty plan is fine when the pages are tidy).`;
+  // Changed pages beyond the bound were only indexed: stop the watermark before their first change.
+  const unseen = [...changes].filter(([id]) => !input.full.has(id)).map(([, first]) => first);
+  const nextWatermark = unseen.length ? Math.min(...unseen) - 1 : seenUpTo;
   const request = { system: consolidationSystem(), schema: PLAN_SCHEMA, model: "standard" as const, temperature: 0.2, maxOutputTokens: 32768, timeoutMs: 300_000, signal };
 
   const attempt = async (messages: LlmMessage[]): Promise<{ plan?: Plan; raw: string; reasons: string[]; applied?: Applied; fatal?: string }> => {
@@ -287,7 +316,7 @@ export async function runConsolidate(deps: ConsolidateDeps, signal: AbortSignal)
       if (e.kind === "invalid_output" || e.kind === "blocked") return { raw: e.raw ?? "", reasons: [`the answer was not a valid plan (${e.kind}: ${e.message})`] };
       return { raw, reasons: [], fatal: e.kind === "cancelled" ? "cancelled" : `model ${e.kind}: ${e.message}` };
     }
-    const reasons = validatePlan(deps.store, plan!, budget);
+    const reasons = validatePlan(deps.store, plan!, budget, input.full);
     if (reasons.length) return { plan, raw, reasons };
     try {
       return { plan, raw, reasons: [], applied: applyPlan(deps.store, deps.db, plan!) };
@@ -312,6 +341,6 @@ export async function runConsolidate(deps: ConsolidateDeps, signal: AbortSignal)
     deps.log.warn(`nightly: ${failed}`);
     return { ran: true, ...EMPTY, failed };
   }
-  await deps.storage.set(WATERMARK, deps.store.lastRevisionId());
+  await deps.storage.set(WATERMARK, nextWatermark);
   return { ran: true, ...result.applied };
 }

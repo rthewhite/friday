@@ -24,7 +24,7 @@ export interface RunPage {
   /** Set on a merge target: the page it absorbed. */
   mergedFrom?: string;
   currentRevisionId: number;
-  /** The page changed after the run, so a revert would be refused as stale. */
+  /** The page changed after the run (or someone else wrote it during the run), so a revert would be refused as stale. */
   changedSince: boolean;
 }
 
@@ -54,6 +54,11 @@ export async function runPages(db: ModuleDb, store: BrainStore, conversations: M
     for (const id of sourceIds) if (!exists.has(id)) exists.set(id, (await conversations.get(id)) !== undefined);
     const into = run.mergeRecords.find((m) => m.from === pageId)?.into;
     const from = run.mergeRecords.find((m) => m.into === pageId)?.from;
+    // Someone else (the user, brain_remember) wrote this page while the run was going: restoring the
+    // pre-run revision would silently undo that, so the page counts as changed since the run.
+    const interleaved = (db
+      .prepare("SELECT count(*) AS n FROM brain__revisions WHERE page_id = ? AND id BETWEEN ? AND ? AND author NOT IN ('extraction', 'consolidation')")
+      .get(pageId, run.firstRevisionId, after.id) as { n: number }).n > 0;
     out.push({
       pageId,
       name: page.name,
@@ -66,7 +71,7 @@ export async function runPages(db: ModuleDb, store: BrainStore, conversations: M
       ...(into ? { mergedInto: into } : {}),
       ...(from ? { mergedFrom: from } : {}),
       currentRevisionId: page.revisionId,
-      changedSince: page.revisionId !== after.id,
+      changedSince: page.revisionId !== after.id || interleaved,
     });
   }
   return out;

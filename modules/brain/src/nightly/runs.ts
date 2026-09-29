@@ -3,6 +3,7 @@
  * Jobs page history because the review needs each run's revision range, dropped lines and merges.
  */
 import type { ModuleDb } from "@friday/sdk";
+import { BrainStore } from "../store.js";
 
 export type RunOutcome = "ok" | "partial" | "failed";
 
@@ -101,13 +102,16 @@ const toRun = (r: RunRow): Run => ({
 });
 
 export class RunStore {
-  constructor(private readonly db: ModuleDb, private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly db: ModuleDb,
+    private readonly now: () => Date = () => new Date(),
+    /** The newest revision id in the brain (`BrainStore.lastRevisionId`). */
+    private readonly lastRevisionId: () => number = () => new BrainStore(db).lastRevisionId(),
+  ) {}
 
   /** The id the next revision will get (revision ids are AUTOINCREMENT, so never reused). */
   nextRevisionId(): number {
-    const seq = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'brain__revisions'").get() as { seq: number } | undefined;
-    const max = (this.db.prepare("SELECT max(id) AS m FROM brain__revisions").get() as { m: number | null }).m ?? 0;
-    return Math.max(seq?.seq ?? 0, max) + 1;
+    return this.lastRevisionId() + 1;
   }
   start(trigger: string): Run {
     const id = Number(this.db

@@ -112,26 +112,36 @@ export async function runExtract(deps: ExtractDeps, signal: AbortSignal): Promis
   retries.sort((a, b) => (a.c.quietAt ?? "").localeCompare(b.c.quietAt ?? ""));
   const queue: { id: string; quietAt?: string; listed: boolean }[] = retries.slice(0, max).map((r) => ({ id: r.c.id, listed: false }));
 
-  // 2. Conversations that went quiet since the watermark.
+  // 2. Conversations that went quiet since the watermark, in list order. The watermark is a cursor
+  // (quietAt plus the ids already handled at exactly that time): several conversations can go quiet in
+  // the same millisecond, and a bare timestamp with core's strict `>` would lose the ones after a cut.
   const room = max - queue.length;
+  let cursor = await readWatermark(deps.storage);
   if (room > 0) {
-    const watermark = (await deps.storage.get<string>(WATERMARK)) ?? EPOCH;
-    for (const s of await deps.conversations.list({ quietSince: watermark, limit: room })) {
-      const i = queue.findIndex((q) => q.id === s.id);
-      if (i >= 0) queue[i] = { ...queue[i]!, quietAt: s.quietAt!, listed: true };
-      else queue.push({ id: s.id, quietAt: s.quietAt!, listed: true });
-    }
+    const since = cursor ? new Date(Date.parse(cursor.quietAt) - 1).toISOString() : EPOCH;
+    const listed = await deps.conversations.list({ quietSince: since, limit: room + (cursor?.ids.length ?? 0) });
+    const fresh = listed.filter((s) => !(cursor && s.quietAt === cursor.quietAt && cursor.ids.includes(s.id)));
+    // A listed conversation that is also a retry keeps its list position, so the watermark never
+    // moves past a conversation that wasn't handled yet.
+    for (const s of fresh.slice(0, room)) queue.push({ id: s.id, quietAt: s.quietAt!, listed: true });
   }
 
   // 3. Handle each; a stop (model unavailable, cancelled) leaves the current conversation for next time.
+  const handled = new Set<string>();
   for (const q of queue) {
     if (signal.aborted) {
       out.stopped = "cancelled";
       break;
     }
-    const status = await handle(deps, q.id, signal, out);
-    if (status === "stop") break;
-    if (q.listed && q.quietAt) await deps.storage.set(WATERMARK, q.quietAt);
+    if (!handled.has(q.id)) {
+      const status = await handle(deps, q.id, signal, out);
+      if (status === "stop") break;
+      handled.add(q.id);
+    }
+    if (q.listed && q.quietAt) {
+      cursor = cursor && cursor.quietAt === q.quietAt ? { quietAt: q.quietAt, ids: [...cursor.ids, q.id] } : { quietAt: q.quietAt, ids: [q.id] };
+      await deps.storage.set(WATERMARK, cursor);
+    }
   }
 
   await prune(deps);
@@ -179,6 +189,18 @@ async function handle(deps: ExtractDeps, id: string, signal: AbortSignal, out: E
     }
     return "done";
   }
+}
+
+interface Watermark {
+  quietAt: string;
+  /** Conversations with exactly this quietAt that were already handled. */
+  ids: string[];
+}
+
+async function readWatermark(storage: ModuleStorage): Promise<Watermark | undefined> {
+  const w = await storage.get<Watermark | string>(WATERMARK);
+  if (typeof w === "string") return { quietAt: w, ids: [] };
+  return w && typeof w.quietAt === "string" && Array.isArray(w.ids) ? w : undefined;
 }
 
 async function markSeen(deps: ExtractDeps, id: string, seq: number): Promise<void> {
