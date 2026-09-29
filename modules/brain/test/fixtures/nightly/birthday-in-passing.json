@@ -1,0 +1,15 @@
+{
+  "description": "A birthday stated in passing while asking for something else.",
+  "kind": "extraction",
+  "pages": [{ "name": "Anouk", "type": "person", "aliases": ["Noukie"], "body": "My sister." }],
+  "conversation": {
+    "channel": "chat",
+    "entries": [
+      { "kind": "user", "input": "text", "text": "My sister Anouk's birthday is on the 3rd of November, remind me in October to buy her a gift." },
+      { "kind": "assistant", "text": "I can't set reminders that far ahead yet, but I'll keep it in mind.", "interrupted": false }
+    ]
+  },
+  "mustNote": [{ "entity": "Anouk", "contains": "November" }],
+  "mustNotNote": ["remind me"],
+  "fake": { "notes": [{ "entity": "Anouk", "fact": "Birthday is on 3 November.", "type": "person", "reason": "stated by the user" }] }
+}

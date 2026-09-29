@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Badge, Button, Card, DataTable, Drawer, Icon, Input, PageLayout, formatDateTime, type Column } from "@friday/portal-ui";
+import { Badge, Button, Card, DataTable, Drawer, Icon, Input, PageLayout, Tabs, formatDateTime, type Column } from "@friday/portal-ui";
 import { ApiError, PAGE_TYPES, api, hint, matches, parseAliases, type PageList, type PageSummary, type PageType } from "./lib/pages.js";
+import NightlyPanel from "./NightlyPanel.vue";
 
 const route = useRoute();
 const router = useRouter();
+/** `?tab=nightly` opens the nightly review. */
+const tab = ref(route.query.tab === "nightly" ? "nightly" : "pages");
+watch(tab, (t) => void router.replace({ query: { ...route.query, tab: t === "nightly" ? "nightly" : undefined } }));
 
 const data = ref<PageList | null>(null);
 const error = ref("");
@@ -121,6 +125,9 @@ async function purge() {
     <p v-if="error" class="text-f-error">{{ error }}</p>
     <p v-if="notice" class="text-f-success">{{ notice }}</p>
 
+    <Tabs v-model="tab" :items="[{ id: 'pages', label: 'Pages' }, { id: 'nightly', label: 'Nightly' }]" />
+    <NightlyPanel v-if="tab === 'nightly'" />
+    <template v-else>
     <Card v-if="data && profile">
       <button type="button" class="flex w-full flex-col gap-2 text-left" @click="open(profile.id)">
         <div class="flex flex-wrap items-center gap-2">
@@ -165,6 +172,7 @@ async function purge() {
         </ul>
       </template>
     </Card>
+    </template>
 
     <Drawer v-model:open="creating" title="New page" subtitle="A person, place or project Friday should know about">
       <form id="brain-new" class="flex flex-col gap-4" @submit.prevent="create">

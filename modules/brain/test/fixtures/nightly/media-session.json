@@ -1,0 +1,17 @@
+{
+  "description": "A tool-heavy media session: searching and playing, nothing lasting.",
+  "kind": "extraction",
+  "conversation": {
+    "channel": "voice",
+    "device": "living-room",
+    "entries": [
+      { "kind": "user", "input": "speech", "text": "Put on the next episode of Slow Horses please." },
+      { "kind": "tool", "name": "get_next_episode", "args": { "series": "Slow Horses" }, "result": { "episode": "S04E03", "title": "Negotiations" }, "truncated": false },
+      { "kind": "tool", "name": "play_on_apple_tv", "args": { "item_id": "abc123" }, "result": { "ok": true }, "truncated": false },
+      { "kind": "assistant", "text": "Playing Slow Horses, season four episode three.", "interrupted": false },
+      { "kind": "user", "input": "speech", "text": "Turn it up a bit." }
+    ]
+  },
+  "mustNotNote": ["S04E03", "Negotiations", "episode three"],
+  "fake": { "notes": [] }
+}

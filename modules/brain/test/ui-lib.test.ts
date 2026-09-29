@@ -18,6 +18,12 @@ test("a dangling [[link]] renders marked, offering to create the page", () => {
   assert.match(html, /<a href="#" class="brain-link brain-dangling" data-brain-new="Utrecht" title="No page yet: create it">Utrecht<\/a>/);
 });
 
+test("images don't load: a remote image renders as a link to click", () => {
+  const html = renderBody("![tracker](https://evil.example/p.png?who=you)", resolve);
+  assert.ok(!html.includes("<img"), html);
+  assert.match(html, /<a href="https:\/\/evil.example\/p.png\?who=you" target="_blank" rel="noopener noreferrer">tracker<\/a>/);
+});
+
 test("raw HTML and script-ish links render as text", () => {
   const html = renderBody('<img src=x onerror=alert(1)>\n\n[[<b>x</b>]] [click](javascript:alert(1)) [[a" onclick="x]]', resolve);
   assert.ok(!html.includes("<img"), html);

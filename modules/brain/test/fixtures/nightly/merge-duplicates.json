@@ -1,0 +1,18 @@
+{
+  "description": "Two pages about the same person: merge Noukie into Anouk.",
+  "kind": "consolidation",
+  "pages": [
+    { "name": "Anouk", "type": "person", "body": "My sister, lives in Utrecht." },
+    { "name": "Noukie", "type": "person", "body": "## Notes\n- 2026-09-29: Birthday is 3 November." },
+    { "name": "Family", "type": "other", "body": "- Sister: [[Noukie]]" }
+  ],
+  "mustKeep": ["Utrecht", "3 November"],
+  "fake": {
+    "plan": {
+      "actions": [
+        { "kind": "merge", "from": "{{id:Noukie}}", "into": "{{id:Anouk}}", "fromBase": "{{rev:Noukie}}", "intoBase": "{{rev:Anouk}}", "body": "My sister, lives in Utrecht. Birthday: 3 November.", "dropped": [] }
+      ],
+      "note": "Merged Noukie into Anouk."
+    }
+  }
+}

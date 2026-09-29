@@ -1,0 +1,17 @@
+{
+  "description": "The user corrects a fact the brain holds.",
+  "kind": "extraction",
+  "pages": [{ "name": "Anouk", "type": "person", "body": "My sister. Lives in Amsterdam." }],
+  "conversation": {
+    "channel": "voice",
+    "device": "living-room",
+    "entries": [
+      { "kind": "user", "input": "speech", "text": "How long does it take to drive to Anouk's place?" },
+      { "kind": "assistant", "text": "To Amsterdam it's about forty minutes.", "interrupted": false },
+      { "kind": "user", "input": "speech", "text": "No, she moved to Utrecht last month." },
+      { "kind": "assistant", "text": "Got it, Utrecht then. That's about thirty minutes.", "interrupted": false }
+    ]
+  },
+  "mustNote": [{ "entity": "Anouk", "contains": "Utrecht" }],
+  "fake": { "notes": [{ "entity": "Anouk", "fact": "Moved to Utrecht (no longer lives in Amsterdam).", "reason": "user corrected it" }] }
+}

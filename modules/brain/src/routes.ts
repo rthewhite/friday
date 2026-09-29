@@ -13,10 +13,10 @@ const STATUS: Record<BrainErrorCode, number> = {
   not_deleted: 409,
 };
 
-type Handler = (req: RouteRequest, res: RouteResponse, params: Record<string, string>) => void | Promise<void>;
+export type Handler = (req: RouteRequest, res: RouteResponse, params: Record<string, string>) => void | Promise<void>;
 
 /** Store errors become `{ error, code }` (plus `current` for `stale`, `names` for collisions). */
-const handle = (fn: Handler): Handler => async (req, res, params) => {
+export const handle = (fn: Handler): Handler => async (req, res, params) => {
   try {
     await fn(req, res, params);
   } catch (e) {
@@ -25,7 +25,7 @@ const handle = (fn: Handler): Handler => async (req, res, params) => {
   }
 };
 
-async function body<T extends object>(req: RouteRequest): Promise<Partial<T>> {
+export async function body<T extends object>(req: RouteRequest): Promise<Partial<T>> {
   let b: unknown;
   try {
     b = await req.json();
@@ -37,7 +37,7 @@ async function body<T extends object>(req: RouteRequest): Promise<Partial<T>> {
   return b as Partial<T>;
 }
 
-const revisionNumber = (v: unknown, what: string): number => {
+export const revisionNumber = (v: unknown, what: string): number => {
   const n = typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v;
   if (typeof n !== "number" || !Number.isInteger(n) || n <= 0) throw new BrainError("invalid", `${what} must be a revision number`);
   return n;

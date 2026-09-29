@@ -1,0 +1,16 @@
+{
+  "description": "Friday already remembered the fact in this conversation; extraction must not add it again.",
+  "kind": "extraction",
+  "pages": [{ "name": "Anouk", "type": "person", "body": "## Notes\n- 2026-09-29: Birthday is 3 November.\n- 2026-09-29: Lives in Utrecht." }],
+  "conversation": {
+    "channel": "chat",
+    "lastActivityAt": "2026-09-29T20:00:00.000Z",
+    "entries": [
+      { "kind": "user", "input": "text", "text": "Remember that Anouk's birthday is 3 November." },
+      { "kind": "tool", "name": "brain_remember", "args": { "entity": "Anouk", "fact": "Birthday is 3 November." }, "result": { "stored": true, "page": "Anouk", "created": false }, "truncated": false },
+      { "kind": "assistant", "text": "Noted.", "interrupted": false }
+    ]
+  },
+  "mustNote": [{ "entity": "Anouk", "contains": "3 November" }],
+  "fake": { "notes": [{ "entity": "Anouk", "fact": "Birthday is 3 November.", "reason": "stated" }] }
+}

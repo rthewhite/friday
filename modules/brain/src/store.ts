@@ -245,6 +245,38 @@ export class BrainStore {
     return row && toRevision(row);
   }
 
+  /** Names of purged pages, which only the user may bring back. */
+  tombstones(): { key: string; name: string }[] {
+    return (this.db.prepare("SELECT key, name FROM brain__tombstones ORDER BY name").all() as unknown as { key: string; name: string }[]).map((r) => ({ ...r }));
+  }
+
+  /** `[[link]]` targets on live pages that no live page answers to, deduplicated by name key. */
+  danglingTargets(): string[] {
+    const out = new Map<string, string>();
+    for (const p of this.list()) for (const l of this.links(p)) if (!l.pageId && !out.has(nameKey(l.target))) out.set(nameKey(l.target), l.target);
+    return [...out.values()];
+  }
+
+  /**
+   * Live pages with a revision newer than `revisionId` written by someone other than the `excluded`
+   * authors, mapped to the first such revision. Reverts of a nightly run don't count: consolidating
+   * the page again would redo what the user just undid.
+   */
+  changesSince(revisionId: number, excluded: Author[] = ["consolidation", "system"]): Map<string, number> {
+    const rows = this.db
+      .prepare(`SELECT r.page_id AS id, min(r.id) AS first FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id
+        WHERE r.id > ? AND p.deleted_at IS NULL AND r.author NOT IN (${excluded.map(() => "?").join(", ") || "''"})
+          AND (r.note IS NULL OR r.note NOT LIKE 'reverted nightly run %')
+        GROUP BY r.page_id`)
+      .all(revisionId, ...excluded) as { id: string; first: number }[];
+    return new Map(rows.map((r) => [r.id, r.first]));
+  }
+
+  /** Ids of the pages `changesSince` reports. */
+  changedSince(revisionId: number, excluded: Author[] = ["consolidation", "system"]): string[] {
+    return [...this.changesSince(revisionId, excluded).keys()];
+  }
+
   /** A page's `[[links]]`, resolved through live names and aliases. */
   links(page: Pick<Page, "body">): OutgoingLink[] {
     return parseLinks(page.body).map(({ target, line }) => {
@@ -281,23 +313,31 @@ export class BrainStore {
   }
 
   /** Makes a revision's content current again, as a new revision noting which one was restored. */
-  restore(id: string, revisionId: number, author: Author, base?: number): Page {
+  restore(id: string, revisionId: number, author: Author, base?: number, note = `restored revision ${revisionId}`): Page {
     return this.db.transaction(() => {
       const page = this.live(id);
       const rev = this.revision(id, revisionId);
       if (!rev) throw new BrainError("not_found", `revision ${revisionId} of this page does not exist`);
-      return this.writeRevision(page, author, rev, { base, note: `restored revision ${revisionId}`, keepOldName: false });
+      return this.writeRevision(page, author, rev, { base, note, keepOldName: false });
     });
   }
 
-  softDelete(id: string, author: Author): Page {
+  softDelete(id: string, author: Author, opts: { base?: number; note?: string } = {}): Page {
     return this.db.transaction(() => {
       const page = this.live(id);
       if (page.isProfile) throw new BrainError("profile", "the profile cannot be deleted");
+      if (opts.base !== undefined && opts.base !== page.revisionId) throw new BrainError("stale", "the page changed since it was opened", page);
       const at = this.now().toISOString();
       this.db.prepare("UPDATE brain__pages SET deleted_at = ? WHERE id = ?").run(at, id);
-      return this.writeRevision({ ...page, deletedAt: at }, author, page, { note: "deleted" });
+      return this.writeRevision({ ...page, deletedAt: at }, author, page, { note: opts.note ?? "deleted" });
     });
+  }
+
+  /** The id of the newest revision in the brain (0 when there is none). */
+  lastRevisionId(): number {
+    const seq = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'brain__revisions'").get() as { seq: number } | undefined;
+    const max = (this.db.prepare("SELECT max(id) AS m FROM brain__revisions").get() as { m: number | null }).m ?? 0;
+    return Math.max(seq?.seq ?? 0, max);
   }
 
   undelete(id: string, author: Author): Page {
@@ -348,7 +388,9 @@ export class BrainStore {
    * A fact that repeats the latest note, or a note of the same day, is skipped; anything else is a new
    * note, so a correction back to an older fact is kept as the newest one.
    */
-  appendNote(entity: string, fact: string, type: PageType | undefined, date: string): RememberResult {
+  appendNote(entity: string, fact: string, type: PageType | undefined, date: string, opts: { author?: "remember" | "extraction"; sources?: string[] } = {}): RememberResult {
+    const author = opts.author ?? "remember";
+    const sources = opts.sources ?? [];
     const clean = typeof fact === "string" ? fact.replace(/\s+/g, " ").trim() : "";
     if (!clean) return { stored: false, reason: "invalid", message: "the fact is empty" };
     if (clean.length > FACT_MAX) return { stored: false, reason: "invalid", message: `a fact may be at most ${FACT_MAX} characters; store one short fact per call` };
@@ -358,13 +400,13 @@ export class BrainStore {
       return this.db.transaction((): RememberResult => {
         const target = this.resolve(String(entity ?? ""));
         if (!target) {
-          const page = this.create({ name: String(entity ?? ""), type: type ?? "other", aliases: [], body: `## Notes\n${note}` }, "remember");
+          const page = this.create({ name: String(entity ?? ""), type: type ?? "other", aliases: [], body: `## Notes\n${note}` }, author, { sources });
           return { stored: true, page: page.name, created: true };
         }
         if (alreadyNoted(target.body, clean, date)) {
           return { stored: false, reason: "already_known", page: target.name, message: `${target.name} already has this fact` };
         }
-        this.writeRevision(target, "remember", { ...target, body: appendUnderNotes(target.body, note) }, { keepOldName: false });
+        this.writeRevision(target, author, { ...target, body: appendUnderNotes(target.body, note) }, { keepOldName: false, sources });
         return { stored: true, page: target.name, created: false };
       });
     } catch (e) {
