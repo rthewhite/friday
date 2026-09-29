@@ -4,7 +4,7 @@
 
 ### Requirement: Cron schedules follow the configured timezone
 
-Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE` (default `Europe/Amsterdam`), including daylight-saving transitions. An invalid zone SHALL be logged as an error at startup, and cron expressions SHALL then be evaluated in `Europe/Amsterdam`, the same default zone modules fall back to.
+Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE` (default `Europe/Amsterdam` when unset or blank), including daylight-saving transitions. An invalid zone SHALL be logged as an error at startup, and cron expressions SHALL then be evaluated in `Europe/Amsterdam`, the same default zone modules fall back to.
 
 #### Scenario: Nightly in local time
 - **WHEN** `FRIDAY_TIMEZONE` is `Europe/Amsterdam` and a job has `cron: "0 3 * * *"`

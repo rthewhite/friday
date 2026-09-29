@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTestHost } from "@friday/sdk/test";
-import { createBrainModule, localDate } from "../src/index.js";
+import { localDate } from "@friday/sdk";
+import { createBrainModule } from "../src/index.js";
 
 /** A host whose clock is 29 September 2026, 10:00 in Amsterdam. */
 async function host(env: Record<string, string> = {}) {
@@ -34,6 +35,20 @@ test("the note date is local to FRIDAY_TIMEZONE", async () => {
   setNow("2026-09-29T02:00:00Z");
   await remember({ entity: "Bram", fact: "Has a cat" });
   assert.equal(body("Bram"), "## Notes\n- 2026-09-28: Has a cat");
+});
+
+test("an invalid FRIDAY_TIMEZONE dates notes in Europe/Amsterdam and warns once", async () => {
+  // 23:30 UTC on 28 September is the 29th in Amsterdam: a UTC fallback would write the 28th.
+  const lines: string[] = [];
+  const push = (...a: unknown[]) => void lines.push(a.join(" "));
+  const h = await createTestHost(createBrainModule({ now: () => new Date("2026-09-28T23:30:00Z") }), { env: { FRIDAY_TIMEZONE: "Mars/Olympus" }, log: { log: push, warn: push, error: push } });
+
+  await h.call("brain_remember", { entity: "Bram", fact: "Has a cat" });
+  await h.call("brain_remember", { entity: "Bram", fact: "Plays chess" });
+
+  const row = h.db.prepare("SELECT body FROM brain__pages WHERE name = 'Bram'").get() as { body: string };
+  assert.equal(row.body, "## Notes\n- 2026-09-29: Has a cat\n- 2026-09-29: Plays chess");
+  assert.equal(lines.filter((l) => l.includes("Mars/Olympus")).length, 1);
 });
 
 test("an alias resolves to its page, and no page is created", async () => {

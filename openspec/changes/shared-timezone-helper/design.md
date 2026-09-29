@@ -22,7 +22,6 @@ Current copies of the household-zone logic (see proposal.md for why this matters
 **Non-Goals:**
 - Cron schedules following a portal-saved `FRIDAY_TIMEZONE` (separate change; see proposal).
 - Moving `travel`'s wall-clock-to-offset conversion (`zoneOffsetMinutes`) or `brain`'s transcript formatting into the SDK. Each has one user; they stay in their module and take an already-resolved zone.
-- Changing the `Scheduler` default when no `timezone` option is passed (UTC). Core always passes one; only tests rely on the default.
 
 ## Decisions
 
@@ -43,7 +42,9 @@ Alternative: add `ctx.timeZone()` to `ModuleContext`. Rejected: it widens the mo
 
 **`builtin`:** `zone = timezone || reader()`. An explicit invalid `timezone` from the model keeps today's behaviour (the `RangeError` "Invalid time zone specified: Mars/Olympus" becomes the tool's `{ error }`), which the spec now states. Silently answering in Amsterdam to "what time is it in Mars/Olympus" would be wrong in a way the model cannot notice.
 
-**Core:** `config.ts` keeps reading `process.env.FRIDAY_TIMEZONE` and uses `DEFAULT_TIME_ZONE` for unset. `Scheduler` validates with `resolveTimeZone` and, when invalid, logs `jobs: invalid timezone "<zone>" (FRIDAY_TIMEZONE); cron jobs are scheduled in Europe/Amsterdam` and uses the default. The existing invalid-zone test changes from UTC to Amsterdam.
+**Core:** `config.ts` passes `process.env.FRIDAY_TIMEZONE` through raw, and the `Scheduler` is the one place that resolves it with `resolveTimeZone`. So an unset, blank or invalid option all mean Amsterdam, and only an invalid one logs `jobs: invalid timezone "<zone>" (FRIDAY_TIMEZONE); cron jobs are scheduled in Europe/Amsterdam`. (First drafted with an unset option still meaning UTC; the code review pointed out that it then disagreed with a blank one, so there is now one rule.) The existing invalid-zone test changes from UTC to Amsterdam.
+
+**Fixes from code review:** the reader forgets its last warning once the zone is valid again, so a typo that comes back is reported again; `brain`'s extraction reads the zone once per conversation, so the date in the model's prompt is the date its notes get even if the zone changes during the call; `builtin` trims an explicit `timezone` and treats a blank one as not given.
 
 ## Risks / Trade-offs
 

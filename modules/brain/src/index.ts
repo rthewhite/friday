@@ -5,7 +5,7 @@
  * the user curates it at /m/brain. The `brain/nightly` job notes facts from finished conversations
  * and tidies the pages.
  */
-import { defineModule } from "@friday/sdk";
+import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, localDate } from "@friday/sdk";
 import { renderContext } from "./context.js";
 import { runConsolidate } from "./nightly/consolidate.js";
 import { runExtract } from "./nightly/extract.js";
@@ -15,14 +15,12 @@ import { RunStore } from "./nightly/runs.js";
 import { registerBrainRoutes } from "./routes.js";
 import { migrations } from "./schema.js";
 import { BrainStore } from "./store.js";
-import { DEFAULT_TIMEZONE, safeLocalDate } from "./time.js";
 import { defineBrainTools } from "./tools.js";
 
 export { BrainStore, BrainError, appendUnderNotes, validateFields } from "./store.js";
 export type { Page, PageFields, PageType, Author, Revision, RememberResult } from "./store.js";
 export { renderContext } from "./context.js";
 export { recall } from "./tools.js";
-export { localDate, DEFAULT_TIMEZONE } from "./time.js";
 
 export const DEFAULT_PROFILE_BUDGET = 800;
 export const DEFAULT_NIGHTLY_MAX_CONVERSATIONS = 30;
@@ -42,7 +40,7 @@ export function createBrainModule(opts: BrainOptions = {}) {
       ui: true,
       config: [
         { key: "BRAIN_PROFILE_TOKEN_BUDGET", description: `Soft token budget for the profile, estimated as characters / 4 (default ${DEFAULT_PROFILE_BUDGET})` },
-        { key: "FRIDAY_TIMEZONE", description: `IANA zone for the dates on notes (default ${DEFAULT_TIMEZONE})` },
+        { key: "FRIDAY_TIMEZONE", description: `IANA zone for the dates on notes (default ${DEFAULT_TIME_ZONE})` },
         { key: "BRAIN_NIGHTLY_CRON", description: `When the nightly maintenance runs, as a cron expression in FRIDAY_TIMEZONE (default ${DEFAULT_NIGHTLY_CRON}); "off" disables it. Read at load.` },
         { key: "BRAIN_NIGHTLY_MAX_CONVERSATIONS", description: `Conversations the nightly pass reads per run (default ${DEFAULT_NIGHTLY_MAX_CONVERSATIONS})` },
       ],
@@ -55,12 +53,13 @@ export function createBrainModule(opts: BrainOptions = {}) {
         const n = Math.floor(Number(ctx.config.get("BRAIN_PROFILE_TOKEN_BUDGET")));
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_PROFILE_BUDGET;
       };
-      const today = () => safeLocalDate(now(), ctx.config.get("FRIDAY_TIMEZONE"), (m) => ctx.log.warn(m));
+      const zone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
+      const today = () => localDate(now(), zone());
       const maxConversations = () => {
         const n = Math.floor(Number(ctx.config.get("BRAIN_NIGHTLY_MAX_CONVERSATIONS")));
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_NIGHTLY_MAX_CONVERSATIONS;
       };
-      const extractDeps = { store, conversations: ctx.conversations, llm: ctx.llm, storage: ctx.storage, log: ctx.log, maxConversations, zone: () => ctx.config.get("FRIDAY_TIMEZONE") };
+      const extractDeps = { store, conversations: ctx.conversations, llm: ctx.llm, storage: ctx.storage, log: ctx.log, maxConversations, zone };
       const steps: NightlySteps = {
         extract: (signal) => runExtract(extractDeps, signal),
         consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage: ctx.storage, log: ctx.log, budget }, signal),

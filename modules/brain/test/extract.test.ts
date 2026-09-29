@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { LlmError, type LlmRequest } from "@friday/sdk";
 import { createTestHost } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
+import { extractConversation } from "../src/nightly/extract.js";
 import { renderBrain } from "../src/nightly/render.js";
 import { BrainStore } from "../src/store.js";
 import { loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
@@ -112,6 +113,26 @@ test("a fact said in passing becomes a sourced extraction note dated with the co
   const rev = t.h.db.prepare("SELECT author, sources_json FROM brain__revisions ORDER BY id DESC LIMIT 1").get() as { author: string; sources_json: string };
   assert.deepEqual({ ...rev }, { author: "extraction", sources_json: JSON.stringify([id]) });
   assert.deepEqual([t.extractions[0]!.model, t.extractions[0]!.temperature, t.extractions[0]!.maxOutputTokens], ["standard", 0.2, 4096]);
+});
+
+test("the date shown to the model is the date the notes get, even if the zone changes during the model call", async () => {
+  const t = await host();
+  const c = { id: "c1", channel: "chat", startedAt: "2026-09-28T23:30:00Z", lastActivityAt: "2026-09-28T23:30:00Z", entries: [{ seq: 1, at: "2026-09-28T23:30:00Z", kind: "user", input: "text", text: "Bram got a cat today" }] };
+  // 23:30 UTC is the 29th in Amsterdam and still the 28th in New York.
+  const zones = ["Europe/Amsterdam", "America/New_York"];
+  let prompt = "";
+  const deps = {
+    store: new BrainStore(t.h.db),
+    llm: { generate: async (req: LlmRequest) => { prompt = req.prompt; return { text: "", json: { notes: [{ entity: "Bram", fact: "Has a cat" }] }, model: "fake", usage: { inputTokens: 0, outputTokens: 0 } }; } },
+    log: { log() {}, warn() {}, error() {} },
+    zone: () => zones.shift() ?? "UTC",
+  };
+
+  await extractConversation(deps as never, c as never, 0, new AbortController().signal);
+
+  assert.match(prompt, /Conversation on Tuesday 2026-09-29/);
+  assert.equal(t.body("Bram"), "## Notes\n- 2026-09-29: Has a cat");
+  assert.deepEqual(zones, ["America/New_York"], "the zone is read once per conversation");
 });
 
 test("a note for a forgotten name is refused and counted; existing text is untouched", async () => {

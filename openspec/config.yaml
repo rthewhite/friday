@@ -54,6 +54,10 @@ context: |
   synchronous provider ({ channel }) whose text core appends to the voice prompt at session open and the chat
   prompt per turn, in module load order, capped per module by FRIDAY_PROMPT_CONTEXT_MAX_CHARS
   (packages/sdk/src/prompt.ts, packages/core/src/prompt-context.ts). Remote hosts reject ctx.db and ctx.prompt.
+  Household zone: FRIDAY_TIMEZONE, default and invalid-value fallback Europe/Amsterdam everywhere, resolved by
+  @friday/sdk's time helper (packages/sdk/src/time.ts: DEFAULT_TIME_ZONE, resolveTimeZone, localDate,
+  householdTimeZone(ctx.config, warn) reading per call and warning once); core's scheduler reads it from the
+  environment at startup only. Never hard-code the zone in a module.
   Configuration values are plain (plaintext, visible in the
   portal) or secret (manifest config key `secret: true`; AES-256-GCM with FRIDAY_MASTER_KEY, write-only)
   (packages/core/src/secrets); ctx.config resolves module scope, then global,

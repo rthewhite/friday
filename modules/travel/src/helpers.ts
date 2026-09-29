@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ZONE } from "@friday/sdk";
 import type { ResolvedPlace } from "./types.js";
 
 /** Matches "52.379, 4.899" — a bare coordinate pair, with or without spaces. */
@@ -22,19 +23,6 @@ export function parseCoordinates(input: string): ResolvedPlace | null {
 export type TimeArgsResult =
   | { ok: true; departAt?: string; arriveAt?: string }
   | { ok: false; message: string };
-
-export const DEFAULT_TIME_ZONE = "Europe/Amsterdam";
-
-/** The zone to read offset-less times in: `zone` when it is a valid IANA zone, else the default. */
-export function resolveTimeZone(zone: string | undefined): { zone: string; valid: boolean } {
-  if (!zone) return { zone: DEFAULT_TIME_ZONE, valid: true };
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: zone });
-    return { zone, valid: true };
-  } catch {
-    return { zone: DEFAULT_TIME_ZONE, valid: false };
-  }
-}
 
 /**
  * Validates the departure/arrival arguments before anything is spent on a

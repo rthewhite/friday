@@ -2,11 +2,10 @@
  * What the nightly pass shows the model (design D3): the transcript with `[earlier]` / `[new]` entries and
  * no tool results, and the brain, bounded at 60000 characters with the most relevant pages in full.
  */
-import type { Conversation, ConversationEntry } from "@friday/sdk";
+import { localDate, type Conversation, type ConversationEntry } from "@friday/sdk";
 import { indexLine } from "../context.js";
 import { fold, significantWords } from "../search.js";
 import type { BrainStore, Page } from "../store.js";
-import { safeLocalDate } from "../time.js";
 
 /** Largest rendering of the brain sent to the model. */
 export const BRAIN_MAX = 60000;
@@ -20,9 +19,9 @@ export function userWords(entries: ConversationEntry[]): number {
   return entries.reduce((n, e) => (e.kind === "user" ? n + e.text.split(/\s+/).filter(Boolean).length : n), 0);
 }
 
-/** The day a conversation's notes are dated with: its last activity, in the household's zone. */
-export function conversationDate(c: Pick<Conversation, "lastActivityAt">, zone: string | undefined, warn: (m: string) => void = () => {}): string {
-  return safeLocalDate(new Date(c.lastActivityAt), zone, warn);
+/** The day a conversation's notes are dated with: its last activity, in the household's (resolved) zone. */
+export function conversationDate(c: Pick<Conversation, "lastActivityAt">, zone: string): string {
+  return localDate(new Date(c.lastActivityAt), zone);
 }
 
 function entryLine(e: ConversationEntry): string {
@@ -39,7 +38,7 @@ function entryLine(e: ConversationEntry): string {
 }
 
 /** The transcript: a header, then entries up to `seenSeq` as `[earlier]` and the rest as `[new]`. */
-export function renderTranscript(c: Conversation, seenSeq: number, zone: string | undefined): string {
+export function renderTranscript(c: Conversation, seenSeq: number, zone: string): string {
   const date = conversationDate(c, zone);
   const header = `Conversation on ${WEEKDAY.format(new Date(`${date}T12:00:00Z`))} ${date}, channel ${c.channel}${c.device ? `, device "${c.device}" (a device, not a person)` : ""}.`;
   const earlier = c.entries.filter((e) => e.seq <= seenSeq).map(entryLine);
