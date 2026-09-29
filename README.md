@@ -10,6 +10,7 @@ portal Chat page       ── /api/chat (SSE) ────►├── Gemini te
                                                ├─► modules/builtin   time, timers, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► modules/brain     long-term memory (pages, profile)
+                                               ├─► modules/travel    driving time with traffic (TomTom)
                                                ├─► MCP servers       configured in the portal (HTTP)
                                                └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
@@ -25,6 +26,7 @@ The repo is a pnpm workspace:
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
+| `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
 
 ## Run
@@ -311,6 +313,17 @@ Setup:
 3. Infuse 7.6.2 or later on the Apple TV. Playback uses `infuse://x-callback-url/play?url=<jellyfin stream url>`; the Apple TV must be able to reach `JELLYFIN_URL` (override with `JELLYFIN_PUBLIC_URL`).
 
 The stream URL embeds the Jellyfin API key, so keep this on your LAN.
+
+## Travel time (TomTom)
+
+`modules/travel` has one tool, `get_travel_time`, on voice and chat. "How long to drive to Schiphol?" or "when do I have to leave to be in Utrecht at nine?" It is car travel only.
+
+- `origin` and `destination` are place names, addresses, points of interest, or a `lat,lon` pair (coordinates skip the lookup). The answer names the places TomTom actually matched, so a wrong match shows up ("to Schiphol-Rijk, 12 min").
+- Without a time, it routes on live traffic. `departAt` or `arriveAt` (one, never both) routes on predicted traffic; `arriveAt` gives the latest departure that still makes it. A time without an offset is read in `FRIDAY_TIMEZONE`, and a `departAt` in the past is refused rather than quietly answered for now.
+- The result has `durationText` ("1 hour 12 min") for Friday to read out, plus seconds, distance, traffic delay, and departure and arrival times.
+- Place lookups are cached for 24 hours; routes never are.
+
+Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
 
 ## Voice Preview Edition (ESP32)
 

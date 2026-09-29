@@ -22,7 +22,7 @@
 
 ## 5. Documentation
 
-- [ ] 5.1 Add a "Travel time (TomTom)" section to `README.md` (the tool, what it answers, getting a TomTom key with Routing and Places Search entitlements, setting `TOMTOM_API_KEY`), a `TOMTOM_API_KEY` block in `.env.example`, `TOMTOM_API_KEY` in the `deploy/k8s.yaml` secrets comment, and the travel module in the `openspec/config.yaml` context; verify by reading the diff that each file mentions the module and key consistently
+- [x] 5.1 Add a "Travel time (TomTom)" section to `README.md` (the tool, what it answers, getting a TomTom key with Routing and Places Search entitlements, setting `TOMTOM_API_KEY`), a `TOMTOM_API_KEY` block in `.env.example`, `TOMTOM_API_KEY` in the `deploy/k8s.yaml` secrets comment, and the travel module in the `openspec/config.yaml` context; verify by reading the diff that each file mentions the module and key consistently
 
 ## 6. Integration
 

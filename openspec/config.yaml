@@ -23,7 +23,10 @@ context: |
   e.g. simracing on the gaming PC) run the same module via runRemote from @friday/sdk/remote: they dial
   /ws/modules, authenticate with FRIDAY_MODULE_KEYS, serve MCP over the socket; core registers their tools
   as <id>__<tool> with owner remote:<id> for the life of the connection (packages/core/src/remote/).
-  Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse).
+  Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse), TomTom
+  (modules/travel, id travel: get_travel_time, car travel time with traffic via Orbis Places Search v1 and
+  Routing v2; TOMTOM_API_KEY required secret, sent as a query parameter so URLs are never logged; geocodes
+  cached 24h in memory, routes never; offset-less departAt/arriveAt read in FRIDAY_TIMEZONE).
   Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
   tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
   extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall
