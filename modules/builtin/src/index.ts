@@ -19,8 +19,9 @@ export default defineModule({
         properties: { timezone: { type: Type.STRING, description: "IANA zone, e.g. Europe/Amsterdam" } },
       },
       handler: ({ timezone }) => {
-        // An explicit zone the model got wrong fails (naming it) rather than quietly answering elsewhere.
-        const zone = timezone || householdZone();
+        // An explicit zone the model got wrong fails (naming it) rather than quietly answering elsewhere;
+        // a blank one counts as not given.
+        const zone = timezone?.trim() || householdZone();
         const now = new Date();
         return {
           iso: now.toISOString(),

@@ -4,7 +4,7 @@
 
 ### Requirement: get_current_time
 
-The tool SHALL return the current time as `iso` (UTC ISO 8601), `human` (a spoken-friendly full date and time in the requested zone) and `timezone`. The `timezone` parameter is an optional IANA zone; when omitted, the zone from `FRIDAY_TIMEZONE` SHALL be used, or `Europe/Amsterdam` when that is unset or invalid (an invalid configured zone is logged once as a warning). An explicit `timezone` that is not a valid IANA zone SHALL return an error naming it, rather than silently answering in another zone.
+The tool SHALL return the current time as `iso` (UTC ISO 8601), `human` (a spoken-friendly full date and time in the requested zone) and `timezone`. The `timezone` parameter is an optional IANA zone; when omitted, the zone from `FRIDAY_TIMEZONE` SHALL be used, or `Europe/Amsterdam` when that is unset or invalid (an invalid configured zone is logged once as a warning). An explicit `timezone` SHALL be trimmed, and a blank one SHALL count as omitted. An explicit `timezone` that is not a valid IANA zone SHALL return an error naming it, rather than silently answering in another zone.
 
 #### Scenario: Default zone
 - **WHEN** called without a timezone

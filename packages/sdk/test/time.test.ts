@@ -55,6 +55,17 @@ test("the reader picks up a zone changed between calls, and warns again for a ne
   assert.match(warnings[1], /Venus\/Maxwell/);
 });
 
+test("the same invalid value is reported again after the zone was fixed in between", () => {
+  const env: Record<string, string | undefined> = { FRIDAY_TIMEZONE: "Europe/Amsterdm" };
+  const { zone, warnings } = reader(env);
+  zone();
+  env.FRIDAY_TIMEZONE = "Europe/Amsterdam";
+  zone();
+  env.FRIDAY_TIMEZONE = "Europe/Amsterdm";
+  zone();
+  assert.equal(warnings.length, 2);
+});
+
 test("localDate is the calendar date in the zone, not in UTC", () => {
   assert.equal(localDate(new Date("2026-09-28T23:30:00Z"), "Europe/Amsterdam"), "2026-09-29");
   assert.equal(localDate(new Date("2026-09-28T23:30:00Z"), "UTC"), "2026-09-28");

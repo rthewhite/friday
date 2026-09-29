@@ -136,6 +136,19 @@ test("an invalid timezone logs an error and cron jobs run in Europe/Amsterdam, l
   await s.stop();
 });
 
+test("an unset or blank timezone means Europe/Amsterdam, without an error", async () => {
+  for (const timezone of [undefined, "", "  "]) {
+    const db = new DatabaseSync(":memory:");
+    migrate(db, migrations, quiet);
+    const { lines, log } = logger();
+    const s = new Scheduler({ store: new JobStore(db, 50), clock: new FakeClock(Date.parse("2026-09-28T12:00:00Z")), log, timezone });
+    s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+    assert.deepEqual(s.list()[0].schedule, { cron: "0 3 * * *", timezone: "Europe/Amsterdam" }, `timezone ${JSON.stringify(timezone)}`);
+    assert.ok(!lines.some((l) => l.startsWith("error")));
+    await s.stop();
+  }
+});
+
 test("very long waits are capped at 2^31-1 ms and re-armed", async () => {
   const { clock, s } = setup("2026-01-01T00:00:00Z", { timezone: "UTC" });
   let runs = 0;
@@ -356,5 +369,6 @@ test("settings defaults for jobs", async () => {
   const { settings } = await import("../src/config.js");
   assert.equal(settings.jobHistory, 50);
   assert.equal(settings.jobCatchupDelayMs, 30_000);
-  assert.equal(settings.timezone, "Europe/Amsterdam");
+  // Raw on purpose: the scheduler resolves unset to Europe/Amsterdam (tested above), and logs invalid values.
+  assert.equal(settings.timezone, undefined);
 });

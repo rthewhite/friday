@@ -69,9 +69,12 @@ interface Retry {
 export async function extractConversation(deps: ExtractDeps, c: Conversation, seenSeq: number, signal: AbortSignal): Promise<{ notes: number; refused: number }> {
   const fresh = c.entries.filter((e) => e.seq > seenSeq);
   const userText = fresh.filter((e) => e.kind === "user").map((e) => (e as { text: string }).text).join("\n");
+  // Once per conversation: the date the model is shown must be the date its notes get, even if
+  // FRIDAY_TIMEZONE changes during the (up to two minute) model call.
+  const zone = deps.zone();
   const r = await deps.llm.generate<{ notes: ExtractedNote[] }>({
     system: extractionSystem(renderBrain(deps.store, userText)),
-    prompt: `${renderTranscript(c, seenSeq, deps.zone())}\n\nList the notes (usually none).`,
+    prompt: `${renderTranscript(c, seenSeq, zone)}\n\nList the notes (usually none).`,
     schema: NOTES_SCHEMA,
     model: "standard",
     temperature: 0.2,
@@ -79,7 +82,7 @@ export async function extractConversation(deps: ExtractDeps, c: Conversation, se
     timeoutMs: 120_000,
     signal,
   });
-  const date = conversationDate(c, deps.zone());
+  const date = conversationDate(c, zone);
   let notes = 0;
   let refused = 0;
   for (const n of (r.json?.notes ?? []).slice(0, MAX_NOTES)) {

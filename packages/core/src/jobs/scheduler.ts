@@ -23,7 +23,7 @@ export const systemClock: Clock = {
 
 export interface SchedulerOptions {
   store: JobStore;
-  /** IANA zone for cron expressions (FRIDAY_TIMEZONE). Invalid zones log an error and fall back to Europe/Amsterdam, as modules do. Unset means UTC (only tests leave it out). */
+  /** IANA zone for cron expressions (FRIDAY_TIMEZONE, raw). Unset or blank means Europe/Amsterdam; invalid logs an error and falls back to it, as modules do. */
   timezone?: string;
   /** Wait this long after registration before a catch-up run (FRIDAY_JOB_CATCHUP_DELAY_MS). */
   catchupDelayMs?: number;
@@ -94,9 +94,8 @@ export class Scheduler {
     this.log = opts.log ?? console;
     this.catchupDelayMs = opts.catchupDelayMs ?? 30_000;
     this.graceMs = opts.graceMs ?? 10_000;
-    const requested = opts.timezone ?? "UTC";
-    const { zone, valid } = resolveTimeZone(requested);
-    if (!valid) this.log.error(`jobs: invalid timezone "${requested}" (FRIDAY_TIMEZONE); cron jobs are scheduled in ${DEFAULT_TIME_ZONE}`);
+    const { zone, valid } = resolveTimeZone(opts.timezone);
+    if (!valid) this.log.error(`jobs: invalid timezone "${opts.timezone}" (FRIDAY_TIMEZONE); cron jobs are scheduled in ${DEFAULT_TIME_ZONE}`);
     this.timezone = zone;
   }
 

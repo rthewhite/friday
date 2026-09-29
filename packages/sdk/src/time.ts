@@ -36,7 +36,10 @@ export function householdTimeZone(config: Pick<ModuleConfig, "get">, warn: (msg:
   return () => {
     const configured = config.get("FRIDAY_TIMEZONE");
     const { zone, valid } = resolveTimeZone(configured);
-    if (!valid && warned !== configured) {
+    if (valid) {
+      // Forget the last warning, so the same typo coming back later is reported again.
+      warned = undefined;
+    } else if (warned !== configured) {
       warned = configured;
       warn(`FRIDAY_TIMEZONE ${JSON.stringify(configured)} is not a valid zone; using ${zone}`);
     }

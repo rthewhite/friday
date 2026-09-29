@@ -217,6 +217,24 @@ Remote modules have no database. `runRemote` logs and ignores declared migration
 - A module's combined output is cut to `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` (default 12000) characters, ending in `…`, with a warning. A provider that throws or returns nothing is skipped; a throw is logged with the module id.
 - Providers are removed when the module is disposed, reloaded or fails in `init`. Remote modules get `<id>: prompt context is not available in this host`.
 
+### Time zone
+
+The household's zone is `FRIDAY_TIMEZONE`. Don't read it with `ctx.config.get` and a default of your own; use the helper, so every module and core's cron fall back the same way:
+
+```ts
+import { householdTimeZone, localDate } from "@friday/sdk";
+
+init(ctx) {
+  const zone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
+  // in a handler:
+  const today = localDate(new Date(), zone());   // "2026-09-29"
+}
+```
+
+- `zone()` reads the value on every call, so a zone saved in the portal applies without a reload. Unset, blank or invalid means `DEFAULT_TIME_ZONE` (`Europe/Amsterdam`); an invalid value is warned about once, and again if it comes back after being fixed.
+- Declare `FRIDAY_TIMEZONE` in your manifest's `config` when the module depends on it, so the portal lists the module among the key's users.
+- `resolveTimeZone(name)` gives `{ zone, valid }` for a zone that doesn't come from config. It's pure `Intl`, so remote modules can use all of this too.
+
 ## Text generation
 
 `ctx.llm.generate` runs a one-shot text model call outside any voice session, for background work such as summaries, classification or extraction. Core owns the provider (Gemini), the key and the model; a module picks a tier, never a model name or credentials. Remote modules get a `ctx.llm` that always rejects with `unavailable`.

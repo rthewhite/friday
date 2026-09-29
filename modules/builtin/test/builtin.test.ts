@@ -43,6 +43,12 @@ test("get_current_time: an invalid configured zone answers in Europe/Amsterdam a
   assert.equal(lines.filter((l) => l.includes("Mars/Olympus")).length, 1);
 });
 
+test("get_current_time: an explicit zone is trimmed, and a blank one means the household zone", async () => {
+  const h = await createTestHost(builtin, { env: { FRIDAY_TIMEZONE: "Asia/Tokyo" } });
+  assert.equal((await h.call("get_current_time", { timezone: " America/New_York " })).result.timezone, "America/New_York");
+  assert.equal((await h.call("get_current_time", { timezone: "  " })).result.timezone, "Asia/Tokyo");
+});
+
 test("get_current_time: an invalid explicit zone is an error naming it", async () => {
   const h = await createTestHost(builtin);
   const r = await h.call("get_current_time", { timezone: "Mars/Olympus" });
