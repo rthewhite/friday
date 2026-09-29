@@ -49,5 +49,5 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
-- [ ] 4.2 Build the container image locally (`docker build .`) and run it with a throwaway module that declares a migration using FTS5. Verify the migration applies on `node:24-alpine` (authorizer available, FTS5 compiled in) and `/api/modules` reports the module `loaded`
+- [x] 4.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
+- [x] 4.2 Build the container image locally (`docker build .`) and run it with a throwaway module that declares a migration using FTS5. Verify the migration applies on `node:24-alpine` (authorizer available, FTS5 compiled in) and `/api/modules` reports the module `loaded`
