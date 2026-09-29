@@ -1,7 +1,6 @@
 /** HTTP routes under /api/modules/brain/ (design D7). The portal is the only place memories are deleted. */
 import type { ModuleContext, RouteRequest, RouteResponse } from "@friday/sdk";
 import { estimateTokens } from "./text.js";
-import { runImport, type JarvisExport } from "./import.js";
 import { BrainError, type BrainErrorCode, type BrainStore, type Page, type PageFields } from "./store.js";
 
 const STATUS: Record<BrainErrorCode, number> = {
@@ -12,7 +11,6 @@ const STATUS: Record<BrainErrorCode, number> = {
   stale: 409,
   tombstoned: 409,
   not_deleted: 409,
-  not_empty: 409,
 };
 
 export type Handler = (req: RouteRequest, res: RouteResponse, params: Record<string, string>) => void | Promise<void>;
@@ -106,16 +104,5 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
   route("POST", "pages/:id/purge", async (req, res, { id }) => {
     const b = await body<{ confirm: string }>(req);
     res.json({ unlinked: store.purge(id, b.confirm, "user") });
-  });
-
-  // One-off import of a Jarvis brain into an empty brain (scripts/import-jarvis.ts sends it).
-  route("POST", "import", async (req, res) => {
-    const b = await body<JarvisExport & { dryRun: boolean }>(req);
-    const { applied, report } = runImport(store, ctx.db, b, budget(), b.dryRun !== false);
-    if (!applied && b.dryRun === false) {
-      res.status(400).json({ error: `the import has ${report.problems.length} problem(s); nothing was imported`, code: "invalid", report });
-      return;
-    }
-    res.json({ applied, report });
   });
 }
