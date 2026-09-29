@@ -19,13 +19,20 @@
 
 ## Decisions
 
-**`stored` built from `ConfigStore.keys()` once per listing.** Group the rows by key, then attach them to each entry. For a plain row, include `value` from `ConfigStore.get`; for a secret row (by row flag or declared secret), never. Order: `global`, `core`, then by scope name. This is one extra `SELECT` per listing, the same query `keys()` already runs for undeclared globals. Alternative: query per entry and per requester. Rejected: more queries, and it would miss scopes of modules that no longer declare the key, which are exactly the leftovers worth clearing.
+**`stored` built from `ConfigStore.keys()` once per listing.** Group the rows by key, then attach them to each entry. For a plain row, include `value` from `ConfigStore.get`; for a secret row (by row flag or declared secret), never. Order: `global`, `core`, then by scope name. It reuses the single `keys()` scan the listing already runs for undeclared globals. Alternative: query per entry and per requester. Rejected: more queries, and it would miss scopes of modules that no longer declare the key, which are exactly the leftovers worth clearing.
 
 **Pure portal helpers in `src/lib/config-stored.ts`**, tested with `node:test` like `config-scope.ts`:
-- `extraScopes(entry)`: how many stored scopes besides `entry.scope`, for the `global +1` cell.
-- `overrides(entry)`: the stored module scopes (not `global`, not `core`) when `global` is also stored, for the "overrides global" marker and the save hint.
+- `scopeSummary(entry)`: the scope the table shows (the winning scope, else the first stored one) and the other stored scopes, for the `global +1` cell and its tooltip.
+- `ownCopies(entry)`: stored scopes of the key's requesters (`entry.modules`, which includes `core`), since each requester reads its own scope before global. They drive the "overrides global" marker (when a global copy exists) and the save hint (whether or not one exists yet).
+- `strayCopies(entry)`: stored scopes that do not request the key, marked "probably left over".
 
-**Drawer layout.** A "Stored values" list replaces the "stored for {scope}" line: each row shows the scope, the value for plain entries, the relative update time, an "overrides global for {module}" note where it applies, and a small `Clear` button that deletes that scope. The footer `Clear` goes away, because per-row clearing covers it. When `draft.scope === "global"` and `overrides(selected)` is non-empty, a hint under the scope selector names the modules that keep their own value.
+The first draft based overrides on the scope name alone (every non-global, non-core scope, and only when global was stored). Code review found three errors in that: no hint when saving global over a module-only copy (a spec scenario), leftovers labelled as overrides, and `core` copies not labelled at all. Using the requester list fixes all three.
+
+**Scope column.** The table had no Scope column even though the Configuration page requirement lists one; this change adds it, as the home of `global +1`.
+
+**Drawer layout.** A "Stored values" list replaces the "stored for {scope}" line: each row shows the scope and the value for plain entries on one line, and the marker and update time below, with a ghost `Clear` button that deletes that scope and keeps the drawer open on the refreshed entry. The footer `Clear` goes away, because per-row clearing covers it. When `draft.scope === "global"` and `ownCopies(selected)` is non-empty, a hint under the scope selector names the requesters that keep their own value.
+
+**Not in scope:** a key stored only for a scope that no loaded module requests, with no global copy, is not listed (there is no entry to attach it to), so it cannot be cleared from the portal. Such rows only come from removed modules; `DELETE /api/config/<scope>/<key>` still clears them.
 
 ## Risks / Trade-offs
 

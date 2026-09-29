@@ -139,14 +139,15 @@ export function configListing({ host, configStore, env = process.env }: Pick<App
       if (value !== undefined) e.value = value;
     }
   }
-  for (const { scope, key, secret, updatedAt } of configStore?.keys() ?? []) {
+  const rows = configStore?.keys() ?? [];
+  for (const { scope, key, secret, updatedAt } of rows) {
     if (scope !== GLOBAL_SCOPE || byKey.has(key)) continue;
     const e: ConfigEntry = { key, secret, required: false, modules: [], status: "set", scope: GLOBAL_SCOPE, updatedAt };
     if (!secret) { const v = configStore?.get(GLOBAL_SCOPE, key); if (v !== undefined) e.value = v; }
     byKey.set(key, e);
   }
   // Every stored copy, including scopes no loaded module declares (leftovers worth clearing).
-  for (const row of configStore?.keys() ?? []) {
+  for (const row of rows) {
     const e = byKey.get(row.key);
     if (!e) continue;
     const s: StoredScope = { scope: row.scope, updatedAt: row.updatedAt };

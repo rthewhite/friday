@@ -40,7 +40,7 @@
 
 ### Requirement: Configuration page
 
-The portal SHALL provide `Settings > Configuration` with pill tabs `Configuration`, `Secrets` and `MCP servers` showing counts. The `Configuration` and `Secrets` tabs SHALL each render one table with a row per key: status dot, key, description, requested-by chips, scope and updated; values SHALL NOT be shown in the table. The scope cell SHALL show the entry's scope and, when the key is stored in more scopes, how many more (`global +1`). Clicking a row SHALL open a drawer with the value field (text showing the current value for plain entries, masked for secrets), a scope selector (each requesting module or global), and `Save`, `Save and reload module` and `Clear` actions. The drawer SHALL list every scope the key is stored in, with its value for plain entries, its update time and a `Clear` action for that scope, and SHALL mark a module scope that overrides a global value for that module. When the selected scope is `global` and a module scope also holds the key, the drawer SHALL say that those modules keep their own value until it is cleared. The scope selector SHALL preselect the scope the value is stored in; for a key with no stored value, the only requester when exactly one declares it, and `global` otherwise, so a key several requesters share is saved for all of them by default. Saved secret values SHALL NOT be displayed afterwards. A header action SHALL open the same drawer to add an undeclared global value, stored as secret only from the Secrets tab. The active tab SHALL be reflected in the URL and `?key=` SHALL open the drawer for that key.
+The portal SHALL provide `Settings > Configuration` with pill tabs `Configuration`, `Secrets` and `MCP servers` showing counts. The `Configuration` and `Secrets` tabs SHALL each render one table with a row per key: status dot, key, description, requested-by chips, scope and updated; values SHALL NOT be shown in the table. The scope cell SHALL show the entry's scope (the first stored scope when no scope wins, for example for secrets that cannot be read) and, when the key is stored in more scopes, how many more (`global +1`). Clicking a row SHALL open a drawer with the value field (text showing the current value for plain entries, masked for secrets), a scope selector (each requesting module or global), and `Save`, `Save and reload module` and `Clear` actions. The drawer SHALL list every scope the key is stored in, with its value for plain entries, its update time and a `Clear` action for that scope; clearing one copy SHALL keep the drawer open on the refreshed entry. It SHALL mark a copy stored for a requester of the key (a module or `core`) as overriding the global value for that requester when a global copy exists, and a copy in a scope that does not request the key as probably left over. When the selected scope is `global` and a requester holds its own copy, whether or not a global copy exists yet, the drawer SHALL say that those requesters keep their own value until it is cleared. The scope selector SHALL preselect the scope the value is stored in; for a key with no stored value, the only requester when exactly one declares it, and `global` otherwise, so a key several requesters share is saved for all of them by default. Saved secret values SHALL NOT be displayed afterwards. A header action SHALL open the same drawer to add an undeclared global value, stored as secret only from the Secrets tab. The active tab SHALL be reflected in the URL and `?key=` SHALL open the drawer for that key.
 
 #### Scenario: Edit a plain value inline
 - **WHEN** the user opens the `JELLYFIN_URL` row, changes the value and saves
@@ -69,6 +69,14 @@ The portal SHALL provide `Settings > Configuration` with pill tabs `Configuratio
 #### Scenario: Override is visible and clearable
 - **WHEN** `FRIDAY_TIMEZONE` is stored globally and for `builtin`, and the user opens the row
 - **THEN** the table showed `global +1`, the drawer lists `global` and `builtin` with their values, marks `builtin` as overriding global for `builtin`, and clearing `builtin` removes only that scope
+
+#### Scenario: Core copy overrides global too
+- **WHEN** `FRIDAY_TIMEZONE` is stored globally and for `core`
+- **THEN** the drawer marks `core` as overriding global for `core`
+
+#### Scenario: Leftover copy
+- **WHEN** `HA_URL` is stored globally and for `gone`, which does not request it
+- **THEN** the drawer marks `gone` as probably left over, not as an override, and offers `Clear` for it
 
 #### Scenario: Saving globally over an override
 - **WHEN** `FRIDAY_TIMEZONE` is stored for `builtin` and the user selects scope `global`

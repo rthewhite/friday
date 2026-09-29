@@ -1,20 +1,30 @@
-/** What the configuration drawer needs to know about a key stored in more than one scope. */
+/** What the configuration page needs to know about a key stored in more than one scope. */
 export interface StoredEntry {
   scope?: string;
+  status?: string;
+  /** Requesters of the key: modules and `core`. Each reads its own scope first, then global. */
+  modules?: { id: string }[];
   stored?: { scope: string }[];
 }
 
-/** How many stored scopes besides the one the entry reports, for the table's `global +1`. */
-export function extraScopes(entry: StoredEntry): number {
-  return (entry.stored ?? []).filter((s) => s.scope !== entry.scope).length;
+/**
+ * The scope the table shows for a key, and the other stored scopes behind `+N`. Without a winning scope
+ * (for example secrets that cannot be read) the first stored scope stands in, so the cell is never a bare `+N`.
+ */
+export function scopeSummary(entry: StoredEntry): { scope: string; others: string[] } {
+  const stored = (entry.stored ?? []).map((s) => s.scope);
+  const scope = entry.scope ?? stored[0] ?? (entry.status === "env" ? "environment" : "");
+  return { scope, others: stored.filter((s) => s !== scope) };
 }
 
-/**
- * Module scopes that override a stored global value for their module. `core` is not a module:
- * it only affects core's own use of the key.
- */
-export function overrides(entry: StoredEntry): string[] {
-  const scopes = (entry.stored ?? []).map((s) => s.scope);
-  if (!scopes.includes("global")) return [];
-  return scopes.filter((s) => s !== "global" && s !== "core");
+/** Requesters with their own stored copy: each reads that copy instead of the global value. */
+export function ownCopies(entry: StoredEntry): string[] {
+  const requesters = new Set((entry.modules ?? []).map((m) => m.id));
+  return (entry.stored ?? []).map((s) => s.scope).filter((s) => s !== "global" && requesters.has(s));
+}
+
+/** Stored scopes that do not request the key, for example one left behind by a removed module. */
+export function strayCopies(entry: StoredEntry): string[] {
+  const requesters = new Set((entry.modules ?? []).map((m) => m.id));
+  return (entry.stored ?? []).map((s) => s.scope).filter((s) => s !== "global" && !requesters.has(s));
 }

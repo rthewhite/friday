@@ -1,33 +1,40 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extraScopes, overrides } from "../src/lib/config-stored.ts";
+import { ownCopies, scopeSummary, strayCopies } from "../src/lib/config-stored.ts";
 
 const at = (...scopes: string[]) => scopes.map((scope) => ({ scope }));
+const tz = { modules: at("core", "builtin", "brain", "travel").map(({ scope }) => ({ id: scope })) };
 
-test("a key stored once has no extra scopes and no overrides", () => {
-  const e = { scope: "global", stored: at("global") };
-  assert.equal(extraScopes(e), 0);
-  assert.deepEqual(overrides(e), []);
+test("a key stored once shows its scope with nothing behind +N", () => {
+  assert.deepEqual(scopeSummary({ ...tz, scope: "global", stored: at("global") }), { scope: "global", others: [] });
+  assert.deepEqual(ownCopies({ ...tz, scope: "global", stored: at("global") }), []);
 });
 
-test("an unstored key has neither", () => {
-  assert.equal(extraScopes({}), 0);
-  assert.deepEqual(overrides({}), []);
+test("an unstored key shows the environment or nothing", () => {
+  assert.deepEqual(scopeSummary({ status: "env" }), { scope: "environment", others: [] });
+  assert.deepEqual(scopeSummary({ status: "pending" }), { scope: "", others: [] });
 });
 
-test("global plus a module: one extra scope, and the module overrides global", () => {
-  const e = { scope: "global", stored: at("global", "builtin") };
-  assert.equal(extraScopes(e), 1);
-  assert.deepEqual(overrides(e), ["builtin"]);
+test("global plus a module: one other scope, and the module reads its own copy", () => {
+  const e = { ...tz, scope: "global", stored: at("global", "builtin") };
+  assert.deepEqual(scopeSummary(e), { scope: "global", others: ["builtin"] });
+  assert.deepEqual(ownCopies(e), ["builtin"]);
 });
 
-test("a module value without a global one overrides nothing", () => {
-  assert.deepEqual(overrides({ scope: "brain", stored: at("brain") }), []);
-  assert.deepEqual(overrides({ scope: "brain", stored: at("brain", "travel") }), []);
+test("a module-only copy is still an own copy, so saving global warns about it", () => {
+  assert.deepEqual(ownCopies({ ...tz, scope: "builtin", stored: at("builtin") }), ["builtin"]);
 });
 
-test("core next to global is not a module override", () => {
-  const e = { scope: "global", stored: at("global", "core", "travel") };
-  assert.equal(extraScopes(e), 2);
-  assert.deepEqual(overrides(e), ["travel"]);
+test("core is a requester too: its copy wins over global for core", () => {
+  assert.deepEqual(ownCopies({ ...tz, scope: "global", stored: at("global", "core", "travel") }), ["core", "travel"]);
+});
+
+test("a scope that does not request the key is a stray copy, not an override", () => {
+  const e = { ...tz, scope: "global", stored: at("global", "gone") };
+  assert.deepEqual(ownCopies(e), []);
+  assert.deepEqual(strayCopies(e), ["gone"]);
+});
+
+test("without a winning scope the first stored copy stands in, never a bare +N", () => {
+  assert.deepEqual(scopeSummary({ status: "pending", stored: at("global", "media") }), { scope: "global", others: ["media"] });
 });
