@@ -21,6 +21,7 @@ import { JobStore } from "./jobs/store.js";
 import { Scheduler } from "./jobs/scheduler.js";
 import { GeminiTextModel } from "./llm/gemini.js";
 import { LlmService } from "./llm/service.js";
+import { ChatEngine } from "./chat/engine.js";
 
 const db = openDatabase(settings.dataDir);
 const masterKey = parseMasterKey(settings.masterKey);
@@ -79,7 +80,16 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations }));
+const chat = new ChatEngine({
+  store: conversations,
+  registry,
+  llm,
+  model: settings.chatModel,
+  system: settings.chatPrompt,
+  toolTimeoutMs: settings.chatToolTimeoutMs,
+});
+
+const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations, chat }));
 attachAudioWs(server, { registry, conversations, geminiKey });
 remote.attach(server);
 

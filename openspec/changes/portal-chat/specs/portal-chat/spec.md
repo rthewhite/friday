@@ -8,7 +8,7 @@ Lets the user type to Friday in the portal as chat threads that can be resumed l
 
 ### Requirement: A chat turn runs against the chat model
 
-Each chat message SHALL be answered by one turn against a non-Live Gemini text model, using the model from `FRIDAY_CHAT_MODEL`, falling back to `FRIDAY_TEXT_MODEL`, and the Gemini API key resolved from core's configuration when the turn starts (as specified in `secret-management`). The turn SHALL send the chat system prompt (the shared base and the chat part), the thread's history, the new message, and the declarations of the tools available in the `chat` channel, read from the registry when the turn starts. The chat part of the prompt SHALL allow markdown and complete answers instead of short spoken ones.
+Each chat message SHALL be answered by one turn against a non-Live Gemini text model, using the model from `FRIDAY_CHAT_MODEL`, falling back to `FRIDAY_TEXT_MODEL`, and the Gemini API key resolved from core's configuration for each model call of the turn (as specified in `secret-management`). The turn SHALL send the chat system prompt (the shared base and the chat part), the thread's history, the new message, and the declarations of the tools available in the `chat` channel, read from the registry when the turn starts. The chat part of the prompt SHALL allow markdown and complete answers instead of short spoken ones.
 
 #### Scenario: Model fallback
 - **WHEN** `FRIDAY_CHAT_MODEL` is unset and `FRIDAY_TEXT_MODEL` is `gemini-flash-latest`
@@ -24,7 +24,7 @@ Each chat message SHALL be answered by one turn against a non-Live Gemini text m
 
 ### Requirement: The whole thread is replayed as history
 
-A turn on an existing thread SHALL send every stored entry of that conversation in order. User entries SHALL be sent as user turns and assistant entries as model turns, interrupted ones included with the text that was stored. Each tool entry SHALL be sent as the model's function call with its arguments, followed by the function's response. A result marked truncated SHALL be sent as `{ "truncated": true, "partial": <stored text> }`, and a tool entry without a result as `{ "error": "no result" }`. Thought summaries SHALL NOT be part of the history.
+A turn on an existing thread SHALL send every stored entry of that conversation in order. User entries SHALL be sent as user turns and assistant entries as model turns, interrupted ones included with the text that was stored. Each tool entry SHALL be sent as the model's function call with its arguments, followed by that function's response before the next call. A result marked truncated SHALL be sent as `{ "truncated": true, "partial": <stored text> }`, and a tool entry without a result as `{ "error": "no result" }`. Thought summaries SHALL NOT be part of the history.
 
 #### Scenario: Resume after days
 - **WHEN** a thread asked "is the living room light on?", recorded a tool entry with the answer `on`, and the user sends "turn it off" two days later
@@ -36,7 +36,7 @@ A turn on an existing thread SHALL send every stored entry of that conversation 
 
 ### Requirement: Tool calls run in a loop until the model answers
 
-When the model responds with function calls, the turn SHALL call each tool through the registry, restricted to the `chat` channel, send the results back, and ask the model again, until the model responds without function calls. Each tool call SHALL be bounded by `FRIDAY_CHAT_TOOL_TIMEOUT_MS` (default 30000). A call that exceeds it SHALL be answered with `{ "error": "timed out after <ms> ms" }`, and its late result SHALL be discarded. Scheduling hints and `endConversation` requests in results SHALL be ignored. A turn SHALL make at most 10 rounds of tool calls; the model's next function calls SHALL then end the turn with an error of kind `too_many_tool_calls`.
+When the model responds with function calls, the turn SHALL call each tool through the registry, restricted to the `chat` channel, send the results back, and ask the model again, until the model responds without function calls. Each tool call SHALL be bounded by `FRIDAY_CHAT_TOOL_TIMEOUT_MS` (default 30000). A call that exceeds it SHALL be answered with `{ "error": "timed out after <ms> ms" }`, and its late result SHALL be discarded. Scheduling hints and `endConversation` requests in results SHALL be ignored. A turn SHALL make at most 10 rounds of tool calls; the model's next function calls SHALL then not run, SHALL each be settled and recorded with an error result saying so, and SHALL end the turn with an error of kind `too_many_tool_calls`. A model call that ends without function calls for any reason other than a normal stop (such as the output limit or a malformed function call) SHALL end the turn with an error of kind `invalid_output`, and any text streamed in it SHALL be stored as interrupted.
 
 #### Scenario: Two tools, then an answer
 - **WHEN** the user asks "turn off the light and find Dune" and the model calls `ha_turn_off`, then `jellyfin_search`, then answers in text
@@ -68,12 +68,12 @@ Every turn SHALL be recorded in the conversation store with channel `chat` and n
 
 ### Requirement: Chat API streams the turn
 
-`POST /api/chat` SHALL accept a JSON body `{ "text": <string>, "conversationId"?: <string> }`. An empty or missing `text` SHALL respond 400. A `conversationId` that is unknown or not a `chat` conversation SHALL respond 404. A message for a conversation whose turn is still running SHALL respond 409. Otherwise the response SHALL be a `text/event-stream` in which each event has an event name and a JSON `data` line:
+`POST /api/chat` SHALL accept a JSON body `{ "text": <string>, "conversationId"?: <string> }`. A body over 100 kB SHALL respond 413. An empty or missing `text` SHALL respond 400. A `conversationId` that is unknown or not a `chat` conversation SHALL respond 404. A message for a conversation whose turn is still running SHALL respond 409. Otherwise the response SHALL be a `text/event-stream` in which each event has an event name and a JSON `data` line:
 - `start`: `{ conversationId }`, always the first event;
 - `thinking`: `{ text }`, a fragment of the model's thought summary;
 - `text`: `{ text }`, a fragment of the answer, in order;
-- `tool_call`: `{ name, args }`, as soon as the model requests a call;
-- `tool_result`: `{ name, result }`, when the call settles or times out;
+- `tool_call`: `{ id, name, args }`, as soon as the model requests a call, where `id` numbers the turn's calls from 1;
+- `tool_result`: `{ id, name, result }`, when the call settles or times out, carrying the `id` of its call (parallel calls settle in any order);
 - `done`: `{ conversationId }`, the last event of a successful turn;
 - `error`: `{ kind, message }`, the last event of a failed turn, with the kinds of `module-llm` plus `too_many_tool_calls`.
 The server SHALL send a comment line at least every 15 seconds while the turn is running, so that proxies keep the stream open.

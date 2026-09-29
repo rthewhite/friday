@@ -1,8 +1,8 @@
 /**
  * Transport-agnostic Gemini Live session.
  * Push 16 kHz mono s16le PCM in with sendAudio(); receive Events via onEvent.
- * Tool calls run in the background so audio keeps streaming. The tool list is
- * snapshotted from the registry when the session opens (Gemini binds it then).
+ * Tool calls run in the background so audio keeps streaming. The tools offered in
+ * the `voice` channel are snapshotted when the session opens (Gemini binds them then).
  */
 import {
   GoogleGenAI,
@@ -59,7 +59,7 @@ export class GeminiSession {
   async open(): Promise<void> {
     const connect: LiveConnect = this.opts.connect ?? ((p, apiKey) => new GoogleGenAI({ apiKey }).live.connect(p));
     const apiKey = (this.opts.geminiKey ?? (() => settings.apiKey))() ?? "";
-    const decls = this.registry.declarations() as FunctionDeclaration[];
+    const decls = this.registry.declarations("voice") as FunctionDeclaration[];
     this.session = await connect({
       model: settings.model,
       config: {
@@ -158,7 +158,7 @@ export class GeminiSession {
     const recorded = this.opts.recorder?.tool(name, args);
     this.toolsInFlight++;
     this.clearIdle();
-    const { result, scheduling, endConversation } = await this.registry.callTool(name, args);
+    const { result, scheduling, endConversation } = await this.registry.callTool(name, args, { channel: "voice" });
     this.toolsInFlight--;
     recorded?.result(result);
     this.onEvent({ kind: "tool_result", data: { name, result } });

@@ -86,3 +86,42 @@ test("handler receives an empty object when args are undefined", async () => {
   r.add("a", { name: "echo", description: "", handler: (args) => ({ args }) });
   assert.deepEqual((await r.callTool("echo", undefined)).result, { args: {} });
 });
+
+test("tools without channels are offered in both channels", () => {
+  const r = new ToolRegistry(quiet);
+  r.add("a", { name: "t", description: "", handler: () => ({}) });
+  assert.deepEqual(r.declarations("voice").map((d) => d.name), ["t"]);
+  assert.deepEqual(r.declarations("chat").map((d) => d.name), ["t"]);
+});
+
+test("declarations narrow to a channel; without one they list every tool", () => {
+  const r = new ToolRegistry(quiet);
+  r.add("builtin", { name: "set_timer", description: "", channels: ["voice"], handler: () => ({}) });
+  r.add("builtin", { name: "get_current_time", description: "", handler: () => ({}) });
+  r.add("x", { name: "chat_only", description: "", channels: ["chat"], handler: () => ({}) });
+  assert.deepEqual(r.declarations("chat").map((d) => d.name), ["get_current_time", "chat_only"]);
+  assert.deepEqual(r.declarations("voice").map((d) => d.name), ["set_timer", "get_current_time"]);
+  assert.deepEqual(r.declarations().map((d) => d.name), ["set_timer", "get_current_time", "chat_only"]);
+  assert.equal("channels" in r.declarations()[0], false);
+});
+
+test("add rejects empty or unknown channels", () => {
+  const r = new ToolRegistry(quiet);
+  assert.throws(() => r.add("a", { name: "e", description: "", channels: [], handler: () => ({}) }), /invalid channels for e/);
+  assert.throws(() => r.add("a", { name: "u", description: "", channels: ["email" as never], handler: () => ({}) }), /invalid channels for u/);
+  assert.equal(r.has("e") || r.has("u"), false);
+});
+
+test("callTool restricted to a channel treats out-of-channel tools as unknown", async () => {
+  const r = new ToolRegistry(quiet);
+  let ran = 0;
+  r.add("builtin", { name: "set_timer", description: "", channels: ["voice"], handler: () => (ran++, { done: true }) });
+  assert.deepEqual(await r.callTool("set_timer", { seconds: 60 }, { channel: "chat" }), {
+    result: { error: "unknown tool set_timer" },
+    scheduling: "INTERRUPT",
+  });
+  assert.equal(ran, 0);
+  assert.deepEqual((await r.callTool("set_timer", {}, { channel: "voice" })).result, { done: true });
+  assert.deepEqual((await r.callTool("set_timer", {})).result, { done: true });
+  assert.equal(ran, 2);
+});

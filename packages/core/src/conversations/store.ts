@@ -16,6 +16,7 @@ import type {
   ModuleConversations,
   QuietEvent,
 } from "@friday/sdk";
+import { CHANNELS } from "@friday/sdk";
 import { ConversationRecorder, type RecorderLog } from "./recorder.js";
 
 /** Tool arguments and results are cut at this many characters of JSON. */
@@ -38,6 +39,8 @@ export interface ConversationMeta {
 export interface ListOptions extends ListConversationsOptions {
   /** Opaque cursor from `cursorOf` (the last row of the previous page); recent-first listing only. */
   before?: string;
+  /** Only conversations of this channel. */
+  channel?: ConversationChannel;
 }
 
 export interface ConversationStoreOptions {
@@ -223,6 +226,11 @@ export class ConversationStore {
     return true;
   }
 
+  /** The channel of a stored conversation, or undefined when it is unknown. Does not read entries. */
+  channelOf(id: string): ConversationChannel | undefined {
+    return (this.db.prepare("SELECT channel FROM conversations WHERE id = ?").get(id) as { channel: ConversationChannel } | undefined)?.channel;
+  }
+
   get(id: string): Conversation | undefined {
     const row = this.db.prepare(`SELECT ${COLUMNS} FROM conversations WHERE id = ?`).get(id) as Row | undefined;
     if (!row) return undefined;
@@ -233,20 +241,25 @@ export class ConversationStore {
   /** Recent activity first (paged with `before`), or with `quietSince` the quiet ones after that time, oldest first. */
   list(opts: ListOptions = {}): ConversationSummary[] {
     const limit = Math.min(Math.max(Math.trunc(opts.limit ?? DEFAULT_LIST_LIMIT) || DEFAULT_LIST_LIMIT, 1), MAX_LIST_LIMIT);
-    let rows: Row[];
+    if (opts.channel !== undefined && !CHANNELS.includes(opts.channel)) throw new InvalidQuery(`invalid channel: ${String(opts.channel)}`);
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (opts.channel) {
+      where.push("channel = ?");
+      params.push(opts.channel);
+    }
+    let order = "last_activity_at DESC, id DESC";
     if (opts.quietSince !== undefined) {
-      rows = this.db
-        .prepare(`SELECT ${COLUMNS} FROM conversations WHERE quiet_at IS NOT NULL AND quiet_at > ? ORDER BY quiet_at ASC, id ASC LIMIT ?`)
-        .all(toIso(opts.quietSince, "quietSince"), limit) as unknown as Row[];
+      where.push("quiet_at IS NOT NULL AND quiet_at > ?");
+      params.push(toIso(opts.quietSince, "quietSince"));
+      order = "quiet_at ASC, id ASC";
     } else if (opts.before) {
       const c = decodeCursor(opts.before);
-      rows = this.db
-        .prepare(`SELECT ${COLUMNS} FROM conversations WHERE last_activity_at < ? OR (last_activity_at = ? AND id < ?) ORDER BY last_activity_at DESC, id DESC LIMIT ?`)
-        .all(c.at, c.at, c.id, limit) as unknown as Row[];
-    } else {
-      rows = this.db.prepare(`SELECT ${COLUMNS} FROM conversations ORDER BY last_activity_at DESC, id DESC LIMIT ?`).all(limit) as unknown as Row[];
+      where.push("(last_activity_at < ? OR (last_activity_at = ? AND id < ?))");
+      params.push(c.at, c.at, c.id);
     }
-    return rows.map(summary);
+    const sql = `SELECT ${COLUMNS} FROM conversations ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ${order} LIMIT ?`;
+    return (this.db.prepare(sql).all(...params, limit) as unknown as Row[]).map(summary);
   }
 
   /** `live` while a recorder still writes into it; entries go with the conversation (cascade). */

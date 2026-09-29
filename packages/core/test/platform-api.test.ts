@@ -108,6 +108,24 @@ test("conversations: paging over 120 rows with the before cursor", async () => {
   }
 });
 
+test("conversations: ?channel= filters, keeps the filter when paging, and rejects unknown channels", async () => {
+  const s = await start();
+  try {
+    for (let i = 0; i < 60; i++) s.conversations.create({ channel: i % 2 ? "chat" : "voice" });
+    const first = await (await s.j("/api/conversations?channel=chat&limit=20")).json();
+    assert.equal(first.conversations.length, 20);
+    const second = await (await s.j(`/api/conversations?channel=chat&limit=20&before=${encodeURIComponent(first.next)}`)).json();
+    assert.equal(second.conversations.length, 10);
+    assert.equal(second.next, null);
+    assert.ok([...first.conversations, ...second.conversations].every((c: any) => c.channel === "chat"));
+    const voice = await (await s.j("/api/conversations?channel=voice")).json();
+    assert.equal(voice.conversations.length, 30);
+    assert.equal((await s.j("/api/conversations?channel=email")).status, 400);
+  } finally {
+    await s.close();
+  }
+});
+
 test("conversations: DELETE answers 409 while the session records, then 204, then the conversation is gone", async () => {
   const s = await start();
   try {

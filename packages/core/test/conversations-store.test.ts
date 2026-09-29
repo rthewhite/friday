@@ -72,6 +72,26 @@ test("recent-first paging over 120 conversations with an opaque before cursor", 
   assert.throws(() => store.list({ before: "garbage" }), /invalid cursor/);
 });
 
+test("the channel filter lists one channel, keeps it across before paging and rejects unknown channels", () => {
+  const { store, clock } = setup();
+  const chats: string[] = [];
+  for (let i = 0; i < 30; i++) {
+    clock.advance(1000);
+    if (i % 3 === 0) chats.push(store.create({ channel: "chat" }));
+    else store.create({ channel: "voice" });
+  }
+  const first = store.list({ channel: "chat", limit: 6 });
+  assert.equal(first.length, 6);
+  const rest = store.list({ channel: "chat", before: cursorOf(first.at(-1)!) });
+  assert.equal(rest.length, 4);
+  const all = [...first, ...rest];
+  assert.ok(all.every((c) => c.channel === "chat"));
+  assert.deepEqual(new Set(all.map((c) => c.id)), new Set(chats));
+  assert.equal(store.list({ channel: "voice" }).length, 20);
+  assert.equal(store.list().length, 30);
+  assert.throws(() => store.list({ channel: "email" as never }), /invalid channel/);
+});
+
 test("quietSince lists quiet conversations oldest first, and a resumed thread moves its quiet_at forward", () => {
   const { store, clock } = setup();
   const a = store.create({ channel: "chat" });

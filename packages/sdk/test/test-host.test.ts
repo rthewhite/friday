@@ -108,3 +108,19 @@ test("without a fake, ctx.llm is unavailable", async () => {
   assert.deepEqual((await h.call("extract", { text: "t" })).result, { failed: "unavailable", raw: undefined });
   assert.deepEqual(h.llmRequests, []);
 });
+
+test("defineTool keeps a tool's channels, and the test host calls as a channel would", async () => {
+  const voiceOnly = defineModule({
+    manifest: { id: "v", label: "V" },
+    init(ctx) {
+      ctx.defineTool({ name: "beep", description: "", channels: ["voice"], handler: () => ({ ok: true }) });
+      ctx.defineTool({ name: "time", description: "", handler: () => ({ ok: true }) });
+    },
+  });
+  const h = await createTestHost(voiceOnly);
+  assert.deepEqual(h.registry.get("beep")?.channels, ["voice"]);
+  assert.deepEqual(h.toolsIn("chat"), ["time"]);
+  assert.deepEqual(h.toolsIn("voice"), ["beep", "time"]);
+  assert.deepEqual((await h.call("beep", {}, { channel: "chat" })).result, { error: "unknown tool beep" });
+  assert.deepEqual((await h.call("beep")).result, { ok: true });
+});

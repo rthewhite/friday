@@ -22,6 +22,39 @@ export function llmSettings(env: Record<string, string | undefined>) {
   };
 }
 
+/** Portal chat. A function of the environment so the defaults are testable. */
+export function chatSettings(env: Record<string, string | undefined>) {
+  const timeout = Number(env.FRIDAY_CHAT_TOOL_TIMEOUT_MS);
+  return {
+    /** Model chat turns run on; falls back to the text model. */
+    chatModel: env.FRIDAY_CHAT_MODEL || llmSettings(env).textModel,
+    /** A chat tool call that has not settled after this long is answered with a timeout error. */
+    chatToolTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 30000,
+  };
+}
+
+/** Friday's instructions: a base shared by every channel, plus one part per channel. */
+export const prompts = {
+  base: `You are Friday, a friendly personal assistant. Use tools whenever they can
+answer the question instead of guessing. Answer in the language the user speaks.`,
+  voice: `You are speaking with the user. Be concise and keep spoken answers short.
+
+Ending the conversation: the microphone stays open until you end the
+conversation, so decide deliberately when to end it.
+- After you have fully handled a request (e.g. turned on lights, started
+  playback, answered a question) and you have no follow-up question for the
+  user, give a brief confirmation and call end_conversation in the same turn.
+- If the user signals they are done ("goodbye", "thanks", "that's all",
+  "stop", "end conversation", or similar in any language), say a short
+  goodbye and call end_conversation.
+- Do NOT end the conversation while you still need information from the
+  user, while you are asking a clarifying question, or while a timer or
+  other pending tool is expected to report back.`,
+  chat: `The user is typing to you in a chat in Friday's portal. Be concise but
+complete: answer fully instead of keeping it short for speech. You may use
+Markdown (lists, tables, bold, links, code blocks) where it helps readability.`,
+} as const;
+
 export const settings = {
   apiKey: process.env.GEMINI_API_KEY ?? "",
   model: process.env.FRIDAY_MODEL ?? "gemini-3.8-live",
@@ -63,21 +96,12 @@ export const settings = {
   jobCatchupDelayMs: Number(process.env.FRIDAY_JOB_CATCHUP_DELAY_MS ?? 30000),
   /** textModel, textModelFast, llmConcurrency, llmTimeoutMs. */
   ...llmSettings(process.env),
-  systemPrompt: `You are Friday, a concise and friendly voice assistant.
-Keep spoken answers short. Use tools whenever they can answer the question
-instead of guessing. Answer in the language the user speaks.
-
-Ending the conversation: the microphone stays open until you end the
-conversation, so decide deliberately when to end it.
-- After you have fully handled a request (e.g. turned on lights, started
-  playback, answered a question) and you have no follow-up question for the
-  user, give a brief confirmation and call end_conversation in the same turn.
-- If the user signals they are done ("goodbye", "thanks", "that's all",
-  "stop", "end conversation", or similar in any language), say a short
-  goodbye and call end_conversation.
-- Do NOT end the conversation while you still need information from the
-  user, while you are asking a clarifying question, or while a timer or
-  other pending tool is expected to report back.`,
+  /** chatModel, chatToolTimeoutMs. */
+  ...chatSettings(process.env),
+  /** The Live session's instruction: the shared base plus the voice part. */
+  systemPrompt: `${prompts.base}\n\n${prompts.voice}`,
+  /** A chat turn's instruction: the shared base plus the chat part. */
+  chatPrompt: `${prompts.base}\n\n${prompts.chat}`,
   // Audio formats mandated by the Live API
   inputRate: 16000,
   outputRate: 24000,

@@ -1,10 +1,16 @@
-import { SCHEDULINGS, type FunctionDeclaration, type Scheduling, type Tool, type ToolResult } from "./tool.js";
+import type { ConversationChannel } from "./conversations.js";
+import { CHANNELS, SCHEDULINGS, type FunctionDeclaration, type Scheduling, type Tool, type ToolResult } from "./tool.js";
 
 export interface CallResult {
   result: ToolResult;
   scheduling: Scheduling;
   /** Set when the handler asked to end the conversation (reserved `endConversation` key). */
   endConversation?: string;
+}
+
+export interface CallOptions {
+  /** Treat tools not offered in this channel as unknown. */
+  channel?: ConversationChannel;
 }
 
 export interface ToolEntry {
@@ -15,8 +21,8 @@ export interface ToolEntry {
 
 /**
  * Owner-tagged tool registry. Core creates one instance; modules reach it through
- * `ctx.defineTool`, MCP servers register as `mcp:<server>`. Sessions snapshot
- * `declarations()` when they open.
+ * `ctx.defineTool`, MCP servers register as `mcp:<server>`. Voice sessions snapshot
+ * `declarations("voice")` when they open; chat turns read `declarations("chat")`.
  */
 export class ToolRegistry {
   private readonly tools = new Map<string, { tool: Tool; owner: string }>();
@@ -26,6 +32,10 @@ export class ToolRegistry {
 
   add<A>(owner: string, tool: Tool<A>): Tool<A> {
     if (this.tools.has(tool.name)) throw new Error(`duplicate tool ${tool.name}`);
+    const ch = tool.channels;
+    if (ch !== undefined && (!Array.isArray(ch) || !ch.length || ch.some((c) => !CHANNELS.includes(c)))) {
+      throw new Error(`invalid channels for ${tool.name}`);
+    }
     this.tools.set(tool.name, { tool, owner });
     this.emit();
     return tool;
@@ -52,9 +62,9 @@ export class ToolRegistry {
     return this.tools.get(name)?.tool;
   }
 
-  /** Snapshot of what the model should see. */
-  declarations(): FunctionDeclaration[] {
-    return [...this.tools.values()].map(({ tool: { name, description, parameters, parametersJsonSchema } }) =>
+  /** Snapshot of what the model should see, narrowed to the tools offered in `channel` when given. */
+  declarations(channel?: ConversationChannel): FunctionDeclaration[] {
+    return [...this.tools.values()].filter(({ tool }) => offeredIn(tool, channel)).map(({ tool: { name, description, parameters, parametersJsonSchema } }) =>
       parametersJsonSchema ? { name, description, parametersJsonSchema } : { name, description, parameters },
     );
   }
@@ -67,9 +77,9 @@ export class ToolRegistry {
     return [...this.tools.values()].filter((e) => !owner || e.owner === owner).map((e) => e.tool.name);
   }
 
-  async callTool(name: string, args: Record<string, unknown> | undefined): Promise<CallResult> {
+  async callTool(name: string, args: Record<string, unknown> | undefined, opts: CallOptions = {}): Promise<CallResult> {
     const e = this.tools.get(name);
-    if (!e) return { result: { error: `unknown tool ${name}` }, scheduling: "INTERRUPT" };
+    if (!e || !offeredIn(e.tool, opts.channel)) return { result: { error: `unknown tool ${name}` }, scheduling: "INTERRUPT" };
     try {
       const { scheduling, endConversation, ...result } = await e.tool.handler(args ?? {});
       const out: CallResult = { result, scheduling: pickScheduling(scheduling) ?? e.tool.scheduling ?? "INTERRUPT" };
@@ -89,6 +99,10 @@ export class ToolRegistry {
   private emit(): void {
     for (const l of this.listeners) l();
   }
+}
+
+function offeredIn(tool: Tool, channel?: ConversationChannel): boolean {
+  return !channel || !tool.channels || tool.channels.includes(channel);
 }
 
 function pickScheduling(v: unknown): Scheduling | undefined {

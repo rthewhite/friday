@@ -2,7 +2,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
-import type { ToolRegistry } from "@friday/sdk";
+import type { ConversationChannel, ToolRegistry } from "@friday/sdk";
 import type { ModuleEntry, ModuleHost } from "./module-host.js";
 import { mcpOwner, type McpSource } from "./tools/mcp.js";
 import { McpInputError, McpServerExists, McpStoreDisabled, parseServerInput, type McpServerStore, type StoredServer } from "./tools/mcp-store.js";
@@ -15,6 +15,8 @@ import type { Scheduler } from "./jobs/scheduler.js";
 import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore } from "./conversations/store.js";
 import type { Env } from "@friday/sdk";
 import { CORE_ID, coreManifest } from "./core-config.js";
+import type { ChatEngine } from "./chat/engine.js";
+import { chatRoute } from "./chat/route.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -46,6 +48,10 @@ export interface AppDeps {
   env?: Env;
   jobs?: Scheduler;
   conversations?: ConversationStore;
+  /** Portal chat; without it `POST /api/chat` answers 503. */
+  chat?: ChatEngine;
+  /** Interval of the chat stream's keep-alive comments (tests shorten it). */
+  chatHeartbeatMs?: number;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -225,12 +231,14 @@ export function createApp(deps: AppDeps) {
       await deps.mcp.apply(name);
       sendJson(res, mcpServerEntry(deps, deps.mcpStore.get(name)!));
     })
+    .add("POST", "/api/chat", chatRoute(deps.chat, { heartbeatMs: deps.chatHeartbeatMs }))
     .add("GET", "/api/conversations", (_req, res, _params, url) => {
       if (!deps.conversations) return sendJson(res, { conversations: [], next: null });
       const limit = Math.min(Math.max(Math.trunc(Number(url.searchParams.get("limit") ?? DEFAULT_LIST_LIMIT)) || DEFAULT_LIST_LIMIT, 1), 200);
       try {
         // One extra row tells whether there is a next page.
-        const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined });
+        const channel = url.searchParams.get("channel") || undefined;
+        const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined, channel: channel as ConversationChannel | undefined });
         const page = rows.slice(0, limit);
         sendJson(res, { conversations: page, next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
       } catch (e) {

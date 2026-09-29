@@ -43,6 +43,20 @@ test("a session snapshots the registry at open; later tools reach only the next 
   assert.deepEqual(toolNames(live.params[1]), ["first", "second"]);
 });
 
+test("a session declares and calls only tools offered in voice", async () => {
+  const r = new ToolRegistry(quiet);
+  r.add("a", { name: "both", description: "", handler: () => ({}) });
+  r.add("a", { name: "spoken", description: "", channels: ["voice"], handler: () => ({}) });
+  r.add("a", { name: "typed", description: "", channels: ["chat"], handler: () => ({ ran: true }) });
+  const live = fakeLive();
+  const s = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet });
+  await s.open();
+  assert.deepEqual(toolNames(live.params[0]), ["both", "spoken"]);
+  s.handle({ toolCall: { functionCalls: [{ id: "1", name: "typed", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 1);
+  assert.deepEqual(live.responses[0], { functionResponses: [{ id: "1", name: "typed", response: { error: "unknown tool typed", scheduling: "INTERRUPT" } }] });
+});
+
 test("a tool result with endConversation closes after the turn and suppresses interrupted", async () => {
   const r = new ToolRegistry(quiet);
   r.add("x", { name: "bye", description: "", scheduling: "SILENT", handler: ({ reason }: { reason?: string }) => ({ ending: true, endConversation: reason ?? "done" }) });

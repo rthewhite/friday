@@ -99,6 +99,10 @@ test("include, exclude, prefix and scheduling shape the registered tools", async
     assert.equal(registry.get("ha__turn_on")!.scheduling, "SILENT");
     assert.equal(registry.get("a__turn_on")!.scheduling, undefined);
     assert.equal(registry.get("a__turn_on")!.description, "turn_on tool");
+    // MCP tools carry no channels, so both voice and chat are offered them.
+    assert.equal(registry.get("a__turn_on")!.channels, undefined);
+    assert.deepEqual(registry.declarations("chat").map((d) => d.name), registry.declarations("voice").map((d) => d.name));
+    assert.equal(registry.declarations("chat").length, 3);
   } finally {
     await src.close();
     await f.close();

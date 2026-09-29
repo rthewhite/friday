@@ -111,6 +111,10 @@ test("registration, call forwarding, scheduling metadata, timeout and list_chang
       { name: "sim__get_position", owner: "remote:sim", description: "d" },
       { name: "sim__slow", owner: "remote:sim", description: "d" },
     ]);
+    // Remote tools carry no channels, so both voice and chat are offered them.
+    assert.equal(c.registry.get("sim__slow")!.channels, undefined);
+    assert.deepEqual(c.registry.declarations("chat").map((d) => d.name), ["sim__get_position", "sim__slow"]);
+    assert.deepEqual(c.registry.declarations("voice").map((d) => d.name), ["sim__get_position", "sim__slow"]);
     assert.deepEqual(await c.registry.callTool("sim__get_position", { car: 7 }), { result: { pos: 3, car: 7 }, scheduling: "WHEN_IDLE" });
     assert.deepEqual(await c.registry.callTool("sim__slow", {}), { result: { error: "timeout" }, scheduling: "INTERRUPT" });
 

@@ -7,7 +7,8 @@ import { RouteTable, type HttpMethod, type RouteRequest, type RouteResponse } fr
 import { validateJob, type JobOutcome, type JobSpec, type JobTrigger } from "./jobs.js";
 import { checkRequest, LlmError, parseOutput, type LlmRequest, type ModuleLlm } from "./llm.js";
 import type { FridayModule, ModuleLogger } from "./module.js";
-import { ToolRegistry, type CallResult } from "./registry.js";
+import { ToolRegistry, type CallOptions, type CallResult } from "./registry.js";
+import type { ConversationChannel } from "./conversations.js";
 import { MemoryStorage } from "./storage.js";
 import { MemoryConversations } from "./conversations.js";
 
@@ -48,7 +49,10 @@ export interface TestJobRun {
 
 export interface TestHost {
   tools: string[];
-  call(name: string, args?: Record<string, unknown>): Promise<CallResult>;
+  /** Call a tool; pass `{ channel }` to call it as that channel would (out-of-channel tools are unknown). */
+  call(name: string, args?: Record<string, unknown>, opts?: CallOptions): Promise<CallResult>;
+  /** Names of the tools offered in a channel. */
+  toolsIn(channel: ConversationChannel): string[];
   registry: ToolRegistry;
   /** In-memory storage the module saw as `ctx.storage`. */
   storage: MemoryStorage;
@@ -112,7 +116,8 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm }));
   return {
     tools: registry.names(module.manifest.id),
-    call: (name, args) => registry.callTool(name, args),
+    call: (name, args, opts) => registry.callTool(name, args, opts),
+    toolsIn: (channel) => registry.declarations(channel).map((d) => d.name),
     registry,
     storage,
     llmRequests,
