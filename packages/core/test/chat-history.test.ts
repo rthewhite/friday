@@ -29,18 +29,14 @@ test("a tool entry is the model's call followed by the function response", () =>
   ]);
 });
 
-test("text before calls joins the model turn; calls in a row share one call turn and one response turn", () => {
-  assert.deepEqual(toContents([user("off and Dune"), bot("On it."), tool("ha_turn_off", { entity: "light.x" }, { ok: true }), tool("jellyfin_search", { q: "Dune" }, { items: 2 }), bot("Done. Which Dune?")]), [
+test("text before a call joins its model turn; calls in a row each get their response before the next call", () => {
+  assert.deepEqual(toContents([user("off and Dune"), bot("On it."), tool("ha_list", {}, { ids: ["light.x"] }), tool("ha_turn_off", { entity: "light.x" }, { ok: true }), bot("Done.")]), [
     { role: "user", parts: [{ text: "off and Dune" }] },
-    {
-      role: "model",
-      parts: [{ text: "On it." }, { functionCall: { name: "ha_turn_off", args: { entity: "light.x" } } }, { functionCall: { name: "jellyfin_search", args: { q: "Dune" } } }],
-    },
-    {
-      role: "user",
-      parts: [{ functionResponse: { name: "ha_turn_off", response: { ok: true } } }, { functionResponse: { name: "jellyfin_search", response: { items: 2 } } }],
-    },
-    { role: "model", parts: [{ text: "Done. Which Dune?" }] },
+    { role: "model", parts: [{ text: "On it." }, { functionCall: { name: "ha_list", args: {} } }] },
+    { role: "user", parts: [{ functionResponse: { name: "ha_list", response: { ids: ["light.x"] } } }] },
+    { role: "model", parts: [{ functionCall: { name: "ha_turn_off", args: { entity: "light.x" } } }] },
+    { role: "user", parts: [{ functionResponse: { name: "ha_turn_off", response: { ok: true } } }] },
+    { role: "model", parts: [{ text: "Done." }] },
   ]);
 });
 
@@ -53,9 +49,9 @@ test("truncated, missing and non-object results and arguments get placeholders",
     tool("list", {}, [1, 2]),
     tool("bigargs", '{"text":"xxxx', { ok: true }, true),
   ]);
-  const responses = contents[2].parts!.map((p) => p.functionResponse!.response);
+  const responses = contents.filter((c) => c.role === "user").slice(1).map((c) => c.parts![0].functionResponse!.response);
   assert.deepEqual(responses, [{ truncated: true, partial: cut }, { error: "no result" }, { result: [1, 2] }, { ok: true }]);
-  const args = contents[1].parts!.map((p) => p.functionCall!.args);
+  const args = contents.filter((c) => c.role === "model").map((c) => c.parts![0].functionCall!.args);
   assert.deepEqual(args, [{ q: "Dune" }, {}, {}, { truncated: true, partial: '{"text":"xxxx' }]);
 });
 

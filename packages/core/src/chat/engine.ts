@@ -12,11 +12,24 @@ import type { Content, FunctionDeclaration, Part } from "@google/genai";
 import { LlmError, type ToolRegistry } from "@friday/sdk";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
-import type { StreamChunk } from "../llm/gemini.js";
+import type { StreamEnd } from "../llm/gemini.js";
 import type { LlmService } from "../llm/service.js";
 import { toContents } from "./history.js";
 
 export const MAX_TOOL_ROUNDS = 10;
+
+interface Call {
+  id: number;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+/** Why a round without calls ended before its answer was complete. */
+function unfinished(reason: string): string {
+  if (reason === "MAX_TOKENS") return "the answer was cut off at the output limit";
+  if (reason === "MALFORMED_FUNCTION_CALL") return "the model produced a malformed tool call";
+  return `the model stopped without finishing (${reason})`;
+}
 
 export type ChatErrorKind = LlmError["kind"] | "too_many_tool_calls";
 
@@ -24,8 +37,9 @@ export type ChatEvent =
   | { event: "start"; data: { conversationId: string } }
   | { event: "thinking"; data: { text: string } }
   | { event: "text"; data: { text: string } }
-  | { event: "tool_call"; data: { name: string; args: Record<string, unknown> } }
-  | { event: "tool_result"; data: { name: string; result: unknown } }
+  /** `id` numbers the turn's calls from 1, so a result can be matched to its call (results arrive as they settle). */
+  | { event: "tool_call"; data: { id: number; name: string; args: Record<string, unknown> } }
+  | { event: "tool_result"; data: { id: number; name: string; result: unknown } }
   | { event: "done"; data: { conversationId: string } }
   | { event: "error"; data: { kind: ChatErrorKind; message: string } };
 
@@ -71,14 +85,25 @@ export class ChatEngine {
     }
     const recorder = store.recorder({ channel: "chat" }, this.log);
     if (id && !recorder.resume(id)) return { ok: false, status: 404, error: "unknown chat conversation" };
+    // The recorder logs and swallows store failures; the turn must not run without its message.
+    const before = id ? this.nextSeq(id) : undefined;
     recorder.user(text, "text");
     recorder.commitUser();
     const conversationId = recorder.conversationId;
-    if (!conversationId) {
+    const stored = conversationId !== undefined && (!id || (before !== undefined && this.nextSeq(conversationId) === before + 1));
+    if (!conversationId || !stored) {
       recorder.release();
       return { ok: false, status: 503, error: "the message could not be stored" };
     }
     return { ok: true, turn: new ChatTurn(this.opts, this.log, recorder, conversationId, text) };
+  }
+
+  private nextSeq(id: string): number | undefined {
+    try {
+      return this.opts.store.nextSeq(id);
+    } catch {
+      return undefined;
+    }
   }
 }
 
@@ -107,11 +132,13 @@ export class ChatTurn {
       const tools = this.opts.registry.declarations("chat") as FunctionDeclaration[];
       let rounds = 0;
       let streamed = false;
+      let callSeq = 0;
       for (;;) {
         const parts: Part[] = [];
-        const calls: Extract<StreamChunk, { kind: "call" }>[] = [];
+        const calls: Call[] = [];
+        let end: StreamEnd;
         try {
-          await this.opts.llm.streamCall(
+          end = await this.opts.llm.streamCall(
             "chat",
             { model: this.opts.model, system: this.opts.system, contents, tools, thoughts: true },
             (c) => {
@@ -122,8 +149,9 @@ export class ChatTurn {
                 this.recorder.assistant(c.text);
                 emit({ event: "text", data: { text: c.text } });
               } else if (c.kind === "call") {
-                calls.push(c);
-                emit({ event: "tool_call", data: { name: c.name, args: c.args } });
+                const call = { id: ++callSeq, name: c.name, args: c.args };
+                calls.push(call);
+                emit({ event: "tool_call", data: call });
               }
             },
           );
@@ -132,14 +160,23 @@ export class ChatTurn {
           if (streamed) this.recorder.interrupted();
           return this.fail(emit, err.kind, err.message);
         }
-        if (!calls.length) break;
+        if (!calls.length) {
+          // Blocked answers already rejected in streamCall; anything else but STOP is an unfinished answer.
+          const reason = end.finishReason;
+          if (reason && reason !== "STOP") {
+            if (streamed) this.recorder.interrupted();
+            return this.fail(emit, "invalid_output", unfinished(reason));
+          }
+          break;
+        }
         if (rounds >= MAX_TOOL_ROUNDS) {
-          if (streamed) this.recorder.interrupted();
+          // These calls were announced but never run: settle them, so live and stored views agree.
+          for (const c of calls) this.settleUnrun(c, emit);
           return this.fail(emit, "too_many_tool_calls", `the model asked for tools more than ${MAX_TOOL_ROUNDS} times in one turn`);
         }
         rounds++;
         contents.push({ role: "model", parts });
-        const results = await Promise.all(calls.map((c) => this.callTool(c.name, c.args, emit)));
+        const results = await Promise.all(calls.map((c) => this.callTool(c, emit)));
         contents.push({ role: "user", parts: calls.map((c, i) => ({ functionResponse: { name: c.name, response: results[i] } })) });
       }
       this.recorder.release();
@@ -162,7 +199,13 @@ export class ChatTurn {
     return [{ role: "user", parts: [{ text: this.text }] }];
   }
 
-  private async callTool(name: string, args: Record<string, unknown>, emit: (e: ChatEvent) => void): Promise<Record<string, unknown>> {
+  private settleUnrun({ id, name, args }: Call, emit: (e: ChatEvent) => void): void {
+    const result = { error: `not run: more than ${MAX_TOOL_ROUNDS} rounds of tool calls` };
+    this.recorder.tool(name, args).result(result);
+    emit({ event: "tool_result", data: { id, name, result } });
+  }
+
+  private async callTool({ id, name, args }: Call, emit: (e: ChatEvent) => void): Promise<Record<string, unknown>> {
     const handle = this.recorder.tool(name, args);
     const ms = this.opts.toolTimeoutMs;
     let timer: NodeJS.Timeout | undefined;
@@ -179,7 +222,7 @@ export class ChatTurn {
       result = outcome.result;
     }
     handle.result(result);
-    emit({ event: "tool_result", data: { name, result } });
+    emit({ event: "tool_result", data: { id, name, result } });
     return result;
   }
 

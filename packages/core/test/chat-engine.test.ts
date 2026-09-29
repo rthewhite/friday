@@ -14,7 +14,8 @@ const call = (name: string, args: Record<string, unknown> = {}, sig?: string): S
   kind: "call", name, args, part: { functionCall: { name, args }, ...(sig ? { thoughtSignature: sig } : {}) },
 });
 
-type Round = Array<StreamChunk | Error> | Error;
+/** `{ finish }` sets the round's finish reason (default STOP). */
+type Round = Array<StreamChunk | Error | { finish: string }> | Error;
 
 /** A stand-in for LlmService.streamCall that plays one round per call (the last repeats) and snapshots each request. */
 function fakeLlm(...rounds: Round[]) {
@@ -26,11 +27,13 @@ function fakeLlm(...rounds: Round[]) {
       requests.push(JSON.parse(JSON.stringify(req)));
       const round = rounds[Math.min(requests.length - 1, rounds.length - 1)];
       if (round instanceof Error) throw round;
+      let finishReason = "STOP";
       for (const c of round) {
         if (c instanceof Error) throw c;
-        onChunk(c);
+        if ("finish" in c) finishReason = c.finish;
+        else onChunk(c);
       }
-      return end;
+      return { ...end, finishReason };
     },
   };
   return { llm, requests, owners };
@@ -67,10 +70,10 @@ test("two tools, then an answer: events stream in order, contents carry verbatim
   assert.deepEqual(events, [
     { event: "start", data: { conversationId: id } },
     { event: "thinking", data: { text: "Planning" } },
-    { event: "tool_call", data: { name: "ha_turn_off", args: { entity: "light.x" } } },
-    { event: "tool_result", data: { name: "ha_turn_off", result: { ok: true } } },
-    { event: "tool_call", data: { name: "jellyfin_search", args: { q: "Dune" } } },
-    { event: "tool_result", data: { name: "jellyfin_search", result: { items: 2 } } },
+    { event: "tool_call", data: { id: 1, name: "ha_turn_off", args: { entity: "light.x" } } },
+    { event: "tool_result", data: { id: 1, name: "ha_turn_off", result: { ok: true } } },
+    { event: "tool_call", data: { id: 2, name: "jellyfin_search", args: { q: "Dune" } } },
+    { event: "tool_result", data: { id: 2, name: "jellyfin_search", result: { items: 2 } } },
     { event: "text", data: { text: "Done. " } },
     { event: "text", data: { text: "Which Dune?" } },
     { event: "done", data: { conversationId: id } },
@@ -116,7 +119,7 @@ test("a hanging tool is answered with a timeout error and the turn continues", a
   const { engine: e, registry, store } = engine(f.llm, { toolTimeoutMs: 20 });
   registry.add("x", { name: "hang", description: "", handler: () => new Promise(() => {}) });
   const { id, events } = await send(e, "try it");
-  assert.deepEqual(events.find((ev) => ev.event === "tool_result"), { event: "tool_result", data: { name: "hang", result: { error: "timed out after 20 ms" } } });
+  assert.deepEqual(events.find((ev) => ev.event === "tool_result"), { event: "tool_result", data: { id: 1, name: "hang", result: { error: "timed out after 20 ms" } } });
   assert.equal(events.at(-1)!.event, "done");
   assert.deepEqual(f.requests[1].contents.at(-1)!.parts, [{ functionResponse: { name: "hang", response: { error: "timed out after 20 ms" } } }]);
   assert.deepEqual((store.get(id)!.entries[1] as { result: unknown }).result, { error: "timed out after 20 ms" });
@@ -131,7 +134,7 @@ test("voice-only tools are not declared, and calling one is an unknown tool that
   const { id, events } = await send(e, "bye");
   assert.deepEqual(f.requests[0].tools!.map((t) => t.name), ["get_current_time"]);
   assert.equal(ended, 0);
-  assert.deepEqual(events.find((ev) => ev.event === "tool_result")!.data, { name: "end_conversation", result: { error: "unknown tool end_conversation" } });
+  assert.deepEqual(events.find((ev) => ev.event === "tool_result")!.data, { id: 1, name: "end_conversation", result: { error: "unknown tool end_conversation" } });
   assert.equal(events.at(-1)!.event, "done");
   assert.equal(store.get(id)!.state, "active");
 });
@@ -141,22 +144,78 @@ test("endConversation from a tool offered in chat is ignored", async () => {
   const { engine: e, registry, store } = engine(f.llm);
   registry.add("x", { name: "wrap_up", description: "", handler: () => ({ done: true, endConversation: "finished", scheduling: "SILENT" }) });
   const { id, events } = await send(e, "wrap up");
-  assert.deepEqual(events.find((ev) => ev.event === "tool_result")!.data, { name: "wrap_up", result: { done: true } });
+  assert.deepEqual(events.find((ev) => ev.event === "tool_result")!.data, { id: 1, name: "wrap_up", result: { done: true } });
   assert.equal(store.get(id)!.endReason, null);
   assert.equal(store.get(id)!.state, "active");
 });
 
 test(`after ${MAX_TOOL_ROUNDS} rounds of tool calls the next calls end the turn with too_many_tool_calls`, async () => {
   const f = fakeLlm([call("again")]);
-  const { engine: e, registry } = engine(f.llm);
+  const { engine: e, registry, store } = engine(f.llm);
   let ran = 0;
   registry.add("x", { name: "again", description: "", handler: () => ({ n: ++ran }) });
-  const { events } = await send(e, "loop");
+  const { id, events } = await send(e, "loop");
   assert.equal(ran, MAX_TOOL_ROUNDS);
   assert.equal(f.requests.length, MAX_TOOL_ROUNDS + 1);
   const last = events.at(-1)!;
   assert.equal(last.event, "error");
   assert.equal((last.data as { kind: string }).kind, "too_many_tool_calls");
+  // The announced 11th call is settled as not run, live and stored alike.
+  const calls = events.filter((ev) => ev.event === "tool_call");
+  const results = events.filter((ev) => ev.event === "tool_result");
+  assert.equal(calls.length, MAX_TOOL_ROUNDS + 1);
+  assert.equal(results.length, calls.length);
+  assert.deepEqual(results.at(-1)!.data, { id: MAX_TOOL_ROUNDS + 1, name: "again", result: { error: `not run: more than ${MAX_TOOL_ROUNDS} rounds of tool calls` } });
+  const tools = store.get(id)!.entries.filter((x) => x.kind === "tool");
+  assert.equal(tools.length, MAX_TOOL_ROUNDS + 1);
+});
+
+test("parallel calls to the same tool carry ids, so results match their calls whatever order they settle in", async () => {
+  const f = fakeLlm([call("weather", { city: "A" }), call("weather", { city: "B" })], [text("ok")]);
+  const { engine: e, registry } = engine(f.llm);
+  registry.add("x", {
+    name: "weather",
+    description: "",
+    handler: async ({ city }: { city: string }) => (city === "A" && (await new Promise((r) => setTimeout(r, 20))), { city }),
+  });
+  const { events } = await send(e, "weather in A and B");
+  const tools = events.filter((ev) => ev.event === "tool_call" || ev.event === "tool_result").map((ev) => ev.data);
+  assert.deepEqual(tools, [
+    { id: 1, name: "weather", args: { city: "A" } },
+    { id: 2, name: "weather", args: { city: "B" } },
+    { id: 2, name: "weather", result: { city: "B" } },
+    { id: 1, name: "weather", result: { city: "A" } },
+  ]);
+});
+
+test("a round that ends unfinished without calls is an error, not an empty done", async () => {
+  const cut = fakeLlm([text("Here is a long"), { finish: "MAX_TOKENS" }]);
+  const a = engine(cut.llm);
+  const r1 = await send(a.engine, "write a lot");
+  assert.deepEqual(r1.events.at(-1), { event: "error", data: { kind: "invalid_output", message: "the answer was cut off at the output limit" } });
+  assert.deepEqual(shape(a.store.get(r1.id)!.entries).at(-1), { kind: "assistant", text: "Here is a long", interrupted: true });
+
+  const malformed = fakeLlm([{ finish: "MALFORMED_FUNCTION_CALL" }]);
+  const b = engine(malformed.llm);
+  const r2 = await send(b.engine, "do it");
+  assert.deepEqual(r2.events.map((ev) => ev.event), ["start", "error"]);
+  assert.equal((r2.events[1].data as { message: string }).message, "the model produced a malformed tool call");
+  assert.deepEqual(shape(b.store.get(r2.id)!.entries), [{ kind: "user", input: "text", text: "do it" }]);
+});
+
+test("begin answers 503 when a resumed thread's message could not be stored, and runs no turn", async () => {
+  const f = fakeLlm([text("hi")]);
+  const { engine: e, store } = engine(f.llm);
+  const { id } = await send(e, "first");
+  const append = store.append.bind(store);
+  store.append = () => {
+    throw new Error("SQLITE_FULL");
+  };
+  assert.deepEqual(e.begin({ text: "second", conversationId: id }), { ok: false, status: 503, error: "the message could not be stored" });
+  assert.equal(store.isLive(id), false);
+  store.append = append;
+  assert.equal(f.requests.length, 1);
+  assert.equal(store.get(id)!.entryCount, 2);
 });
 
 test("a failure after streamed text stores it as interrupted and ends with an error event", async () => {

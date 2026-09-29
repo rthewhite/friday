@@ -16,9 +16,15 @@ export function chatRoute(engine: ChatEngine | undefined, opts: { heartbeatMs?: 
   const heartbeatMs = opts.heartbeatMs ?? HEARTBEAT_MS;
   return async (req, res) => {
     if (!engine) return sendJson(res, { error: "chat is not available" }, 503);
+    let raw: string;
+    try {
+      raw = await readBody(req, MAX_BODY);
+    } catch {
+      return sendJson(res, { error: `message too large (limit ${MAX_BODY / 1000} kB)` }, 413);
+    }
     let body: unknown;
     try {
-      body = JSON.parse((await readBody(req, MAX_BODY)) || "{}");
+      body = JSON.parse(raw || "{}");
     } catch {
       return sendJson(res, { error: "invalid JSON body" }, 400);
     }

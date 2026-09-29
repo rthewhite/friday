@@ -133,44 +133,34 @@ export function fromGeminiResponse(res: GenerateContentResponse, requested: stri
 
 export class GeminiTextModel implements TextModel {
   private readonly key: () => string | undefined;
-  private client?: { apiKey: string; generate: GenerateContent };
-  private streamer?: { apiKey: string; stream: GenerateContentStream };
+  /** The provider functions for the key they were built for; rebuilt when the resolved key changes. */
+  private client?: { apiKey: string; generate: GenerateContent; stream: GenerateContentStream };
 
   /**
    * `apiKey` is a value or a function resolved on every call (core config: core scope, global, env).
-   * `generateContent`, when given, serves every key (tests). Otherwise `clientFor` builds one client
-   * per key value, reused until the resolved key changes; `streamFor` does the same for streamed calls.
+   * `generateContent`, when given, serves every key (tests). Otherwise one `GoogleGenAI` per key value
+   * serves both calls, reused until the resolved key changes; tests replace it per call kind with
+   * `clientFor` and `streamFor`.
    */
   constructor(
     apiKey: string | (() => string | undefined),
     private readonly generateContent?: GenerateContent,
-    private readonly clientFor: (apiKey: string) => GenerateContent = (key) => {
-      const ai = new GoogleGenAI({ apiKey: key });
-      return (p) => ai.models.generateContent(p);
-    },
-    private readonly streamFor: (apiKey: string) => GenerateContentStream = (key) => {
-      const ai = new GoogleGenAI({ apiKey: key });
-      return (p) => ai.models.generateContentStream(p);
-    },
+    private readonly clientFor?: (apiKey: string) => GenerateContent,
+    private readonly streamFor?: (apiKey: string) => GenerateContentStream,
   ) {
     this.key = typeof apiKey === "function" ? apiKey : () => apiKey;
   }
 
   async generate(req: TextRequest, opts: { signal?: AbortSignal } = {}): Promise<TextResponse> {
     const apiKey = this.requireKey();
-    let generate = this.generateContent;
-    if (!generate) {
-      if (this.client?.apiKey !== apiKey) this.client = { apiKey, generate: this.clientFor(apiKey) };
-      generate = this.client.generate;
-    }
+    const generate = this.generateContent ?? this.clientOf(apiKey).generate;
     return fromGeminiResponse(await generate(toGeminiParams(req, opts.signal)), req.model);
   }
 
   async *stream(req: StreamRequest, opts: { signal?: AbortSignal } = {}): TextStream {
-    const apiKey = this.requireKey();
-    if (this.streamer?.apiKey !== apiKey) this.streamer = { apiKey, stream: this.streamFor(apiKey) };
+    const stream = this.clientOf(this.requireKey()).stream;
     const end: StreamEnd = { model: req.model, usage: { inputTokens: 0, outputTokens: 0, thoughtTokens: 0 } };
-    for await (const res of await this.streamer.stream(toStreamParams(req, opts.signal))) {
+    for await (const res of await stream(toStreamParams(req, opts.signal))) {
       const candidate = res.candidates?.[0];
       for (const part of candidate?.content?.parts ?? []) yield chunkOf(part);
       if (candidate?.finishReason) end.finishReason = candidate.finishReason;
@@ -181,6 +171,19 @@ export class GeminiTextModel implements TextModel {
       if (u) end.usage = { inputTokens: u.promptTokenCount ?? 0, outputTokens: u.candidatesTokenCount ?? 0, thoughtTokens: u.thoughtsTokenCount ?? 0 };
     }
     return end;
+  }
+
+  private clientOf(apiKey: string) {
+    if (this.client?.apiKey !== apiKey) {
+      let ai: GoogleGenAI | undefined;
+      const sdk = () => (ai ??= new GoogleGenAI({ apiKey }));
+      this.client = {
+        apiKey,
+        generate: this.clientFor?.(apiKey) ?? ((p) => sdk().models.generateContent(p)),
+        stream: this.streamFor?.(apiKey) ?? ((p) => sdk().models.generateContentStream(p)),
+      };
+    }
+    return this.client;
   }
 
   private requireKey(): string {

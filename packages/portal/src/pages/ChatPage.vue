@@ -53,6 +53,7 @@ async function loadThread(id: string) {
     const c = await api<Conversation>(`/api/conversations/${encodeURIComponent(id)}`);
     if (threadId.value !== id) return; // navigated away meanwhile
     if (c.channel !== "chat") throw new Error("not found");
+    if (turn.value?.running && turnFor.value === id) liveUserStored.value = true;
     thread.value = c;
     notFound.value = false;
     threadError.value = null;
@@ -89,12 +90,15 @@ const running = computed(() => turn.value?.running === true);
 const turnFor = ref<string | undefined>();
 /** The streaming turn, when it belongs to the thread shown. */
 const liveTurn = computed(() => (turn.value && turnFor.value === threadId.value ? turn.value : null));
+/** The thread was (re)loaded while its turn streamed, so its entries already hold the message. */
+const liveUserStored = ref(false);
 
 async function submit() {
   const text = draft.value.trim();
   if (!text || running.value) return;
   draft.value = "";
   turnError.value = null;
+  liveUserStored.value = false;
   turnFor.value = threadId.value;
   const startedIn = threadId.value;
   const result = await send(text, threadId.value, (id) => {
@@ -130,7 +134,7 @@ function onKey(e: KeyboardEvent) {
 
 // ---- rendering helpers -------------------------------------------------------
 /** The streaming turn's message, shown until the reloaded thread contains it. */
-const liveUser = computed<Entry | null>(() => (liveTurn.value ? { seq: -1, at: new Date().toISOString(), kind: "user", input: "text", text: liveTurn.value.text } : null));
+const liveUser = computed<Entry | null>(() => (liveTurn.value && !liveUserStored.value ? { seq: -1, at: new Date().toISOString(), kind: "user", input: "text", text: liveTurn.value.text } : null));
 const toolEntry = (i: { name: string; args: unknown; result?: unknown; settled: boolean; at: string }): Entry =>
   ({ seq: -1, at: i.at, kind: "tool", name: i.name, args: i.args, truncated: false, ...(i.settled ? { result: i.result } : {}) }) as Entry;
 const title = computed(() => thread.value?.preview ?? (threadId.value ? "Chat" : "New chat"));

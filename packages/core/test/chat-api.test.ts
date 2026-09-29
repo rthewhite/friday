@@ -71,8 +71,8 @@ test("a tool-using turn streams start, tool_call, tool_result, text and done as 
     const id = events[0].data.conversationId;
     assert.deepEqual(events, [
       { event: "start", data: { conversationId: id } },
-      { event: "tool_call", data: { name: "get_current_time", args: {} } },
-      { event: "tool_result", data: { name: "get_current_time", result: { human: "ten" } } },
+      { event: "tool_call", data: { id: 1, name: "get_current_time", args: {} } },
+      { event: "tool_result", data: { id: 1, name: "get_current_time", result: { human: "ten" } } },
       { event: "text", data: { text: "It is " } },
       { event: "text", data: { text: "ten." } },
       { event: "done", data: { conversationId: id } },
@@ -95,6 +95,10 @@ test("validation answers JSON before any stream: 400, 404 for unknown and voice 
     assert.equal((await s.post({ text: "" })).status, 400);
     assert.equal((await s.post({})).status, 400);
     assert.equal((await s.post("{nope")).status, 400);
+    const big = await s.post({ text: "x".repeat(150_000) });
+    assert.equal(big.status, 413);
+    assert.match((await big.json()).error, /too large/);
+    assert.equal(s.store.list().length, 0);
     const unknown = await s.post({ text: "hi", conversationId: "nope" });
     assert.equal(unknown.status, 404);
     assert.match(unknown.headers.get("content-type")!, /application\/json/);

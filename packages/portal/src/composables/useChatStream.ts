@@ -9,7 +9,8 @@ import { SseParser } from "../lib/sse.js";
 export type LiveItem =
   | { id: number; kind: "thinking"; text: string }
   | { id: number; kind: "text"; text: string }
-  | { id: number; kind: "tool"; name: string; args: unknown; result?: unknown; settled: boolean; at: string };
+  /** `callId` is the server's number for the call within the turn; results are matched on it. */
+  | { id: number; kind: "tool"; callId: number; name: string; args: unknown; result?: unknown; settled: boolean; at: string };
 
 export interface LiveTurn {
   text: string;
@@ -70,10 +71,11 @@ export function useChatStream() {
               append("text", data.text);
               break;
             case "tool_call":
-              t.items.push({ id: ++seq, kind: "tool", name: data.name, args: data.args, settled: false, at: new Date().toISOString() });
+              t.items.push({ id: ++seq, kind: "tool", callId: data.id, name: data.name, args: data.args, settled: false, at: new Date().toISOString() });
               break;
             case "tool_result": {
-              const call = t.items.find((i): i is Extract<LiveItem, { kind: "tool" }> => i.kind === "tool" && !i.settled && i.name === data.name);
+              // Parallel calls settle in any order, so match on the call id, not the name.
+              const call = t.items.find((i): i is Extract<LiveItem, { kind: "tool" }> => i.kind === "tool" && i.callId === data.id);
               if (call) Object.assign(call, { result: data.result, settled: true });
               break;
             }

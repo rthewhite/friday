@@ -129,7 +129,7 @@ The portal's `Chat` page (under Assistant) is typed conversation with Friday, in
 | `FRIDAY_CHAT_MODEL` | `FRIDAY_TEXT_MODEL` | Model chat turns run on. |
 | `FRIDAY_CHAT_TOOL_TIMEOUT_MS` | `30000` | Longest wait for one tool call in a chat turn. |
 
-Over HTTP, `POST /api/chat` takes `{ "text": "...", "conversationId": "<optional chat id>" }` and answers `text/event-stream` with the events `start`, `thinking`, `text`, `tool_call`, `tool_result`, then `done` or `error` (plus `: ping` comments every 15 s). It answers 400 for an empty text, 404 for an unknown or voice id, and 409 while that thread's previous turn still runs:
+Over HTTP, `POST /api/chat` takes `{ "text": "...", "conversationId": "<optional chat id>" }` and answers `text/event-stream` with the events `start`, `thinking`, `text`, `tool_call`, `tool_result`, then `done` or `error` (plus `: ping` comments every 15 s); `tool_call` and `tool_result` carry an `id` that pairs a result with its call. It answers 400 for an empty text, 413 for a body over 100 kB, 404 for an unknown or voice id, and 409 while that thread's previous turn still runs:
 
 ```sh
 curl -sN -X POST localhost:8080/api/chat -H 'content-type: application/json' -d '{"text":"What time is it in Tokyo?"}'
