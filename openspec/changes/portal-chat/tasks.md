@@ -46,6 +46,8 @@
 - [x] 7.4 Build `ChatPage.vue` with routes `/chat` and `/chat/:id`, the thread list with `New chat` and "Load more", streaming thinking/text/tools, the input (Enter / Shift+Enter, disabled while running), URL update after the first message, inline errors, the not-found notice, reload from the API after `done`, and the collapsed thread list at 360 px; add the `message` icon to `@friday/portal-ui` and the `Chat` nav item between `Talk` and `Conversations`, highlighted on `/chat/*`; verify with `pnpm --filter @friday/portal typecheck build` and by hand in `pnpm dev` (on free ports) against a real key: new thread, resume, tool call, reload mid-turn, 360 px
 - [x] 7.5 Add `Open in Chat` to the Conversations drawer for chat conversations only; verify by hand that it opens `/chat/<id>` and is absent for voice conversations
 
+- [x] 7.6 Keep the browser's Host header in the Vite dev proxy for `/api` and `/health` (the string shorthand set `changeOrigin`, so the cross-origin guard refused every portal write in `pnpm dev`); verify in `pnpm dev` that a same-origin `POST /api/chat` through port 5173 streams an answer, and that a cross-origin one still gets 403
+
 ## 8. Docs and integration
 
 - [x] 8.1 Update the README (Chat page, what is stored for chat, `FRIDAY_CHAT_MODEL`, `FRIDAY_CHAT_TOOL_TIMEOUT_MS`, tool `channels`), the SDK README (`channels` on `defineTool`), and the `openspec/config.yaml` context (chat engine, `/api/chat`, channels); check `deploy/k8s.yaml` needs no change and verify the documented settings match `config.ts`

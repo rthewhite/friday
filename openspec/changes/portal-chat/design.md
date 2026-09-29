@@ -31,7 +31,7 @@ Each `POST /api/chat` loads the thread, runs the turn, records it and ends. *Alt
 ### Code layout
 `packages/core/src/chat/`:
 - `history.ts`: stored entries to Gemini `Content[]`, a pure function (the history replay requirement).
-- `engine.ts`: `ChatEngine.turn({ text, conversationId }, emit)`, which runs the loop, calls the registry and drives the recorder. It does not depend on HTTP.
+- `engine.ts`: `ChatEngine.begin({ text, conversationId })` validates, runs the busy check and stores the message, all synchronously (so two posts for one thread can't both pass), and returns a `ChatTurn` or a status (400/404/409/503). `ChatTurn.run(listener)` then runs the loop, calls the registry and drives the recorder. Neither depends on HTTP.
 - `route.ts`: body validation, 400/404/409, SSE framing, heartbeat, disconnect handling.
 
 `createApp` mounts the route when a conversation store and the LLM service are present. Without a store, `POST /api/chat` responds 503, because chat without history can't resume.

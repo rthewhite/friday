@@ -8,7 +8,7 @@ Lets the user type to Friday in the portal as chat threads that can be resumed l
 
 ### Requirement: A chat turn runs against the chat model
 
-Each chat message SHALL be answered by one turn against a non-Live Gemini text model, using the model from `FRIDAY_CHAT_MODEL`, falling back to `FRIDAY_TEXT_MODEL`, and the Gemini API key resolved from core's configuration when the turn starts (as specified in `secret-management`). The turn SHALL send the chat system prompt (the shared base and the chat part), the thread's history, the new message, and the declarations of the tools available in the `chat` channel, read from the registry when the turn starts. The chat part of the prompt SHALL allow markdown and complete answers instead of short spoken ones.
+Each chat message SHALL be answered by one turn against a non-Live Gemini text model, using the model from `FRIDAY_CHAT_MODEL`, falling back to `FRIDAY_TEXT_MODEL`, and the Gemini API key resolved from core's configuration for each model call of the turn (as specified in `secret-management`). The turn SHALL send the chat system prompt (the shared base and the chat part), the thread's history, the new message, and the declarations of the tools available in the `chat` channel, read from the registry when the turn starts. The chat part of the prompt SHALL allow markdown and complete answers instead of short spoken ones.
 
 #### Scenario: Model fallback
 - **WHEN** `FRIDAY_CHAT_MODEL` is unset and `FRIDAY_TEXT_MODEL` is `gemini-flash-latest`
