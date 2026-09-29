@@ -28,7 +28,7 @@ A job SHALL have an owner (a module id, or `core` for core's own jobs), a kebab-
 
 ### Requirement: Cron schedules follow the configured timezone
 
-Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE` (default `Europe/Amsterdam` when unset or blank), including daylight-saving transitions. An invalid zone SHALL be logged as an error at startup, and cron expressions SHALL then be evaluated in `Europe/Amsterdam`, the same default zone modules fall back to.
+Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE`, resolved like core's own configuration: the value stored for `core`, then the `global` value, then the process environment, and `Europe/Amsterdam` when none is set or the value is blank. Daylight-saving transitions SHALL be handled. An invalid zone SHALL be logged as an error naming it, and cron expressions SHALL then be evaluated in `Europe/Amsterdam`, the same default zone modules fall back to. When `FRIDAY_TIMEZONE` is saved or cleared through the configuration API, core SHALL resolve the zone again and, when it changed, SHALL re-plan the next run of every cron job from the current time in the new zone, without a restart. Interval jobs, runs in progress and pending catch-up runs SHALL NOT be affected. A restart after a zone change SHALL NOT catch up a slot of the new zone that fell before the change. Zones that differ only in letter case SHALL count as the same zone. The jobs listing SHALL report the current zone.
 
 #### Scenario: Nightly in local time
 - **WHEN** `FRIDAY_TIMEZONE` is `Europe/Amsterdam` and a job has `cron: "0 3 * * *"`
@@ -36,7 +36,27 @@ Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE` (def
 
 #### Scenario: Invalid zone
 - **WHEN** `FRIDAY_TIMEZONE` is `Mars/Olympus`
-- **THEN** startup logs an error naming the zone and cron jobs are scheduled in `Europe/Amsterdam`
+- **THEN** an error naming the zone is logged and cron jobs are scheduled in `Europe/Amsterdam`
+
+#### Scenario: Stored value wins over the environment
+- **WHEN** the environment has `FRIDAY_TIMEZONE=Europe/Amsterdam` and `America/New_York` is stored globally
+- **THEN** cron jobs are scheduled in `America/New_York`
+
+#### Scenario: Zone saved while running
+- **WHEN** Friday runs with jobs in `Europe/Amsterdam` and the user saves `FRIDAY_TIMEZONE=America/New_York` globally
+- **THEN** without a restart, `brain/nightly` (`0 3 * * *`) is next due at 03:00 New York time, and `/api/jobs` reports `America/New_York` with that next run
+
+#### Scenario: Zone cleared while running
+- **WHEN** a stored `FRIDAY_TIMEZONE` is deleted and the environment has none
+- **THEN** cron jobs are re-planned in `Europe/Amsterdam`
+
+#### Scenario: Restart after a zone change
+- **WHEN** `brain/nightly` ran at 03:00 Amsterdam, the zone was changed to `America/New_York` at 14:00 Amsterdam, and Friday restarts an hour later
+- **THEN** no catch-up run starts, and the next run is 03:00 New York the next day
+
+#### Scenario: Unrelated key saved
+- **WHEN** a key other than `FRIDAY_TIMEZONE` is saved, or `FRIDAY_TIMEZONE` is saved with the zone already in effect
+- **THEN** no cron job is re-planned
 
 ### Requirement: A job never overlaps itself
 
