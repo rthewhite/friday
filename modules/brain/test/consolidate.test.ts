@@ -122,7 +122,7 @@ test("a plan may not rename or merge the profile, or use a forgotten or taken na
   t.after(close);
   const profile = store.profile();
   assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: profile.id, base: profile.revisionId, name: "Me", body: "x" }], note: "" }), /the profile's name and type can't change/);
-  assert.match(reasonsFor(store, { actions: [{ kind: "merge", from: noukie.id, into: profile.id, bases: { from: noukie.revisionId, into: profile.revisionId }, body: "Also Anouk?" }], note: "" }), /the profile can't be merged/);
+  assert.match(reasonsFor(store, { actions: [{ kind: "merge", from: noukie.id, into: profile.id, fromBase: noukie.revisionId, intoBase: profile.revisionId, body: "Also Anouk?" }], note: "" }), /the profile can't be merged/);
   const job = store.create({ name: "Old job" }, "user");
   store.softDelete(job.id, "user");
   store.purge(job.id, "Old job", "user");
@@ -131,7 +131,7 @@ test("a plan may not rename or merge the profile, or use a forgotten or taken na
   // A name freed by a merge in the same plan is fine.
   assert.equal(reasonsFor(store, {
     actions: [
-      { kind: "merge", from: noukie.id, into: anouk.id, bases: { from: noukie.revisionId, into: anouk.revisionId }, body: "My sister. Moved to Utrecht. Also Anouk?", dropped: [{ line: "My sister. Lives in Amsterdam.", reason: "moved" }] },
+      { kind: "merge", from: noukie.id, into: anouk.id, fromBase: noukie.revisionId, intoBase: anouk.revisionId, body: "My sister. Moved to Utrecht. Also Anouk?", dropped: [{ line: "My sister. Lives in Amsterdam.", reason: "moved" }] },
       { kind: "create", name: "Noukie", body: "A different Noukie" },
     ],
     note: "",
@@ -163,13 +163,21 @@ test("an undeclared loss is refused, naming the page and the line; a declared su
   assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: anouk.id, base: anouk.revisionId, body: "My sister.", dropped: [] }], note: "" }), /Anouk loses the line "My sister\. Lives in Amsterdam\."[^]*Anouk loses the line "- 2026-09-29: Moved to Utrecht\."/);
 });
 
+test("a plan of more than 20 actions is refused (the schema can't cap it: Gemini rejects maxItems there)", (t) => {
+  const { store, close } = scene();
+  t.after(close);
+  const actions = Array.from({ length: 21 }, (_, i) => ({ kind: "create" as const, name: `Page ${i}`, body: "x" }));
+  assert.match(reasonsFor(store, { actions, note: "" }), /the plan has 21 actions; at most 20/);
+  assert.equal(reasonsFor(store, { actions: actions.slice(0, 20), note: "" }), "");
+});
+
 test("a page may appear in only one action", (t) => {
   const { store, close, anouk, noukie } = scene();
   t.after(close);
   const r = reasonsFor(store, {
     actions: [
       { kind: "rewrite", page: anouk.id, base: anouk.revisionId, body: "My sister. Lives in Amsterdam.\nMoved to Utrecht." },
-      { kind: "merge", from: noukie.id, into: anouk.id, bases: { from: noukie.revisionId, into: anouk.revisionId }, body: "My sister. Lives in Amsterdam. Moved to Utrecht. Also Anouk?" },
+      { kind: "merge", from: noukie.id, into: anouk.id, fromBase: noukie.revisionId, intoBase: anouk.revisionId, body: "My sister. Lives in Amsterdam. Moved to Utrecht. Also Anouk?" },
     ],
     note: "",
   });

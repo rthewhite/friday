@@ -10,7 +10,7 @@
   "fake": {
     "plan": {
       "actions": [
-        { "kind": "merge", "from": "{{id:Noukie}}", "into": "{{id:Anouk}}", "bases": { "from": "{{rev:Noukie}}", "into": "{{rev:Anouk}}" }, "body": "My sister, lives in Utrecht. Birthday: 3 November.", "dropped": [] }
+        { "kind": "merge", "from": "{{id:Noukie}}", "into": "{{id:Anouk}}", "fromBase": "{{rev:Noukie}}", "intoBase": "{{rev:Anouk}}", "body": "My sister, lives in Utrecht. Birthday: 3 November.", "dropped": [] }
       ],
       "note": "Merged Noukie into Anouk."
     }

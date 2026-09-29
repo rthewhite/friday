@@ -17,7 +17,7 @@ async function scene() {
       const anouk = p("anouk"), noukie = p("noukie"), home = p("home");
       return JSON.stringify({
         actions: [
-          { kind: "merge", from: noukie.id, into: anouk.id, bases: { from: noukie.rev, into: anouk.rev }, body: "My sister, lives in Utrecht. Birthday: 3 November. Likes tea.", dropped: [] },
+          { kind: "merge", from: noukie.id, into: anouk.id, fromBase: noukie.rev, intoBase: anouk.rev, body: "My sister, lives in Utrecht. Birthday: 3 November. Likes tea.", dropped: [] },
           { kind: "rewrite", page: home.id, base: home.rev, body: "The boiler is in the attic.", dropped: [{ line: "Wifi password is on the router label.", reason: "new router has no label" }] },
           { kind: "create", name: "Garden", type: "place", body: "Behind the house, with an apple tree." },
         ],

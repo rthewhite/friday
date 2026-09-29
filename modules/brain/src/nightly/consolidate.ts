@@ -32,9 +32,10 @@ const DROPPED = {
 export const PLAN_SCHEMA = {
   type: "object",
   properties: {
+    // No maxItems: Gemini rejects this schema as too complex with it ("invalid argument"). The 20-action
+    // cap is enforced by validatePlan instead, which refuses a longer plan with a reason for the repair round.
     actions: {
       type: "array",
-      maxItems: MAX_ACTIONS,
       items: {
         type: "object",
         properties: {
@@ -43,7 +44,8 @@ export const PLAN_SCHEMA = {
           base: { type: "integer", description: "rewrite: the page's revision shown" },
           from: { type: "string", description: "merge: id of the page folded in and deleted" },
           into: { type: "string", description: "merge: id of the page that stays" },
-          bases: { type: "object", properties: { from: { type: "integer" }, into: { type: "integer" } }, required: ["from", "into"] },
+          fromBase: { type: "integer", description: "merge: the from page's revision shown" },
+          intoBase: { type: "integer", description: "merge: the into page's revision shown" },
           name: { type: "string", description: "create: the name; rewrite: a new name (optional)" },
           type: { type: "string", enum: [...PAGE_TYPES] },
           aliases: { type: "array", items: { type: "string" } },
@@ -64,7 +66,8 @@ export interface PlanAction {
   base?: number;
   from?: string;
   into?: string;
-  bases?: { from: number; into: number };
+  fromBase?: number;
+  intoBase?: number;
   name?: string;
   type?: PageType;
   aliases?: string[];
@@ -211,8 +214,8 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number): str
         reasons.push(`${label(i, a)}: ${e instanceof Error ? e.message : String(e)}`);
       }
     } else {
-      const from = live(i, a, a.from, a.bases?.from, "from");
-      const into = live(i, a, a.into, a.bases?.into, "into");
+      const from = live(i, a, a.from, a.fromBase, "from");
+      const into = live(i, a, a.into, a.intoBase, "into");
       if (!from || !into) return;
       if (from.id === into.id) return void reasons.push(`${label(i, a)}: a page can't be merged into itself`);
       if (from.isProfile || into.isProfile) return void reasons.push(`${label(i, a)}: the profile can't be merged`);
@@ -250,9 +253,9 @@ export function applyPlan(store: BrainStore, db: ModuleDb, plan: Plan): Applied 
         const from = store.get(a.from!)!;
         const into = store.get(a.into!)!;
         // Free the absorbed page's names first, so they can become the target's aliases.
-        store.softDelete(from.id, "consolidation", { base: a.bases!.from, note: `merged into ${into.name}` });
+        store.softDelete(from.id, "consolidation", { base: a.fromBase, note: `merged into ${into.name}` });
         const aliases = [...into.aliases, ...(a.aliases ?? []), from.name, ...from.aliases].filter((n) => nameKey(n) !== nameKey(into.name));
-        store.save(into.id, { name: into.name, type: into.type, aliases, body: a.body }, "consolidation", { base: a.bases!.into, note, keepOldName: false });
+        store.save(into.id, { name: into.name, type: into.type, aliases, body: a.body }, "consolidation", { base: a.intoBase, note, keepOldName: false });
         dropped(into, a);
         out.merges.push({ from: from.id, into: into.id });
       }
