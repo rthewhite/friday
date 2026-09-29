@@ -15,9 +15,9 @@
 
 ## 3. Conversation store for chat
 
-- [ ] 3.1 Add a `channel` filter to `ConversationStore.list` and to `GET /api/conversations` (400 for an unknown value, filter kept across `before` paging); verify with store and API tests
-- [ ] 3.2 Add `commitUser()` and `release()` to `ConversationRecorder` as in design.md; verify with recorder tests that the user entry is written immediately, a released conversation stays active and detached, `interrupted()` + `release()` stores partial text as interrupted, and the voice recorder tests still pass
-- [ ] 3.3 Run `pnpm --filter @friday/core test typecheck`
+- [x] 3.1 Add a `channel` filter to `ConversationStore.list` and to `GET /api/conversations` (400 for an unknown value, filter kept across `before` paging); verify with store and API tests
+- [x] 3.2 Add `commitUser()` and `release()` to `ConversationRecorder` as in design.md; verify with recorder tests that the user entry is written immediately, a released conversation stays active and detached, `interrupted()` + `release()` stores partial text as interrupted, and the voice recorder tests still pass
+- [x] 3.3 Run `pnpm --filter @friday/core test typecheck`
 
 ## 4. Streaming text model and shared policy
 

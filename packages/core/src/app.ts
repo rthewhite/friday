@@ -2,7 +2,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
-import type { ToolRegistry } from "@friday/sdk";
+import type { ConversationChannel, ToolRegistry } from "@friday/sdk";
 import type { ModuleEntry, ModuleHost } from "./module-host.js";
 import { mcpOwner, type McpSource } from "./tools/mcp.js";
 import { McpInputError, McpServerExists, McpStoreDisabled, parseServerInput, type McpServerStore, type StoredServer } from "./tools/mcp-store.js";
@@ -230,7 +230,8 @@ export function createApp(deps: AppDeps) {
       const limit = Math.min(Math.max(Math.trunc(Number(url.searchParams.get("limit") ?? DEFAULT_LIST_LIMIT)) || DEFAULT_LIST_LIMIT, 1), 200);
       try {
         // One extra row tells whether there is a next page.
-        const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined });
+        const channel = url.searchParams.get("channel") || undefined;
+        const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined, channel: channel as ConversationChannel | undefined });
         const page = rows.slice(0, limit);
         sendJson(res, { conversations: page, next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
       } catch (e) {

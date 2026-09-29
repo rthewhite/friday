@@ -288,3 +288,58 @@ test("resume appends to an existing thread and makes it active again", () => {
   assert.deepEqual(c.entries.map((e) => e.seq), [1, 2, 3, 4]);
   assert.equal(c.preview, "hello");
 });
+
+test("chat turn: commitUser stores the message at once; release keeps the thread active and detached", () => {
+  const s = setup();
+  const r = s.store.recorder({ channel: "chat" });
+  r.user("what time is it?", "text");
+  assert.equal(r.conversationId, undefined);
+  r.commitUser();
+  const id = r.conversationId!;
+  assert.ok(id, "the conversation exists before any output");
+  assert.deepEqual(shape(s.store.get(id)!.entries), [{ kind: "user", input: "text", text: "what time is it?" }]);
+  assert.equal(s.store.delete(id), "live");
+  r.commitUser(); // nothing held: no duplicate
+  r.tool("get_current_time", {}).result({ human: "ten" });
+  r.assistant("It is ");
+  r.assistant("ten.");
+  r.release();
+  const c = s.store.get(id)!;
+  assert.equal(c.state, "active");
+  assert.equal(c.endedAt, null);
+  assert.deepEqual(shape(c.entries), [
+    { kind: "user", input: "text", text: "what time is it?" },
+    { kind: "tool", name: "get_current_time", args: {}, result: { human: "ten" }, truncated: false },
+    { kind: "assistant", text: "It is ten.", interrupted: false },
+  ]);
+  assert.equal(s.store.isLive(id), false);
+  r.assistant("late");
+  r.release();
+  r.end("ignored");
+  assert.equal(s.store.get(id)!.entryCount, 3);
+  assert.equal(s.store.get(id)!.state, "active");
+
+  // The next turn resumes the thread and appends after it.
+  const next = s.store.recorder({ channel: "chat" });
+  assert.equal(next.resume(id), true);
+  next.user("thanks", "text");
+  next.commitUser();
+  next.assistant("You're welcome.");
+  next.release();
+  assert.deepEqual(s.store.get(id)!.entries.map((e) => e.seq), [1, 2, 3, 4, 5]);
+});
+
+test("chat turn: a failure after streamed text stores it as interrupted", () => {
+  const s = setup();
+  const r = s.store.recorder({ channel: "chat" });
+  r.user("tell me about Dune", "text");
+  r.commitUser();
+  r.assistant("Dune is");
+  r.interrupted();
+  r.release();
+  assert.deepEqual(shape(s.store.get(r.conversationId!)!.entries), [
+    { kind: "user", input: "text", text: "tell me about Dune" },
+    { kind: "assistant", text: "Dune is", interrupted: true },
+  ]);
+  assert.equal(s.store.isLive(r.conversationId!), false);
+});

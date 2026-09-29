@@ -1,6 +1,8 @@
 /**
  * Records one live conversation into the store. Engine-agnostic: GeminiSession drives it on
- * /ws/audio, a chat engine can drive it directly (with `resume` to append to a thread).
+ * /ws/audio for a whole session and ends it with `end()`; the chat engine drives one per turn,
+ * with `resume` to append to a thread, `commitUser` to store the message before the model runs,
+ * and `release` to finish without ending the thread.
  *
  * Turn assembly: the recorder holds the current exchange (user segments, then assistant text and
  * tool calls in order) and writes it as whole entries when the exchange settles:
@@ -114,17 +116,47 @@ export class ConversationRecorder {
   /** Write everything held, then mark the conversation quiet with the reason. Later calls are ignored. */
   end(reason?: string): void {
     if (this.ended) return;
-    this.guard("end", () => {
+    this.settleAll("end");
+    if (!this.id) return;
+    const id = this.id;
+    this.guard("end", () => void this.store.markQuiet(id, { reason: reason ?? null }));
+    this.store.detach(id);
+  }
+
+  /**
+   * Write everything held and stop recording without ending the conversation: it stays active and
+   * goes quiet by the inactivity rule (a chat turn). Later calls, and calls after `end`, are ignored.
+   */
+  release(): void {
+    if (this.ended) return;
+    this.settleAll("release");
+    if (this.id) this.store.detach(this.id);
+  }
+
+  /**
+   * Write the user input held before any output now, creating the conversation if needed, so it is
+   * stored (and has an id) before the model answers. Ignored once output started.
+   */
+  commitUser(): void {
+    if (this.ended || this.outputStarted || !this.question.length) return;
+    this.guard("commit user", () => {
+      const started = this.question[0].at;
+      for (const s of this.question) {
+        const text = s.text.trim();
+        if (text) this.write({ kind: "user", at: s.at, input: s.input, text }, started);
+      }
+      this.question = [];
+    });
+  }
+
+  private settleAll(op: string): void {
+    this.guard(op, () => {
       if (this.outputStarted) this.complete();
       this.flush();
       for (const t of this.awaiting) this.writeTool(t);
       this.awaiting.clear();
     });
     this.ended = true;
-    if (!this.id) return;
-    const id = this.id;
-    this.guard("end", () => void this.store.markQuiet(id, { reason: reason ?? null }));
-    this.store.detach(id);
   }
 
   /** Append to an existing conversation instead of starting a new one. Returns false when it is unknown. */
