@@ -7,9 +7,9 @@
 
 ## 2. Helpers and errors
 
-- [ ] 2.1 Port `errors.ts` and `types.ts` from Jarvis unchanged; verify `pnpm --filter @friday/module-travel typecheck` passes
-- [ ] 2.2 Port `helpers.ts` (`parseCoordinates`, `formatDuration`, `validateTimeArgs`) and `test/helpers.test.ts` from the Jarvis vitest cases to `node:test`; verify all ported cases pass
-- [ ] 2.3 Change `validateTimeArgs` to take a time zone and render offset-less times with that zone's offset (past check on the resulting instant, invalid zone falls back to `Europe/Amsterdam`); add tests for `Europe/Amsterdam` in summer (+02:00) and winter (+01:00), an explicit `Z`/offset passed through, and a local time that is past in the zone but not in UTC; verify `pnpm --filter @friday/module-travel test` passes
+- [x] 2.1 Port `errors.ts` and `types.ts` from Jarvis unchanged; verify `pnpm --filter @friday/module-travel typecheck` passes
+- [x] 2.2 Port `helpers.ts` (`parseCoordinates`, `formatDuration`, `validateTimeArgs`) and `test/helpers.test.ts` from the Jarvis vitest cases to `node:test`; verify all ported cases pass
+- [x] 2.3 Change `validateTimeArgs` to take a time zone and render offset-less times with that zone's offset (past check on the resulting instant, invalid zone falls back to `Europe/Amsterdam`); add tests for `Europe/Amsterdam` in summer (+02:00) and winter (+01:00), an explicit `Z`/offset passed through, and a local time that is past in the zone but not in UTC; verify `pnpm --filter @friday/module-travel test` passes
 
 ## 3. TomTom client
 

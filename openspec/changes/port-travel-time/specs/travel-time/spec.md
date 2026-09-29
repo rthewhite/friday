@@ -72,7 +72,7 @@ A `lat,lon` input (optional spaces, latitude within ±90 and longitude within ±
 
 ### Requirement: Departure and arrival times
 
-`departAt` and `arriveAt` SHALL be validated before any TomTom request is made. Giving both SHALL be an error. A value that does not parse as a timestamp SHALL be an error naming the parameter. A `departAt` in the past SHALL be an error suggesting to omit it for a journey right now. A timestamp with an explicit offset or `Z` SHALL be passed to TomTom as given; a timestamp without one SHALL be read as local time in `FRIDAY_TIMEZONE` (default `Europe/Amsterdam`) and sent with that zone's offset. When a time is given, TomTom SHALL route on predicted traffic for that time; `arriveAt` returns the latest departure that still arrives on time.
+`departAt` and `arriveAt` SHALL be validated before any TomTom request is made. Giving both SHALL be an error. A value that does not parse as a timestamp SHALL be an error naming the parameter. A `departAt` in the past SHALL be an error suggesting to omit it for a journey right now. A timestamp with an explicit offset or `Z` SHALL be passed to TomTom as given; a timestamp without one SHALL be an ISO 8601 date-time (`YYYY-MM-DDTHH:mm[:ss]`, `T` or a space), read as local time in `FRIDAY_TIMEZONE` (default `Europe/Amsterdam`, also used when the zone is invalid) and sent with that zone's offset at that moment; any other offset-less value, or a date that does not exist, is not a valid timestamp. When a time is given, TomTom SHALL route on predicted traffic for that time; `arriveAt` returns the latest departure that still arrives on time.
 
 #### Scenario: Both times given
 - **WHEN** called with both `departAt` and `arriveAt`
@@ -89,6 +89,14 @@ A `lat,lon` input (optional spaces, latitude within ±90 and longitude within ±
 #### Scenario: Local time without offset
 - **WHEN** `FRIDAY_TIMEZONE` is `Europe/Amsterdam` and `departAt` is `2026-10-01T08:00:00`
 - **THEN** TomTom receives `departAt=2026-10-01T08:00:00+02:00`
+
+#### Scenario: Local time across a DST change
+- **WHEN** `FRIDAY_TIMEZONE` is `Europe/Amsterdam` and `arriveAt` is `2026-10-25T12:00`
+- **THEN** TomTom receives `arriveAt=2026-10-25T12:00:00+01:00`
+
+#### Scenario: Offset-less time that is not ISO 8601
+- **WHEN** `departAt` is `Aug 9 2026 08:00`
+- **THEN** the tool returns an error that `departAt` is not a valid timestamp, and no request is made
 
 #### Scenario: Time with offset
 - **WHEN** `arriveAt` is `2026-10-01T09:00:00Z`
