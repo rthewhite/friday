@@ -29,7 +29,7 @@
 
 ## 3. Integration
 
-- [ ] 3.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
+- [x] 3.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
 - [ ] 3.2 Rehearse the runbook against the real data:
   - make the read-only backup in the Jarvis pod and copy it out (ask the user before touching the pod);
   - run the dry run and then `--apply` against a local Friday with an empty data directory;
