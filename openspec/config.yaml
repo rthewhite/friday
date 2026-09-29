@@ -56,8 +56,10 @@ context: |
   (packages/sdk/src/prompt.ts, packages/core/src/prompt-context.ts). Remote hosts reject ctx.db and ctx.prompt.
   Household zone: FRIDAY_TIMEZONE, default and invalid-value fallback Europe/Amsterdam everywhere, resolved by
   @friday/sdk's time helper (packages/sdk/src/time.ts: DEFAULT_TIME_ZONE, resolveTimeZone, localDate,
-  householdTimeZone(ctx.config, warn) reading per call and warning once); core's scheduler reads it from the
-  environment at startup only. Never hard-code the zone in a module.
+  householdTimeZone(ctx.config, warn) reading per call and warning once). Core declares it too; the scheduler
+  resolves it like core's keys (core scope, global, env) and refreshTimezone() re-plans cron jobs when the config
+  API saves or clears it (AppDeps.onConfigChange → followTimezone). The portal drawer preselects the stored
+  scope, else the sole requester, else global (packages/portal/src/lib/config-scope.ts). Never hard-code the zone.
   Configuration values are plain (plaintext, visible in the
   portal) or secret (manifest config key `secret: true`; AES-256-GCM with FRIDAY_MASTER_KEY, write-only)
   (packages/core/src/secrets); ctx.config resolves module scope, then global,

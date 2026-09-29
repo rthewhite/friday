@@ -52,6 +52,8 @@ export interface AppDeps {
   chat?: ChatEngine;
   /** Interval of the chat stream's keep-alive comments (tests shorten it). */
   chatHeartbeatMs?: number;
+  /** Called after a configuration value is stored or deleted through the API. */
+  onConfigChange?: (scope: string, key: string) => void;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -135,6 +137,15 @@ export function configListing({ host, configStore, env = process.env }: Pick<App
   return [...byKey.values()];
 }
 
+/** The write is already committed, so a failing listener is logged rather than turning the save into a 500. */
+function notifyConfigChange({ onConfigChange }: Pick<AppDeps, "onConfigChange">, scope: string, key: string): void {
+  try {
+    onConfigChange?.(scope, key);
+  } catch (e) {
+    console.error(`config: reacting to ${scope}/${key} failed`, e);
+  }
+}
+
 /** A stored definition (secret entries without values) merged with its connection state. */
 function mcpServerEntry({ mcp }: Pick<AppDeps, "mcp">, s: StoredServer) {
   const state = mcp.stateOf(s.name) ?? (s.enabled ? { status: "failed" as const, error: "not connected", tools: [] } : { status: "disabled" as const, tools: [] });
@@ -190,12 +201,14 @@ export function createApp(deps: AppDeps) {
         if (e instanceof ConfigStoreDisabled) return sendJson(res, { error: e.message }, 503);
         throw e;
       }
+      notifyConfigChange(deps, scope, key);
       res.statusCode = 204;
       res.end();
     })
     .add("DELETE", "/api/config/:scope/:key", (_req, res, { scope, key }) => {
       if (!deps.configStore) return sendJson(res, { error: "no configuration store" }, 503);
       deps.configStore.delete(scope, key);
+      notifyConfigChange(deps, scope, key);
       res.statusCode = 204;
       res.end();
     })

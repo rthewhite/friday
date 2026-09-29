@@ -4,7 +4,7 @@
 
 ### Requirement: Cron schedules follow the configured timezone
 
-Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE`, resolved like core's own configuration: the value stored for `core`, then the `global` value, then the process environment, and `Europe/Amsterdam` when none is set or the value is blank. Daylight-saving transitions SHALL be handled. An invalid zone SHALL be logged as an error naming it, and cron expressions SHALL then be evaluated in `Europe/Amsterdam`, the same default zone modules fall back to. When `FRIDAY_TIMEZONE` is saved or cleared through the configuration API, core SHALL resolve the zone again and, when it changed, SHALL re-plan the next run of every cron job from the current time in the new zone, without a restart. Interval jobs, runs in progress and pending catch-up runs SHALL NOT be affected. The jobs listing SHALL report the current zone.
+Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE`, resolved like core's own configuration: the value stored for `core`, then the `global` value, then the process environment, and `Europe/Amsterdam` when none is set or the value is blank. Daylight-saving transitions SHALL be handled. An invalid zone SHALL be logged as an error naming it, and cron expressions SHALL then be evaluated in `Europe/Amsterdam`, the same default zone modules fall back to. When `FRIDAY_TIMEZONE` is saved or cleared through the configuration API, core SHALL resolve the zone again and, when it changed, SHALL re-plan the next run of every cron job from the current time in the new zone, without a restart. Interval jobs, runs in progress and pending catch-up runs SHALL NOT be affected. A restart after a zone change SHALL NOT catch up a slot of the new zone that fell before the change. Zones that differ only in letter case SHALL count as the same zone. The jobs listing SHALL report the current zone.
 
 #### Scenario: Nightly in local time
 - **WHEN** `FRIDAY_TIMEZONE` is `Europe/Amsterdam` and a job has `cron: "0 3 * * *"`
@@ -25,6 +25,10 @@ Cron expressions SHALL be evaluated in the IANA zone from `FRIDAY_TIMEZONE`, res
 #### Scenario: Zone cleared while running
 - **WHEN** a stored `FRIDAY_TIMEZONE` is deleted and the environment has none
 - **THEN** cron jobs are re-planned in `Europe/Amsterdam`
+
+#### Scenario: Restart after a zone change
+- **WHEN** `brain/nightly` ran at 03:00 Amsterdam, the zone was changed to `America/New_York` at 14:00 Amsterdam, and Friday restarts an hour later
+- **THEN** no catch-up run starts, and the next run is 03:00 New York the next day
 
 #### Scenario: Unrelated key saved
 - **WHEN** a key other than `FRIDAY_TIMEZONE` is saved, or `FRIDAY_TIMEZONE` is saved with the zone already in effect

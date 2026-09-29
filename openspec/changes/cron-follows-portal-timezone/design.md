@@ -24,13 +24,15 @@
 
 **The scheduler takes a zone reader and can re-plan.** `SchedulerOptions.timezone` becomes `string | (() => string | undefined)`, so the tests that pass a string keep working. `server.ts` passes `() => coreKey("FRIDAY_TIMEZONE")`. `timezone` becomes a getter over a private field. A new `refreshTimezone()`:
 
-1. resolves the reader with `resolveTimeZone`, logging an error for an invalid value (once per distinct value, like the startup error today);
+1. resolves the reader through the SDK's `householdTimeZone` (logged as an error, once per distinct invalid value), so cron and modules share one resolution; `resolveTimeZone` returns `Intl`'s canonical spelling, so `europe/amsterdam` is no change;
 2. returns if the zone is unchanged;
-3. otherwise logs `jobs: timezone changed to <zone>; cron jobs re-planned`, and for every cron job clears its timer, sets `nextDue = next(job, now)` and re-arms it. It leaves `everyMs` jobs, `active` runs and `catchup` timers alone, and leaves `lastDue` in the job store alone, so the next startup's catch-up check uses the new zone as well.
+3. otherwise logs `jobs: timezone changed to <zone>; N cron job(s) re-planned`, and for every cron job clears its timer, stores `now` as its due time, sets `nextDue = next(job, now)` and re-arms it. It leaves `everyMs` jobs, `active` runs and `catchup` timers alone.
+
+Storing `now` as the due time was added after code review: the first draft left the old zone's due time in place, so a restart later that day computed the new zone's slot from it (03:00 New York, already past) and ran an unneeded catch-up.
 
 The constructor calls the same resolution, so startup and live changes behave the same.
 
-**One notification hook on the configuration API.** `AppDeps` gets `onConfigChange?: (scope: string, key: string) => void`, called after a successful `PUT` or `DELETE`. `server.ts` wires `(_, key) => { if (key === "FRIDAY_TIMEZONE") jobs.refreshTimezone(); }`. The scope does not matter, because `refreshTimezone` re-resolves anyway and a module-scope write resolves to the same zone. Alternatives: poll every minute (a delay and a timer for a rare event), or have `ConfigStore` emit events (widens a storage class for one consumer).
+**One notification hook on the configuration API.** `AppDeps` gets `onConfigChange?: (scope: string, key: string) => void`, called after a successful `PUT` or `DELETE`. A listener that throws is logged, not turned into a 500, because the write is already committed. `server.ts` wires `followTimezone(jobs)`, exported from `core-config.ts` as `(_, key) => { if (key === "FRIDAY_TIMEZONE") jobs.refreshTimezone(); }`, so the tests use exactly the wiring the server does. The scope does not matter, because `refreshTimezone` re-resolves anyway and a module-scope write resolves to the same zone. Alternatives: poll every minute (a delay and a timer for a rare event), or have `ConfigStore` emit events (widens a storage class for one consumer).
 
 **`settings.timezone` goes away.** `packages/core/src/config.ts` no longer reads `FRIDAY_TIMEZONE`, and the resolver covers the environment. The "settings defaults for jobs" test drops its timezone assertion.
 

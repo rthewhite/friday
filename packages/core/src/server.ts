@@ -11,7 +11,7 @@ import { databasePath, openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
 import { ConversationStore } from "./conversations/store.js";
 import { registerRetention } from "./conversations/retention.js";
-import { coreConfig } from "./core-config.js";
+import { coreConfig, followTimezone } from "./core-config.js";
 import { ConfigStore } from "./secrets/config-store.js";
 import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
@@ -37,7 +37,8 @@ const geminiKey = () => coreKey("GEMINI_API_KEY");
 const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
-const jobs = new Scheduler({ store: jobStore, timezone: settings.timezone, catchupDelayMs: settings.jobCatchupDelayMs });
+// Cron's zone resolves like core's other keys (core scope, global, env) and re-plans when saved (followTimezone).
+const jobs = new Scheduler({ store: jobStore, timezone: () => coreKey("FRIDAY_TIMEZONE"), catchupDelayMs: settings.jobCatchupDelayMs });
 const conversations = new ConversationStore(db, { quietMinutes: settings.conversationQuietMinutes });
 
 const registry = new ToolRegistry();
@@ -94,7 +95,7 @@ const chat = new ChatEngine({
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 
-const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations, chat }));
+const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs) }));
 attachAudioWs(server, { registry, conversations, geminiKey, promptContext });
 remote.attach(server);
 

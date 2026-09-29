@@ -136,6 +136,126 @@ test("an invalid timezone logs an error and cron jobs run in Europe/Amsterdam, l
   await s.stop();
 });
 
+/** A scheduler whose zone comes from a reader the test can change, like core's store-backed one. */
+function liveZone(start: string, zone: string | undefined = "Europe/Amsterdam") {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const clock = new FakeClock(Date.parse(start));
+  const { lines, log } = logger();
+  const cfg = { zone };
+  const s = new Scheduler({ store: new JobStore(db, 50), clock, log, timezone: () => cfg.zone, catchupDelayMs: 30_000, graceMs: 1000 });
+  return { s, clock, lines, cfg };
+}
+
+test("a changed zone re-plans cron jobs from now, and they run at the new local time", async () => {
+  const { s, clock, lines, cfg } = liveZone("2026-09-28T12:00:00Z");
+  const runs: string[] = [];
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => void runs.push(iso(clock.now())) });
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T01:00:00.000Z", "03:00 Amsterdam");
+
+  cfg.zone = "America/New_York";
+  s.refreshTimezone();
+
+  assert.deepEqual(s.list()[0].schedule, { cron: "0 3 * * *", timezone: "America/New_York" });
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T07:00:00.000Z", "03:00 New York");
+  assert.ok(lines.some((l) => l.includes("timezone changed to America/New_York; 1 cron job(s) re-planned")));
+  await clock.to("2026-09-29T06:59:00Z");
+  assert.deepEqual(runs, [], "the old Amsterdam slot is gone");
+  await clock.to("2026-09-29T07:00:00Z");
+  assert.deepEqual(runs, ["2026-09-29T07:00:00.000Z"]);
+  await s.stop();
+});
+
+test("refreshing with the zone unchanged re-plans nothing", async () => {
+  const { s, clock, lines } = liveZone("2026-09-28T12:00:00Z");
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  const timers = [...clock.timers.keys()];
+  s.refreshTimezone();
+  assert.deepEqual([...clock.timers.keys()], timers);
+  assert.ok(!lines.some((l) => l.includes("re-planned")));
+  await s.stop();
+});
+
+test("a zone change leaves interval jobs on their schedule", async () => {
+  const { s, cfg } = liveZone("2026-09-28T12:00:00Z");
+  s.register("media", { name: "poll", everyMs: 900_000, run: () => {} });
+  cfg.zone = "Asia/Tokyo";
+  s.refreshTimezone();
+  assert.equal(s.list()[0].nextRunAt, "2026-09-28T12:15:00.000Z");
+  await s.stop();
+});
+
+test("an invalid zone saved while running falls back to Amsterdam and logs one error", async () => {
+  const { s, lines, cfg } = liveZone("2026-09-28T12:00:00Z", "America/New_York");
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  cfg.zone = "Mars/Olympus";
+  s.refreshTimezone();
+  s.refreshTimezone();
+  assert.equal(s.timezone, "Europe/Amsterdam");
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T01:00:00.000Z");
+  assert.equal(lines.filter((l) => l.startsWith("error") && l.includes('"Mars/Olympus"')).length, 1);
+  await s.stop();
+});
+
+test("a zone change does not cancel a run in progress", async () => {
+  const { s, clock, cfg } = liveZone("2026-09-29T00:59:00Z");
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => clock.sleep(10 * 60_000).then(() => ({ summary: "done" })) });
+  await clock.to("2026-09-29T01:01:00Z");
+  assert.equal(s.list()[0].running, true);
+  cfg.zone = "America/New_York";
+  s.refreshTimezone();
+  await clock.to("2026-09-29T01:15:00Z");
+  assert.equal(s.list()[0].lastRun?.outcome, "ok");
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T07:00:00.000Z");
+  await s.stop();
+});
+
+test("a restart after a zone change does not catch up a slot that never ran", async () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  // 03:00 Amsterdam ran at 01:00Z; at 12:00Z the zone becomes New York (next run 07:00Z tomorrow).
+  const clock = new FakeClock(Date.parse("2026-09-29T00:30:00Z"));
+  const cfg = { zone: "Europe/Amsterdam" };
+  const first = new Scheduler({ store: new JobStore(db, 50), clock, log: quiet, timezone: () => cfg.zone, catchupDelayMs: 30_000, graceMs: 1000 });
+  first.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  await clock.to("2026-09-29T12:00:00Z");
+  cfg.zone = "America/New_York";
+  first.refreshTimezone();
+  await first.stop();
+
+  // Restarted at 13:00Z: 03:00 New York today (07:00Z) is in the past, but it was never due under this schedule.
+  const later = new FakeClock(Date.parse("2026-09-29T13:00:00Z"));
+  const again = new Scheduler({ store: new JobStore(db, 50), clock: later, log: quiet, timezone: "America/New_York", catchupDelayMs: 30_000 });
+  const triggers: string[] = [];
+  again.register("brain", { name: "nightly", cron: "0 3 * * *", run: ({ trigger }) => void triggers.push(trigger) });
+  assert.equal(again.list()[0].nextRunAt, "2026-09-30T07:00:00.000Z");
+  await later.advance(60_000); // past the catch-up delay
+  assert.deepEqual(triggers, [], "no catch-up");
+  await again.stop();
+});
+
+test("a zone change leaves a pending catch-up run alone", async () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const first = setup("2026-09-27T12:00:00Z", { db });
+  first.s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  await first.clock.to("2026-09-29T00:00:00Z");
+  await first.s.stop();
+
+  // Restarted after missing the 29th's 03:00 Amsterdam slot, so a catch-up is pending for 30 s.
+  const clock = new FakeClock(Date.parse("2026-09-29T02:00:00Z"));
+  const cfg = { zone: "Europe/Amsterdam" };
+  const s = new Scheduler({ store: new JobStore(db, 50), clock, log: quiet, timezone: () => cfg.zone, catchupDelayMs: 30_000, graceMs: 1000 });
+  const triggers: string[] = [];
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: ({ trigger }) => void triggers.push(`${iso(clock.now())} ${trigger}`) });
+  cfg.zone = "America/New_York";
+  s.refreshTimezone();
+  await clock.advance(30_000);
+  assert.deepEqual(triggers, ["2026-09-29T02:00:30.000Z catch-up"]);
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T07:00:00.000Z", "the next scheduled run is in the new zone");
+  await s.stop();
+});
+
 test("an unset or blank timezone means Europe/Amsterdam, without an error", async () => {
   for (const timezone of [undefined, "", "  "]) {
     const db = new DatabaseSync(":memory:");
@@ -365,10 +485,10 @@ test("removeOwner only affects that owner's jobs", async () => {
 });
 
 test("settings defaults for jobs", async () => {
-  for (const k of ["FRIDAY_JOB_HISTORY", "FRIDAY_JOB_CATCHUP_DELAY_MS", "FRIDAY_TIMEZONE"]) delete process.env[k];
+  for (const k of ["FRIDAY_JOB_HISTORY", "FRIDAY_JOB_CATCHUP_DELAY_MS"]) delete process.env[k];
   const { settings } = await import("../src/config.js");
   assert.equal(settings.jobHistory, 50);
   assert.equal(settings.jobCatchupDelayMs, 30_000);
-  // Raw on purpose: the scheduler resolves unset to Europe/Amsterdam (tested above), and logs invalid values.
-  assert.equal(settings.timezone, undefined);
+  // FRIDAY_TIMEZONE is not a startup setting: the scheduler reads it through core's config resolver.
+  assert.ok(!("timezone" in settings));
 });

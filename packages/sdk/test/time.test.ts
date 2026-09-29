@@ -20,6 +20,11 @@ test("resolveTimeZone keeps a valid zone, defaults an unset or blank one, and fl
   assert.deepEqual(resolveTimeZone("Mars/Olympus"), { zone: "Europe/Amsterdam", valid: false });
 });
 
+test("resolveTimeZone returns a valid zone in Intl's spelling, so case differences are the same zone", () => {
+  assert.deepEqual(resolveTimeZone("europe/amsterdam"), { zone: "Europe/Amsterdam", valid: true });
+  assert.deepEqual(resolveTimeZone(" AMERICA/NEW_YORK "), { zone: "America/New_York", valid: true });
+});
+
 test("the reader returns a valid configured zone without warning", () => {
   const { zone, warnings } = reader({ FRIDAY_TIMEZONE: "Asia/Tokyo" });
   assert.equal(zone(), "Asia/Tokyo");
