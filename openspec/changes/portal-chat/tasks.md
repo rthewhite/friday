@@ -49,4 +49,4 @@
 ## 8. Docs and integration
 
 - [x] 8.1 Update the README (Chat page, what is stored for chat, `FRIDAY_CHAT_MODEL`, `FRIDAY_CHAT_TOOL_TIMEOUT_MS`, tool `channels`), the SDK README (`channels` on `defineTool`), and the `openspec/config.yaml` context (chat engine, `/api/chat`, channels); check `deploy/k8s.yaml` needs no change and verify the documented settings match `config.ts`
-- [ ] 8.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify it is green
+- [x] 8.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify it is green
