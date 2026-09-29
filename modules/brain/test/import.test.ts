@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTestHost } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
-import type { JarvisExport } from "../src/import.js";
+import { runImport, type JarvisExport } from "../src/import.js";
+import { BrainError } from "../src/store.js";
+import { brainStore } from "./fixtures.js";
 
 const at = (d: string) => `2026-${d}T12:00:00.000Z`;
 
@@ -143,6 +145,77 @@ test("the prompt index lists imported pages in Jarvis's recency order", async ()
   const names = index.map((l) => l.slice(2).split(" (")[0]);
   assert.deepEqual(names.slice(0, 3), ["Anouk", "Family", "Page 9"]);
   assert.ok(names.indexOf("Anouk") < names.indexOf("Car"), "Anouk (updated in September) before Car (updated in February)");
+});
+
+test("deleted pages go in before the profile and live pages, so they may reuse their names", async () => {
+  const { post, rows } = await host();
+  const exp = sample();
+  exp.profile!.aliases = ["Me"];
+  exp.deleted!.push({ name: "Me", type: "person", aliases: ["Noukie"], body: "old", createdAt: at("01-01"), updatedAt: at("01-01"), deletedAt: at("01-02") });
+  const r = await post({ ...exp, dryRun: false });
+  assert.equal(r.body.applied, true, JSON.stringify(r.body.report.problems));
+  assert.equal(rows("SELECT key FROM brain__names WHERE key IN ('me', 'noukie')").length, 2);
+  assert.equal(rows("SELECT deleted_at FROM brain__pages WHERE name = 'Me'")[0].deleted_at, at("01-02"));
+});
+
+test("times are stored as UTC ISO strings, whatever offset Jarvis wrote", async () => {
+  const { post, rows } = await host();
+  const exp = sample();
+  exp.pages![0]!.createdAt = "2026-01-01T12:00:00+02:00";
+  exp.pages![0]!.updatedAt = "2026-02-01T12:00:00Z";
+  assert.equal((await post({ ...exp, dryRun: false })).body.applied, true);
+  const car = rows("SELECT created_at, updated_at FROM brain__pages WHERE name = 'Car' AND deleted_at IS NULL")[0];
+  assert.deepEqual([car.created_at, car.updated_at], ["2026-01-01T10:00:00.000Z", at("02-01")]);
+});
+
+test("malformed entries and a malformed profile are problems, not errors", async () => {
+  const { post } = await host();
+  const r = await post({ profile: "text", pages: [null, "Car"], deleted: [7], tombstones: [{ purgedAt: at("01-01") }], dryRun: true });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.report.problems.map((p: any) => p.page), ["Profile", "(pages)", "(pages)", "(deleted)", "(tombstones)"]);
+});
+
+test("a collision is reported even when the other page has problems of its own", async () => {
+  const { post } = await host();
+  const exp = sample();
+  exp.pages!.push({ name: "Robot", type: "animal", aliases: ["Noukie"], body: "", createdAt: at("01-01"), updatedAt: at("01-01") });
+  exp.pages!.push({ name: "robot", type: "other", aliases: [], body: "", createdAt: at("01-01"), updatedAt: at("01-01") });
+  const problems = (await post({ ...exp, dryRun: true })).body.report.problems.map((p: any) => `${p.page}: ${p.message}`).join("\n");
+  assert.match(problems, /Robot: type must be one of/);
+  assert.match(problems, /Robot: "Noukie" is also a name or alias of Anouk/);
+  assert.match(problems, /robot: "robot" is also a name or alias of Robot/);
+});
+
+test("a profile with aliases counts as not empty", async () => {
+  const { h, post } = await host();
+  await h.request("PUT", "pages/profile", { name: "Profile", type: "other", aliases: ["Me"], body: "", baseRevision: 1 });
+  assert.equal((await post({ ...sample(), dryRun: true })).status, 409);
+});
+
+test("an imported page that brings back a name this brain forgot is a warning", async () => {
+  const { h, post } = await host();
+  const page = (await h.request("POST", "pages", { name: "Anouk" })).body as any;
+  await h.request("DELETE", `pages/${page.id}`);
+  await h.request("POST", `pages/${page.id}/purge`, { confirm: "Anouk" });
+  const r = await post({ ...sample(), dryRun: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.report.warnings.map((w: any) => w.message).join("\n"), /"Anouk" was deliberately forgotten in this brain; importing Anouk brings the name back/);
+});
+
+test("a store error inside the transaction rolls everything back and is reported as a problem", () => {
+  const { store, db } = brainStore();
+  const create = store.create.bind(store);
+  let n = 0;
+  store.create = (...a) => {
+    if (++n === 3) throw new BrainError("name_taken", "that name is taken", undefined, ["Family"]);
+    return create(...a);
+  };
+  const r = runImport(store, db, sample(), 800, false);
+  assert.equal(r.applied, false);
+  assert.deepEqual(r.report.problems, [{ page: "Family", message: "the import failed and was rolled back: that name is taken" }]);
+  assert.equal(store.count(), 0);
+  assert.equal(store.deleted().length, 0);
+  assert.equal(store.profile().body, "");
 });
 
 test("a malformed body is 400", async () => {

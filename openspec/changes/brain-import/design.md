@@ -80,20 +80,21 @@ Response:
 - **Warnings:**
   - Aliases dropped by deduplication (for example an alias equal to the name).
   - A tombstone whose key is also an imported page's name or alias; that tombstone is skipped.
+  - An imported page whose name or alias this brain had already tombstoned; the import brings it back.
   - `[[…]]` targets that aren't links under Friday's rules (over 80 characters or containing a line break); they stay as text.
   - A profile over its token budget; it is imported anyway, as the budget is soft.
 - **Deleted pages** are validated with the same field rules. Their names may repeat live names, as in Jarvis, because a deleted page doesn't hold its names.
 
 ### D3. Application order inside the transaction
 
-1. **Guard:** refuse with `not_empty` when `brain__pages` has any row besides the profile, or the profile's body isn't empty.
-2. **Profile:** save its body and aliases (author `user`, note `imported from jarvis`).
-3. **Deleted pages:** `create`, then mark deleted directly with Jarvis's `deleted_at`, removing the page's names as a soft delete does, but without a second revision. That keeps every imported page at exactly one revision. Oldest first; each frees its names before the next page, so deleted and live pages that share a name don't collide.
+1. **Guard:** refuse with `not_empty` when `brain__pages` has any row besides the profile, or the profile has a body or aliases.
+2. **Deleted pages:** `create`, then mark deleted directly with Jarvis's `deleted_at`, removing the page's names as a soft delete does, but without a second revision. That keeps every imported page at exactly one revision. Oldest first; each frees its names before the next page, so deleted and live pages that share a name don't collide. They go first, before the profile and live pages claim their names.
+3. **Profile:** save its body and aliases (author `user`, note `imported from jarvis`).
 4. **Live pages:** `create`, in ascending Jarvis `updated_at`. Each gets one revision (author `user`, note `imported from jarvis (created <c>, updated <u>)`).
 5. **Times:** overwrite each imported page's `created_at` and `updated_at`, and a deleted page's `deleted_at`, with Jarvis's values. This is a direct update of those columns in the same transaction. Revision times stay at the import, so the history shows when the page arrived in Friday.
 6. **Tombstones:** insert each one not skipped under D2, keyed by Friday's name key of Jarvis's `name_lower`, with Jarvis's purge time. This goes through a new store method used only by the import. Tombstones are written last, because a `user` create lifts tombstones on its names.
 
-- **Store errors:** any error, such as a collision the dry run missed, rolls the whole import back. The route answers 400 with the error in the report.
+- **Store errors:** any error, such as a collision the dry run missed, rolls the whole import back. The route answers 400 `invalid` with the error added to the report's problems.
 - **Why keep Jarvis's times:** the prompt index and the portal list order by recency, and creating pages one after another in the same millisecond would order ties by random id. Keeping the times is faithful and deterministic.
 
 ### D4. The script
