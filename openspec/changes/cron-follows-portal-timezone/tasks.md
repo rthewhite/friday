@@ -10,7 +10,7 @@
 
 ## 3. Portal default scope
 
-- [ ] 3.1 Add `packages/portal/src/lib/config-scope.ts` with `defaultScope(entry)` (stored scope, else the only requester, else `global`) and use it in `ConfigurationPage.vue` `openEntry`; add `packages/portal/test/config-scope.test.ts` covering a shared unstored key (`global`), a single requester (that module), a value stored for one module (that module), a value stored globally (`global`) and an undeclared global (`global`); verify `pnpm --filter @friday/portal test`, `typecheck` and `build` pass
+- [x] 3.1 Add `packages/portal/src/lib/config-scope.ts` with `defaultScope(entry)` (stored scope, else the only requester, else `global`) and use it in `ConfigurationPage.vue` `openEntry`; add `packages/portal/test/config-scope.test.ts` covering a shared unstored key (`global`), a single requester (that module), a value stored for one module (that module), a value stored globally (`global`) and an undeclared global (`global`); verify `pnpm --filter @friday/portal test`, `typecheck` and `build` pass
 
 ## 4. Documentation
 

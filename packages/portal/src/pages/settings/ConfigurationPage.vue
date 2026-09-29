@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
+import { defaultScope } from "../../lib/config-scope.js";
 import McpServersTab from "./McpServersTab.vue";
 
 interface Entry extends Record<string, unknown> {
@@ -72,7 +73,7 @@ const draft = ref({ key: "", value: "", scope: "global" });
 function openEntry(e: Entry) {
   selected.value = e;
   adding.value = false;
-  draft.value = { key: e.key, value: e.secret ? "" : (e.value ?? ""), scope: e.scope === "global" || !e.modules.length ? "global" : e.modules[0]!.id };
+  draft.value = { key: e.key, value: e.secret ? "" : (e.value ?? ""), scope: defaultScope(e) };
   open.value = true;
   router.replace({ query: { ...route.query, key: e.key } });
 }
