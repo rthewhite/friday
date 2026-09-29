@@ -13,7 +13,7 @@
 
 ## 3. TomTom client
 
-- [ ] 3.1 Port `tomtom.ts` with an injected logger instead of `createLogger`, and a 10 s `AbortSignal.timeout` on every request; port `test/tomtom.test.ts` (endpoints and API versions, URL encoding, POI vs address names, not-found, credential/entitlement errors, upstream and transport errors, no key in messages, route params, summary mapping, `NO_ROUTE_FOUND`, cache hits/normalisation/negative caching/TTL/eviction/no route caching); add a test that an aborted request becomes an upstream error without status and that no log line contains the key; verify `pnpm --filter @friday/module-travel test` passes
+- [x] 3.1 Port `tomtom.ts` with an injected logger instead of `createLogger`, and a 10 s `AbortSignal.timeout` on every request; port `test/tomtom.test.ts` (endpoints and API versions, URL encoding, POI vs address names, not-found, credential/entitlement errors, upstream and transport errors, no key in messages, route params, summary mapping, `NO_ROUTE_FOUND`, cache hits/normalisation/negative caching/TTL/eviction/no route caching); add a test that an aborted request becomes an upstream error without status and that no log line contains the key; verify `pnpm --filter @friday/module-travel test` passes
 
 ## 4. Tool
 
