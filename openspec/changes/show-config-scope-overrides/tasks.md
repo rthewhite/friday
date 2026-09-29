@@ -2,7 +2,7 @@
 
 ## 1. API lists every stored scope
 
-- [ ] 1.1 In `configListing` (`packages/core/src/app.ts`), add `stored` to entries with at least one stored row: `{ scope, updatedAt, value? }` per row from `ConfigStore.keys()`, value only for plain, non-declared-secret rows, ordered `global`, `core`, then by name, including scopes no loaded module declares; update the exact-shape listing assertions in `packages/core/test/platform-api.test.ts` and add tests for: a key stored globally and for one module (both listed, global first, values shown), a secret stored in two scopes (no values in `stored`), an env-only entry (no `stored`), a row for an unknown scope (listed), and `DELETE` of one scope leaving the other; verify `pnpm --filter @friday/core test` and `typecheck` pass
+- [x] 1.1 In `configListing` (`packages/core/src/app.ts`), add `stored` to entries with at least one stored row: `{ scope, updatedAt, value? }` per row from `ConfigStore.keys()`, value only for plain, non-declared-secret rows, ordered `global`, `core`, then by name, including scopes no loaded module declares; update the exact-shape listing assertions in `packages/core/test/platform-api.test.ts` and add tests for: a key stored globally and for one module (both listed, global first, values shown), a secret stored in two scopes (no values in `stored`), an env-only entry (no `stored`), a row for an unknown scope (listed), and `DELETE` of one scope leaving the other; verify `pnpm --filter @friday/core test` and `typecheck` pass
 
 ## 2. Portal shows and clears each stored scope
 

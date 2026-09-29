@@ -89,7 +89,18 @@ export interface ConfigEntry {
   updatedAt?: string;
   /** Current plain value (stored or environment). Absent for secrets and pending keys. */
   value?: string;
+  /** Every scope the key is stored in (global, core, then by name), so overrides are visible. Absent when none. */
+  stored?: StoredScope[];
 }
+
+export interface StoredScope {
+  scope: string;
+  updatedAt: string;
+  /** Plain values only. */
+  value?: string;
+}
+
+const scopeOrder = (s: string) => (s === GLOBAL_SCOPE ? 0 : s === CORE_ID ? 1 : 2);
 
 /** Everything that declares configuration: core itself, then every known module. */
 const requesters = (host: ModuleHost) => [{ manifest: coreManifest }, ...host.manifests()];
@@ -134,6 +145,18 @@ export function configListing({ host, configStore, env = process.env }: Pick<App
     if (!secret) { const v = configStore?.get(GLOBAL_SCOPE, key); if (v !== undefined) e.value = v; }
     byKey.set(key, e);
   }
+  // Every stored copy, including scopes no loaded module declares (leftovers worth clearing).
+  for (const row of configStore?.keys() ?? []) {
+    const e = byKey.get(row.key);
+    if (!e) continue;
+    const s: StoredScope = { scope: row.scope, updatedAt: row.updatedAt };
+    if (!row.secret && !e.secret) {
+      const v = configStore?.get(row.scope, row.key);
+      if (v !== undefined) s.value = v;
+    }
+    (e.stored ??= []).push(s);
+  }
+  for (const e of byKey.values()) e.stored?.sort((a, b) => scopeOrder(a.scope) - scopeOrder(b.scope) || a.scope.localeCompare(b.scope));
   return [...byKey.values()];
 }
 

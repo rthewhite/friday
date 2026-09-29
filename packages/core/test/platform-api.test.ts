@@ -170,11 +170,13 @@ test("config listing, set, reload, delete; plain values are visible, secrets nev
     assert.equal((await s.j("/api/config/global/EXTRA_SECRET", { method: "PUT", body: JSON.stringify({ value: "shh", secret: true }) })).status, 204);
 
     cfg = await (await s.j("/api/config")).json();
-    const strip = (e: any) => { const { updatedAt, ...rest } = e; assert.match(updatedAt, /^\d{4}-/); return rest; };
-    assert.deepEqual(strip(moduleEntries(cfg)[0]), { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "set", scope: "media", value: "http://jf" });
-    assert.deepEqual(strip(moduleEntries(cfg)[1]), { key: "HA_URL", secret: false, required: true, description: "also here", modules: [{ id: "media", required: false }, { id: "plain", required: true }], status: "set", scope: "global", value: "http://global-ha" });
-    assert.deepEqual(strip(moduleEntries(cfg)[2]), { key: "HA_TOKEN", secret: true, required: false, modules: [{ id: "media", required: false }], status: "set", scope: "media" });
-    assert.deepEqual(strip(cfg.entries.at(-1)), { key: "EXTRA_SECRET", secret: true, required: false, modules: [], status: "set", scope: "global" });
+    // Timestamps are checked for shape, then dropped (also inside `stored`).
+    const noTime = (x: any) => { const { updatedAt, ...rest } = x; assert.match(updatedAt, /^\d{4}-/); return rest; };
+    const strip = (e: any) => { const rest = noTime(e); return rest.stored ? { ...rest, stored: rest.stored.map(noTime) } : rest; };
+    assert.deepEqual(strip(moduleEntries(cfg)[0]), { key: "JELLYFIN_URL", secret: false, required: true, description: "url", modules: [{ id: "media", required: true }], status: "set", scope: "media", value: "http://jf", stored: [{ scope: "media", value: "http://jf" }] });
+    assert.deepEqual(strip(moduleEntries(cfg)[1]), { key: "HA_URL", secret: false, required: true, description: "also here", modules: [{ id: "media", required: false }, { id: "plain", required: true }], status: "set", scope: "global", value: "http://global-ha", stored: [{ scope: "global", value: "http://global-ha" }] });
+    assert.deepEqual(strip(moduleEntries(cfg)[2]), { key: "HA_TOKEN", secret: true, required: false, modules: [{ id: "media", required: false }], status: "set", scope: "media", stored: [{ scope: "media" }] });
+    assert.deepEqual(strip(cfg.entries.at(-1)), { key: "EXTRA_SECRET", secret: true, required: false, modules: [], status: "set", scope: "global", stored: [{ scope: "global" }] });
     assert.ok(!JSON.stringify(cfg).includes("tok") && !JSON.stringify(cfg).includes("shh"), "secret values are not returned");
 
     const reloaded = await (await s.j("/api/modules/media/reload", { method: "POST" })).json();
@@ -189,8 +191,36 @@ test("config listing, set, reload, delete; plain values are visible, secrets nev
     await s.j("/api/config/global/EXTRA", { method: "PUT", body: JSON.stringify({ value: "x" }) });
     cfg = await (await s.j("/api/config")).json();
     const extra = cfg.entries.find((e: any) => e.key === "EXTRA");
-    delete extra.updatedAt;
-    assert.deepEqual(extra, { key: "EXTRA", secret: false, required: false, modules: [], status: "set", scope: "global", value: "x" });
+    assert.deepEqual(strip(extra), { key: "EXTRA", secret: false, required: false, modules: [], status: "set", scope: "global", value: "x", stored: [{ scope: "global", value: "x" }] });
+  } finally {
+    await s.close();
+  }
+});
+
+test("stored lists every scope a key is stored in: global first, plain values only, unknown scopes too", async () => {
+  const s = await start({ env: { HA_URL: "http://env-ha" } });
+  const entry = async (key: string) => (await (await s.j("/api/config")).json()).entries.find((e: any) => e.key === key);
+  const scopes = (e: any) => e.stored?.map(({ scope, value }: any) => (value === undefined ? { scope } : { scope, value }));
+  try {
+    assert.equal((await entry("HA_URL")).stored, undefined, "an environment-only value has no stored copies");
+
+    await s.j("/api/config/plain/HA_URL", { method: "PUT", body: JSON.stringify({ value: "http://plain-ha" }) });
+    await s.j("/api/config/global/HA_URL", { method: "PUT", body: JSON.stringify({ value: "http://global-ha" }) });
+    // A row for a module that is no longer loaded, like a leftover from a removed module.
+    s.configStore.set("gone", "HA_URL", "http://old", { secret: false });
+    const ha = await entry("HA_URL");
+    assert.deepEqual(scopes(ha), [{ scope: "global", value: "http://global-ha" }, { scope: "gone", value: "http://old" }, { scope: "plain", value: "http://plain-ha" }]);
+    assert.ok(ha.stored.every((x: any) => /^\d{4}-/.test(x.updatedAt)));
+
+    await s.j("/api/config/media/HA_TOKEN", { method: "PUT", body: JSON.stringify({ value: "tok-media" }) });
+    await s.j("/api/config/global/HA_TOKEN", { method: "PUT", body: JSON.stringify({ value: "tok-global" }) });
+    const token = await entry("HA_TOKEN");
+    assert.deepEqual(scopes(token), [{ scope: "global" }, { scope: "media" }], "secret values never appear in stored");
+    assert.ok(!JSON.stringify(token).includes("tok-"));
+
+    assert.equal((await s.j("/api/config/gone/HA_URL", { method: "DELETE" })).status, 204, "a leftover scope can be cleared");
+    assert.equal((await s.j("/api/config/plain/HA_URL", { method: "DELETE" })).status, 204);
+    assert.deepEqual(scopes(await entry("HA_URL")), [{ scope: "global", value: "http://global-ha" }]);
   } finally {
     await s.close();
   }
