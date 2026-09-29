@@ -64,7 +64,7 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 6. HTTP routes
 
-- [ ] 6.1 Register the D7 routes with `ctx.http.route`, mapping store errors to `{ error, code }` with 400/404/409, and returning the profile budget and deleted pages in `GET pages`. Verify with `test/routes.test.ts` via `host.request`:
+- [x] 6.1 Register the D7 routes with `ctx.http.route`, mapping store errors to `{ error, code }` with 400/404/409, and returning the profile budget and deleted pages in `GET pages`. Verify with `test/routes.test.ts` via `host.request`:
   - list shape;
   - get with revisions, links and backlinks;
   - create 201 and `name_taken` 409;

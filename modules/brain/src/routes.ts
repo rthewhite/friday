@@ -94,7 +94,7 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
 
   route("DELETE", "pages/:id", (_req, res, { id }) => {
     store.softDelete(id, "user");
-    res.status(204).text("");
+    res.status(204);
   });
 
   route("POST", "pages/:id/undelete", (_req, res, { id }) => {
