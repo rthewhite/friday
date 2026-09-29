@@ -8,6 +8,7 @@ COPY packages/sdk/package.json packages/sdk/
 COPY packages/core/package.json packages/core/
 COPY packages/portal/package.json packages/portal/
 COPY packages/portal-ui/package.json packages/portal-ui/
+COPY modules/brain/package.json modules/brain/
 COPY modules/builtin/package.json modules/builtin/
 COPY modules/media/package.json modules/media/
 COPY remote/simracing/package.json remote/simracing/

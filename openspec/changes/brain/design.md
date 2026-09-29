@@ -46,7 +46,7 @@ brain__tombstones key TEXT PK, name TEXT, purged_at
 
 - **Name keys:** `key` is the name normalized for comparison: NFC, trimmed, internal whitespace collapsed, lower-cased.
 - **Why `brain__names`:** uniqueness across names and aliases of live pages is enforced by the primary key. A collision fails inside the write transaction, not in a code-level check that could race. Soft delete removes the page's rows from `brain__names`, so the name becomes free. Undelete re-inserts them and is refused on a collision.
-- **Revisions:** `revision_id` on the page points at the newest revision. Integer revision ids give a total order, which `brain-nightly` uses to list "since the last run", and they avoid `AUTOINCREMENT`.
+- **Revisions:** `revision_id` on the page points at the newest revision. Integer revision ids give a total order, which `brain-nightly` uses to list "since the last run". The column is `AUTOINCREMENT`, so a purge that deletes the newest revisions can't make SQLite hand their ids out again (a reused id would sit below a "last run" watermark and be skipped). `sqlite_sequence` is written only by SQLite itself here; `module-db` refuses module writes to it.
 - **Profile:** the migration seeds the profile (name `Profile`, type `other`, empty body) and its first revision with author `system`. Every page therefore has at least one revision, and the "exactly one profile" invariant holds from the first start.
 - **Author values:** `system`, `user`, `remember`, `extraction`, `consolidation`, validated in code. Adding one later needs no table rebuild (jarvis needed one for its `CHECK` constraint).
 
@@ -64,7 +64,7 @@ A `BrainStore` class over `ctx.db`. Every mutation (`create`, `save`, `appendNot
 - **Refuses tombstoned names** for every author except `user`. A `user` write lifts the tombstone, because the user is explicitly recreating it.
 - **Replaces the page's `brain__names` rows** and inserts the revision.
 
-Errors are typed (`invalid`, `stale`, `name_taken`, `tombstoned`, `not_found`, `profile`), and routes and tools map them to responses. `brain-nightly` will add its authors on this same path, so its guards come from here too.
+Errors are typed (`invalid`, `stale`, `name_taken`, `tombstoned`, `not_found`, `profile`, `not_deleted`), and routes and tools map them to responses. `brain-nightly` will add its authors on this same path, so its guards come from here too.
 
 ### D3. `brain_remember` appends to a `## Notes` section
 
@@ -72,7 +72,7 @@ The flow of `appendNote(entity, fact, type)`:
 
 1. **Clean the fact:** collapse whitespace and newlines into one line, trim, and reject it when empty or longer than 500 characters.
 2. **Resolve the entity:** `profile` (case-insensitive) means the profile. Otherwise match the name key against `brain__names`. With no match, create a page (type from the argument, default `other`). That creation is refused when the name is tombstoned.
-3. **Skip duplicates:** when the page body already contains the cleaned fact (case-insensitive substring), nothing is written and the tool returns `already_known`. This is cheap dedup for the "remember X" repeated in one conversation.
+3. **Skip duplicates:** when the cleaned fact equals the page's latest dated note, or a note dated today (case-insensitive), nothing is written and the tool returns `already_known`. This is cheap dedup for the "remember X" repeated in one conversation. A fact that only matches an older note, or text elsewhere on the page, is appended: remembering "Lives in Utrecht" after a later "Lives in Amsterdam" is a correction, and dropping it would leave the wrong note newest.
 4. **Append:** add `- <YYYY-MM-DD>: <fact>` under the last `## Notes` heading, creating the heading at the end of the body when it's missing. The date is local to `FRIDAY_TIMEZONE`, the same key the builtin module reads.
 5. **Write** the revision with author `remember` and no sources.
 
@@ -99,7 +99,7 @@ The flow of `appendNote(entity, fact, type)`:
 ### D5. Links are parsed on read
 
 - **Parsing:** the syntax is `/\[\[([^\[\]\n]{1,80})\]\]/g`. Targets resolve through `brain__names` (so aliases work) to live pages. An unresolved target is **dangling**: a valid marker that the page doesn't exist yet.
-- **Computing:** backlinks and dangling targets come from scanning live bodies, and a link's context is its line, cut to 160 characters.
+- **Computing:** backlinks and dangling targets come from scanning live bodies, and a link's context is its line, cut to 160 characters. `[[…]]` inside inline code or a fenced code block is not a link, matching the rendered page, so it is neither reported nor rewritten by purge.
 - **Rename:** a save that changes the name adds the old name as an alias unless the user removed it in the same save, so inbound links keep resolving.
 - **Purge unlinking:** purge rewrites inbound links on live pages from `[[Name]]` to `Name` for the purged page's name and aliases. Each rewrite is its own revision, author `user`, note `unlinked "<name>" after purge`.
 
@@ -143,11 +143,11 @@ All routes are under `/api/modules/brain/`. JSON errors are `{ error, code }` wi
 | `GET pages/:id` | The page, `revisions` (id, author, createdAt, note, sources, newest first), `links` (outgoing `{ target, pageId? }`) and `backlinks` (`{ pageId, name, line }`). Soft-deleted pages are readable too, for the "Recently deleted" view. |
 | `GET pages/:id/revisions/:rev` | The full snapshot. |
 | `POST pages` | `{ name, type, aliases?, body? }` → 201, or 409 `name_taken`. A user create lifts a tombstone. |
-| `PUT pages/:id` | `{ name, type, aliases, body, baseRevision }` → 200, 409 `stale` (with the current page), 409 `name_taken`, 400 `invalid` or `profile`. |
+| `PUT pages/:id` | `{ name, type, aliases, body, baseRevision, keepOldName? }` → 200, 409 `stale` (with the current page), 409 `name_taken`, 400 `invalid` or `profile`. `keepOldName` (default true) adds the old name as an alias on a rename; the editor's checkbox sets it (D5). |
 | `POST pages/:id/restore` | `{ revisionId, baseRevision }` → 200, a new revision with note `restored revision <n>`. |
 | `DELETE pages/:id` | Soft delete → 204. 400 `profile` for the profile. |
 | `POST pages/:id/undelete` | 200, or 409 `name_taken` naming the colliding names. |
-| `POST pages/:id/purge` | `{ confirm: <exact name> }`. Soft-deleted pages only, otherwise 409. A confirm mismatch is 400. Returns `{ unlinked: [names of rewritten pages] }`. |
+| `POST pages/:id/purge` | `{ confirm: <exact name> }`. Soft-deleted pages only, otherwise 409 `not_deleted`. A confirm mismatch is 400. Returns `{ unlinked: [names of rewritten pages] }`. |
 
 Purge order inside one transaction:
 

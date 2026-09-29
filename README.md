@@ -9,6 +9,7 @@ ESP32 / Voice PE       ── WebSocket PCM ──┘    │
 portal Chat page       ── /api/chat (SSE) ────►├── Gemini text model (chat turns, streamed, with tools)
                                                ├─► modules/builtin   time, timers, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
+                                               ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► MCP servers       configured in the portal (HTTP)
                                                └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
@@ -23,6 +24,7 @@ The repo is a pnpm workspace:
 | `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
+| `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
 
 ## Run
@@ -152,6 +154,24 @@ curl -s 'localhost:8080/api/conversations?limit=20'        # {"conversations":[.
 curl -s 'localhost:8080/api/conversations?channel=chat'    # only chat threads (or voice); the filter holds across pages
 curl -s 'localhost:8080/api/conversations/<id>'            # one conversation with all its entries
 curl -s -X DELETE 'localhost:8080/api/conversations/<id>'  # 204; 409 while its session or chat turn is still running; 404 when unknown
+```
+
+## Memory
+
+The `brain` module (`modules/brain`) is Friday's long-term memory for the household. It holds small markdown pages about the people, places and projects in your life, plus one **profile** page about you and the household. There is one brain per household: Friday can't tell voices apart, so pages aren't per person.
+
+- **What Friday sees.** Every voice session and chat turn starts with the profile, an index of the 50 most recently updated pages (name, type, aliases and a one-line hint) and short instructions. For anything in the index, or anything that might have been noted before, Friday calls `brain_recall`. That tool finds pages by exact name or alias plus a word search over names, aliases and text. The search ignores case and accents, and English and Dutch filler words.
+- **How it learns.** When you ask Friday to remember something, or share a lasting fact, it calls `brain_remember`. The tool appends a dated note (`- 2026-09-29: Birthday is 3 November`) under `## Notes` on the right page, creating the page if needed. `entity: "profile"` targets the profile. Friday never rewrites or deletes what is there; a correction is a newer note, and when two notes contradict, the newer one holds. A later nightly pass (`brain-nightly`) will fold the notes into tidy page text. Until then, tidy pages by hand. Notes are dated in `FRIDAY_TIMEZONE`.
+- **Profile budget.** `BRAIN_PROFILE_TOKEN_BUDGET` (default 800, estimated as characters / 4) is a soft target. A "remember" on the profile is never refused; the portal shows the usage and marks an over-budget profile. The prompt context stays under 10000 characters by shortening the index first, and cutting the profile only as a last resort.
+- **Curating.** `Brain` under Modules (`/m/brain`) lists the pages, with the profile pinned on top and a search box. A page shows its rendered text (raw HTML is shown as text, never run) with clickable `[[links]]` and its backlinks. Dangling links offer to create the page. `Edit` warns when the page changed since you opened it, for example because Friday just remembered something, and offers to discard your edits or overwrite. `History` has every revision with a line diff and `Restore this version`. Renaming keeps the old name as an alias so links keep working.
+- **Forgetting.** `Delete` moves a page to "Recently deleted", from where it can be restored. `Delete forever` needs the page's name typed to confirm. It removes the page and its history, turns links to it on other pages into plain text, and tombstones its names, so Friday won't recreate the page on its own; you can still create it again yourself. Conversation transcripts and older revisions of other pages may still mention it. Memory is stored in plaintext in `friday.db`, next to the conversations.
+
+Over HTTP (the portal's API; see `modules/brain/src/routes.ts`):
+
+```sh
+curl -s localhost:8080/api/modules/brain/pages               # {"profile":{"usedTokens","budgetTokens","overBudget"},"pages":[...],"deleted":[...]}
+curl -s localhost:8080/api/modules/brain/pages/profile       # one page with revisions, links and backlinks
+curl -s -X POST localhost:8080/api/modules/brain/pages -H 'content-type: application/json' -d '{"name":"Anouk","type":"person","aliases":["Noukie"]}'
 ```
 
 ## Chat

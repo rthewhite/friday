@@ -51,7 +51,7 @@ The module SHALL register a tool `brain_remember` with parameters `entity` (requ
 - append `- <date>: <fact>` under the page's `## Notes` heading, adding the heading at the end of the body when missing, with the date in `FRIDAY_TIMEZONE`;
 - record the change as one revision with author `remember`.
 
-It SHALL NOT remove or change any existing text. When the page already contains the fact (case-insensitive), it SHALL write nothing and report that the fact was already known. The result SHALL state whether the fact was stored, the page name, and whether the page was created.
+It SHALL NOT remove or change any existing text. When the fact repeats the page's latest dated note, or a note dated the same day (case-insensitive), it SHALL write nothing and report that the fact was already known. A fact that only repeats an older note SHALL be appended, because it is a correction. The result SHALL state whether the fact was stored, the page name, and whether the page was created.
 
 #### Scenario: New person
 - **WHEN** no page matches `Anouk` and the model calls `brain_remember({ entity: "Anouk", fact: "Birthday is 3 November", type: "person" })` on 29 September 2026
@@ -66,8 +66,12 @@ It SHALL NOT remove or change any existing text. When the page already contains 
 - **THEN** the intro and the earlier note are unchanged, and the new note follows the earlier one
 
 #### Scenario: Repeated fact
-- **WHEN** the model remembers a fact the page already contains
+- **WHEN** the model remembers a fact that the page's latest note, or a note from the same day, already states
 - **THEN** nothing is written and the result says it was already known
+
+#### Scenario: Correction back to an older fact
+- **WHEN** the notes say "Lives in Utrecht" and later "Lives in Amsterdam", and the model remembers "Lives in Utrecht" on a later day
+- **THEN** the fact is appended as the newest note
 
 #### Scenario: Profile fact
 - **WHEN** the model calls `brain_remember({ entity: "profile", fact: "Prefers Celsius" })`
@@ -174,7 +178,7 @@ The module SHALL serve under `/api/modules/brain/`:
 - `PUT pages/:id`: save name, type, aliases and body based on a given revision.
 - `POST pages/:id/restore`: make a given revision's content current as a new revision with author `user` and a note naming the restored revision.
 
-Errors SHALL respond with a code: 400 `invalid` or `profile`, 404 `not_found`, and 409 `name_taken`, `stale` or `tombstoned`.
+Errors SHALL respond with a code: 400 `invalid` or `profile`, 404 `not_found`, and 409 `name_taken`, `stale`, `tombstoned` or `not_deleted` (a purge of a page that isn't deleted).
 
 #### Scenario: Save and read back
 - **WHEN** the portal saves page `Anouk` with a new body based on its current revision

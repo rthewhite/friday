@@ -17,6 +17,7 @@ const paths: Record<string, string> = {
   server: "M4 4h16v6H4V4Zm0 10h16v6H4v-6Zm3-8v2h2V6H7Zm0 10v2h2v-2H7Z",
   link: "M10 17H7a5 5 0 0 1 0-10h3v2H7a3 3 0 0 0 0 6h3v2Zm4-10h3a5 5 0 0 1 0 10h-3v-2h3a3 3 0 0 0 0-6h-3V7Zm-6 4h8v2H8v-2Z",
   clock: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm-1 3v6.2l5.2 3.1 1-1.64-4.2-2.5V7h-2Z",
+  brain: "M9 3a3 3 0 0 0-3 3v.1A3.5 3.5 0 0 0 3.5 9.5c0 .9.34 1.72.9 2.34A3.5 3.5 0 0 0 6 17.9V18a3 3 0 0 0 5 2.24V3.76A3 3 0 0 0 9 3Zm6 0a3 3 0 0 0-2 .76v16.48A3 3 0 0 0 18 18v-.1a3.5 3.5 0 0 0 1.6-6.06c.56-.62.9-1.44.9-2.34A3.5 3.5 0 0 0 18 6.1V6a3 3 0 0 0-3-3Z",
 };
 withDefaults(defineProps<{ name?: string; size?: number }>(), { size: 16 });
 </script>
