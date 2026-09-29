@@ -210,6 +210,52 @@ test("a zone change does not cancel a run in progress", async () => {
   await s.stop();
 });
 
+test("a restart after a zone change does not catch up a slot that never ran", async () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  // 03:00 Amsterdam ran at 01:00Z; at 12:00Z the zone becomes New York (next run 07:00Z tomorrow).
+  const clock = new FakeClock(Date.parse("2026-09-29T00:30:00Z"));
+  const cfg = { zone: "Europe/Amsterdam" };
+  const first = new Scheduler({ store: new JobStore(db, 50), clock, log: quiet, timezone: () => cfg.zone, catchupDelayMs: 30_000, graceMs: 1000 });
+  first.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  await clock.to("2026-09-29T12:00:00Z");
+  cfg.zone = "America/New_York";
+  first.refreshTimezone();
+  await first.stop();
+
+  // Restarted at 13:00Z: 03:00 New York today (07:00Z) is in the past, but it was never due under this schedule.
+  const later = new FakeClock(Date.parse("2026-09-29T13:00:00Z"));
+  const again = new Scheduler({ store: new JobStore(db, 50), clock: later, log: quiet, timezone: "America/New_York", catchupDelayMs: 30_000 });
+  const triggers: string[] = [];
+  again.register("brain", { name: "nightly", cron: "0 3 * * *", run: ({ trigger }) => void triggers.push(trigger) });
+  assert.equal(again.list()[0].nextRunAt, "2026-09-30T07:00:00.000Z");
+  await later.advance(60_000); // past the catch-up delay
+  assert.deepEqual(triggers, [], "no catch-up");
+  await again.stop();
+});
+
+test("a zone change leaves a pending catch-up run alone", async () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const first = setup("2026-09-27T12:00:00Z", { db });
+  first.s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  await first.clock.to("2026-09-29T00:00:00Z");
+  await first.s.stop();
+
+  // Restarted after missing the 29th's 03:00 Amsterdam slot, so a catch-up is pending for 30 s.
+  const clock = new FakeClock(Date.parse("2026-09-29T02:00:00Z"));
+  const cfg = { zone: "Europe/Amsterdam" };
+  const s = new Scheduler({ store: new JobStore(db, 50), clock, log: quiet, timezone: () => cfg.zone, catchupDelayMs: 30_000, graceMs: 1000 });
+  const triggers: string[] = [];
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: ({ trigger }) => void triggers.push(`${iso(clock.now())} ${trigger}`) });
+  cfg.zone = "America/New_York";
+  s.refreshTimezone();
+  await clock.advance(30_000);
+  assert.deepEqual(triggers, ["2026-09-29T02:00:30.000Z catch-up"]);
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T07:00:00.000Z", "the next scheduled run is in the new zone");
+  await s.stop();
+});
+
 test("an unset or blank timezone means Europe/Amsterdam, without an error", async () => {
   for (const timezone of [undefined, "", "  "]) {
     const db = new DatabaseSync(":memory:");

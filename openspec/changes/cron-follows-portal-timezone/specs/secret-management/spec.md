@@ -50,6 +50,10 @@ Core SHALL declare its own configuration keys as the requester `core`, in the sa
 - **WHEN** the user opens `GEMINI_API_KEY` on the Secrets tab
 - **THEN** the scope selector offers `core` and `global`, the drawer offers `Save` and `Clear` but no reload action, and states that the value applies to the next session
 
+#### Scenario: Core-only time zone in the drawer
+- **WHEN** the user opens `FRIDAY_TIMEZONE` and selects scope `core`
+- **THEN** the drawer states that the value re-plans cron jobs at once and is not seen by modules unless saved as global
+
 #### Scenario: Core lists the time zone among its keys
 - **WHEN** the configuration listing is requested
 - **THEN** the `FRIDAY_TIMEZONE` entry is plain, not required, and lists `core` among its requesters together with the modules that declare it

@@ -365,6 +365,20 @@ test("a stored or deleted config value is reported to onConfigChange; a rejected
   }
 });
 
+test("a failing config listener does not turn a committed save into an error", async () => {
+  const s = await start({ onConfigChange: () => { throw new Error("listener broke"); } });
+  const logged = console.error;
+  console.error = () => {};
+  try {
+    assert.equal((await s.j("/api/config/global/FRIDAY_TIMEZONE", { method: "PUT", body: JSON.stringify({ value: "Asia/Tokyo" }) })).status, 204);
+    assert.equal(s.configStore.get("global", "FRIDAY_TIMEZONE"), "Asia/Tokyo");
+    assert.equal((await s.j("/api/config/global/FRIDAY_TIMEZONE", { method: "DELETE" })).status, 204);
+  } finally {
+    console.error = logged;
+    await s.close();
+  }
+});
+
 test("saving FRIDAY_TIMEZONE globally re-plans cron at once, and clearing it falls back to the environment", async () => {
   const s = await start({ withJobs: true, env: { FRIDAY_TIMEZONE: "Europe/Amsterdam" } });
   const localTime = (iso: string, timeZone: string) => new Date(iso).toLocaleTimeString("en-GB", { timeZone, hour: "2-digit", minute: "2-digit" });

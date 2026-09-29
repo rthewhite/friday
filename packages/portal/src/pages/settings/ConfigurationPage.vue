@@ -182,7 +182,8 @@ async function run(f: () => Promise<void>) {
           </select>
         </label>
         <p v-if="isSecret" class="text-xs text-f-text-muted">Stored encrypted. Not shown again after saving.</p>
-        <p v-if="draft.scope === 'core'" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
+        <p v-if="draft.scope === 'core' && draft.key === 'FRIDAY_TIMEZONE'" class="text-xs text-f-text-muted">Re-plans cron jobs at once. A core-only value is not seen by modules; save it as global to reach them too.</p>
+        <p v-else-if="draft.scope === 'core'" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
         <template #footer>
           <Button v-if="selected?.scope" variant="danger" :disabled="busy" @click="clear">Clear</Button>
           <span class="flex-1"></span>

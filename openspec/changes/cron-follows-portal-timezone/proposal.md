@@ -21,6 +21,7 @@ Discovery found a second problem in how the value gets saved. The portal's drawe
 ### Modified Capabilities
 - `background-jobs`: cron's zone comes from the configuration store (core, global, env), and a saved change re-plans cron jobs live.
 - `secret-management`: core also declares `FRIDAY_TIMEZONE`; the configuration drawer's default scope rule changes.
+- `module-system`: the SDK's zone helper returns `Intl`'s canonical spelling, so names differing in letter case are the same zone (found in code review).
 
 ## Impact
 

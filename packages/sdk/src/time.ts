@@ -7,13 +7,15 @@ import type { ModuleConfig } from "./module.js";
 
 export const DEFAULT_TIME_ZONE = "Europe/Amsterdam";
 
-/** `zone` when it is a valid IANA zone, else the default; an unset or blank zone is not an error. */
+/**
+ * `zone` when it is a valid IANA zone, else the default; an unset or blank zone is not an error. A valid zone is
+ * returned in Intl's own spelling, so "europe/amsterdam" and "Europe/Amsterdam" are the same zone.
+ */
 export function resolveTimeZone(zone: string | undefined): { zone: string; valid: boolean } {
   const z = zone?.trim();
   if (!z) return { zone: DEFAULT_TIME_ZONE, valid: true };
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: z });
-    return { zone: z, valid: true };
+    return { zone: new Intl.DateTimeFormat("en-US", { timeZone: z }).resolvedOptions().timeZone, valid: true };
   } catch {
     return { zone: DEFAULT_TIME_ZONE, valid: false };
   }
