@@ -18,5 +18,5 @@
 
 ## 5. Integration
 
-- [ ] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`; verify all green
-- [ ] 5.2 Start the built core on a free port with a scratch data dir and `FRIDAY_TIMEZONE` unset; check that `GET /api/jobs` reports `Europe/Amsterdam` for `brain/nightly`, then `PUT /api/config/global/FRIDAY_TIMEZONE` with `America/New_York`, check that `/api/jobs` now reports `America/New_York` and a next run at 03:00 New York time, then `DELETE` it and check that it is back to `Europe/Amsterdam`; stop the server afterwards
+- [x] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`; verify all green
+- [x] 5.2 Start the built core on a free port with a scratch data dir and `FRIDAY_TIMEZONE` unset; check that `GET /api/jobs` reports `Europe/Amsterdam` for `brain/nightly`, then `PUT /api/config/global/FRIDAY_TIMEZONE` with `America/New_York`, check that `/api/jobs` now reports `America/New_York` and a next run at 03:00 New York time, then `DELETE` it and check that it is back to `Europe/Amsterdam`; stop the server afterwards
