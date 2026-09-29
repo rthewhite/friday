@@ -72,6 +72,10 @@ describe("formatDuration", () => {
   it("pluralises hours", () => {
     assert.equal(formatDuration(7800), "2 hours 10 min");
   });
+
+  it("pluralises whole hours without a minute part", () => {
+    assert.equal(formatDuration(7200), "2 hours");
+  });
 });
 
 describe("validateTimeArgs", () => {

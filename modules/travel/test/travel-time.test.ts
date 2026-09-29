@@ -79,6 +79,15 @@ describe("getTravelTime", () => {
     assert.deepEqual(result.origin, { name: "52.379,4.899", lat: 52.379, lon: 4.899 });
   });
 
+  it("geocodes an out-of-range coordinate pair as free text", async () => {
+    const { client, resolved } = stubClient();
+
+    const result = await getTravelTime(client, { origin: "95,4.9", destination: "utr" });
+
+    assert.deepEqual(resolved.sort(), ["95,4.9", "utr"]);
+    assert.equal(result.origin.name, "Resolved 95,4.9");
+  });
+
   it("makes no upstream call at all when both times are given", async () => {
     const { client, resolved, routed } = stubClient();
 
