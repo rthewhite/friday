@@ -226,6 +226,11 @@ export class ConversationStore {
     return true;
   }
 
+  /** The channel of a stored conversation, or undefined when it is unknown. Does not read entries. */
+  channelOf(id: string): ConversationChannel | undefined {
+    return (this.db.prepare("SELECT channel FROM conversations WHERE id = ?").get(id) as { channel: ConversationChannel } | undefined)?.channel;
+  }
+
   get(id: string): Conversation | undefined {
     const row = this.db.prepare(`SELECT ${COLUMNS} FROM conversations WHERE id = ?`).get(id) as Row | undefined;
     if (!row) return undefined;

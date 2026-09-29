@@ -27,10 +27,10 @@
 
 ## 5. Chat engine
 
-- [ ] 5.1 Spike: with a real `GEMINI_API_KEY`, send the chat model a history with unsigned past function calls/responses and a new message, and record the outcome (and the fallback chosen, if any) in design.md; verify the spike script's result is noted in design.md, and update the `portal-chat` spec first if the replay format changes
-- [ ] 5.2 Implement `chat/history.ts` (entries to `Content[]`, grouped tool calls, truncated and missing-result placeholders); verify with pure tests for each entry kind, grouping and placeholders
-- [ ] 5.3 Implement `chat/engine.ts`: resume or create the chat conversation, `commitUser`, the round loop with verbatim parts within the turn, concurrent tool calls restricted to `chat` with the timeout, ignored scheduling/`endConversation`, the 10-round cap, events, and recording with `release()`; verify with engine tests using a fake streaming model and registry: two tools then an answer, timeout, voice-only call, round cap, failure after text (interrupted entry), key missing (`unavailable`, user entry stored), and tools read fresh per turn
-- [ ] 5.4 Run `pnpm --filter @friday/core test typecheck`
+- [x] 5.1 Spike: with a real `GEMINI_API_KEY`, send the chat model a history with unsigned past function calls/responses and a new message, and record the outcome (and the fallback chosen, if any) in design.md; verify the spike script's result is noted in design.md, and update the `portal-chat` spec first if the replay format changes
+- [x] 5.2 Implement `chat/history.ts` (entries to `Content[]`, grouped tool calls, truncated and missing-result placeholders); verify with pure tests for each entry kind, grouping and placeholders
+- [x] 5.3 Implement `chat/engine.ts`: resume or create the chat conversation, `commitUser`, the round loop with verbatim parts within the turn, concurrent tool calls restricted to `chat` with the timeout, ignored scheduling/`endConversation`, the 10-round cap, events, and recording with `release()`; verify with engine tests using a fake streaming model and registry: two tools then an answer, timeout, voice-only call, round cap, failure after text (interrupted entry), key missing (`unavailable`, user entry stored), and tools read fresh per turn
+- [x] 5.4 Run `pnpm --filter @friday/core test typecheck`
 
 ## 6. Chat API
 
