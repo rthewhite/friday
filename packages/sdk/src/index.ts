@@ -7,3 +7,4 @@ export * from "./storage.js";
 export * from "./jobs.js";
 export * from "./llm.js";
 export * from "./conversations.js";
+export type { ModuleDb, ModuleMigration } from "./db.js";

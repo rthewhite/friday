@@ -2,13 +2,13 @@
 
 ## 1. SDK database handle and isolation
 
-- [ ] 1.1 Add `packages/sdk/src/db.ts` with prefix derivation (`brain` → `brain__`, `media-x` → `media_x__`, rejecting ids with `--` or a trailing `-`) and the `ModuleDb` type (`prepare`, `exec`, `transaction`). Export the type (type only) from `@friday/sdk`. Verify with unit tests in `packages/sdk/test/db.test.ts` for prefix derivation and the rejected ids
-- [ ] 1.2 Implement `openModuleDb(location, moduleId)`:
+- [x] 1.1 Add `packages/sdk/src/db.ts` with prefix derivation (`brain` → `brain__`, `media-x` → `media_x__`, rejecting ids with `--` or a trailing `-`) and the `ModuleDb` type (`prepare`, `exec`, `transaction`). Export the type (type only) from `@friday/sdk`. Verify with unit tests in `packages/sdk/test/db.test.ts` for prefix derivation and the rejected ids
+- [x] 1.2 Implement `openModuleDb(location, moduleId)`:
   - set `foreign_keys = ON` and `busy_timeout`, then install the prefix authorizer (own prefix and `sqlite_*` allowed; `data_version` pragma allowed; `ATTACH`/`DETACH`, other pragmas and foreign objects denied);
   - rethrow refusals with the module id.
 
   Verify with `db.test.ts` cases for own-table CRUD, `SELECT` on and `DELETE` from a core table refused, another module's prefixed table refused, `PRAGMA foreign_keys = OFF` refused, `ATTACH` refused, and an FTS5 table created and queried with `MATCH`
-- [ ] 1.3 Implement `transaction(fn)` (`BEGIN IMMEDIATE`, commit/rollback-rethrow, thenable result → rollback and throw, nested calls as `SAVEPOINT`s). Verify with `db.test.ts` cases for atomic multi-row rollback, an async body, and an inner rollback that keeps the outer commit
+- [x] 1.3 Implement `transaction(fn)` (`BEGIN IMMEDIATE`, commit/rollback-rethrow, thenable result → rollback and throw, nested calls as `SAVEPOINT`s). Verify with `db.test.ts` cases for atomic multi-row rollback, an async body, and an inner rollback that keeps the outer commit
 
 ## 2. SDK migrations and context
 
