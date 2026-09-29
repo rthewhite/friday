@@ -12,7 +12,9 @@ context: |
   both by default; set_timer and end_conversation are voice-only); each GeminiSession snapshots
   declarations("voice") at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
-  before reaching Gemini (and ignored in chat). Portal chat (packages/core/src/chat/): POST /api/chat
+  before reaching Gemini (and ignored in chat). Handlers get a second argument, the call context { channel?,
+  conversationId? } from callTool's options: voice and chat pass their channel and the recorder's conversation id
+  (absent in a voice session's first exchange, which is stored at its turn end); MCP and remote tools never see it. Portal chat (packages/core/src/chat/): POST /api/chat
   runs one turn per message on the text model (FRIDAY_CHAT_MODEL, else FRIDAY_TEXT_MODEL) through
   LlmService.streamCall, replaying the thread's whole stored history (tool entries as function
   call/response pairs), a tool loop over declarations("chat") (FRIDAY_CHAT_TOOL_TIMEOUT_MS, 10 rounds),
@@ -31,7 +33,9 @@ context: |
   Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
   tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
   extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall
-  (name/alias match plus substring search); its prompt context (profile + index of 50 recent pages, under 10000
+  (name/alias match plus substring search), and brain_recall_conversations (ctx.conversations.search with
+  brain_recall's word rules, YYYY-MM-DD since/until as whole days in FRIDAY_TIMEZONE via startOfLocalDay, the
+  call's own conversation excluded, 5 conversations, 8000 JSON chars, never tool results); its prompt context (profile + index of 50 recent pages, under 10000
   chars) goes into every voice/chat prompt; no tool deletes. Portal /m/brain curates (edit with stale check,
   history/restore, soft delete, purge with tombstones); routes under /api/modules/brain/. The job brain/nightly
   (src/nightly/, BRAIN_NIGHTLY_CRON) extracts sourced notes from quiet conversations (watermark and progress in
@@ -46,7 +50,11 @@ context: |
   import list at build time (no Module Federation). Modules add backend routes with ctx.http.route, served
   at /api/modules/<id>/...; core routing lives in packages/core/src/{router,app}.ts.
   Platform storage: core owns friday.db (node:sqlite, FRIDAY_DATA_DIR, PVC in k8s; packages/core/src/storage)
-  with versioned migrations; modules get ctx.storage (module_kv). In-process modules may also declare numbered
+  with versioned migrations; modules get ctx.storage (module_kv). Conversations (packages/core/src/conversations/,
+  ctx.conversations list/get/search/onQuiet) are indexed by migration 6: contentless trigram FTS5 conversation_search
+  keyed by the entry rowid, kept by triggers, over text and tool name + args (never results); search is one MATCH per
+  word (3+ chars), ranked by distinct words then recency, with snippets built by @friday/sdk's shared
+  conversation-search rules (MemoryConversations uses them too). In-process modules may also declare numbered
   migrations (run before init, versions in module_schema) and use ctx.db: a synchronous node:sqlite handle
   (prepare/exec/transaction, nested = savepoints, async bodies refused) on the module's own connection, whose
   authorizer allows only <id with - as _>__* objects (no core tables, pragmas or ATTACH); shared code in
