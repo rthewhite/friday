@@ -4,13 +4,13 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 1. Package and schema
 
-- [ ] 1.1 Scaffold `modules/brain` (`@friday/module-brain`) following `modules/media`:
+- [x] 1.1 Scaffold `modules/brain` (`@friday/module-brain`) following `modules/media`:
   - `package.json` with `friday.ui` and a `markdown-it` dev dependency, a `tsconfig.json` excluding `src/ui`;
   - a manifest (`id: "brain"`, `ui: true`, config `BRAIN_PROFILE_TOKEN_BUDGET` and `FRIDAY_TIMEZONE`);
   - an entry in `packages/core/src/modules.ts` and a dependency in `packages/portal/package.json`.
 
   Verify `pnpm install`, `pnpm --filter @friday/module-brain typecheck` and `pnpm --filter @friday/portal typecheck` succeed
-- [ ] 1.2 Write migration 1 (`brain__pages`, `brain__names`, `brain__revisions` with its indexes, `brain__tombstones`), seeding the profile and its `system` revision. Verify with `modules/brain/test/schema.test.ts` via `createTestHost`: after start there is exactly one page (the empty profile) with one revision, and a second host start on the same seeded data runs no migration
+- [x] 1.2 Write migration 1 (`brain__pages`, `brain__names`, `brain__revisions` with its indexes, `brain__tombstones`), seeding the profile and its `system` revision. Verify with `modules/brain/test/schema.test.ts` via `createTestHost`: after start there is exactly one page (the empty profile) with one revision, and a second host start on the same seeded data runs no migration
 
 ## 2. Store
 

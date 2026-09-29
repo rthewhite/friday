@@ -6,5 +6,6 @@
 import type { FridayModule } from "@friday/sdk";
 import builtin from "@friday/module-builtin";
 import media from "@friday/module-media";
+import brain from "@friday/module-brain";
 
-export const modules: FridayModule[] = [builtin, media];
+export const modules: FridayModule[] = [builtin, media, brain];

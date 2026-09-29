@@ -18,6 +18,28 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  modules/brain:
+    dependencies:
+      '@friday/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@friday/portal-ui':
+        specifier: workspace:*
+        version: link:../../packages/portal-ui
+      '@types/markdown-it':
+        specifier: ^14.2.0
+        version: 14.2.0
+      markdown-it:
+        specifier: ^15.0.2
+        version: 15.0.2
+      vue:
+        specifier: ^3.5.29
+        version: 3.5.43(typescript@7.0.2)
+      vue-router:
+        specifier: ^4.5.1
+        version: 4.6.4(vue@3.5.43(typescript@7.0.2))
+
   modules/builtin:
     dependencies:
       '@friday/sdk':
@@ -42,6 +64,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@friday/module-brain':
+        specifier: workspace:*
+        version: link:../../modules/brain
       '@friday/module-builtin':
         specifier: workspace:*
         version: link:../../modules/builtin
@@ -70,6 +95,9 @@ importers:
 
   packages/portal:
     dependencies:
+      '@friday/module-brain':
+        specifier: workspace:*
+        version: link:../../modules/brain
       '@friday/module-media':
         specifier: workspace:*
         version: link:../../modules/media

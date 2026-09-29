@@ -1,0 +1,35 @@
+{
+  "name": "@friday/module-brain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Friday brain module: a household long-term memory of pages about people, places and projects, plus a profile.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ui": "./src/ui/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@friday/sdk": "workspace:*"
+  },
+  "friday": {
+    "ui": "./src/ui/index.ts"
+  },
+  "devDependencies": {
+    "@friday/portal-ui": "workspace:*",
+    "@types/markdown-it": "^14.2.0",
+    "markdown-it": "^15.0.2",
+    "vue": "^3.5.29",
+    "vue-router": "^4.5.1"
+  }
+}
