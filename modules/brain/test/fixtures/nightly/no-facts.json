@@ -1,0 +1,16 @@
+{
+  "description": "A question with nothing lasting in it.",
+  "kind": "extraction",
+  "conversation": {
+    "channel": "voice",
+    "device": "kitchen",
+    "entries": [
+      { "kind": "user", "input": "speech", "text": "What's the weather going to be like this afternoon?" },
+      { "kind": "tool", "name": "get_weather", "args": { "when": "afternoon" }, "result": { "sky": "cloudy", "temp_c": 14 }, "truncated": false },
+      { "kind": "assistant", "text": "Cloudy and fourteen degrees this afternoon.", "interrupted": false },
+      { "kind": "user", "input": "speech", "text": "Okay thanks, I'm a bit tired today." }
+    ]
+  },
+  "mustNotNote": ["cloudy", "tired", "weather"],
+  "fake": { "notes": [] }
+}

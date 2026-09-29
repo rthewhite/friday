@@ -1,0 +1,18 @@
+{
+  "description": "A Dutch conversation with one lasting fact.",
+  "kind": "extraction",
+  "pages": [{ "name": "Bram", "type": "person", "body": "Mijn broer." }],
+  "conversation": {
+    "channel": "voice",
+    "device": "living-room",
+    "entries": [
+      { "kind": "user", "input": "speech", "text": "Hoe laat is het in Lissabon?" },
+      { "kind": "tool", "name": "get_current_time", "args": { "timezone": "Europe/Lisbon" }, "result": { "time": "14:02" }, "truncated": false },
+      { "kind": "assistant", "text": "Het is daar nu twee over twee.", "interrupted": false },
+      { "kind": "user", "input": "speech", "text": "Mijn broer Bram woont daar sinds dit voorjaar, hij werkt nu bij een zeilschool." }
+    ]
+  },
+  "mustNote": [{ "entity": "Bram", "contains": "Lis" }],
+  "mustNotNote": ["14:02"],
+  "fake": { "notes": [{ "entity": "Bram", "fact": "Woont sinds het voorjaar van 2026 in Lissabon en werkt bij een zeilschool.", "reason": "stated by the user" }] }
+}

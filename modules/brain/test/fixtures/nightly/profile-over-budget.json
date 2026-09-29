@@ -1,0 +1,18 @@
+{
+  "description": "The profile is over its budget; consolidation must not grow it and should move detail to entity pages.",
+  "kind": "consolidation",
+  "env": { "BRAIN_PROFILE_TOKEN_BUDGET": "60" },
+  "profile": "Lives in Amsterdam with partner Sam and two cats.\nPrefers tea over coffee.\n\n## Notes\n- 2026-09-20: Sam works as a nurse at the OLVG hospital, mostly night shifts.\n- 2026-09-21: The cats are called Pip and Mo; Mo needs a kidney diet.\n- 2026-09-22: Sam's birthday is 14 February.",
+  "pages": [{ "name": "Sam", "type": "person", "body": "Partner." }],
+  "mustKeep": ["tea", "OLVG", "kidney diet", "14 February"],
+  "fake": {
+    "plan": {
+      "actions": [
+        { "kind": "rewrite", "page": "{{id:Profile}}", "base": "{{rev:Profile}}", "body": "Lives in Amsterdam with partner [[Sam]] and two cats, Pip and Mo.\nPrefers tea over coffee.", "dropped": [] },
+        { "kind": "rewrite", "page": "{{id:Sam}}", "base": "{{rev:Sam}}", "body": "Partner. Works as a nurse at the OLVG hospital, mostly night shifts. Birthday: 14 February.", "dropped": [] },
+        { "kind": "create", "name": "Cats", "type": "other", "aliases": ["Pip", "Mo"], "body": "Pip and Mo. Mo needs a kidney diet." }
+      ],
+      "note": "Moved detail from the profile to Sam and a new Cats page."
+    }
+  }
+}

@@ -9,8 +9,8 @@ Prerequisite: `brain` is merged into `main` (store with `writeRevision`, `append
 
 ## 2. Shared guidance and fixtures
 
-- [ ] 2.1 Write `src/nightly/guidance.ts` (`PAGE_WRITING`, `LINKING`, `PROFILE`, `EXTRACTION_FILTER`) per design D5 and the spec's filter rules. Verify with a test asserting both system prompts include the shared blocks, so they can't drift
-- [ ] 2.2 Add the fixture format and loader (`test/fixtures/nightly/*.json`: seeded pages, conversation entries, `mustNote`, `mustNotNote`, `mustKeep`, `mayDrop`), and the fixtures listed in design D7. Verify with a loader test that every fixture parses and seeds a test host
+- [x] 2.1 Write `src/nightly/guidance.ts` (`PAGE_WRITING`, `LINKING`, `PROFILE`, `EXTRACTION_FILTER`) per design D5 and the spec's filter rules. Verify with a test asserting both system prompts include the shared blocks, so they can't drift
+- [x] 2.2 Add the fixture format and loader (`test/fixtures/nightly/*.json`: seeded pages, conversation entries, `mustNote`, `mustNotNote`, `mustKeep`, `mayDrop`), and the fixtures listed in design D7. Verify with a loader test that every fixture parses and seeds a test host
 
 ## 3. Extraction
 

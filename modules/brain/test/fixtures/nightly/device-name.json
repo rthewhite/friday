@@ -1,0 +1,15 @@
+{
+  "description": "A voice session from a device named after a room: the device isn't a person.",
+  "kind": "extraction",
+  "conversation": {
+    "channel": "voice",
+    "device": "kitchen",
+    "entries": [
+      { "kind": "user", "input": "speech", "text": "By the way, I always take my coffee black, no sugar." },
+      { "kind": "assistant", "text": "Noted, black coffee without sugar.", "interrupted": false }
+    ]
+  },
+  "mustNote": [{ "entity": "profile", "contains": "black" }],
+  "mustNotNote": ["# kitchen"],
+  "fake": { "notes": [{ "entity": "profile", "fact": "Takes coffee black, without sugar.", "reason": "standing preference" }] }
+}

@@ -1,0 +1,18 @@
+{
+  "description": "A resumed conversation: the first entries were processed before; only the new ones may produce notes.",
+  "kind": "extraction",
+  "pages": [{ "name": "Home", "type": "place", "body": "## Notes\n- 2026-09-28: The boiler was serviced in September." }],
+  "conversation": {
+    "channel": "chat",
+    "seen": 2,
+    "entries": [
+      { "kind": "user", "input": "text", "text": "The boiler was serviced in September, the engineer was Kees." },
+      { "kind": "assistant", "text": "Good to know.", "interrupted": false },
+      { "kind": "user", "input": "text", "text": "Also, the recycling is collected every other Tuesday on our street." },
+      { "kind": "assistant", "text": "Every other Tuesday, got it.", "interrupted": false }
+    ]
+  },
+  "mustNote": [{ "entity": "Home", "contains": "Tuesday" }],
+  "mustNotNote": ["Kees"],
+  "fake": { "notes": [{ "entity": "Home", "fact": "Recycling is collected every other Tuesday.", "type": "place", "reason": "household routine" }] }
+}
