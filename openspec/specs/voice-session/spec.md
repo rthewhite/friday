@@ -8,11 +8,15 @@ A `GeminiSession` bridges one client conversation to the Gemini Live API. It is 
 
 ### Requirement: Session opens against Gemini Live with the configured model and voice
 
-The session SHALL connect to Gemini Live using the Gemini API key resolved from core's configuration at the moment the session opens (as specified in `secret-management`), the model from `FRIDAY_MODEL` (default `gemini-3.8-live`), the prebuilt voice from `FRIDAY_VOICE` (default `Aoede`), audio-only response modality, input and output audio transcription enabled, the Friday system prompt, and the declarations of every registered tool. The session SHALL configure Gemini's automatic speech detection with the start-of-speech sensitivity from `FRIDAY_VAD_START_SENSITIVITY` (`LOW` by default, `HIGH` optional) and the minimum speech duration from `FRIDAY_VAD_PREFIX_MS` (default 200), so that residual echo of Friday's own voice on speaker devices does not register as the user interrupting.
+The session SHALL connect to Gemini Live using the Gemini API key resolved from core's configuration at the moment the session opens (as specified in `secret-management`), the model from `FRIDAY_MODEL` (default `gemini-3.8-live`), the prebuilt voice from `FRIDAY_VOICE` (default `Aoede`), audio-only response modality, input and output audio transcription enabled, the voice system prompt, and the declarations of every registered tool available in the `voice` channel. The session SHALL configure Gemini's automatic speech detection with the start-of-speech sensitivity from `FRIDAY_VAD_START_SENSITIVITY` (`LOW` by default, `HIGH` optional) and the minimum speech duration from `FRIDAY_VAD_PREFIX_MS` (default 200), so that residual echo of Friday's own voice on speaker devices does not register as the user interrupting.
 
 #### Scenario: Session opens
 - **WHEN** a transport opens a session
-- **THEN** a Gemini Live connection is established with the configured model, voice, system prompt, speech detection settings and all tool declarations
+- **THEN** a Gemini Live connection is established with the configured model, voice, system prompt, speech detection settings and the declarations of all tools available in `voice`
+
+#### Scenario: Chat-only tool
+- **WHEN** a tool is registered with `channels: ["chat"]`
+- **THEN** a voice session does not declare it
 
 #### Scenario: Key changed between sessions
 - **WHEN** a new `GEMINI_API_KEY` is saved in the portal while a session is open
@@ -139,7 +143,7 @@ The session SHALL emit exactly one `closed` event regardless of whether closing 
 
 ### Requirement: System prompt defines Friday's persona and end-of-conversation policy
 
-The system prompt SHALL instruct the model to be concise, prefer tools over guessing, answer in the user's language, call `end_conversation` in the same turn as its final confirmation or goodbye, and NOT end while awaiting user input or a pending tool result.
+The voice system prompt SHALL consist of the shared base prompt, which is also used by chat, followed by the voice part. The base SHALL instruct the model to prefer tools over guessing and answer in the user's language. The voice part SHALL instruct the model to keep spoken answers short, call `end_conversation` in the same turn as its final confirmation or goodbye, and NOT end while awaiting user input or a pending tool result.
 
 #### Scenario: Request fully handled
 - **WHEN** the model has completed a request and has no follow-up question
@@ -148,6 +152,11 @@ The system prompt SHALL instruct the model to be concise, prefer tools over gues
 #### Scenario: Clarification needed
 - **WHEN** the model still needs information from the user
 - **THEN** it is instructed not to call `end_conversation`
+
+#### Scenario: Shared base
+- **WHEN** the voice and chat system prompts are compared
+- **THEN** both start with the same base, and only the voice prompt mentions `end_conversation`
+
 ### Requirement: The session records its conversation
 
 When given a recorder, a session SHALL record its conversation as specified in `conversation-store`, with channel `voice`: input transcriptions as user entries with input `speech`, text sent through the session as user entries with input `text`, output transcriptions as assistant entries (marked `interrupted` when Gemini reports an interruption), each tool call with its arguments and result, and the reason from its single `closed` event as the end reason. Recording SHALL NOT change what the session emits to its transport, or when it closes.

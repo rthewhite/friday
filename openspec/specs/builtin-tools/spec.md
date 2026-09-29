@@ -20,7 +20,7 @@ The tool SHALL return the current time as `iso` (UTC ISO 8601), `human` (a spoke
 
 ### Requirement: set_timer
 
-The tool SHALL wait `seconds` (required integer) and then return `{ done: true, label, message }`, where `label` defaults to `timer`. Its default scheduling SHALL be `WHEN_IDLE` so the model announces completion without interrupting the user.
+The tool SHALL wait `seconds` (required integer) and then return `{ done: true, label, message }`, where `label` defaults to `timer`. Its default scheduling SHALL be `WHEN_IDLE` so the model announces completion without interrupting the user. It SHALL be available only in the `voice` channel, because a chat turn waits for every tool result before it answers.
 
 #### Scenario: Timer completes
 - **WHEN** called with `seconds: 5, label: "eggs"`
@@ -30,9 +30,13 @@ The tool SHALL wait `seconds` (required integer) and then return `{ done: true, 
 - **WHEN** a timer is running and the model finishes its turn
 - **THEN** the session's idle timeout is not armed until the timer completes
 
+#### Scenario: Not offered in chat
+- **WHEN** a chat turn starts
+- **THEN** `set_timer` is not among its declarations
+
 ### Requirement: end_conversation
 
-The tool SHALL be named `end_conversation`, accept an optional `reason`, return `{ ending: true, reason, endConversation: reason }` (reason defaulting to `done`), and use scheduling `SILENT`. The `endConversation` key is the reserved registry key that signals the session to close after the model's current turn; it is stripped before the result reaches Gemini.
+The tool SHALL be named `end_conversation`, accept an optional `reason`, return `{ ending: true, reason, endConversation: reason }` (reason defaulting to `done`), and use scheduling `SILENT`. The `endConversation` key is the reserved registry key that signals the session to close after the model's current turn; it is stripped before the result reaches Gemini. It SHALL be available only in the `voice` channel.
 
 #### Scenario: Called with reason
 - **WHEN** the model calls `end_conversation` with `reason: "user said goodbye"`
@@ -41,6 +45,10 @@ The tool SHALL be named `end_conversation`, accept an optional `reason`, return 
 #### Scenario: Called without reason
 - **WHEN** the model calls `end_conversation` with no args
 - **THEN** the reason is `done`
+
+#### Scenario: Not offered in chat
+- **WHEN** a chat turn starts
+- **THEN** `end_conversation` is not among its declarations
 
 ### Requirement: Builtin tools ship as the `builtin` module
 
