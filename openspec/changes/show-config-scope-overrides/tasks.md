@@ -15,5 +15,5 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`; verify all green
-- [ ] 4.2 Start the built core on a free port with a scratch data dir, store `FRIDAY_TIMEZONE` globally and for `builtin` through the API, check that `/api/config` lists both in `stored` (global first) and that `DELETE /api/config/builtin/FRIDAY_TIMEZONE` leaves only global; stop the server afterwards
+- [x] 4.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`; verify all green
+- [x] 4.2 Start the built core on a free port with a scratch data dir, store `FRIDAY_TIMEZONE` globally and for `builtin` through the API, check that `/api/config` lists both in `stored` (global first) and that `DELETE /api/config/builtin/FRIDAY_TIMEZONE` leaves only global; stop the server afterwards
