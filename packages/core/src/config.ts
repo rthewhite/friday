@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { DEFAULT_PROMPT_CONTEXT_MAX_CHARS } from "@friday/sdk";
+import { DEFAULT_PROMPT_CONTEXT_MAX_CHARS, DEFAULT_TIME_ZONE } from "@friday/sdk";
 
 /** packages/core/{src,dist}/config.ts -> packages/portal/dist. Override with FRIDAY_WEB_DIR (the image sets it). */
 const defaultWebDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "portal", "dist");
@@ -98,8 +98,8 @@ export const settings = {
   vadPrefixPaddingMs: Number(process.env.FRIDAY_VAD_PREFIX_MS ?? 200),
   /** Print what Gemini hears the user say to the server log. Useful for echo debugging; off by default. */
   logTranscripts: process.env.FRIDAY_LOG_TRANSCRIPTS === "1",
-  /** IANA zone cron job schedules are evaluated in (also the builtin module's default zone). */
-  timezone: process.env.FRIDAY_TIMEZONE || "Europe/Amsterdam",
+  /** IANA zone cron job schedules are evaluated in; read from the environment once at startup (modules read it through ctx.config). */
+  timezone: process.env.FRIDAY_TIMEZONE || DEFAULT_TIME_ZONE,
   /** Recorded runs kept per background job. */
   jobHistory: Number(process.env.FRIDAY_JOB_HISTORY ?? 50),
   /** Delay before the one catch-up run of a job whose due time passed while Friday was down. */

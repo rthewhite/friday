@@ -126,12 +126,13 @@ test("cron 0 3 * * * runs at 03:00 Amsterdam time across both DST transitions", 
   await s.stop();
 });
 
-test("an invalid timezone logs an error and cron jobs run in UTC", async () => {
+test("an invalid timezone logs an error and cron jobs run in Europe/Amsterdam, like the modules", async () => {
   const { s, lines } = setup("2026-09-28T12:00:00Z", { timezone: "Mars/Olympus" });
-  assert.ok(lines.some((l) => l.startsWith("error") && l.includes('"Mars/Olympus"')));
+  assert.ok(lines.some((l) => l.startsWith("error") && l.includes('"Mars/Olympus"') && l.includes("Europe/Amsterdam")));
   s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
-  assert.deepEqual(s.list()[0].schedule, { cron: "0 3 * * *", timezone: "UTC" });
-  assert.equal(s.list()[0].nextRunAt, "2026-09-29T03:00:00.000Z");
+  assert.deepEqual(s.list()[0].schedule, { cron: "0 3 * * *", timezone: "Europe/Amsterdam" });
+  // 03:00 summer time in Amsterdam is 01:00 UTC.
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T01:00:00.000Z");
   await s.stop();
 });
 

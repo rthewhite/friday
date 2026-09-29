@@ -2,7 +2,7 @@
  * Core's job scheduler: one timer per job, a no-overlap guard, one catch-up run after downtime,
  * cancellation, and a record of every run. The clock and timers are injected for tests.
  */
-import { nextCronRun, prefixedLogger, validateJob, type JobOutcome, type JobSpec, type JobTrigger, type ModuleJobs, type ModuleLogger } from "@friday/sdk";
+import { DEFAULT_TIME_ZONE, nextCronRun, prefixedLogger, resolveTimeZone, validateJob, type JobOutcome, type JobSpec, type JobTrigger, type ModuleJobs, type ModuleLogger } from "@friday/sdk";
 import type { JobRunRecord, JobStore } from "./store.js";
 
 /** Node timers overflow beyond this; longer waits are re-armed on expiry. */
@@ -23,7 +23,7 @@ export const systemClock: Clock = {
 
 export interface SchedulerOptions {
   store: JobStore;
-  /** IANA zone for cron expressions (FRIDAY_TIMEZONE). Invalid zones log an error and fall back to UTC. */
+  /** IANA zone for cron expressions (FRIDAY_TIMEZONE). Invalid zones log an error and fall back to Europe/Amsterdam, as modules do. Unset means UTC (only tests leave it out). */
   timezone?: string;
   /** Wait this long after registration before a catch-up run (FRIDAY_JOB_CATCHUP_DELAY_MS). */
   catchupDelayMs?: number;
@@ -94,14 +94,10 @@ export class Scheduler {
     this.log = opts.log ?? console;
     this.catchupDelayMs = opts.catchupDelayMs ?? 30_000;
     this.graceMs = opts.graceMs ?? 10_000;
-    const zone = opts.timezone ?? "UTC";
-    try {
-      new Intl.DateTimeFormat("en-US", { timeZone: zone });
-      this.timezone = zone;
-    } catch {
-      this.log.error(`jobs: invalid timezone "${zone}" (FRIDAY_TIMEZONE); cron jobs are scheduled in UTC`);
-      this.timezone = "UTC";
-    }
+    const requested = opts.timezone ?? "UTC";
+    const { zone, valid } = resolveTimeZone(requested);
+    if (!valid) this.log.error(`jobs: invalid timezone "${requested}" (FRIDAY_TIMEZONE); cron jobs are scheduled in ${DEFAULT_TIME_ZONE}`);
+    this.timezone = zone;
   }
 
   forOwner(owner: string): OwnerJobs {

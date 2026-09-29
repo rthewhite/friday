@@ -12,7 +12,7 @@
 
 ## 3. Core scheduler
 
-- [ ] 3.1 Use `resolveTimeZone`/`DEFAULT_TIME_ZONE` in `packages/core/src/jobs/scheduler.ts` and `packages/core/src/config.ts`, fall back to `Europe/Amsterdam` for an invalid zone with the error naming it, and change the invalid-zone test in `packages/core/test/jobs.test.ts` to expect `{ cron: "0 3 * * *", timezone: "Europe/Amsterdam" }`; update the scheduler's option comment; verify `pnpm --filter @friday/core test` and `typecheck` pass
+- [x] 3.1 Use `resolveTimeZone`/`DEFAULT_TIME_ZONE` in `packages/core/src/jobs/scheduler.ts` and `packages/core/src/config.ts`, fall back to `Europe/Amsterdam` for an invalid zone with the error naming it, and change the invalid-zone test in `packages/core/test/jobs.test.ts` to expect `{ cron: "0 3 * * *", timezone: "Europe/Amsterdam" }`; update the scheduler's option comment; verify `pnpm --filter @friday/core test` and `typecheck` pass
 
 ## 4. Documentation
 
