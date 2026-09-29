@@ -11,7 +11,7 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 Update the README (Configuration section and the jobs "Time zone" bullet) to say the drawer lists every stored scope and can clear a module override, and the `openspec/config.yaml` context line on `/api/config` to mention `stored`; verify by reading the diff
+- [x] 3.1 Update the README (Configuration section and the jobs "Time zone" bullet) to say the drawer lists every stored scope and can clear a module override, and the `openspec/config.yaml` context line on `/api/config` to mention `stored`; verify by reading the diff
 
 ## 4. Integration
 

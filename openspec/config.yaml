@@ -63,7 +63,8 @@ context: |
   Configuration values are plain (plaintext, visible in the
   portal) or secret (manifest config key `secret: true`; AES-256-GCM with FRIDAY_MASTER_KEY, write-only)
   (packages/core/src/secrets); ctx.config resolves module scope, then global,
-  then env, lazily; /api/config lists declared keys with status set|pending|env and the portal's Settings >
+  then env, lazily; /api/config lists declared keys with status set|pending|env (plus `stored`: every scope holding
+  the key, global first, plain values only, so module overrides are visible and clearable) and the portal's Settings >
   Configuration edits them; POST /api/modules/:id/reload re-initializes a module. Remote module keys are issued
   in the portal (/api/keys, hashed in module_keys) with FRIDAY_MODULE_KEYS as fallback (CompositeKeyStore).
   Env vars are documented in .env.example. Keep the total tool count modest (Gemini caps at 512).
