@@ -2,7 +2,7 @@
 
 ## 1. Store and route
 
-- [ ] 1.1 Add the import to `BrainStore` (design D2 and D3):
+- [x] 1.1 Add the import to `BrainStore` (design D2 and D3):
   - the dry-run report: counts, profile tokens against the budget, blocking problems per page, warnings;
   - the empty-brain guard (a new `not_empty` code, 409);
   - application in one transaction: profile, deleted pages as create then soft-delete, live pages in ascending Jarvis `updated_at` with one `user` revision each noted `imported from jarvis (created …, updated …)`, Jarvis's times written back, tombstones last (skipping ones that name an imported page).
@@ -15,7 +15,7 @@
   - an over-long name and a shared alias are reported and a real import writes nothing;
   - the prompt index lists pages in Jarvis's recency order;
   - a deleted page may share a live page's name.
-- [ ] 1.2 Register `POST /api/modules/brain/import` mapping the report and errors to `{ applied, report }`, 400 `invalid` with the report, and 409 `not_empty`. Verify with `import.test.ts` cases via `host.request` for the dry run, the import, the 400 and the 409 shapes
+- [x] 1.2 Register `POST /api/modules/brain/import` mapping the report and errors to `{ applied, report }`, 400 `invalid` with the report, and 409 `not_empty`. Verify with `import.test.ts` cases via `host.request` for the dry run, the import, the 400 and the 409 shapes
 
 ## 2. Script
 
