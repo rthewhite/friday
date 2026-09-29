@@ -87,7 +87,7 @@ A name or alias of a purged page SHALL be tombstoned. Writes by any author other
 
 ### Requirement: Friday cannot delete or rewrite memories
 
-The brain SHALL offer the model no tool that deletes pages, removes text, or replaces a page's body. Deleting, purging and editing SHALL be possible only through the brain's HTTP routes used by the portal.
+The brain SHALL offer the model no tool that deletes pages, removes text, or replaces a page's body. Purging SHALL be possible only through the brain's HTTP routes used by the portal. Deleting and rewriting SHALL be possible only through those routes and through the brain's own scheduled maintenance, which can soft-delete a page only by merging it into another.
 
 #### Scenario: Tool list
 - **WHEN** the brain module is loaded
