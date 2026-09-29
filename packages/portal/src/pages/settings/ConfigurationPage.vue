@@ -5,6 +5,7 @@ import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Ca
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
 import { defaultScope } from "../../lib/config-scope.js";
+import { ownCopies, scopeSummary, strayCopies } from "../../lib/config-stored.js";
 import McpServersTab from "./McpServersTab.vue";
 
 interface Entry extends Record<string, unknown> {
@@ -17,6 +18,8 @@ interface Entry extends Record<string, unknown> {
   scope?: string;
   updatedAt?: string;
   value?: string;
+  /** Every scope the key is stored in (global first); plain values only. */
+  stored?: { scope: string; updatedAt: string; value?: string }[];
 }
 type Tab = "config" | "secrets" | "mcp";
 
@@ -58,6 +61,7 @@ const columns = computed<Column[]>(() => [
   { key: "key", label: "Key" },
   { key: "description", label: "Description", hideBelow: "lg" as const },
   { key: "modules", label: "Requested by", hideBelow: "md" as const },
+  { key: "scope", label: "Scope", hideBelow: "md" as const, width: "9rem" },
   { key: "updatedAt", label: "Updated", hideBelow: "lg" as const, width: "11rem" },
 ]);
 const tone = (s: Entry["status"]) => (s === "set" ? "success" : s === "env" ? "accent" : "warning");
@@ -92,6 +96,7 @@ watch(open, (v) => { if (!v && route.query.key) router.replace({ query: { ...rou
 watch(() => route.query.key, (k) => { if (k && !open.value) openFromQuery(); });
 
 const scopeOptions = computed(() => [...(selected.value?.modules.map((m) => m.id) ?? []), "global"]);
+const hasGlobal = computed(() => selected.value?.stored?.some((s) => s.scope === "global") === true);
 // Core is not a reloadable module: its keys apply to the next voice session and model call.
 const canReload = computed(() => draft.value.scope !== "global" && draft.value.scope !== "core");
 const isSecret = computed(() => (adding.value ? tab.value === "secrets" : selected.value?.secret === true));
@@ -111,14 +116,19 @@ async function save(reload: boolean) {
     open.value = false;
   });
 }
-async function clear() {
+/** Clear one stored copy; the others (and the environment) stay. The drawer stays open on the refreshed entry. */
+async function clear(scope: string) {
   const e = selected.value;
-  if (!e?.scope) return;
+  if (!e) return;
   await run(async () => {
-    await api(`/api/config/${encodeURIComponent(e.scope!)}/${encodeURIComponent(e.key)}`, { method: "DELETE" });
-    notice.value = `${e.key} cleared`;
-    open.value = false;
+    await api(`/api/config/${encodeURIComponent(scope)}/${encodeURIComponent(e.key)}`, { method: "DELETE" });
+    notice.value = `${e.key} cleared for ${scope}`;
   });
+  const fresh = entries.value.find((x) => x.key === e.key);
+  if (fresh) {
+    selected.value = fresh;
+    if (draft.value.scope === scope) draft.value.scope = defaultScope(fresh);
+  }
 }
 async function run(f: () => Promise<void>) {
   busy.value = true;
@@ -161,6 +171,11 @@ async function run(f: () => Promise<void>) {
             <Chip v-if="!(row as Entry).modules.length">global</Chip>
           </div>
         </template>
+        <template #cell-scope="{ row }">
+          <span class="text-f-text-muted whitespace-nowrap">
+            {{ scopeSummary(row as Entry).scope }}<span v-if="scopeSummary(row as Entry).others.length" class="ml-1 text-f-warning" :title="`Also stored for ${scopeSummary(row as Entry).others.join(', ')}`">+{{ scopeSummary(row as Entry).others.length }}</span>
+          </span>
+        </template>
         <template #cell-updatedAt="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ when((row as Entry).updatedAt) }}</span></template>
       </DataTable>
 
@@ -170,8 +185,24 @@ async function run(f: () => Promise<void>) {
         </div>
         <div v-if="selected" class="flex items-center gap-2 text-sm">
           <StatusDot :tone="tone(selected.status)" :label="selected.status" />
-          <span v-if="selected.scope" class="text-f-text-muted">stored for {{ selected.scope }}</span>
-          <span v-else-if="selected.status === 'env'" class="text-f-text-muted">from the environment</span>
+          <span v-if="selected.status === 'env'" class="text-f-text-muted">from the environment</span>
+        </div>
+        <div v-if="selected?.stored?.length" class="flex flex-col gap-1.5 text-sm">
+          <span class="text-f-text-muted">Stored values</span>
+          <div v-for="s in selected.stored" :key="s.scope" class="surface-inset flex items-center gap-3 px-3 py-2">
+            <div class="flex min-w-0 flex-1 flex-col gap-1">
+              <div class="flex min-w-0 items-center gap-2">
+                <Chip>{{ s.scope }}</Chip>
+                <code v-if="s.value !== undefined" class="min-w-0 break-all font-mono text-f-text">{{ s.value }}</code>
+              </div>
+              <div class="text-xs text-f-text-muted">
+                <span v-if="hasGlobal && ownCopies(selected).includes(s.scope)" class="text-f-warning">Overrides global for {{ s.scope }} · </span>
+                <span v-else-if="strayCopies(selected).includes(s.scope)">Not requested by {{ s.scope }}, probably left over · </span>
+                {{ when(s.updatedAt) }}
+              </div>
+            </div>
+            <Button variant="ghost" :disabled="busy" @click="clear(s.scope)">Clear</Button>
+          </div>
         </div>
         <Input v-if="adding" v-model="draft.key" label="Key" placeholder="MY_SETTING" />
         <Input v-model="draft.value" :type="isSecret ? 'password' : 'text'" label="Value" :placeholder="isSecret ? 'Enter a new value' : ''" />
@@ -182,10 +213,12 @@ async function run(f: () => Promise<void>) {
           </select>
         </label>
         <p v-if="isSecret" class="text-xs text-f-text-muted">Stored encrypted. Not shown again after saving.</p>
+        <p v-if="draft.scope === 'global' && selected && ownCopies(selected).length" class="text-xs text-f-warning">
+          {{ ownCopies(selected).length === 1 ? `${ownCopies(selected)[0]} keeps its own value until you clear it above.` : `${ownCopies(selected).join(", ")} keep their own values until you clear them above.` }}
+        </p>
         <p v-if="draft.scope === 'core' && draft.key === 'FRIDAY_TIMEZONE'" class="text-xs text-f-text-muted">Re-plans cron jobs at once. A core-only value is not seen by modules; save it as global to reach them too.</p>
         <p v-else-if="draft.scope === 'core'" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
         <template #footer>
-          <Button v-if="selected?.scope" variant="danger" :disabled="busy" @click="clear">Clear</Button>
           <span class="flex-1"></span>
           <Button :variant="canReload ? 'ghost' : undefined" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(false)">Save</Button>
           <Button v-if="canReload" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(true)">Save and reload {{ draft.scope }}</Button>
