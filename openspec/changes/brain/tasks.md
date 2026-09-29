@@ -103,9 +103,9 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 8. Docs and integration
 
-- [ ] 8.1 Document the brain in the README (what Friday remembers, the notes and nightly-tidying model, profile budget, where to curate and how purge works) and `BRAIN_PROFILE_TOKEN_BUDGET` in `.env.example`. Add the module to the `openspec/config.yaml` context. Verify the README's example `curl` against `GET /api/modules/brain/pages` works on a local core
-- [ ] 8.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
-- [ ] 8.3 End-to-end on a local core with a real `GEMINI_API_KEY`:
+- [x] 8.1 Document the brain in the README (what Friday remembers, the notes and nightly-tidying model, profile budget, where to curate and how purge works) and `BRAIN_PROFILE_TOKEN_BUDGET` in `.env.example`. Add the module to the `openspec/config.yaml` context. Verify the README's example `curl` against `GET /api/modules/brain/pages` works on a local core
+- [x] 8.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
+- [x] 8.3 End-to-end on a local core with a real `GEMINI_API_KEY`:
   - in Chat, ask Friday to remember two facts about a named person and one about yourself;
   - verify both pages and the notes in `/m/brain`;
   - start a new chat thread and ask about that person, checking the answer uses the memory (via the context index and a `brain_recall` tool entry on the Conversations page);

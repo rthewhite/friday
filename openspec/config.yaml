@@ -24,6 +24,12 @@ context: |
   /ws/modules, authenticate with FRIDAY_MODULE_KEYS, serve MCP over the socket; core registers their tools
   as <id>__<tool> with owner remote:<id> for the life of the connection (packages/core/src/remote/).
   Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse).
+  Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
+  tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
+  extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall
+  (name/alias match plus substring search); its prompt context (profile + index of 50 recent pages, under 10000
+  chars) goes into every voice/chat prompt; no tool deletes. Portal /m/brain curates (edit with stale check,
+  history/restore, soft delete, purge with tombstones); routes under /api/modules/brain/.
   Portal (packages/portal): Vue 3 + Vite + Tailwind 4 SPA served by core from packages/portal/dist
   (FRIDAY_WEB_DIR) with SPA fallback; pages Talk (voice client, AudioWorklet in public/), Chat
   (/chat, /chat/:id; markdown-it with HTML off), Conversations, Modules, and
