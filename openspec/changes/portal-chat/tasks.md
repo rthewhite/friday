@@ -34,9 +34,9 @@
 
 ## 6. Chat API
 
-- [ ] 6.1 Implement `chat/route.ts` and mount `POST /api/chat` in `createApp`: 400 for empty text, 404 for unknown or voice ids, 409 while a turn runs (synchronous check), 503 without a conversation store, SSE headers and framing, a `start` first event, 15 s heartbeat comments, and events dropped after disconnect while the turn continues; verify with HTTP tests covering each status, event order for a tool-using turn, the heartbeat (with a short interval), and a client abort mid-turn that still records the answer
-- [ ] 6.2 Verify `DELETE /api/conversations/:id` answers 409 during a chat turn, and that a cross-origin `POST /api/chat` is refused with 403, with API tests
-- [ ] 6.3 Run `pnpm --filter @friday/core test typecheck`
+- [x] 6.1 Implement `chat/route.ts` and mount `POST /api/chat` in `createApp`: 400 for empty text, 404 for unknown or voice ids, 409 while a turn runs (synchronous check), 503 without a conversation store, SSE headers and framing, a `start` first event, 15 s heartbeat comments, and events dropped after disconnect while the turn continues; verify with HTTP tests covering each status, event order for a tool-using turn, the heartbeat (with a short interval), and a client abort mid-turn that still records the answer
+- [x] 6.2 Verify `DELETE /api/conversations/:id` answers 409 during a chat turn, and that a cross-origin `POST /api/chat` is refused with 403, with API tests
+- [x] 6.3 Run `pnpm --filter @friday/core test typecheck`
 
 ## 7. Portal Chat page
 
