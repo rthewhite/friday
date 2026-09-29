@@ -30,7 +30,7 @@
 ## 3. Integration
 
 - [x] 3.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all pass
-- [ ] 3.2 Rehearse the runbook against the real data:
+- [x] 3.2 Rehearse the runbook against the real data:
   - make the read-only backup in the Jarvis pod and copy it out (ask the user before touching the pod);
   - run the dry run and then `--apply` against a local Friday with an empty data directory;
   - check in `/m/brain` that the counts match Jarvis's portal, the profile and a few pages read correctly, deleted pages are under "Recently deleted", and tombstoned names are refused by `brain_remember`;
