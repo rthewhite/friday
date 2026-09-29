@@ -6,6 +6,7 @@ Voice assistant on **Gemini 3.8 Live** (TypeScript / Node) built as a small core
 browser portal (Vue)   ── WebSocket PCM ──┐
                                           ├─► core ── Gemini Live (PCM 16k in / 24k out)
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
+portal Chat page       ── /api/chat (SSE) ────►├── Gemini text model (chat turns, streamed, with tools)
                                                ├─► modules/builtin   time, timers, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► MCP servers       configured in the portal (HTTP)
@@ -17,8 +18,8 @@ The repo is a pnpm workspace:
 | Package | Path | What |
 |---|---|---|
 | `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
-| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, module host, MCP servers, serves the portal |
-| `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Modules, and module pages |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
+| `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Chat, Conversations, Modules, and module pages |
 | `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
@@ -84,11 +85,11 @@ const h = await createTestHost(weather, { env: { WEATHER_API_KEY: "x" } });
 await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
 ```
 
-`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
+`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `set_timer` and `end_conversation` are voice-only, because a chat turn waits for every result and has no microphone to close. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
 
 ## Portal
 
-The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Conversations` page (the transcript history), a `Modules` page (everything `/api/modules` reports, with status and tools), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
+The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), a `Modules` page (everything `/api/modules` reports, with status and tools), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
 
 ### Add a module UI
 
@@ -103,15 +104,35 @@ The portal's build step scans the workspace for `friday.ui` declarations and gen
 
 Friday keeps a text record of every conversation in `friday.db`, for the portal's history and for background work that reads what was said.
 
-- **What is stored.** Transcript text only, never audio. A conversation has a channel (`voice` today, `chat` later), the client's `?device=` when it sends one, its start and last-activity times, and how it ended (`ended: done`, `ended: no follow-up`, `client closed`). Its entries are the user's turns, marked `speech` (Gemini's transcription, noisy) or `text` (typed, exact); Friday's answers, marked interrupted on a barge-in; and each tool call with its arguments and result, cut at 4000 characters. A session in which nothing was said, such as a false wake, leaves nothing behind. Whoever speaks near a Voice PE ends up in the record.
+- **What is stored.** Transcript text only, never audio. A conversation has a channel (`voice` or `chat`), the client's `?device=` when it sends one, its start and last-activity times, and how it ended (`ended: done`, `ended: no follow-up`, `client closed`). Its entries are the user's turns, marked `speech` (Gemini's transcription, noisy) or `text` (typed, exact); Friday's answers, marked interrupted on a barge-in; and each tool call with its arguments and result, cut at 4000 characters. A session in which nothing was said, such as a false wake, leaves nothing behind. Whoever speaks near a Voice PE ends up in the record.
 - **Quiet.** A voice conversation goes quiet when its session closes; any conversation goes quiet after `FRIDAY_CONVERSATION_QUIET_MINUTES` (default 30) without activity. In-process modules read conversations and hear when one goes quiet through `ctx.conversations` (see `packages/sdk/README.md`).
 - **Retention.** A nightly core job at 04:00 deletes conversations whose last activity is older than `FRIDAY_CONVERSATION_RETENTION_DAYS` (default 90). `0` keeps them forever.
-- **Browsing and deleting.** The portal's `Conversations` page (under Assistant) lists them, shows the transcript and tool activity in a side panel, and deletes a conversation after confirmation. Over HTTP:
+- **Browsing and deleting.** The portal's `Conversations` page (under Assistant) lists them, shows the transcript and tool activity in a side panel, and deletes a conversation after confirmation. Chat threads there have `Open in Chat`. Over HTTP:
 
 ```sh
 curl -s 'localhost:8080/api/conversations?limit=20'        # {"conversations":[...],"next":...}; pass next as ?before= for the next page
+curl -s 'localhost:8080/api/conversations?channel=chat'    # only chat threads (or voice); the filter holds across pages
 curl -s 'localhost:8080/api/conversations/<id>'            # one conversation with all its entries
-curl -s -X DELETE 'localhost:8080/api/conversations/<id>'  # 204; 409 while its session is still open; 404 when unknown
+curl -s -X DELETE 'localhost:8080/api/conversations/<id>'  # 204; 409 while its session or chat turn is still running; 404 when unknown
+```
+
+## Chat
+
+The portal's `Chat` page (under Assistant) is typed conversation with Friday, in threads you can come back to days later; voice conversations stay one-shot. Each message is one turn on a Gemini text model (not Live): core sends the chat system prompt, the thread's whole stored history (earlier tool calls and their results included, so Friday knows what it looked up and did) and the tools offered in chat, runs the tool calls the model asks for, and streams everything back as it happens: thought summaries (shown dimmed, not stored), the answer as it is written, and each tool call as it starts and settles. Answers are rendered as markdown with raw HTML disabled.
+
+- **Threads.** A first message creates a `chat` conversation; later messages append to it and make it active again. A thread is never ended explicitly: it goes quiet after `FRIDAY_CONVERSATION_QUIET_MINUTES`, like any conversation, and background jobs see it then. It falls under the same retention.
+- **Tools.** The same registry as voice, read fresh for every message (an MCP server added in the portal is available on the next message), minus voice-only tools. A tool that has not answered after `FRIDAY_CHAT_TOOL_TIMEOUT_MS` is reported to the model as timed out; it may still finish in the background. At most 10 rounds of tool calls per message.
+- **Reliability.** Chat model calls share the `FRIDAY_LLM_*` concurrency bound, timeout and retry policy with module calls and log the same line under `[chat]`. Failures before any output are retried; a failure after text was streamed ends the turn with an error, and the partial answer is stored marked interrupted, so you can simply send again. Closing or reloading the page doesn't stop a turn: it finishes on the server and is recorded.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FRIDAY_CHAT_MODEL` | `FRIDAY_TEXT_MODEL` | Model chat turns run on. |
+| `FRIDAY_CHAT_TOOL_TIMEOUT_MS` | `30000` | Longest wait for one tool call in a chat turn. |
+
+Over HTTP, `POST /api/chat` takes `{ "text": "...", "conversationId": "<optional chat id>" }` and answers `text/event-stream` with the events `start`, `thinking`, `text`, `tool_call`, `tool_result`, then `done` or `error` (plus `: ping` comments every 15 s). It answers 400 for an empty text, 404 for an unknown or voice id, and 409 while that thread's previous turn still runs:
+
+```sh
+curl -sN -X POST localhost:8080/api/chat -H 'content-type: application/json' -d '{"text":"What time is it in Tokyo?"}'
 ```
 
 ## Configuration, storage and keys
@@ -159,7 +180,7 @@ Work that happens outside a conversation (a nightly pass over transcripts, summa
 |---|---|---|
 | `FRIDAY_TEXT_MODEL` | `gemini-flash-latest` | Model for the `standard` tier. The alias follows Google's current Flash model; pin a name for stable behaviour. |
 | `FRIDAY_TEXT_MODEL_FAST` | `FRIDAY_TEXT_MODEL` | Model for the `fast` tier. |
-| `FRIDAY_LLM_CONCURRENCY` | `2` | Model calls in flight at once across all modules; the rest wait in order. |
+| `FRIDAY_LLM_CONCURRENCY` | `2` | Model calls in flight at once across all modules and chat turns; the rest wait in order. |
 | `FRIDAY_LLM_TIMEOUT_MS` | `120000` | Per-attempt limit, unless a request sets `timeoutMs`. |
 | `FRIDAY_LLM_MAX_RETRY_WAIT_MS` | `60000` | Longest wait before retrying a rate-limited call (HTTP 429). Core waits as long as Gemini asks, up to this; a longer requested wait or an exhausted daily quota fails at once. A request's `maxRetryWaitMs` overrides it. |
 

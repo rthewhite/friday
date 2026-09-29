@@ -8,10 +8,15 @@ context: |
   A module exports defineModule({ manifest: { id, label, config[] }, init(ctx) }); ctx gives
   defineTool, config (env-backed), log. Core lists in-process modules in packages/core/src/modules.ts,
   FRIDAY_MODULES narrows them, GET /api/modules reports status. Tools live in one owner-tagged
-  ToolRegistry instance (owner = module id or mcp:<server>); each GeminiSession snapshots
-  declarations() at open (Gemini binds tools then). Tool results may carry reserved keys
+  ToolRegistry instance (owner = module id or mcp:<server>); a tool may set channels (voice | chat,
+  both by default; set_timer and end_conversation are voice-only); each GeminiSession snapshots
+  declarations("voice") at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
-  before reaching Gemini. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
+  before reaching Gemini (and ignored in chat). Portal chat (packages/core/src/chat/): POST /api/chat
+  runs one turn per message on the text model (FRIDAY_CHAT_MODEL, else FRIDAY_TEXT_MODEL) through
+  LlmService.streamCall, replaying the thread's whole stored history (tool entries as function
+  call/response pairs), a tool loop over declarations("chat") (FRIDAY_CHAT_TOOL_TIMEOUT_MS, 10 rounds),
+  recorded as a `chat` conversation, streamed as server-sent events. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
   transport-agnostic GeminiSession. MCP servers (streamable HTTP only, no stdio) are stored in friday.db (mcp_servers; secret header
   values encrypted like config secrets), managed via /api/mcp/servers and Settings > Configuration > MCP servers, and
   connected per server by packages/core/src/tools/mcp.ts (store: mcp-store.ts). Remote modules (remote/*,
@@ -20,7 +25,8 @@ context: |
   as <id>__<tool> with owner remote:<id> for the life of the connection (packages/core/src/remote/).
   Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse).
   Portal (packages/portal): Vue 3 + Vite + Tailwind 4 SPA served by core from packages/portal/dist
-  (FRIDAY_WEB_DIR) with SPA fallback; pages Talk (voice client, AudioWorklet in public/), Modules, and
+  (FRIDAY_WEB_DIR) with SPA fallback; pages Talk (voice client, AudioWorklet in public/), Chat
+  (/chat, /chat/:id; markdown-it with HTML off), Conversations, Modules, and
   /m/<id> per module UI. Module UIs are declared with "friday": { "ui": ... } in the module package.json and
   defineModuleUi from @friday/portal-ui (tokens + base components); scripts/gen-modules.mjs generates the
   import list at build time (no Module Federation). Modules add backend routes with ctx.http.route, served

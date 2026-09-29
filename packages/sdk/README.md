@@ -23,6 +23,7 @@ export default defineModule({
       description: "Weather for a city",
       parameters: { type: Type.OBJECT, properties: { city: { type: Type.STRING } }, required: ["city"] },
       scheduling: "INTERRUPT",     // default for this tool's results
+      // channels: ["voice"],      // optional: offer it only in voice (or ["chat"]); both by default
       handler: async ({ city }) => ({ temp_c: 18, sky: "cloudy" }),
     });
     ctx.log.log("ready");          // printed as "[weather] ready"
@@ -87,6 +88,12 @@ A handler returns a plain object. Two keys are reserved and stripped before the 
 - `endConversation`: a reason string asking the session to close after the model's current turn.
 
 Throwing from a handler yields `{ error: "<message>" }` with `INTERRUPT` so the model can tell the user.
+
+Both keys matter only in voice. In a portal chat turn the result goes back to the model as is, without them; `scheduling` and `endConversation` are ignored.
+
+### Channels
+
+A tool is offered in voice sessions and in portal chat unless it sets `channels`, a non-empty list of `"voice"` and `"chat"`. Chat waits for every tool result before it answers (up to `FRIDAY_CHAT_TOOL_TIMEOUT_MS`), so a tool that deliberately takes long, like `set_timer`, or that only makes sense with a microphone, like `end_conversation`, should be `channels: ["voice"]`. Outside its channels a tool is not declared, and a call to it answers `{ error: "unknown tool <name>" }` without running the handler. Remote module tools carry no channels and are offered in both.
 
 ### Conversations
 
@@ -189,6 +196,8 @@ test("get_weather", async () => {
   assert.equal(r.scheduling, "INTERRUPT");
 });
 ```
+
+`host.toolsIn("chat")` lists the tools offered in a channel, and `host.call(name, args, { channel: "chat" })` calls a tool as that channel would.
 
 `createTestHost` initializes the module against an in-memory `ToolRegistry` with `env` as its only configuration source (`process.env` is not consulted), and rejects with the same error the real host would log when a required key is missing.
 
