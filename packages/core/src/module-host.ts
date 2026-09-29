@@ -3,6 +3,7 @@ import {
   assertConfig,
   createContext,
   envResolver,
+  prefixedLogger,
   RouteTable,
   validateManifest,
   type ConfigResolver,
@@ -13,8 +14,10 @@ import {
   type ModuleConversations,
   type ModuleLogger,
   type ModuleStorage,
+  type PromptContext,
   type ToolRegistry,
 } from "@friday/sdk";
+import { lazyDb, openModuleDb, type ModuleDatabase } from "@friday/sdk/db";
 
 export type ModuleStatus = "loaded" | "failed" | "disabled";
 
@@ -48,6 +51,13 @@ export interface ModuleHostOptions {
   llm?: (moduleId: string) => ModuleLlm;
   /** Per-module conversation access. Defaults to an unavailable stub. */
   conversations?: (moduleId: string) => ModuleConversations;
+  /**
+   * Path of friday.db. Each module gets its own connection on it, opened on its first migration or
+   * `ctx.db` call. Without it `ctx.db` is unavailable and a module that declares migrations fails.
+   */
+  database?: string;
+  /** Registry the modules' prompt context providers join. Without it `ctx.prompt` is unavailable. */
+  prompt?: PromptContext;
 }
 
 interface Entry {
@@ -55,6 +65,8 @@ interface Entry {
   status: ModuleStatus;
   error?: string;
   routes: RouteTable;
+  /** The module's connection; kept across reloads, closed in `dispose`. */
+  database?: ModuleDatabase;
 }
 
 export class ModuleHost {
@@ -64,6 +76,8 @@ export class ModuleHost {
   private readonly resolve: (moduleId: string) => ConfigResolver;
   /** Unsubscribers of each module's onQuiet handlers, dropped on teardown and failed init. */
   private readonly quietSubs = new Map<string, (() => void)[]>();
+  /** Set by `dispose`: module connections are closed and must not reopen. */
+  private disposed = false;
 
   constructor(private readonly registry: ToolRegistry, private readonly opts: ModuleHostOptions = {}) {
     this.env = opts.env ?? process.env;
@@ -100,8 +114,13 @@ export class ModuleHost {
       validateManifest(module.manifest);
       const resolve = this.resolve(id);
       assertConfig(module.manifest, resolve);
+      if (module.migrations?.length) {
+        if (!this.opts.database) throw new Error(`${id}: database is not available in this host`);
+        this.databaseOf(entry).migrate(module.migrations, prefixedLogger(id, this.log));
+      }
+      const db = this.opts.database ? lazyDb(() => this.databaseOf(entry)) : undefined;
       const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id), conversations: this.conversationsFor(id) }));
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id), conversations: this.conversationsFor(id), db, prompt: this.opts.prompt?.forOwner(id) }));
       entry.status = "loaded";
       entry.error = undefined;
       const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
@@ -113,6 +132,7 @@ export class ModuleHost {
       routes.clear();
       await this.opts.jobs?.(id).removeAll();
       this.dropSubscriptions(id);
+      this.opts.prompt?.clear(id);
       this.log.error(`module ${id} failed to load: ${entry.error}`);
     }
   }
@@ -124,11 +144,18 @@ export class ModuleHost {
     // Stop the module's timers and let in-flight runs settle before the module releases its resources.
     await this.opts.jobs?.(id).removeAll();
     this.dropSubscriptions(id);
+    this.opts.prompt?.clear(id);
     try {
       await entry.module.dispose?.();
     } catch (err) {
       this.log.error(`module ${id} failed to dispose:`, err);
     }
+  }
+
+  /** The module's connection on friday.db, opened on first use. */
+  private databaseOf(entry: Entry): ModuleDatabase {
+    if (this.disposed) throw new Error(`${entry.module.manifest.id}: database is closed (Friday is shutting down)`);
+    return (entry.database ??= openModuleDb(this.opts.database!, entry.module.manifest.id));
   }
 
   /** `ctx.conversations` with its onQuiet subscriptions tracked so a reload or dispose can drop them. */
@@ -173,11 +200,20 @@ export class ModuleHost {
     return e?.status === "loaded" ? e.routes : undefined;
   }
 
-  /** Reverse load order; individual failures are logged, not thrown. */
+  /** Reverse load order; individual failures are logged, not thrown. Then closes the modules' connections. */
   async dispose(): Promise<void> {
     for (const e of [...this.entries].reverse()) {
       if (e.status !== "loaded") continue;
       await this.teardown(e);
+    }
+    this.disposed = true;
+    for (const e of this.entries) {
+      try {
+        e.database?.close();
+      } catch (err) {
+        this.log.error(`module ${e.module.manifest.id}: closing its database failed:`, err);
+      }
+      e.database = undefined;
     }
   }
 }

@@ -44,6 +44,8 @@ export default defineModule({
 | `jobs.trigger(name)` | Starts one of the module's own jobs now (trigger `module`); returns `{ started: false }` when it is already running. |
 | `llm.generate(request)` | Text generation through core's model. See [Text generation](#text-generation). |
 | `conversations` | Read access to recorded conversations: `list`, `get`, `onQuiet`. In-process modules only; see [Conversations](#conversations). |
+| `db` | Synchronous access to the module's own tables: `prepare`, `exec`, `transaction`. In-process modules only; see [Tables](#tables). |
+| `prompt.addContext(provider)` | Adds text to Friday's voice and chat system prompts. Returns an unsubscribe function. In-process modules only; see [Prompt context](#prompt-context). |
 
 Mark credentials and tokens with `secret: true`. Secrets are stored encrypted and never displayed in the portal; plain keys are shown and edited inline. Retrieval is identical for both: `ctx.config.get` / `require`.
 
@@ -77,7 +79,8 @@ A throwing handler records the run as `failed` with its message; the job runs ag
 Rules the host enforces:
 
 - Every `required` config key must be set before `init` runs; otherwise the module is reported `failed` with `module <id>: missing required config <keys>` and the rest of Friday starts normally.
-- If `init` throws, the tools it registered so far are removed.
+- Pending `migrations` run after the config check and before `init`. A failing migration fails the module the same way (see [Tables](#tables)).
+- If `init` throws, the tools, routes, jobs, subscriptions and prompt context providers it registered so far are removed.
 - Modules must not depend on each other's tools. Load order is only for deterministic logging.
 
 ### Tool results
@@ -125,6 +128,94 @@ init(ctx) {
 ```
 
 For heavier work, make `catchUp` a background job and have the handler call `ctx.jobs.trigger("<name>")` instead, so runs never overlap and show up on the Jobs page. Remote modules get an error `conversations are not available in this host`. In tests, `createTestHost` provides an in-memory store as `host.conversations`: `seed({ entries, ... })` adds a conversation and `await markQuiet(id)` fires the module's handlers.
+
+### Tables
+
+A module that needs relational data or atomic multi-row writes owns tables in `friday.db`. It declares them as numbered `migrations` and uses them through `ctx.db`:
+
+```ts
+import { defineModule, Type } from "@friday/sdk";
+
+export const notes = defineModule({
+  manifest: { id: "notes", label: "Notes" },
+  migrations: [
+    { version: 1, name: "notes", up: "CREATE TABLE notes__notes (id INTEGER PRIMARY KEY, text TEXT NOT NULL, created_at TEXT NOT NULL)" },
+    {
+      version: 2,
+      name: "tags",
+      up: (db) => {
+        db.exec("CREATE TABLE notes__tags (note INTEGER NOT NULL REFERENCES notes__notes (id) ON DELETE CASCADE, tag TEXT NOT NULL, PRIMARY KEY (note, tag))");
+        db.exec("CREATE INDEX notes__tags_tag ON notes__tags (tag)");
+      },
+    },
+  ],
+  init(ctx) {
+    const insertNote = ctx.db.prepare("INSERT INTO notes__notes (text, created_at) VALUES (?, ?)");
+    const insertTag = ctx.db.prepare("INSERT INTO notes__tags (note, tag) VALUES (?, ?)");
+    const byTag = ctx.db.prepare("SELECT n.id, n.text FROM notes__notes n JOIN notes__tags t ON t.note = n.id WHERE t.tag = ? ORDER BY n.id");
+
+    ctx.defineTool<{ text: string; tags?: string[] }>({
+      name: "add_note",
+      description: "Saves a note with optional tags",
+      parameters: {
+        type: Type.OBJECT,
+        properties: { text: { type: Type.STRING }, tags: { type: Type.ARRAY, items: { type: Type.STRING } } },
+        required: ["text"],
+      },
+      // The note and its tags are written together or not at all.
+      handler: ({ text, tags = [] }) =>
+        ctx.db.transaction(() => {
+          const id = Number(insertNote.run(text, new Date().toISOString()).lastInsertRowid);
+          for (const tag of tags) insertTag.run(id, tag);
+          return { id };
+        }),
+    });
+    ctx.defineTool<{ tag: string }>({
+      name: "notes_by_tag",
+      description: "Notes with a tag",
+      parameters: { type: Type.OBJECT, properties: { tag: { type: Type.STRING } }, required: ["tag"] },
+      handler: ({ tag }) => ({ notes: byTag.all(tag) }),
+    });
+
+    // Tell Friday the notes exist (see Prompt context).
+    const count = ctx.db.prepare("SELECT count(*) AS n FROM notes__notes");
+    ctx.prompt.addContext(({ channel }) => {
+      const { n } = count.get() as { n: number };
+      if (!n) return undefined;
+      return channel === "voice"
+        ? `## Notes\nThe user has ${n} notes; use notes_by_tag to look them up.`
+        : `## Notes\nThe user has ${n} saved notes. Use notes_by_tag to find them and cite the note ids.`;
+    });
+  },
+});
+```
+
+Migrations:
+
+- Each is `{ version, name, up }`. `version` is a positive integer, unique within the module. `up` is SQL (one or more statements) or a synchronous function that receives `ctx.db`.
+- The host validates the whole list, then runs the pending ones in version order after the config check and before `init`, so `init` can rely on the schema. A migration is pending when its version is above the module's recorded version (kept in `friday.db`, per module).
+- Each migration runs in its own transaction together with recording its version. One that throws is rolled back, and the module is `failed` with `module <id>: migration <version> "<name>" failed: ...`. Earlier migrations stay applied, and Friday and the other modules start normally.
+- A recorded version above the module's highest one (after rolling back to an older image) fails the module with `database schema v3 is newer than module <id>'s migrations (v2)` and runs nothing. There are no down-migrations; ship a new, higher version instead.
+- A reload runs any migrations that became pending, and none otherwise. Tables stay when a module is disabled or removed.
+
+`ctx.db`:
+
+- **Synchronous on purpose.** `prepare(sql)` returns node's `StatementSync` (`run`, `get`, `all`, `iterate`; rows are plain objects with a null prototype). `exec(sql)` runs statements without results. Statements may be prepared once in `init` and reused.
+- **`transaction(fn)`** runs `fn` in `BEGIN IMMEDIATE`. It commits and returns `fn`'s result when `fn` returns, and rolls back and rethrows when it throws. `fn` must not be async. A body that returns a promise is rolled back and `transaction` throws, and anything the body writes after its first `await` would run outside any transaction. Nested calls use savepoints: an inner `transaction` that throws undoes only its own writes. Because the body cannot await, no other code can interleave with it.
+- **The prefix rule.** Everything a module creates or touches is named `<prefix>__*`, where the prefix is its id with `-` replaced by `_`: `notes__notes`, `media_x__cache` for `media-x`. That covers tables, indexes, triggers, views and virtual tables, FTS5 included. An id with `--` or a trailing `-` cannot own tables.
+- **What is refused.** A statement that reads, writes, creates, alters or drops anything outside the prefix is refused when it is prepared, with `module <id>: database access refused: <operation>`. That includes core's tables, other modules' tables, the schema-version table, renaming a table to a name outside the prefix, and writing SQLite's shared bookkeeping (`sqlite_sequence`, `sqlite_stat1`). So are pragmas, `ATTACH` and `DETACH`, and `BEGIN` / `COMMIT` / `ROLLBACK` / `SAVEPOINT`: use `transaction`, which cannot be held open across an `await`. This applies to migrations as well, which already run in a transaction, and a migration that leaves a new object outside the prefix is rolled back. Foreign keys are always enforced. The rule guards against mistakes; it is not a sandbox.
+- Keep queries small: they run on the thread that also streams audio. Prefer `INTEGER PRIMARY KEY` or text ids over `AUTOINCREMENT`, whose counters live in a table shared by all modules and can't be adjusted directly.
+
+Remote modules have no database. `runRemote` logs and ignores declared migrations, and every `ctx.db` call throws `<id>: database is not available in this host`.
+
+### Prompt context
+
+`ctx.prompt.addContext(provider)` lets a module prime Friday with what it knows. Core calls every provider each time it builds a system prompt: when a voice session opens (the session keeps it until it closes) and when a chat turn starts (used for every model call of that turn). The provider receives `{ channel }` (`"voice"` or `"chat"`) and returns text or `undefined`. The `notes` module in [Tables](#tables) uses one to say how many notes exist, with a shorter hint for voice than for chat.
+
+- The output goes after the channel's prompt, trimmed, with a blank line between blocks: modules in load order, and a module's providers in registration order. Supply your own heading; core adds none.
+- Providers are **synchronous** and on the path that opens a voice session, so read local state (`ctx.db`, memory) only, never the network. One slower than 100 ms is logged with its duration, and one that returns a promise is skipped.
+- A module's combined output is cut to `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` (default 12000) characters, ending in `…`, with a warning. A provider that throws or returns nothing is skipped; a throw is logged with the module id.
+- Providers are removed when the module is disposed, reloaded or fails in `init`. Remote modules get `<id>: prompt context is not available in this host`.
 
 ## Text generation
 
@@ -207,7 +298,19 @@ Scheduled jobs are recorded without running any timers. `host.jobs` lists their 
 const h = await createTestHost(cleanup);
 assert.deepEqual(h.jobs, [{ name: "nightly", cron: "0 3 * * *" }]);
 assert.deepEqual(await h.runJob("nightly"), { outcome: "ok", summary: "deleted 2 items" });
-``` Inject fakes (like `fetch`) through a factory function in your module, as `modules/media` does with `createMediaModule({ fetch })`.
+```
+
+A module's `migrations` run against a fresh in-memory database before `init`, with the same validation and prefix rules as core, so a broken or non-isolated migration rejects `createTestHost` with the error core would record. `host.db` is the module's `ctx.db`: seed rows before calling a tool and inspect them afterwards. No database file is written. `host.promptContext(channel)` renders the module's prompt context as core would:
+
+```ts
+const h = await createTestHost(notes);
+h.db.prepare("INSERT INTO notes__notes (text, created_at) VALUES (?, ?)").run("Buy milk", "2026-01-01T00:00:00Z");
+await h.call("add_note", { text: "Call the plumber", tags: ["house"] });
+assert.deepEqual(h.db.prepare("SELECT tag FROM notes__tags").all().map((r) => r.tag), ["house"]);
+assert.equal(h.promptContext("voice"), "## Notes\nThe user has 2 notes; use notes_by_tag to look them up.");
+```
+
+Inject fakes (like `fetch`) through a factory function in your module, as `modules/media` does with `createMediaModule({ fetch })`.
 
 ## Running a module remotely
 

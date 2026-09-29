@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { DEFAULT_PROMPT_CONTEXT_MAX_CHARS } from "@friday/sdk";
 
 /** packages/core/{src,dist}/config.ts -> packages/portal/dist. Override with FRIDAY_WEB_DIR (the image sets it). */
 const defaultWebDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "portal", "dist");
@@ -30,6 +31,15 @@ export function chatSettings(env: Record<string, string | undefined>) {
     chatModel: env.FRIDAY_CHAT_MODEL || llmSettings(env).textModel,
     /** A chat tool call that has not settled after this long is answered with a timeout error. */
     chatToolTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 30000,
+  };
+}
+
+/** Module prompt context. A function of the environment so the default is testable. */
+export function promptSettings(env: Record<string, string | undefined>) {
+  const max = Math.floor(Number(env.FRIDAY_PROMPT_CONTEXT_MAX_CHARS));
+  return {
+    /** Each module's prompt context is cut to this many characters. */
+    promptContextMaxChars: Number.isFinite(max) && max > 0 ? max : DEFAULT_PROMPT_CONTEXT_MAX_CHARS,
   };
 }
 
@@ -98,6 +108,8 @@ export const settings = {
   ...llmSettings(process.env),
   /** chatModel, chatToolTimeoutMs. */
   ...chatSettings(process.env),
+  /** promptContextMaxChars. */
+  ...promptSettings(process.env),
   /** The Live session's instruction: the shared base plus the voice part. */
   systemPrompt: `${prompts.base}\n\n${prompts.voice}`,
   /** A chat turn's instruction: the shared base plus the chat part. */

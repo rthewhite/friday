@@ -5,6 +5,8 @@ import type { LiveConnectParameters, LiveServerMessage } from "@google/genai";
 import { GeminiSession, type Event, type LiveConnect } from "../src/session.js";
 import { waitFor } from "./helpers.js";
 import { setup } from "./conversation-fixtures.js";
+import { prompts, settings } from "../src/config.js";
+import { createPromptContext, systemPrompt } from "../src/prompt-context.js";
 
 const quiet = { log() {}, error() {} };
 
@@ -168,4 +170,42 @@ test("the Gemini key is resolved when a session opens; a later change reaches on
   assert.deepEqual(live.keys, ["key-one", "key-two"]);
   s1.close();
   s2.close();
+});
+
+test("the system instruction is base + voice + module context, built when each session opens", async () => {
+  const context = createPromptContext({ log: { ...quiet, warn() {} } });
+  const live = fakeLive();
+  const open = async () => {
+    const s = new GeminiSession(() => {}, new ToolRegistry(quiet), { connect: live.connect, log: quiet, systemPrompt: systemPrompt(context, "voice") });
+    await s.open();
+    return s;
+  };
+  let known = "The user is Ray.";
+  context.forOwner("brain").addContext(({ channel }) => (channel === "voice" ? `## Brain\n${known}` : "chat only"));
+  const s1 = await open();
+  known = "The user is Ray and has a dog.";
+  // The open session keeps its instruction; only the next one sees the change.
+  const s2 = await open();
+  const instructions = live.params.map((p) => p.config!.systemInstruction);
+  assert.deepEqual(instructions, [
+    `${prompts.base}\n\n${prompts.voice}\n\n## Brain\nThe user is Ray.`,
+    `${prompts.base}\n\n${prompts.voice}\n\n## Brain\nThe user is Ray and has a dog.`,
+  ]);
+  s1.close();
+  s2.close();
+});
+
+test("without module context the instruction is the base and voice parts only", async () => {
+  const context = createPromptContext({ log: { ...quiet, warn() {} } });
+  context.forOwner("brain").addContext(() => undefined);
+  context.forOwner("media").addContext(() => { throw new Error("broken"); });
+  const live = fakeLive();
+  const s = new GeminiSession(() => {}, new ToolRegistry(quiet), { connect: live.connect, log: quiet, systemPrompt: systemPrompt(context, "voice") });
+  await s.open();
+  const plain = new GeminiSession(() => {}, new ToolRegistry(quiet), { connect: live.connect, log: quiet });
+  await plain.open();
+  assert.equal(live.params[0].config!.systemInstruction, `${prompts.base}\n\n${prompts.voice}`);
+  assert.equal(live.params[1].config!.systemInstruction, settings.systemPrompt);
+  s.close();
+  plain.close();
 });

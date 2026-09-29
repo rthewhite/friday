@@ -32,7 +32,15 @@ context: |
   import list at build time (no Module Federation). Modules add backend routes with ctx.http.route, served
   at /api/modules/<id>/...; core routing lives in packages/core/src/{router,app}.ts.
   Platform storage: core owns friday.db (node:sqlite, FRIDAY_DATA_DIR, PVC in k8s; packages/core/src/storage)
-  with versioned migrations; modules get ctx.storage (module_kv). Configuration values are plain (plaintext, visible in the
+  with versioned migrations; modules get ctx.storage (module_kv). In-process modules may also declare numbered
+  migrations (run before init, versions in module_schema) and use ctx.db: a synchronous node:sqlite handle
+  (prepare/exec/transaction, nested = savepoints, async bodies refused) on the module's own connection, whose
+  authorizer allows only <id with - as _>__* objects (no core tables, pragmas or ATTACH); shared code in
+  packages/sdk/src/db.ts (@friday/sdk/db), never loaded by @friday/sdk/remote. ctx.prompt.addContext registers a
+  synchronous provider ({ channel }) whose text core appends to the voice prompt at session open and the chat
+  prompt per turn, in module load order, capped per module by FRIDAY_PROMPT_CONTEXT_MAX_CHARS
+  (packages/sdk/src/prompt.ts, packages/core/src/prompt-context.ts). Remote hosts reject ctx.db and ctx.prompt.
+  Configuration values are plain (plaintext, visible in the
   portal) or secret (manifest config key `secret: true`; AES-256-GCM with FRIDAY_MASTER_KEY, write-only)
   (packages/core/src/secrets); ctx.config resolves module scope, then global,
   then env, lazily; /api/config lists declared keys with status set|pending|env and the portal's Settings >

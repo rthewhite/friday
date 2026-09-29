@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
 import { defineModule, LlmError, Type, type ModuleContext } from "../src/index.js";
 import { createTestHost } from "../src/test.js";
 
@@ -123,4 +124,75 @@ test("defineTool keeps a tool's channels, and the test host calls as a channel w
   assert.deepEqual(h.toolsIn("voice"), ["beep", "time"]);
   assert.deepEqual((await h.call("beep", {}, { channel: "chat" })).result, { error: "unknown tool beep" });
   assert.deepEqual((await h.call("beep")).result, { ok: true });
+});
+
+const items = defineModule({
+  manifest: { id: "hello", label: "Hello" },
+  migrations: [{ version: 1, name: "items", up: "CREATE TABLE hello__items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)" }],
+  init(ctx) {
+    ctx.defineTool({ name: "list_items", description: "", handler: () => ({ items: ctx.db.prepare("SELECT name FROM hello__items ORDER BY id").all().map((r) => r.name) }) });
+    ctx.defineTool<{ name: string }>({ name: "add_item", description: "", handler: ({ name }) => ({ id: Number(ctx.db.prepare("INSERT INTO hello__items (name) VALUES (?)").run(name).lastInsertRowid) }) });
+  },
+});
+
+test("the test host runs migrations in memory; tests seed and inspect through host.db", async () => {
+  const cwd = readdirSync(".");
+  const h = await createTestHost(items);
+  h.db.prepare("INSERT INTO hello__items (name) VALUES (?)").run("seeded");
+  assert.deepEqual((await h.call("list_items")).result, { items: ["seeded"] });
+  await h.call("add_item", { name: "added" });
+  assert.deepEqual(h.db.prepare("SELECT name FROM hello__items ORDER BY id").all().map((r) => r.name), ["seeded", "added"]);
+  assert.throws(() => h.db.prepare("SELECT * FROM module_schema"), /module hello: database access refused/);
+  assert.deepEqual(readdirSync("."), cwd);
+  await h.dispose();
+});
+
+test("a query in init sees the rows its migrations wrote", async () => {
+  let seen: unknown[] = [];
+  const m = defineModule({
+    manifest: { id: "hello", label: "Hello" },
+    migrations: [{ version: 1, name: "items", up: "CREATE TABLE hello__items (name TEXT); INSERT INTO hello__items VALUES ('default')" }],
+    init(ctx) { seen = ctx.db.prepare("SELECT name FROM hello__items").all().map((r) => r.name); },
+  });
+  await createTestHost(m);
+  assert.deepEqual(seen, ["default"]);
+});
+
+test("a failing or non-isolated migration rejects createTestHost with the host's error, before init", async () => {
+  let inits = 0;
+  const broken = defineModule({
+    manifest: { id: "hello", label: "Hello" },
+    migrations: [
+      { version: 1, name: "items", up: "CREATE TABLE hello__items (id INTEGER PRIMARY KEY)" },
+      { version: 2, name: "oops", up: "CREATE TABLE items (id INTEGER PRIMARY KEY)" },
+    ],
+    init() { inits++; },
+  });
+  await assert.rejects(createTestHost(broken), /module hello: migration 2 "oops" failed: module hello: database access refused: create table items/);
+  await assert.rejects(createTestHost({ ...broken, migrations: [broken.migrations![0], { ...broken.migrations![0] }] }), /module hello: duplicate migration version 1/);
+  assert.equal(inits, 0);
+});
+
+test("modules without migrations may still use ctx.db lazily; bad ids fail at use", async () => {
+  const m = defineModule({ manifest: { id: "bad-", label: "Bad" }, init() {} });
+  const h = await createTestHost(m);
+  assert.throws(() => h.db.exec("SELECT 1"), /module bad-: an id with "--" or a trailing "-" cannot own tables/);
+  await assert.rejects(createTestHost({ ...m, migrations: [{ version: 1, name: "x", up: "SELECT 1" }] }), /cannot own tables/);
+});
+
+test("promptContext renders the module's providers per channel, and dispose drops them", async () => {
+  const errors: string[] = [];
+  const m = defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    init(ctx) {
+      ctx.prompt.addContext(({ channel }) => `## Brain (${channel})\nThe user is Ray.`);
+      ctx.prompt.addContext(() => { throw new Error("broken"); });
+    },
+  });
+  const h = await createTestHost(m, { log: { log() {}, warn() {}, error: (...a) => void errors.push(a.join(" ")) } });
+  assert.equal(h.promptContext("voice"), "## Brain (voice)\nThe user is Ray.");
+  assert.equal(h.promptContext("chat"), "## Brain (chat)\nThe user is Ray.");
+  assert.deepEqual(errors, ["prompt context provider of brain failed: broken", "prompt context provider of brain failed: broken"]);
+  await h.dispose();
+  assert.equal(h.promptContext("voice"), "");
 });

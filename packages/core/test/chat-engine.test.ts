@@ -5,6 +5,8 @@ import { ChatEngine, MAX_TOOL_ROUNDS, type ChatEvent } from "../src/chat/engine.
 import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
 import type { StreamCallRequest } from "../src/llm/service.js";
 import { setup } from "./conversation-fixtures.js";
+import { prompts } from "../src/config.js";
+import { createPromptContext, systemPrompt } from "../src/prompt-context.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
@@ -39,10 +41,10 @@ function fakeLlm(...rounds: Round[]) {
   return { llm, requests, owners };
 }
 
-function engine(llm: ReturnType<typeof fakeLlm>["llm"], o: { registry?: ToolRegistry; toolTimeoutMs?: number } = {}) {
+function engine(llm: ReturnType<typeof fakeLlm>["llm"], o: { registry?: ToolRegistry; toolTimeoutMs?: number; system?: () => string } = {}) {
   const s = setup();
   const registry = o.registry ?? new ToolRegistry(quiet);
-  const e = new ChatEngine({ store: s.store, registry, llm, model: "chat-model", system: "CHAT PROMPT", toolTimeoutMs: o.toolTimeoutMs ?? 1000, log: quiet });
+  const e = new ChatEngine({ store: s.store, registry, llm, model: "chat-model", system: o.system ?? (() => "CHAT PROMPT"), toolTimeoutMs: o.toolTimeoutMs ?? 1000, log: quiet });
   return { ...s, registry, engine: e };
 }
 
@@ -290,4 +292,28 @@ test("a throwing listener does not stop the turn", async () => {
     throw new Error("socket gone");
   });
   assert.deepEqual(shape(store.get(r.turn.conversationId)!.entries).at(-1), { kind: "assistant", text: "still recorded", interrupted: false });
+});
+
+test("module context is rendered once per turn, used on every call of the tool loop, and fresh on the next turn", async () => {
+  const context = createPromptContext({ log: quiet });
+  let renders = 0;
+  let fact = "The user likes Dune.";
+  context.forOwner("brain").addContext(({ channel }) => {
+    renders++;
+    return channel === "chat" ? `## Brain\n${fact}` : "voice only";
+  });
+  const f = fakeLlm([call("lookup")], [call("lookup")], [text("Done.")], [text("Again.")]);
+  const { engine: e, registry } = engine(f.llm, { system: systemPrompt(context, "chat") });
+  registry.add("brain", { name: "lookup", description: "", handler: () => {
+    // Changing mid-turn must not reach this turn's later calls.
+    fact = "The user likes Dune and Arrival.";
+    return { ok: true };
+  } });
+  const first = await send(e, "what do I like?");
+  const expected = (f: string) => `${prompts.base}\n\n${prompts.chat}\n\n## Brain\n${f}`;
+  assert.deepEqual(f.requests.map((r) => r.system), [expected("The user likes Dune."), expected("The user likes Dune."), expected("The user likes Dune.")]);
+  assert.equal(renders, 1);
+  await send(e, "and now?", first.id);
+  assert.equal(f.requests[3].system, expected("The user likes Dune and Arrival."));
+  assert.equal(renders, 2);
 });
