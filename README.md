@@ -189,6 +189,30 @@ pnpm --filter @friday/module-brain eval dutch       # one fixture
 
 It prints `PASS` or `FAIL` per expectation and is never part of CI.
 
+### Importing from Jarvis
+
+A Jarvis user's brain can be imported once, into an empty Friday brain (only its empty profile).
+- **What comes over:** the profile, live pages, soft-deleted pages (under "Recently deleted") and tombstoned names (so they stay forgotten). Pages keep Jarvis's created and updated times, and each gets one `user` revision noted `imported from jarvis`.
+- **What doesn't:** Jarvis's revision history, source conversations, its legacy fact rows and other users.
+
+The import runs as a single transaction, so either everything lands or nothing does. A dry run reports problems first: names over 80 characters, more than 20 aliases, bodies over 20000 characters, and names shared by two pages.
+
+```sh
+# 1. A consistent copy of Jarvis's brain (better-sqlite3's backup API, while Jarvis keeps running)
+ssh rdewit@192.168.1.81 'sudo -n kubectl -n jarvis exec deploy/jarvis-brain -- node -e "require(\"better-sqlite3\")(\"/data/jarvis-brain-memories.db\",{readonly:true}).backup(\"/tmp/brain-export.db\").then(()=>console.log(\"ok\"))"'
+ssh rdewit@192.168.1.81 'sudo -n kubectl -n jarvis exec deploy/jarvis-brain -- cat /tmp/brain-export.db' > ~/jarvis-brain-export.db
+ssh rdewit@192.168.1.81 'sudo -n kubectl -n jarvis exec deploy/jarvis-brain -- rm /tmp/brain-export.db'
+
+# 2. Dry run, then import (rehearse against a local Friday with an empty FRIDAY_DATA_DIR first)
+pnpm --filter @friday/module-brain import-jarvis --db ~/jarvis-brain-export.db --user rdewit --friday http://localhost:8080
+pnpm --filter @friday/module-brain import-jarvis --db ~/jarvis-brain-export.db --user rdewit --friday https://friday.thewhite.nl --apply
+
+# 3. The copy holds private memories: delete it afterwards
+rm ~/jarvis-brain-export.db
+```
+
+The first nightly pass after an import treats every page as changed and tidies the whole brain. To look at the imported pages first, set `BRAIN_NIGHTLY_CRON=off` (and reload the module) before importing, and turn it back on later. The script refuses an export over 1 MB, core's request limit.
+
 Over HTTP (the portal's API; see `modules/brain/src/routes.ts` and `src/nightly/review.ts`):
 
 ```sh

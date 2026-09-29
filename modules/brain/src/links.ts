@@ -39,6 +39,16 @@ export function parseLinks(body: string): LinkRef[] {
   return out;
 }
 
+/** Everything written as `[[…]]` outside code, including targets `LINK_PATTERN` rejects (too long, multi-line). */
+export function looseLinkTargets(body: string): string[] {
+  const out: string[] = [];
+  mapText(body, (text) => {
+    for (const m of text.matchAll(/\[\[([^[\]]+)\]\]/g)) out.push(m[1]!);
+    return text;
+  });
+  return out;
+}
+
 /** Rewrites `[[X]]` outside code to `X` wherever `nameKey(X)` is in `keys`; other links are left as they are. */
 export function unlink(body: string, keys: ReadonlySet<string>): string {
   return mapText(body, (text) => text.replace(LINK_PATTERN, (whole, target: string) => (keys.has(nameKey(target)) ? target.trim() : whole)));
