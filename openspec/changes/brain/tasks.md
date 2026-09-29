@@ -43,7 +43,7 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 4. Tools
 
-- [ ] 4.1 Implement `brain_remember`:
+- [x] 4.1 Implement `brain_remember`:
   - clean the fact, resolving `profile`, names and aliases;
   - create the page when unknown, or refuse `tombstoned` with the "deliberately forgotten" message;
   - skip a fact already on the page (`already_known`);
@@ -51,7 +51,7 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
   - write a `remember` revision, returning `{ stored, page, created }` or `{ stored: false, reason }`.
 
   Verify with `test/tools.test.ts` via `host.call`: new person page (date fixed with an injected clock), alias resolving, existing text untouched with notes appended in order, repeated fact, profile fact, tombstoned entity, empty or over-500-character fact refused
-- [ ] 4.2 Implement `brain_recall` (exact entity match first, then the top 3 others, `found_by`, pages with name/type/aliases/body/updatedAt, up to 10 connections with outgoing links first then backlinks, `{ found: false, pages }` on a miss, profile never returned) and the tool descriptions from design D3/D4. Verify with `tools.test.ts`: name plus search, topic search, nothing found listing names, profile excluded, and a test asserting the module's tools are exactly `brain_remember` and `brain_recall` in both channels (`host.toolsIn`)
+- [x] 4.2 Implement `brain_recall` (exact entity match first, then the top 3 others, `found_by`, pages with name/type/aliases/body/updatedAt, up to 10 connections with outgoing links first then backlinks, `{ found: false, pages }` on a miss, profile never returned) and the tool descriptions from design D3/D4. Verify with `tools.test.ts`: name plus search, topic search, nothing found listing names, profile excluded, and a test asserting the module's tools are exactly `brain_remember` and `brain_recall` in both channels (`host.toolsIn`)
 
 ## 5. Prompt context
 
