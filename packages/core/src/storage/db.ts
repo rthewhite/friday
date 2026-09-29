@@ -139,9 +139,12 @@ export const migrations: Migration[] = [
   },
 ];
 
+/** Where friday.db lives in `dataDir`; modules open their own connections on the same file. */
+export const databasePath = (dataDir: string, file = "friday.db"): string => join(dataDir, file);
+
 export function openDatabase(dataDir: string, file = "friday.db", log: Pick<Console, "log"> = console): DatabaseSync {
   mkdirSync(dataDir, { recursive: true });
-  const db = new DatabaseSync(join(dataDir, file));
+  const db = new DatabaseSync(databasePath(dataDir, file));
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   migrate(db, migrations, log);
   return db;

@@ -33,6 +33,15 @@ export function chatSettings(env: Record<string, string | undefined>) {
   };
 }
 
+/** Module prompt context. A function of the environment so the default is testable. */
+export function promptSettings(env: Record<string, string | undefined>) {
+  const max = Math.floor(Number(env.FRIDAY_PROMPT_CONTEXT_MAX_CHARS));
+  return {
+    /** Each module's prompt context is cut to this many characters. */
+    promptContextMaxChars: Number.isFinite(max) && max > 0 ? max : 12000,
+  };
+}
+
 /** Friday's instructions: a base shared by every channel, plus one part per channel. */
 export const prompts = {
   base: `You are Friday, a friendly personal assistant. Use tools whenever they can
@@ -98,6 +107,8 @@ export const settings = {
   ...llmSettings(process.env),
   /** chatModel, chatToolTimeoutMs. */
   ...chatSettings(process.env),
+  /** promptContextMaxChars. */
+  ...promptSettings(process.env),
   /** The Live session's instruction: the shared base plus the voice part. */
   systemPrompt: `${prompts.base}\n\n${prompts.voice}`,
   /** A chat turn's instruction: the shared base plus the chat part. */

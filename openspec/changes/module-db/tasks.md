@@ -34,18 +34,18 @@
 
 ## 3. Core host and prompt wiring
 
-- [ ] 3.1 In `ModuleHost`:
+- [x] 3.1 In `ModuleHost`:
   - open a module's connection lazily on `friday.db` (`FRIDAY_DATA_DIR`), running migrations after config validation and before `init`;
   - pass `db` and a per-owner `prompt` into `createContext`;
   - remove a module's providers on teardown and failed `init`;
   - keep connections across reloads and close them in `dispose()`.
 
   Verify with `module-host.test.ts` / `reload.test.ts` cases for migrations before `init`, a broken migration leaving the module `failed` while others load, reload running only newly pending migrations, providers replaced (not duplicated) on reload, and a failed module's provider never rendered
-- [ ] 3.2 Add a core prompt-context registry that renders all modules in load order for a channel, with `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` (default 12000) in core `settings`. Verify with a unit test for two modules in load order and the default cap
-- [ ] 3.3 Give `GeminiSession` a `systemPrompt: () => string` option evaluated in `open()`, and have `transports/ws.ts` pass the voice prompt plus the rendered `voice` context. Verify with `session.test.ts` cases (fake `connect`): the instruction is base + voice + module context, is unchanged when no provider returns text, and a second session picks up changed provider output
-- [ ] 3.4 Change `ChatEngine`'s `system` to `() => string`, evaluated once per turn and reused for every model call of the turn, composed from the chat prompt plus the rendered `chat` context. Verify with `chat-engine.test.ts` cases: module context on every call of a tool-loop turn, and new provider output on the next turn
-- [ ] 3.5 Wire the registry and database location in `server.ts`, and close module connections after `host.dispose()` and before `db.close()` on shutdown. Verify by starting core locally with a throwaway module (not committed) that declares a migration and a provider: the migration is logged once across two restarts, the voice and chat prompts contain its context (logged via a debug assertion in the throwaway module), and SIGTERM exits cleanly
-- [ ] 3.6 Document `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` in `.env.example`, module tables and prompt context in the README ("Add a module" and "Configuration, storage and keys"), and `ctx.db` / `ctx.prompt` in the `openspec/config.yaml` context. Verify the README's example module snippet type-checks when copied into a scratch module
+- [x] 3.2 Add a core prompt-context registry that renders all modules in load order for a channel, with `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` (default 12000) in core `settings`. Verify with a unit test for two modules in load order and the default cap
+- [x] 3.3 Give `GeminiSession` a `systemPrompt: () => string` option evaluated in `open()`, and have `transports/ws.ts` pass the voice prompt plus the rendered `voice` context. Verify with `session.test.ts` cases (fake `connect`): the instruction is base + voice + module context, is unchanged when no provider returns text, and a second session picks up changed provider output
+- [x] 3.4 Change `ChatEngine`'s `system` to `() => string`, evaluated once per turn and reused for every model call of the turn, composed from the chat prompt plus the rendered `chat` context. Verify with `chat-engine.test.ts` cases: module context on every call of a tool-loop turn, and new provider output on the next turn
+- [x] 3.5 Wire the registry and database location in `server.ts`, and close module connections after `host.dispose()` and before `db.close()` on shutdown. Verify by starting core locally with a throwaway module (not committed) that declares a migration and a provider: the migration is logged once across two restarts, the voice and chat prompts contain its context (logged via a debug assertion in the throwaway module), and SIGTERM exits cleanly
+- [x] 3.6 Document `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` in `.env.example`, module tables and prompt context in the README ("Add a module" and "Configuration, storage and keys"), and `ctx.db` / `ctx.prompt` in the `openspec/config.yaml` context. Verify the README's example module snippet type-checks when copied into a scratch module
 
 ## 4. Integration
 

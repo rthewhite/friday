@@ -32,7 +32,7 @@ async function start(o: { chat?: boolean; heartbeatMs?: number; tool?: () => unk
   const registry = new ToolRegistry(quiet);
   registry.add("builtin", { name: "get_current_time", description: "", handler: async () => (o.tool ? o.tool() : { human: "ten" }) as Record<string, unknown> });
   const host = new ModuleHost(registry, { env: {}, log: quiet });
-  const chat = o.chat === false ? undefined : new ChatEngine({ store, registry, llm: toolThenAnswer, model: "m", system: "s", toolTimeoutMs: 5000, log: quiet });
+  const chat = o.chat === false ? undefined : new ChatEngine({ store, registry, llm: toolThenAnswer, model: "m", system: () => "s", toolTimeoutMs: 5000, log: quiet });
   const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), webDir: "/nonexistent", conversations: store, chat, chatHeartbeatMs: o.heartbeatMs }));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");

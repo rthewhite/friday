@@ -18,8 +18,9 @@
  */
 import type { IncomingMessage, Server } from "node:http";
 import type { WebSocketServer, WebSocket } from "ws";
-import type { ToolRegistry } from "@friday/sdk";
+import type { PromptContext, ToolRegistry } from "@friday/sdk";
 import { settings } from "../config.js";
+import { systemPrompt } from "../prompt-context.js";
 import { GeminiSession, type Event } from "../session.js";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
@@ -47,6 +48,8 @@ export interface AudioWsOptions {
   conversations?: Pick<ConversationStore, "recorder">;
   /** Gemini API key for new default sessions, resolved when each opens. Defaults to the environment. */
   geminiKey?: () => string | undefined;
+  /** Module prompt context; new default sessions append its `voice` rendering to the voice prompt when they open. */
+  promptContext?: Pick<PromptContext, "render">;
 }
 
 /** Mount the audio WebSocket on an HTTP server at /ws/audio. */
@@ -64,7 +67,7 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     opts.createSession ??
     ((onEvent, recorder) => {
       if (!opts.registry) throw new Error("attachAudioWs needs a registry or createSession");
-      return new GeminiSession(onEvent, opts.registry, { recorder, geminiKey: opts.geminiKey });
+      return new GeminiSession(onEvent, opts.registry, { recorder, geminiKey: opts.geminiKey, systemPrompt: systemPrompt(opts.promptContext, "voice") });
     });
   const recorder = opts.conversations?.recorder({ channel: "voice", device });
 

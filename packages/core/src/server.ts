@@ -7,7 +7,7 @@ import { McpSource } from "./tools/mcp.js";
 import { McpServerStore } from "./tools/mcp-store.js";
 import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "./remote/key-store.js";
 import { RemoteHost } from "./remote/host.js";
-import { openDatabase } from "./storage/db.js";
+import { databasePath, openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
 import { ConversationStore } from "./conversations/store.js";
 import { registerRetention } from "./conversations/retention.js";
@@ -22,6 +22,7 @@ import { Scheduler } from "./jobs/scheduler.js";
 import { GeminiTextModel } from "./llm/gemini.js";
 import { LlmService } from "./llm/service.js";
 import { ChatEngine } from "./chat/engine.js";
+import { createPromptContext, systemPrompt } from "./prompt-context.js";
 
 const db = openDatabase(settings.dataDir);
 const masterKey = parseMasterKey(settings.masterKey);
@@ -40,6 +41,7 @@ const jobs = new Scheduler({ store: jobStore, timezone: settings.timezone, catch
 const conversations = new ConversationStore(db, { quietMinutes: settings.conversationQuietMinutes });
 
 const registry = new ToolRegistry();
+const promptContext = createPromptContext();
 const llm = new LlmService({
   model: new GeminiTextModel(geminiKey),
   models: { standard: settings.textModel, fast: settings.textModelFast },
@@ -54,6 +56,8 @@ const host = new ModuleHost(registry, {
   jobs: (id) => jobs.forOwner(id),
   llm: (id) => llm.forOwner(id),
   conversations: (id) => conversations.forOwner(id),
+  database: databasePath(settings.dataDir),
+  prompt: promptContext,
 });
 const mcp = new McpSource(registry, mcpStore);
 const remote = new RemoteHost({
@@ -76,6 +80,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
     if (shuttingDown) return;
     shuttingDown = true;
     conversations.stop();
+    // host.dispose() also closes the modules' own connections, before core's.
     void remote.closeAll().then(() => jobs.stop()).then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
   });
 }
@@ -85,12 +90,12 @@ const chat = new ChatEngine({
   registry,
   llm,
   model: settings.chatModel,
-  system: settings.chatPrompt,
+  system: systemPrompt(promptContext, "chat"),
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 
 const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations, chat }));
-attachAudioWs(server, { registry, conversations, geminiKey });
+attachAudioWs(server, { registry, conversations, geminiKey, promptContext });
 remote.attach(server);
 
 server.listen(settings.port, settings.host, () =>

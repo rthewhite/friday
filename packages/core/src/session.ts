@@ -37,6 +37,11 @@ export interface SessionOptions {
   log?: Pick<Console, "log" | "error">;
   /** Records the conversation (transcripts, typed input, tools, end reason). Never changes what is emitted. */
   recorder?: ConversationRecorder;
+  /**
+   * The system instruction, built once when the session opens and kept for its lifetime (base, voice
+   * part, module context). Defaults to the fixed voice prompt.
+   */
+  systemPrompt?: () => string;
 }
 
 export class GeminiSession {
@@ -60,11 +65,11 @@ export class GeminiSession {
     const connect: LiveConnect = this.opts.connect ?? ((p, apiKey) => new GoogleGenAI({ apiKey }).live.connect(p));
     const apiKey = (this.opts.geminiKey ?? (() => settings.apiKey))() ?? "";
     const decls = this.registry.declarations("voice") as FunctionDeclaration[];
-    this.session = await connect({
+    const systemInstruction = (this.opts.systemPrompt ?? (() => settings.systemPrompt))();    this.session = await connect({
       model: settings.model,
       config: {
         responseModalities: [Modality.AUDIO],
-        systemInstruction: settings.systemPrompt,
+        systemInstruction,
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.voice } } },

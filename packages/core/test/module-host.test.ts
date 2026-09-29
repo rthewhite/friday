@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defineModule, LlmError, ToolRegistry, type ModuleLogger } from "@friday/sdk";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { defineModule, LlmError, ToolRegistry, type ModuleContext, type ModuleLogger } from "@friday/sdk";
 import { ModuleHost } from "../src/module-host.js";
 import { DatabaseSync } from "node:sqlite";
-import { migrate, migrations } from "../src/storage/db.js";
+import { databasePath, migrate, migrations, openDatabase } from "../src/storage/db.js";
 import { JobStore } from "../src/jobs/store.js";
 import { Scheduler } from "../src/jobs/scheduler.js";
 import { FakeClock } from "./fake-clock.js";
@@ -179,4 +182,122 @@ test("ctx.llm calls are attributed to the module id; without a service they are 
   const bare = defineModule({ manifest: { id: "bare", label: "Bare" }, init: async (ctx) => void (await ctx.llm.generate({ prompt: "x" }).catch((e) => results.push(e instanceof LlmError && e.kind))) });
   await new ModuleHost(new ToolRegistry(log), { env: {}, log }).load([bare]);
   assert.deepEqual(results, ["echo std", "unavailable"]);
+});
+
+/** A data dir with core's friday.db (all core migrations applied), as the server opens it. */
+function dataDir(t: { after(fn: () => void): void }) {
+  const dir = mkdtempSync(join(tmpdir(), "friday-host-"));
+  const core = openDatabase(dir, "friday.db", { log() {} });
+  t.after(() => {
+    core.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  return { database: databasePath(dir), core };
+}
+
+test("migrations run after the config check and before init, and init can query their tables", async (t) => {
+  const { database, core } = dataDir(t);
+  const { lines, log } = logger();
+  const steps: string[] = [];
+  let rows: unknown[] = [];
+  const m = defineModule({
+    manifest: { id: "hello", label: "Hello", config: [{ key: "HELLO_KEY", required: true }] },
+    migrations: [
+      { version: 1, name: "items", up: "CREATE TABLE hello__items (name TEXT NOT NULL); INSERT INTO hello__items VALUES ('first')" },
+      { version: 2, name: "more", up: (db) => { steps.push("migration 2"); db.exec("INSERT INTO hello__items VALUES ('second')"); } },
+    ],
+    init(ctx) {
+      steps.push("init");
+      rows = ctx.db.prepare("SELECT name FROM hello__items ORDER BY rowid").all().map((r) => r.name);
+    },
+  });
+  const unconfigured = new ModuleHost(new ToolRegistry(log), { env: {}, log, database });
+  await unconfigured.load([m]);
+  assert.equal(unconfigured.loaded()[0].status, "failed");
+  assert.equal(core.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'hello__items'").get()?.n, 0);
+  await unconfigured.dispose();
+
+  const h = new ModuleHost(new ToolRegistry(log), { env: { HELLO_KEY: "x" }, log, database });
+  await h.load([m]);
+  assert.equal(h.loaded()[0].status, "loaded");
+  assert.deepEqual(steps, ["migration 2", "init"]);
+  assert.deepEqual(rows, ["first", "second"]);
+  assert.deepEqual(lines.filter((l) => l.includes("migration")), ['log [hello] migration 1 "items" applied', 'log [hello] migration 2 "more" applied']);
+  assert.equal(core.prepare("SELECT version FROM module_schema WHERE module_id = 'hello'").get()?.version, 2);
+  await h.dispose();
+});
+
+test("a broken migration fails only its module, naming it, the version and the name", async (t) => {
+  const { database, core } = dataDir(t);
+  const { lines, log } = logger();
+  let inits = 0;
+  const brain = defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    migrations: [
+      { version: 1, name: "pages", up: "CREATE TABLE brain__pages (id INTEGER PRIMARY KEY)" },
+      { version: 2, name: "revisions", up: "CREATE TABLE brain__revisions (id INTEGER PRIMARY KEY); CREAT TABLE nope (a)" },
+    ],
+    init(ctx) { inits++; ctx.defineTool({ name: "brain_tool", description: "", handler: () => ({}) }); },
+  });
+  const r = new ToolRegistry(log);
+  const h = new ModuleHost(r, { env: {}, log, database });
+  await h.load([brain, a]);
+  const [b0, a0] = h.loaded();
+  assert.equal(b0.status, "failed");
+  assert.match(b0.error!, /^module brain: migration 2 "revisions" failed: .*syntax error/);
+  assert.equal(a0.status, "loaded");
+  assert.equal(inits, 0);
+  assert.deepEqual(r.names(), ["a1"]);
+  assert.equal(core.prepare("SELECT version FROM module_schema WHERE module_id = 'brain'").get()?.version, 1);
+  assert.ok(lines.some((l) => l.startsWith('error module brain failed to load: module brain: migration 2 "revisions" failed')));
+  await h.dispose();
+});
+
+test("a module's database is refused core's tables, and a schema newer than the module fails it", async (t) => {
+  const { database, core } = dataDir(t);
+  const { log } = logger();
+  let refused = "";
+  const nosy = defineModule({
+    manifest: { id: "nosy", label: "Nosy" },
+    init(ctx) {
+      try { ctx.db.prepare("SELECT * FROM config_values"); } catch (e) { refused = (e as Error).message; }
+    },
+  });
+  const v2 = defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    migrations: [{ version: 1, name: "pages", up: "CREATE TABLE brain__pages (id INTEGER PRIMARY KEY)" }, { version: 2, name: "x", up: "SELECT 1" }],
+    init() {},
+  });
+  const first = new ModuleHost(new ToolRegistry(log), { env: {}, log, database });
+  await first.load([nosy, v2]);
+  assert.match(refused, /^module nosy: database access refused: read config_values/);
+  await first.dispose();
+  const rolledBack = new ModuleHost(new ToolRegistry(log), { env: {}, log, database });
+  await rolledBack.load([{ ...v2, migrations: v2.migrations!.slice(0, 1) }]);
+  assert.deepEqual(rolledBack.loaded()[0].error, "database schema v2 is newer than module brain's migrations (v1)");
+  assert.equal(core.prepare("SELECT version FROM module_schema WHERE module_id = 'brain'").get()?.version, 2);
+  await rolledBack.dispose();
+});
+
+test("without a database a module that declares migrations fails and ctx.db is unavailable", async () => {
+  const { log } = logger();
+  let err = "";
+  const withMigrations = defineModule({ manifest: { id: "m", label: "M" }, migrations: [{ version: 1, name: "x", up: "SELECT 1" }], init() {} });
+  const plain = defineModule({ manifest: { id: "p", label: "P" }, init(ctx) { try { ctx.db.exec("SELECT 1"); } catch (e) { err = (e as Error).message; } } });
+  const h = new ModuleHost(new ToolRegistry(log), { env: {}, log });
+  await h.load([withMigrations, plain]);
+  assert.equal(h.loaded()[0].error, "m: database is not available in this host");
+  assert.equal(err, "p: database is not available in this host");
+});
+
+test("dispose closes the modules' connections, and they do not reopen", async (t) => {
+  const { database } = dataDir(t);
+  const { log } = logger();
+  let db: ModuleContext["db"] | undefined;
+  const m = defineModule({ manifest: { id: "m", label: "M" }, migrations: [{ version: 1, name: "t", up: "CREATE TABLE m__t (a)" }], init(ctx) { db = ctx.db; } });
+  const h = new ModuleHost(new ToolRegistry(log), { env: {}, log, database });
+  await h.load([m]);
+  db!.exec("INSERT INTO m__t VALUES (1)");
+  await h.dispose();
+  assert.throws(() => db!.exec("INSERT INTO m__t VALUES (2)"), /m: database is closed/);
 });

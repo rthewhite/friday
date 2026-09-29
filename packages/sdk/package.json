@@ -13,6 +13,10 @@
       "types": "./dist/test.d.ts",
       "default": "./dist/test.js"
     },
+    "./db": {
+      "types": "./dist/db.d.ts",
+      "default": "./dist/db.js"
+    },
     "./remote": {
       "types": "./dist/remote/index.d.ts",
       "default": "./dist/remote/index.js"

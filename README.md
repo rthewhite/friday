@@ -87,6 +87,44 @@ await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
 
 `scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `set_timer` and `end_conversation` are voice-only, because a chat turn waits for every result and has no microphone to close. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
 
+A module that keeps relational data declares `migrations` and uses `ctx.db`, a synchronous handle on its own tables in `friday.db`. It can also add what it knows to Friday's system prompts with `ctx.prompt.addContext`:
+
+```ts
+// modules/pantry/src/index.ts
+import { defineModule, Type } from "@friday/sdk";
+
+export default defineModule({
+  manifest: { id: "pantry", label: "Pantry" },
+  // Pending migrations run before init, each in its own transaction. Tables must be named pantry__*.
+  migrations: [{ version: 1, name: "items", up: "CREATE TABLE pantry__items (name TEXT PRIMARY KEY, qty INTEGER NOT NULL)" }],
+  init(ctx) {
+    const upsert = ctx.db.prepare("INSERT INTO pantry__items (name, qty) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET qty = qty + excluded.qty");
+    const low = ctx.db.prepare("SELECT name FROM pantry__items WHERE qty <= 1 ORDER BY name");
+    ctx.defineTool<{ items: { name: string; qty: number }[] }>({
+      name: "stock_pantry",
+      description: "Adds items to the pantry",
+      parameters: {
+        type: Type.OBJECT,
+        properties: { items: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, qty: { type: Type.INTEGER } }, required: ["name", "qty"] } } },
+        required: ["items"],
+      },
+      // All items or none: a transaction body is synchronous, so nothing else can interleave.
+      handler: ({ items }) => ctx.db.transaction(() => {
+        for (const i of items) upsert.run(i.name, i.qty);
+        return { stocked: items.length };
+      }),
+    });
+    // Called when a voice session opens and when a chat turn starts; keep it synchronous and cheap.
+    ctx.prompt.addContext(() => {
+      const names = low.all().map((r) => r.name);
+      return names.length ? `## Pantry\nRunning low on: ${names.join(", ")}.` : undefined;
+    });
+  },
+});
+```
+
+A statement that touches anything outside the module's `pantry__` prefix (core's tables, other modules' tables), runs a pragma or attaches a database is refused. A failing migration fails only that module. In tests, `createTestHost` runs the migrations on an in-memory database and offers `host.db` and `host.promptContext("voice")`. Remote modules have neither `ctx.db` nor `ctx.prompt`.
+
 ## Portal
 
 The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), a `Modules` page (everything `/api/modules` reports, with status and tools), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
@@ -137,11 +175,14 @@ curl -sN -X POST localhost:8080/api/chat -H 'content-type: application/json' -d 
 
 ## Configuration, storage and keys
 
-Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) for three things:
+Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) for these things:
 
 - **Configuration values.** Every key a module declares shows up under Settings > Configuration as `set`, `pending` or `env`, split into two tabs, one table each with a row per key and chips for the modules that request it. The Configuration tab holds plain values (URLs, ids), shown in the row and stored as plain text. The Secrets tab holds keys the module declared `secret: true` (tokens, API keys); they are encrypted with `FRIDAY_MASTER_KEY` and never shown again after saving. Click a row to edit in a side panel. Stored values win over the environment; `Save and reload module` applies them without restarting Friday. Scope a value to one module or make it global. Core requests `GEMINI_API_KEY` the same way (chip `core`, scope `core`): a key saved there wins over the environment and applies to the next voice session and model call, with no reload. Without a master key only secrets are disabled; plain configuration keeps working.
 - **Remote module keys.** Settings > Remote modules issues a key per module id (shown once, stored hashed) and can revoke it, which disconnects the module immediately. `FRIDAY_MODULE_KEYS` remains a fallback.
 - **Module storage.** Modules get `ctx.storage` (`get`, `set`, `delete`, `list`), a JSON key-value namespace per module. The test host provides an in-memory one.
+- **Module tables.** Modules that declare `migrations` own tables named `<id>__*` (`-` in the id becomes `_`) and reach them through `ctx.db`, each on its own connection, which is refused everything outside that prefix. `module_schema` records each module's schema version, so a restart or reload runs only new migrations. Tables and versions stay when a module is disabled or removed. A module whose recorded version is newer than its code (after rolling back an image) fails to load instead of touching its data.
+
+Modules can also add context to Friday's system prompts (`ctx.prompt.addContext`). The voice prompt is built when a session opens and kept for that session; the chat prompt is built when each turn starts. Module context follows the fixed prompt in module load order, and each module's contribution is cut to `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` (default `12000`) characters.
 
 The Modules page has a `Reload` button per in-process module, and `POST /api/modules/<id>/reload` does the same over HTTP. See `infra/README.md` for generating the master key and what happens if it is lost.
 

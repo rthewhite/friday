@@ -49,8 +49,11 @@ export interface ChatEngineOptions {
   llm: Pick<LlmService, "streamCall">;
   /** The chat model (FRIDAY_CHAT_MODEL, falling back to the text model). */
   model: string;
-  /** The chat system prompt (shared base plus the chat part). */
-  system: string;
+  /**
+   * The chat system prompt (shared base, chat part, module context). Built once when a turn starts
+   * and used for every model call of that turn.
+   */
+  system: () => string;
   /** A tool call that has not settled after this long is answered with a timeout error. */
   toolTimeoutMs: number;
   log?: Pick<Console, "log" | "warn" | "error">;
@@ -128,7 +131,7 @@ export class ChatTurn {
     const id = this.conversationId;
     emit({ event: "start", data: { conversationId: id } });
     try {
-      const contents = this.history();
+      const system = this.opts.system();      const contents = this.history();
       const tools = this.opts.registry.declarations("chat") as FunctionDeclaration[];
       let rounds = 0;
       let streamed = false;
@@ -140,7 +143,7 @@ export class ChatTurn {
         try {
           end = await this.opts.llm.streamCall(
             "chat",
-            { model: this.opts.model, system: this.opts.system, contents, tools, thoughts: true },
+            { model: this.opts.model, system, contents, tools, thoughts: true },
             (c) => {
               if (c.kind === "thought") return emit({ event: "thinking", data: { text: c.text } });
               parts.push(c.part);
