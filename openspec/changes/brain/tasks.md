@@ -55,7 +55,7 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 5. Prompt context
 
-- [ ] 5.1 Implement the context provider (D6):
+- [x] 5.1 Implement the context provider (D6):
   - the instructions (always present), the profile, and an index of up to 50 pages by recency with hints and "…and N more";
   - the 10000-character bound, dropping index entries first and then cutting the profile at a line with a marker;
   - the profile token estimate (`ceil(chars / 4)`) against `BRAIN_PROFILE_TOKEN_BUDGET`.
