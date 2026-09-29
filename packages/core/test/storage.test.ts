@@ -14,7 +14,8 @@ test("fresh start creates the database and applies all migrations", async () => 
   const db = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
-  assert.deepEqual(tables, ["config_values", "conversation_entries", "conversations", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
+  const search = ["conversation_search", "conversation_search_config", "conversation_search_data", "conversation_search_docsize", "conversation_search_idx"];
+  assert.deepEqual(tables, ["config_values", "conversation_entries", ...search, "conversations", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -93,11 +94,52 @@ test("a version-4 database gains the MCP server tables and headers cascade with 
   old.close();
 
   const db = openDatabase(dir, "friday.db", quiet);
-  assert.equal(schemaVersion(db), 5);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   db.prepare("INSERT INTO mcp_servers (name, url, created_at, updated_at) VALUES ('home', 'http://x', 'now', 'now')").run();
   db.prepare("INSERT INTO mcp_server_headers (server, name, position, secret, plaintext) VALUES ('home', 'X-A', 0, 0, 'a')").run();
   assert.throws(() => db.prepare("INSERT INTO mcp_server_headers (server, name, position, secret, plaintext) VALUES ('nope', 'X-A', 0, 0, 'a')").run(), /FOREIGN KEY/);
   db.prepare("DELETE FROM mcp_servers WHERE name = 'home'").run();
   assert.equal((db.prepare("SELECT COUNT(*) AS n FROM mcp_server_headers").get() as { n: number }).n, 0);
+  db.close();
+});
+
+/** Conversation ids whose indexed entries match `word`, as the store's search query does. */
+const matching = (db: DatabaseSync, word: string) =>
+  (db.prepare("SELECT DISTINCT e.conversation_id AS id FROM conversation_search s JOIN conversation_entries e ON e.rowid = s.rowid WHERE conversation_search MATCH ? ORDER BY id").all(`"${word}"`) as { id: string }[]).map((r) => r.id);
+
+test("a version-5 database gains the search index over its existing entries: text and tool calls, never results", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  old.exec("PRAGMA foreign_keys = ON");
+  migrate(old, migrations.filter((m) => m.version <= 5), quiet);
+  old.exec(`
+    INSERT INTO conversations (id, channel, started_at, last_activity_at) VALUES ('c1', 'voice', 't', 't'), ('c2', 'chat', 't', 't');
+    INSERT INTO conversation_entries (conversation_id, seq, kind, input, text, at) VALUES ('c1', 1, 'user', 'speech', 'Is the boiler service booked?', 't');
+    INSERT INTO conversation_entries (conversation_id, seq, kind, tool_name, tool_args, tool_result, at)
+      VALUES ('c2', 1, 'tool', 'play_on_apple_tv', '{"title":"Dune"}', '{"up_next":"Arrival"}', 't');
+    INSERT INTO conversation_entries (conversation_id, seq, kind, text, at) VALUES ('c2', 2, 'assistant', 'Playing it in the café.', 't');
+  `);
+  old.close();
+
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.equal(schemaVersion(db), 6);
+  assert.deepEqual(matching(db, "boiler"), ["c1"]);
+  assert.deepEqual(matching(db, "dune"), ["c2"], "tool arguments are indexed");
+  assert.deepEqual(matching(db, "play_on_apple"), ["c2"], "and the tool name");
+  assert.deepEqual(matching(db, "Arrival"), [], "tool results are not");
+  assert.deepEqual(matching(db, "cafe"), ["c2"], "accents are ignored");
+  db.close();
+});
+
+test("the search index follows new entries and cascaded deletes", async () => {
+  const db = openDatabase(await mkdtemp(join(tmpdir(), "friday-db-")), "friday.db", quiet);
+  db.exec(`
+    INSERT INTO conversations (id, channel, started_at, last_activity_at) VALUES ('c1', 'voice', 't', 't'), ('c2', 'voice', 't', 't');
+    INSERT INTO conversation_entries (conversation_id, seq, kind, input, text, at) VALUES ('c1', 1, 'user', 'speech', 'the boilers', 't'), ('c2', 1, 'user', 'speech', 'boiler key', 't');
+  `);
+  assert.deepEqual(matching(db, "boiler"), ["c1", "c2"]);
+  db.exec("DELETE FROM conversations WHERE id = 'c1'");
+  assert.deepEqual(matching(db, "boiler"), ["c2"]);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM conversation_search WHERE conversation_search MATCH '\"boilers\"'").get() as { n: number }).n, 0);
   db.close();
 });

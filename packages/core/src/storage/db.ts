@@ -9,7 +9,30 @@ export interface Migration {
   sql: string;
 }
 
+/** What the search index holds for an entry: its text, or a tool call's name and arguments (never its result). */
+const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE(${e}.tool_name, '') || ' ' || COALESCE(${e}.tool_args, '') ELSE COALESCE(${e}.text, '') END`;
+
 export const migrations: Migration[] = [
+  {
+    version: 6,
+    name: "conversation-search",
+    // Full-text index over what was said, one row per entry keyed by the entry's rowid. Contentless: the
+    // text stays in conversation_entries. Triggers keep it in step, including cascaded deletes.
+    sql: `
+      CREATE VIRTUAL TABLE conversation_search USING fts5(body, content='', contentless_delete=1, tokenize='trigram remove_diacritics 1');
+      CREATE TRIGGER conversation_search_insert AFTER INSERT ON conversation_entries BEGIN
+        INSERT INTO conversation_search (rowid, body) VALUES (new.rowid, ${SEARCH_BODY("new")});
+      END;
+      CREATE TRIGGER conversation_search_delete AFTER DELETE ON conversation_entries BEGIN
+        DELETE FROM conversation_search WHERE rowid = old.rowid;
+      END;
+      CREATE TRIGGER conversation_search_update AFTER UPDATE ON conversation_entries BEGIN
+        DELETE FROM conversation_search WHERE rowid = old.rowid;
+        INSERT INTO conversation_search (rowid, body) VALUES (new.rowid, ${SEARCH_BODY("new")});
+      END;
+      INSERT INTO conversation_search (rowid, body) SELECT rowid, ${SEARCH_BODY("conversation_entries")} FROM conversation_entries;
+    `,
+  },
   {
     version: 5,
     name: "mcp-servers",

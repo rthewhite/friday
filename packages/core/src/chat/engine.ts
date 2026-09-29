@@ -214,7 +214,7 @@ export class ChatTurn {
     const ms = this.opts.toolTimeoutMs;
     let timer: NodeJS.Timeout | undefined;
     const timedOut = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), ms)));
-    const call = this.opts.registry.callTool(name, args, { channel: "chat" });
+    const call = this.opts.registry.callTool(name, args, { channel: "chat", conversationId: this.conversationId });
     const outcome = await Promise.race([call, timedOut]);
     clearTimeout(timer);
     let result: Record<string, unknown>;

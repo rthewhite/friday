@@ -11,12 +11,15 @@ import type {
   ConversationChannel,
   ConversationEntry,
   ConversationInput,
+  ConversationMatch,
   ConversationSummary,
   ListConversationsOptions,
   ModuleConversations,
   QuietEvent,
+  SearchConversationsOptions,
+  ValidSearch,
 } from "@friday/sdk";
-import { CHANNELS } from "@friday/sdk";
+import { CHANNELS, compareMatches, SearchQueryError, snippetsFor, validateSearch } from "@friday/sdk";
 import { ConversationRecorder, type RecorderLog } from "./recorder.js";
 
 /** Tool arguments and results are cut at this many characters of JSON. */
@@ -91,8 +94,8 @@ function decodeCursor(cursor: string): { at: string; id: string } {
   return { at, id };
 }
 
-/** Bad `before` or `quietSince` input; the API answers 400. */
-export class InvalidQuery extends Error {}
+/** Bad `before`, `quietSince` or search input; the API answers 400. A `SearchQueryError`, as modules expect from `search`. */
+export class InvalidQuery extends SearchQueryError {}
 
 function toIso(v: string, what: string): string {
   const d = new Date(v);
@@ -262,6 +265,70 @@ export class ConversationStore {
     return (this.db.prepare(sql).all(...params, limit) as unknown as Row[]).map(summary);
   }
 
+  /**
+   * Conversations whose entries in the window hold any of the query's words, through the full-text index
+   * (one MATCH per word, so each conversation's distinct words can be counted); ranking and snippets follow
+   * the SDK's shared rules. Without words, the conversations with entries in the window, most recent first.
+   */
+  search(opts: SearchConversationsOptions = {}): ConversationMatch[] {
+    let s: ValidSearch;
+    try {
+      s = validateSearch(opts);
+    } catch (e) {
+      throw e instanceof SearchQueryError ? new InvalidQuery(e.message) : e;
+    }
+    const window: string[] = [];
+    const windowParams: string[] = [];
+    if (s.since) window.push("e.at >= ?"), windowParams.push(s.since);
+    if (s.until) window.push("e.at < ?"), windowParams.push(s.until);
+    const scope: string[] = [];
+    const scopeParams: string[] = [];
+    if (s.channel) scope.push("c.channel = ?"), scopeParams.push(s.channel);
+    if (s.device !== undefined) scope.push("c.device = ?"), scopeParams.push(s.device);
+    if (s.exclude.length) scope.push(`c.id NOT IN (${s.exclude.map(() => "?").join(", ")})`), scopeParams.push(...s.exclude);
+
+    const found = new Map<string, { lastActivityAt: string; seqs: Set<number>; words: Set<string> }>();
+    if (!s.words.length) {
+      const sql = `SELECT c.id, c.last_activity_at FROM conversations c
+                   WHERE EXISTS (SELECT 1 FROM conversation_entries e WHERE e.conversation_id = c.id${window.map((w) => ` AND ${w}`).join("")})
+                   ${scope.map((w) => ` AND ${w}`).join("")}
+                   ORDER BY c.last_activity_at DESC, c.id DESC LIMIT ?`;
+      for (const r of this.db.prepare(sql).all(...windowParams, ...scopeParams, s.limit) as { id: string; last_activity_at: string }[]) {
+        found.set(r.id, { lastActivityAt: r.last_activity_at, seqs: new Set(), words: new Set() });
+      }
+    } else {
+      const sql = `SELECT e.conversation_id AS id, e.seq, c.last_activity_at FROM conversation_search s
+                   JOIN conversation_entries e ON e.rowid = s.rowid JOIN conversations c ON c.id = e.conversation_id
+                   WHERE conversation_search MATCH ?${[...window, ...scope].map((w) => ` AND ${w}`).join("")}`;
+      const stmt = this.db.prepare(sql);
+      for (const word of s.words) {
+        // A quoted FTS5 string, so the user's words are never read as query syntax.
+        const phrase = `"${word.replaceAll('"', '""')}"`;
+        for (const r of stmt.all(phrase, ...windowParams, ...scopeParams) as { id: string; seq: number; last_activity_at: string }[]) {
+          const hit = found.get(r.id) ?? { lastActivityAt: r.last_activity_at, seqs: new Set<number>(), words: new Set<string>() };
+          hit.seqs.add(r.seq);
+          hit.words.add(word);
+          found.set(r.id, hit);
+        }
+      }
+    }
+
+    const ranked = [...found]
+      .map(([id, hit]) => ({ id, lastActivityAt: hit.lastActivityAt, words: hit.words.size, seqs: hit.seqs }))
+      .sort(compareMatches)
+      .slice(0, s.limit);
+    const conversation = this.db.prepare(`SELECT ${COLUMNS} FROM conversations WHERE id = ?`);
+    const entries = this.db.prepare(
+      `SELECT seq, kind, input, text, interrupted, tool_name, tool_args, tool_result, truncated, at FROM conversation_entries e
+       WHERE e.conversation_id = ?${window.map((w) => ` AND ${w}`).join("")} ORDER BY seq`,
+    );
+    return ranked.map((r) => {
+      const row = conversation.get(r.id) as unknown as Row;
+      const inWindow = (entries.all(r.id, ...windowParams) as unknown as EntryRow[]).map(entry);
+      return { ...summary(row), snippets: snippetsFor(inWindow, s.words.length ? r.seqs : undefined) };
+    });
+  }
+
   /** `live` while a recorder still writes into it; entries go with the conversation (cascade). */
   delete(id: string): "deleted" | "missing" | "live" {
     if (this.isLive(id)) return "live";
@@ -344,6 +411,7 @@ export class ConversationStore {
     return {
       list: async (o) => this.list({ quietSince: o?.quietSince, limit: o?.limit }),
       get: async (id) => this.get(id),
+      search: async (o) => this.search(o),
       onQuiet: (handler) => this.onQuiet(handler, owner),
     };
   }
