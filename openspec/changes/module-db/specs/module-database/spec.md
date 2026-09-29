@@ -48,7 +48,7 @@ A migration that throws SHALL be rolled back, including its version record. The 
 
 ### Requirement: Synchronous database handle with transactions
 
-`ctx.db` SHALL give in-process modules synchronous access to `friday.db`: `prepare(sql)` returning a statement with `run`, `get`, `all` and `iterate`, `exec(sql)`, and `transaction(fn)`. `transaction(fn)` SHALL commit when `fn` returns and roll back and rethrow when `fn` throws. When `fn` returns a promise or thenable, the transaction SHALL be rolled back and `transaction` SHALL throw, stating that transaction bodies must be synchronous. A `transaction` call inside another SHALL be rolled back on its own when it throws, without ending the outer transaction. Foreign keys SHALL be enforced.
+`ctx.db` SHALL give in-process modules synchronous access to `friday.db`: `prepare(sql)` returning a statement with `run`, `get`, `all` and `iterate`, `exec(sql)`, and `transaction(fn)`. `transaction(fn)` SHALL commit when `fn` returns and roll back and rethrow when `fn` throws. When `fn` returns a promise or thenable, the transaction SHALL be rolled back and `transaction` SHALL throw, stating that transaction bodies must be synchronous. Only writes made before the body's first `await` can be rolled back; code after it runs once the transaction has ended. A `transaction` call inside another SHALL be rolled back on its own when it throws, without ending the outer transaction. Transaction statements (`BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE`) issued by the module through `prepare` or `exec`, including in migrations, SHALL be refused, so a module cannot hold a transaction open across an `await`. Foreign keys SHALL be enforced.
 
 #### Scenario: Atomic multi-row write
 - **WHEN** a module inserts a page and its first revision in one `transaction`, and the revision insert throws
@@ -56,15 +56,19 @@ A migration that throws SHALL be rolled back, including its version record. The 
 
 #### Scenario: Async body
 - **WHEN** a module calls `transaction(async () => { ... })`
-- **THEN** the call throws, and nothing written in the body is kept
+- **THEN** the call throws, and nothing the body wrote before its first `await` is kept
 
 #### Scenario: Nested rollback
 - **WHEN** an inner `transaction` throws and the outer body catches the error and returns
 - **THEN** the inner writes are undone and the outer writes are committed
 
+#### Scenario: Manual transaction
+- **WHEN** a module runs `ctx.db.exec("BEGIN")`
+- **THEN** the statement is refused with an error that names the module and points to `transaction`
+
 ### Requirement: A module's tables are isolated by prefix
 
-A module's schema objects (tables, indexes, triggers, views, virtual tables) SHALL be named with the module's prefix: its id with `-` replaced by `_`, followed by `__`. For example `brain__pages` or `media_x__cache`. Any statement prepared through `ctx.db` or run by a migration SHALL be refused when it reads, writes, creates, alters or drops a schema object outside that prefix, attaches or detaches a database, or runs a pragma. SQLite's own internal objects are exempt. The refusal SHALL be an error that names the module. A module whose id contains `--` or ends in `-` SHALL fail to load when it declares migrations or uses `ctx.db`.
+A module's schema objects (tables, indexes, triggers, views, virtual tables) SHALL be named with the module's prefix: its id with `-` replaced by `_`, followed by `__`. For example `brain__pages` or `media_x__cache`. Any statement prepared through `ctx.db` or run by a migration SHALL be refused when it reads, writes, creates, alters or drops a schema object outside that prefix, attaches or detaches a database, or runs a pragma. Renaming a table to a name outside the prefix counts as creating an object outside it. SQLite's own internal objects may be read; the shared ones (`sqlite_sequence`, `sqlite_stat*`) SHALL NOT be written by a module statement, only changed by SQLite as a side effect of the module's DDL on its own objects (planner statistics may also be deleted). A migration that leaves a new schema object outside the prefix SHALL fail and be rolled back. The refusal SHALL be an error that names the module. A module whose id contains `--` or ends in `-` SHALL fail to load when it declares migrations, and every `ctx.db` call it makes SHALL throw.
 
 #### Scenario: Own tables
 - **WHEN** module `brain` creates `brain__pages` in a migration and later inserts and selects rows through `ctx.db`
