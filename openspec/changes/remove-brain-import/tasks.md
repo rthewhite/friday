@@ -6,5 +6,5 @@
 
 ## 2. Docs and full run
 
-- [ ] 2.1 Remove the README section "Importing from Jarvis". Verify: `git grep -n "import-jarvis" -- README.md modules` finds nothing.
-- [ ] 2.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify: all green.
+- [x] 2.1 Remove the README section "Importing from Jarvis". Verify: `git grep -n "import-jarvis" -- README.md modules` finds nothing.
+- [x] 2.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify: all green.
