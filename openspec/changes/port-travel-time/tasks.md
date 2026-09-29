@@ -2,8 +2,8 @@
 
 ## 1. Module scaffold and wiring
 
-- [ ] 1.1 Create `modules/travel` (`package.json` as `@friday/module-travel` with build/typecheck/test scripts like `modules/media`, `tsconfig.json`, `src/index.ts` exporting `createTravelModule(opts)` and a default module with id `travel`, label `Travel`, and `TOMTOM_API_KEY` declared required and secret); verify `pnpm install` succeeds and `pnpm --filter @friday/module-travel build` produces `dist/index.js`
-- [ ] 1.2 Register the module: add it to `packages/core/src/modules.ts` and as a `workspace:*` dependency of `packages/core`, and copy its `package.json` in the `Dockerfile` install layer; verify `pnpm --filter @friday/core typecheck` and `pnpm --filter @friday/core test` pass
+- [x] 1.1 Create `modules/travel` (`package.json` as `@friday/module-travel` with build/typecheck/test scripts like `modules/media`, `tsconfig.json`, `src/index.ts` exporting `createTravelModule(opts)` and a default module with id `travel`, label `Travel`, and `TOMTOM_API_KEY` declared required and secret); verify `pnpm install` succeeds and `pnpm --filter @friday/module-travel build` produces `dist/index.js`
+- [x] 1.2 Register the module: add it to `packages/core/src/modules.ts` and as a `workspace:*` dependency of `packages/core`, and copy its `package.json` in the `Dockerfile` install layer; verify `pnpm --filter @friday/core typecheck` and `pnpm --filter @friday/core test` pass
 
 ## 2. Helpers and errors
 

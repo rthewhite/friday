@@ -16,6 +16,7 @@
     "@friday/module-brain": "workspace:*",
     "@friday/module-builtin": "workspace:*",
     "@friday/module-media": "workspace:*",
+    "@friday/module-travel": "workspace:*",
     "@google/genai": "^2.24.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "dotenv": "^18.0.2",

@@ -65,6 +65,12 @@ importers:
         specifier: ^4.5.1
         version: 4.6.4(vue@3.5.43(typescript@7.0.2))
 
+  modules/travel:
+    dependencies:
+      '@friday/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   packages/core:
     dependencies:
       '@friday/module-brain':
@@ -76,6 +82,9 @@ importers:
       '@friday/module-media':
         specifier: workspace:*
         version: link:../../modules/media
+      '@friday/module-travel':
+        specifier: workspace:*
+        version: link:../../modules/travel
       '@friday/sdk':
         specifier: workspace:*
         version: link:../sdk
