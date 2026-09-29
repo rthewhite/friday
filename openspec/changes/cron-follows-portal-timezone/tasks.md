@@ -14,7 +14,7 @@
 
 ## 4. Documentation
 
-- [ ] 4.1 Update the README jobs "Time zone" bullet, `.env.example` and the `openspec/config.yaml` context: cron resolves `FRIDAY_TIMEZONE` like core's keys (core, global, env) and re-plans when it is saved; the portal saves a shared key globally by default; a zone change can make a daily job run twice or skip once that day; and a value stored for one module applies to that module only (re-save it as global). Verify with `grep -rn "environment only\|once at startup" README.md .env.example openspec/config.yaml` that no text still says cron ignores the portal
+- [x] 4.1 Update the README jobs "Time zone" bullet, `.env.example` and the `openspec/config.yaml` context: cron resolves `FRIDAY_TIMEZONE` like core's keys (core, global, env) and re-plans when it is saved; the portal saves a shared key globally by default; a zone change can make a daily job run twice or skip once that day; and a value stored for one module applies to that module only (re-save it as global). Verify with `grep -rn "environment only\|once at startup" README.md .env.example openspec/config.yaml` that no text still says cron ignores the portal
 
 ## 5. Integration
 
