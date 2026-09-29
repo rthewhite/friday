@@ -1,29 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { PageLayout, Button, DataTable, StatusDot, Badge, Chip, Drawer, Icon, formatDateTime, formatTime, type Column } from "@friday/portal-ui";
+import { PageLayout, Button, DataTable, StatusDot, Badge, Chip, Drawer, Icon, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../composables/useApi.js";
-
-interface Summary extends Record<string, unknown> {
-  id: string;
-  channel: "voice" | "chat";
-  device: string | null;
-  startedAt: string;
-  lastActivityAt: string;
-  endedAt: string | null;
-  endReason: string | null;
-  quietAt: string | null;
-  state: "active" | "quiet";
-  entryCount: number;
-  preview: string | null;
-}
-type Entry =
-  | { seq: number; at: string; kind: "user"; input: "speech" | "text"; text: string }
-  | { seq: number; at: string; kind: "assistant"; text: string; interrupted: boolean }
-  | { seq: number; at: string; kind: "tool"; name: string; args: unknown; result?: unknown; truncated: boolean };
-interface Conversation extends Summary {
-  entries: Entry[];
-}
+import type { Conversation, Summary } from "../lib/conversations.js";
+import TranscriptEntry from "../components/TranscriptEntry.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -64,7 +45,6 @@ function duration(c: Summary): string {
   return `${Math.floor(s / 3600)} h${Math.floor((s % 3600) / 60) ? ` ${Math.floor((s % 3600) / 60)} min` : ""}`;
 }
 const tone = (c: Summary) => (c.state === "active" ? "success" : "neutral");
-const json = (v: unknown, truncated: boolean) => (truncated && typeof v === "string" ? `${v}… (truncated)` : JSON.stringify(v, null, 2));
 
 // ---- drawer ---------------------------------------------------------------
 const open = ref(false);
@@ -142,38 +122,7 @@ const subtitle = computed(() => (selected.value ? `${formatDateTime(selected.val
         <p v-if="drawerError" class="text-sm text-f-error">{{ drawerError }}</p>
 
         <ol class="flex flex-col gap-3">
-          <li v-for="e in selected.entries" :key="e.seq" :class="['flex flex-col', e.kind === 'user' ? 'items-end' : 'items-start']">
-            <template v-if="e.kind === 'tool'">
-              <details class="w-full surface-inset text-sm">
-                <summary class="flex cursor-pointer items-center gap-2 px-3 py-2 text-f-text">
-                  <Icon name="settings" :size="14" />
-                  <span class="font-mono">{{ e.name }}</span>
-                  <Badge v-if="e.truncated" tone="warning">truncated</Badge>
-                  <Badge v-if="!('result' in e)" tone="warning">no result</Badge>
-                  <span class="ml-auto text-xs text-f-text-muted">{{ formatTime(e.at) }}</span>
-                </summary>
-                <div class="flex flex-col gap-2 px-3 pb-3">
-                  <div class="text-xs uppercase tracking-wide text-f-text-muted">Arguments</div>
-                  <pre class="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-f-text">{{ json(e.args, e.truncated) }}</pre>
-                  <template v-if="'result' in e">
-                    <div class="text-xs uppercase tracking-wide text-f-text-muted">Result</div>
-                    <pre class="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-f-text">{{ json(e.result, e.truncated) }}</pre>
-                  </template>
-                  <p v-else class="text-xs text-f-text-muted">The session closed before the tool finished.</p>
-                </div>
-              </details>
-            </template>
-            <template v-else>
-              <div :class="['max-w-[85%] rounded-2xl px-3 py-2 text-sm', e.kind === 'user' ? 'bg-f-accent text-white rounded-br-sm' : 'bg-f-surface-elevated text-f-text-bright rounded-bl-sm']">{{ e.text }}</div>
-              <div class="mt-1 flex items-center gap-1.5 text-xs text-f-text-muted">
-                <template v-if="e.kind === 'user'">
-                  <span :title="e.input === 'text' ? 'typed' : 'spoken'" class="inline-flex items-center gap-1"><Icon :name="e.input === 'text' ? 'keyboard' : 'mic'" :size="12" />{{ e.input === "text" ? "typed" : "spoken" }}</span>
-                </template>
-                <Badge v-else-if="e.interrupted" tone="warning">interrupted</Badge>
-                <span>{{ formatTime(e.at) }}</span>
-              </div>
-            </template>
-          </li>
+          <TranscriptEntry v-for="e in selected.entries" :key="e.seq" :entry="e" :markdown="selected.channel === 'chat'" />
         </ol>
         <p v-if="!selected.entries.length" class="text-sm text-f-text-muted">No entries.</p>
       </template>
@@ -183,7 +132,10 @@ const subtitle = computed(() => (selected.value ? `${formatDateTime(selected.val
           <Button variant="ghost" :disabled="busy" @click="confirming = false">Cancel</Button>
           <Button variant="danger" :disabled="busy" @click="remove">Delete</Button>
         </template>
-        <Button v-else variant="danger" :disabled="busy || !selected" @click="confirming = true">Delete</Button>
+        <template v-else>
+          <Button v-if="selected?.channel === 'chat'" class="mr-auto" @click="router.push(`/chat/${encodeURIComponent(selected.id)}`)"><Icon name="message" />Open in Chat</Button>
+          <Button variant="danger" :disabled="busy || !selected" @click="confirming = true">Delete</Button>
+        </template>
       </template>
     </Drawer>
   </PageLayout>

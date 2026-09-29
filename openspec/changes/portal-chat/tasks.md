@@ -40,11 +40,11 @@
 
 ## 7. Portal Chat page
 
-- [ ] 7.1 Add `markdown-it` to the portal and a render helper with `html: false`, linkify and `target="_blank" rel="noopener noreferrer"`; verify with a unit test (or a typechecked helper test) that `<img src=x onerror=alert(1)>` renders as text and links get the attributes
-- [ ] 7.2 Extract `TranscriptEntry` from `ConversationsPage.vue` and use it there; verify the Conversations drawer renders as before in `pnpm dev`
-- [ ] 7.3 Add `useChatStream` (fetch POST, SSE parser, reactive live turn); verify the parser with tests for split chunks, multiple events per chunk and comment lines
-- [ ] 7.4 Build `ChatPage.vue` with routes `/chat` and `/chat/:id`, the thread list with `New chat` and "Load more", streaming thinking/text/tools, the input (Enter / Shift+Enter, disabled while running), URL update after the first message, inline errors, the not-found notice, reload from the API after `done`, and the collapsed thread list at 360 px; add the `message` icon to `@friday/portal-ui` and the `Chat` nav item between `Talk` and `Conversations`, highlighted on `/chat/*`; verify with `pnpm --filter @friday/portal typecheck build` and by hand in `pnpm dev` (on free ports) against a real key: new thread, resume, tool call, reload mid-turn, 360 px
-- [ ] 7.5 Add `Open in Chat` to the Conversations drawer for chat conversations only; verify by hand that it opens `/chat/<id>` and is absent for voice conversations
+- [x] 7.1 Add `markdown-it` to the portal and a render helper with `html: false`, linkify and `target="_blank" rel="noopener noreferrer"`; verify with a unit test (or a typechecked helper test) that `<img src=x onerror=alert(1)>` renders as text and links get the attributes
+- [x] 7.2 Extract `TranscriptEntry` from `ConversationsPage.vue` and use it there; verify the Conversations drawer renders as before in `pnpm dev`
+- [x] 7.3 Add `useChatStream` (fetch POST, SSE parser, reactive live turn); verify the parser with tests for split chunks, multiple events per chunk and comment lines
+- [x] 7.4 Build `ChatPage.vue` with routes `/chat` and `/chat/:id`, the thread list with `New chat` and "Load more", streaming thinking/text/tools, the input (Enter / Shift+Enter, disabled while running), URL update after the first message, inline errors, the not-found notice, reload from the API after `done`, and the collapsed thread list at 360 px; add the `message` icon to `@friday/portal-ui` and the `Chat` nav item between `Talk` and `Conversations`, highlighted on `/chat/*`; verify with `pnpm --filter @friday/portal typecheck build` and by hand in `pnpm dev` (on free ports) against a real key: new thread, resume, tool call, reload mid-turn, 360 px
+- [x] 7.5 Add `Open in Chat` to the Conversations drawer for chat conversations only; verify by hand that it opens `/chat/<id>` and is absent for voice conversations
 
 ## 8. Docs and integration
 

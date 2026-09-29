@@ -9,22 +9,25 @@
     "dev": "pnpm gen && vite",
     "build": "pnpm gen && vite build",
     "typecheck": "pnpm gen && vue-tsc --noEmit -p tsconfig.json",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --import tsx --test test/*.test.mjs test/*.test.ts"
   },
   "dependencies": {
     "@friday/module-media": "workspace:*",
     "@friday/portal-ui": "workspace:*",
+    "markdown-it": "^15.0.2",
     "vue": "^3.5.29",
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
+    "@types/markdown-it": "^14.2.0",
     "@vitejs/plugin-vue": "^6.0.4",
     "@vue/tsconfig": "^0.8.1",
     "tailwindcss": "^4.2.1",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
     "vite": "^7.3.1",
-    "vue-tsc": "^3.2.5",
-    "typescript": "~5.9.3"
+    "vue-tsc": "^3.2.5"
   },
   "friday": {
     "workspaceRoot": "../.."
