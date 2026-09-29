@@ -76,20 +76,20 @@ Prerequisite: `module-db` is merged into `main` (`ctx.db`, `migrations`, `ctx.pr
 
 ## 7. Portal UI
 
-- [ ] 7.1 Add a `brain` icon to `@friday/portal-ui` `Icon.vue`. Verify it renders in `packages/portal-ui/test/components.test.ts`
-- [ ] 7.2 Implement the UI helpers in plain `.ts`:
+- [x] 7.1 Add a `brain` icon to `@friday/portal-ui` `Icon.vue`. Verify it renders in `packages/portal-ui/test/components.test.ts`
+- [x] 7.2 Implement the UI helpers in plain `.ts`:
   - the `markdown-it` instance (`html: false`, safe links) with the `[[Name]]` inline rule producing internal and dangling link markup;
   - line diff, hint extraction and token display.
 
   Verify with `test/ui-lib.test.ts`: a wikilink renders as an internal link with the page id, a dangling link renders marked, `<img src=x onerror=…>` renders as text, and a line diff marks added and removed lines
-- [ ] 7.3 Build the list page (`src/ui/BrainPage.vue`) and `defineModuleUi({ id: "brain", nav: { label: "Brain", icon: "brain", order: 20 } })`:
+- [x] 7.3 Build the list page (`src/ui/BrainPage.vue`) and `defineModuleUi({ id: "brain", nav: { label: "Brain", icon: "brain", order: 20 } })`:
   - the profile pinned with its budget meter and over-budget badge;
   - the `DataTable` with client-side search;
   - a `New page` drawer;
   - "Recently deleted" with `Restore` and a typed-name permanent delete showing the unlinked pages.
 
   Verify `pnpm --filter @friday/portal build` passes, then in `pnpm dev` (free ports) create two pages, search, delete, restore and purge one
-- [ ] 7.4 Build the page view (`src/ui/PageView.vue`, route `p/:id`):
+- [x] 7.4 Build the page view (`src/ui/PageView.vue`, route `p/:id`):
   - rendered body with click-delegated navigation, and dangling links opening a pre-filled `New page`;
   - backlinks;
   - edit mode (name and type fixed for the profile) with the stale-save prompt (`Discard my edits` / `Overwrite`);

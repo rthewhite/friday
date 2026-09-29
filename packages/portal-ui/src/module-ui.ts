@@ -2,7 +2,7 @@ import type { RouteRecordRaw } from "vue-router";
 
 export interface ModuleNav {
   label: string;
-  /** Icon name from portal-ui (mic, grid, play, settings, key, server, link) or short text/emoji fallback. */
+  /** Icon name from portal-ui (mic, grid, play, brain, settings, key, server, link) or short text/emoji fallback. */
   icon?: string;
   /** Lower sorts first; ties sort by label. */
   order?: number;

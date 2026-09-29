@@ -7,7 +7,12 @@ const core = process.env.FRIDAY_CORE_URL ?? "http://localhost:8080";
 
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    // Module UIs resolve vue and vue-router from their own packages; pnpm may link different copies
+    // (e.g. per TypeScript peer). One copy each keeps useRoute/useRouter and reactivity shared with the shell.
+    dedupe: ["vue", "vue-router"],
+  },
   server: {
     port: 5173,
     // Keep the browser's Host header (the string shorthand would set changeOrigin): core refuses

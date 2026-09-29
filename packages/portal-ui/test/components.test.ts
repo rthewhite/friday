@@ -45,6 +45,9 @@ describe("portal-ui components render", () => {
     expect(await render(StatusDot, { tone: "success", label: "loaded" })).toContain("bg-f-success");
     expect(await render(Chip, {}, "media")).toContain("media");
   });
+  it("Icon renders the brain icon as svg", async () => {
+    expect(await render(Icon, { name: "brain" })).toContain("<svg");
+  });
   it("Icon renders the chat and keyboard icons as svg", async () => {
     for (const name of ["chat", "keyboard"]) expect(await render(Icon, { name })).toContain("<svg");
   });
