@@ -45,7 +45,7 @@ On a first run without a watermark, it SHALL start from the oldest retained conv
 
 ### Requirement: Extraction appends notes only
 
-Extraction SHALL ask the text model for at most 10 notes per conversation, each an entity, a fact and an optional page type. It SHALL append each note to the brain exactly as `brain_remember` does (resolution, page creation, tombstone refusal, duplicate skip, dated line under `## Notes`), as a revision with author `extraction` whose sources name the conversation. Extraction SHALL NOT rewrite or remove any existing text. A note the brain refuses SHALL be counted and skipped without failing the conversation.
+Extraction SHALL ask the text model for at most 10 notes per conversation, each an entity, a fact and an optional page type. It SHALL append each note to the brain exactly as `brain_remember` does (resolution, page creation, tombstone refusal, duplicate skip, dated line under `## Notes`), as a revision with author `extraction` whose sources name the conversation. The note SHALL be dated with the day of the conversation's last activity in `FRIDAY_TIMEZONE`, not the day of the run, so that the duplicate skip (a fact repeating the latest note or a note of the same day) recognises facts already remembered during that conversation and notes appended by an earlier, interrupted run. Extraction SHALL NOT rewrite or remove any existing text. A note the brain refuses SHALL be counted and skipped without failing the conversation.
 
 #### Scenario: Fact said in passing
 - **WHEN** a conversation contains "my sister Anouk's birthday is on the 3rd of November, remind me to buy a gift" and no page mentions it
@@ -54,6 +54,14 @@ Extraction SHALL ask the text model for at most 10 notes per conversation, each 
 #### Scenario: Forgotten entity
 - **WHEN** the model proposes a note for a tombstoned name
 - **THEN** no page is created, and the refusal is counted
+
+#### Scenario: Already remembered in the conversation
+- **WHEN** on 29 September the user asked Friday to remember "Birthday is 3 November" for `Anouk`, a later note was added to `Anouk` that day, and the run at 03:00 on 30 September extracts the same fact from that conversation
+- **THEN** the extracted note is dated 29 September, is skipped as already known, and `Anouk` holds the fact once
+
+#### Scenario: Repeated after an interrupted run
+- **WHEN** a run appended a note from a conversation and stopped before advancing past it, and the next night's run extracts the same note again
+- **THEN** the note carries the conversation's date again and is skipped as already known
 
 ### Requirement: Extraction is filtered and guarded
 

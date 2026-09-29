@@ -25,7 +25,7 @@ Prerequisite: `brain` is merged into `main` (store with `writeRevision`, `append
   - the injected-tool-result fixture's result text is absent from the request;
   - only new entries are marked `[new]`;
   - an oversized brain is bounded with the most relevant pages in full.
-- [ ] 3.2 Implement extraction per conversation: the schema (`notes`, at most 10), the `generate` call (`standard`, `temperature` 0.2), and notes applied through `appendNote` with author `extraction` and the conversation as source (refusals counted). Verify with `extract.test.ts` using the fake LLM: fact-in-passing adds a sourced note, a tombstoned entity is refused and counted, and existing text is untouched
+- [ ] 3.2 Implement extraction per conversation: the schema (`notes`, at most 10), the `generate` call (`standard`, `temperature` 0.2), and notes applied through `appendNote` with author `extraction` and the conversation as source (refusals counted), dated with the day of the conversation's last activity in `FRIDAY_TIMEZONE` (extend `appendNote` with author and sources). Verify with `extract.test.ts` using the fake LLM: fact-in-passing adds a sourced note, a tombstoned entity is refused and counted, existing text is untouched, a fact `brain_remember` stored during the conversation (followed by another note the same day) is skipped by a run after midnight, and a conversation extracted twice adds its notes once
 - [ ] 3.3 Implement watermark and progress in `ctx.storage`:
   - retries first, then `list({ quietSince })` up to `BRAIN_NIGHTLY_MAX_CONVERSATIONS`;
   - the trivial skip (fewer than 4 user words);

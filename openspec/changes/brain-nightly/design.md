@@ -64,7 +64,7 @@ Per run:
    - On success, set `seen.seq` to the last entry and clear the retry key.
    - On `invalid_output` or `blocked`, increment `attempts`. At 3 attempts, log it, count it in the run's `error`, mark it seen and clear the retry key.
    - On `unavailable`, stop the extract step at once and mark the run `partial`. This is the only failure that doesn't advance past the conversation. `cancelled` works the same way.
-4. Advance `extract:watermark` to each listed conversation's `quietAt` right after it is handled, including skipped and retry-queued ones. A crash mid-run then repeats at most one conversation, and appending is idempotent thanks to the duplicate check.
+4. Advance `extract:watermark` to each listed conversation's `quietAt` right after it is handled, including skipped and retry-queued ones. A crash mid-run then repeats at most one conversation, and appending it again is idempotent: its notes carry the conversation's date (D3), so `appendNote`'s duplicate skip (the latest note, or a note of the same day) recognises them.
 
 - **The first run** has no watermark and lists from the beginning, so the retained backlog is worked through `BRAIN_NIGHTLY_MAX_CONVERSATIONS` at a time over the following nights.
 - **Pruning:** `extract:seen:*` keys for conversations that no longer exist are pruned at the end of each run, one `get` per key. Retention keeps that set bounded.
@@ -95,6 +95,9 @@ Per run:
 It is capped with `maxItems: 10`. `reason` is for tests and eval only, and isn't stored.
 
 **Application:** each note goes through the store's `appendNote` with author `extraction` and `sources: [conversationId]`. That covers the name, alias and profile resolution, creating a missing page, the tombstone refusal and the duplicate skip. A refused note (tombstoned, invalid) is counted and skipped. It never fails the conversation.
+
+- **Note date:** the day of the conversation's `lastActivityAt` in `FRIDAY_TIMEZONE`, not the day of the run. `brain`'s duplicate skip only matches the page's latest note or a note of the same day (an older matching note counts as a correction). A fact the user already had Friday remember during the day therefore still matches when extraction runs after midnight, even if other notes followed it. A conversation spanning midnight is dated by its last activity; a duplicate that slips through there is folded by consolidation.
+- **`appendNote` signature:** `brain` takes `(entity, fact, type, date)` with author `remember` and no sources. This change extends it with the author and sources (`extraction`, `[conversationId]`), keeping one write path.
 
 - **Why notes rather than page bodies:** extraction then can't lose content by construction, output stays small, and there is one rewriter (consolidation) whose guards are the only ones that matter. The same night's consolidation folds the notes in, so the brain doesn't collect extraction notes.
 - **Model settings:** `model: "standard"`, `temperature: 0.2`, `maxOutputTokens: 4096`, `timeoutMs: 120000`.

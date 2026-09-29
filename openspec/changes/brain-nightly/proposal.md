@@ -52,7 +52,7 @@ Out of scope: a weekly pattern pass, model tiers or providers other than `ctx.ll
 - `brain-maintenance`: the `brain/nightly` job with its extract and consolidate steps, watermark and retry handling, plan validation and all-or-nothing application, the run record, and the portal's `Nightly` review and revert.
 
 ### Modified Capabilities
-<!-- None on main. The `brain` change (planned, not yet applied) carries the one wording adjustment this needs: merges by the nightly pass are the only deletions outside the portal. -->
+- `brain`: revision ids are guaranteed to increase and never be reused (also after a purge). The nightly pass depends on that for its consolidation trigger, its run's revision range and revert. The `brain` implementation already provides it (`AUTOINCREMENT`); the requirement makes it part of the contract.
 
 ## Impact
 
