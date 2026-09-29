@@ -39,9 +39,9 @@ brain/nightly  (cron BRAIN_NIGHTLY_CRON, timeoutMs 30 min)
   '- return { summary }
 ```
 
-- **`brain__runs` (brain migration 2):** `id`, `trigger`, `started_at`, `finished_at`, `outcome` (`ok`, `partial` or `failed`), `conversations`, `skipped`, `notes`, `rewrites`, `creates`, `merges`, `dropped_json` (`[{ page, line, reason }]`), `merges_json` (`[{ from: pageId, into: pageId }]`), `first_revision_id`, `last_revision_id`, `error`.
+- **`brain__runs` (brain migration 2):** `id`, `trigger`, `started_at`, `finished_at`, `outcome` (`ok`, `partial` or `failed`; unset while running), `conversations`, `skipped`, `notes`, `refused` (notes the brain refused), `rewrites`, `creates`, `merges`, `dropped_json` (`[{ pageId, page, line, reason }]`), `merges_json` (`[{ from: pageId, into: pageId }]`), `first_revision_id`, `last_revision_id`, `error`, `summary` (the line the Jobs page shows, so the Nightly tab shows the same).
 - **Why the brain keeps its own run table** alongside the Jobs page history: the review UI needs the revision range, the dropped lines and the merges of each run. The Jobs page keeps timing and the summary line.
-- **Cancellation:** the signal is passed to every `generate` call and checked between conversations. A cancelled run finishes its row as `failed` with `cancelled` and leaves the watermark where the last completed conversation put it.
+- **Cancellation:** the signal is passed to every `generate` call and checked between conversations. A cancelled run finishes its row as `partial` with `cancelled` (as the spec requires for an interrupted extraction), skips consolidation, and leaves the watermark where the last completed conversation put it. `failed` is kept for runs that threw.
 - **Config:** `BRAIN_NIGHTLY_CRON` is read at `init`. `off` skips `schedule`, and changing it needs a module reload (Modules page), like any config read at `init`.
 
 ### D2. Watermark, per-conversation progress, retries
@@ -104,7 +104,7 @@ It is capped with `maxItems: 10`. `reason` is for tests and eval only, and isn't
 
 ### D4. Consolidation: a validated plan, applied all-or-nothing
 
-**When:** the step runs when any live page has a revision with id greater than `consolidate:last_revision_id` (in `ctx.storage`) that consolidation didn't write. Otherwise it records "nothing to consolidate".
+**When:** the step runs when any live page has a revision with id greater than `consolidate:last_revision_id` (in `ctx.storage`) that neither consolidation nor `system` wrote (the seeded profile isn't a change). Otherwise it records "nothing to consolidate".
 
 **Input:**
 
@@ -121,14 +121,15 @@ The same 60000-character bound applies: changed pages and their link neighbours 
 { actions: [
     { kind: "rewrite", page: <id>, base: <revision>, body, name?, aliases?, type?, dropped: [{ line, reason }] }
   | { kind: "create",  name, type, aliases?, body }
-  | { kind: "merge",   from: <id>, into: <id>, bases: { from, into }, body, dropped: [{ line, reason }] }
+  | { kind: "merge",   from: <id>, into: <id>, fromBase, intoBase, body, dropped: [{ line, reason }] }
   ], note: string }
 ```
 
-It is capped with `maxItems: 20` actions. `note` summarizes the plan in one sentence and is stored on each revision.
+The schema is one flat action object with optional fields, and the merge bases are two integer fields. At most 20 actions are allowed, enforced by validation rather than the schema: Gemini rejects this schema as too complex (`INVALID_ARGUMENT`) with `maxItems` on the actions or a nested `bases` object, found with the eval. `note` summarizes the plan in one sentence and is stored on each revision.
 
 **Validation** runs before anything is written. Any failure refuses the whole plan:
 
+- At most 20 actions, and each page appears in at most one action.
 - Referenced pages exist, are live, and their `base` equals the current revision.
 - Neither body is empty. The profile's name and type are unchanged. The profile is never `from` or `into` of a merge.
 - The names of created or renamed pages aren't tombstoned or taken. This is checked again by the store inside the transaction.
@@ -144,7 +145,7 @@ It is capped with `maxItems: 20` actions. `note` summarizes the plan in one sent
   - `rewrite` is `writeRevision(author: consolidation, base)`.
   - `create` is `create(author: consolidation)`.
   - `merge` writes the `into` body. Its aliases become the union of both pages' aliases plus the `from` name. It then soft-deletes `from` and frees its names first, so they can move.
-- Any store error rolls back the whole plan.
+- Any store error rolls back the whole plan, and counts as a refusal (its message is a repair reason).
 - **Repair:** after a refusal, the model gets one second call with its plan and the list of reasons ("revise the plan to fix these; an empty plan is fine"). When that also fails, nothing is written and the run is `partial`, with the reasons in `error`.
 - `consolidate:last_revision_id` advances only after a successful plan or an empty one.
 
@@ -179,7 +180,7 @@ It is capped with `maxItems: 20` actions. `note` summarizes the plan in one sent
 - `POST runs/:id/pages/:pageId/revert` with `{ base }`:
   - a page changed by the run: restore the pre-run revision as a new `user` revision noted `reverted nightly run <id>`;
   - a page created by the run: soft-delete it;
-  - the `into` of a merge: restore it and undelete the `from` page (its names were freed by the restore);
+  - the `into` of a merge: restore it and undelete the `from` page (its names were freed by the restore); reverting the `from` page reverts the merge through its `into`;
   - all in one transaction. It returns 409 `stale` when the page changed after the run, and the UI then offers to open the page instead.
 
 **UI:** a `Nightly` tab in `/m/brain`:
