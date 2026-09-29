@@ -1,5 +1,6 @@
 import { LocationNotFoundError } from "./errors.js";
-import { DEFAULT_TIME_ZONE, formatDuration, parseCoordinates, validateTimeArgs } from "./helpers.js";
+import { DEFAULT_TIME_ZONE } from "@friday/sdk";
+import { formatDuration, parseCoordinates, validateTimeArgs } from "./helpers.js";
 import type { ResolvedPlace, TomTomClient } from "./types.js";
 
 export interface TravelTimeParams {

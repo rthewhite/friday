@@ -5,8 +5,7 @@
  *   TOMTOM_API_KEY   TomTom key with the Routing and Places Search entitlements
  *   FRIDAY_TIMEZONE  zone for departAt/arriveAt given without an offset (default Europe/Amsterdam)
  */
-import { defineModule, Type, type ModuleContext } from "@friday/sdk";
-import { DEFAULT_TIME_ZONE, resolveTimeZone } from "./helpers.js";
+import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, Type, type ModuleContext } from "@friday/sdk";
 import { createTomTomClient } from "./tomtom.js";
 import { getTravelTime, type TravelTimeParams } from "./travel-time.js";
 import type { TomTomClient } from "./types.js";
@@ -44,16 +43,7 @@ function defineTravelTools(ctx: ModuleContext, fetchImpl: typeof fetch | undefin
     return client.tomtom;
   }
 
-  let warnedZone: string | undefined;
-  function timeZone(): string {
-    const configured = ctx.config.get("FRIDAY_TIMEZONE");
-    const { zone, valid } = resolveTimeZone(configured);
-    if (!valid && warnedZone !== configured) {
-      warnedZone = configured;
-      ctx.log.warn(`FRIDAY_TIMEZONE ${JSON.stringify(configured)} is not a valid zone; using ${zone}`);
-    }
-    return zone;
-  }
+  const timeZone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
 
   ctx.defineTool<TravelTimeParams>({
     name: "get_travel_time",

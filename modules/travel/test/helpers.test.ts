@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatDuration, parseCoordinates, resolveTimeZone, validateTimeArgs } from "../src/helpers.js";
+import { formatDuration, parseCoordinates, validateTimeArgs } from "../src/helpers.js";
 
 describe("parseCoordinates", () => {
   it("parses a plain pair", () => {
@@ -177,19 +177,5 @@ describe("validateTimeArgs", () => {
     // 13:30+02:00 is 11:30Z, before now; 13:30Z is after it.
     assert.match(failure(validateTimeArgs({ departAt: "2026-08-08T13:30+02:00" }, zone, now)), /in the past/);
     assert.equal(validateTimeArgs({ departAt: "2026-08-08T13:30Z" }, zone, now).ok, true);
-  });
-});
-
-describe("resolveTimeZone", () => {
-  it("keeps a valid zone", () => {
-    assert.deepEqual(resolveTimeZone("America/New_York"), { zone: "America/New_York", valid: true });
-  });
-
-  it("defaults an unset zone to Europe/Amsterdam", () => {
-    assert.deepEqual(resolveTimeZone(undefined), { zone: "Europe/Amsterdam", valid: true });
-  });
-
-  it("falls back to Europe/Amsterdam for an invalid zone and says so", () => {
-    assert.deepEqual(resolveTimeZone("Mars/Olympus"), { zone: "Europe/Amsterdam", valid: false });
   });
 });

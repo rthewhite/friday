@@ -1,14 +1,16 @@
 /** Small native tools that ship with Friday: current time, countdown timers, end_conversation. */
-import { defineModule, Type } from "@friday/sdk";
+import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, Type } from "@friday/sdk";
 
 export default defineModule({
   manifest: {
     id: "builtin",
     label: "Builtin",
     description: "Current time, timers and ending the conversation.",
-    config: [{ key: "FRIDAY_TIMEZONE", description: "Default IANA zone for get_current_time (default Europe/Amsterdam)" }],
+    config: [{ key: "FRIDAY_TIMEZONE", description: `Default IANA zone for get_current_time (default ${DEFAULT_TIME_ZONE})` }],
   },
   init(ctx) {
+    const householdZone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
+
     ctx.defineTool<{ timezone?: string }>({
       name: "get_current_time",
       description: "Get the current date and time, optionally in a specific IANA timezone.",
@@ -17,7 +19,8 @@ export default defineModule({
         properties: { timezone: { type: Type.STRING, description: "IANA zone, e.g. Europe/Amsterdam" } },
       },
       handler: ({ timezone }) => {
-        const zone = timezone || ctx.config.get("FRIDAY_TIMEZONE") || "Europe/Amsterdam";
+        // An explicit zone the model got wrong fails (naming it) rather than quietly answering elsewhere.
+        const zone = timezone || householdZone();
         const now = new Date();
         return {
           iso: now.toISOString(),

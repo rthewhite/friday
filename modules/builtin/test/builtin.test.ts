@@ -30,6 +30,25 @@ test("get_current_time: default zone, configured zone, explicit zone", async () 
   assert.equal(e.scheduling, "INTERRUPT");
 });
 
+test("get_current_time: an invalid configured zone answers in Europe/Amsterdam and warns once", async () => {
+  const lines: string[] = [];
+  const push = (...a: unknown[]) => void lines.push(a.join(" "));
+  const h = await createTestHost(builtin, { env: { FRIDAY_TIMEZONE: "Mars/Olympus" }, log: { log: push, warn: push, error: push } });
+
+  const r = await h.call("get_current_time");
+  await h.call("get_current_time");
+
+  assert.equal(r.result.timezone, "Europe/Amsterdam");
+  assert.equal(typeof r.result.human, "string");
+  assert.equal(lines.filter((l) => l.includes("Mars/Olympus")).length, 1);
+});
+
+test("get_current_time: an invalid explicit zone is an error naming it", async () => {
+  const h = await createTestHost(builtin);
+  const r = await h.call("get_current_time", { timezone: "Mars/Olympus" });
+  assert.match(String(r.result.error), /Mars\/Olympus/);
+});
+
 test("set_timer waits and reports WHEN_IDLE", async () => {
   const h = await createTestHost(builtin);
   const t0 = Date.now();

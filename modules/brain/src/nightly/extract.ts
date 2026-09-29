@@ -51,8 +51,8 @@ export interface ExtractDeps {
   log: ModuleLogger;
   /** BRAIN_NIGHTLY_MAX_CONVERSATIONS, read at each run. */
   maxConversations: () => number;
-  /** FRIDAY_TIMEZONE, read at each run. */
-  zone: () => string | undefined;
+  /** FRIDAY_TIMEZONE resolved (invalid falls back to the default), read at each run. */
+  zone: () => string;
 }
 
 const WATERMARK = "extract:watermark";
@@ -79,7 +79,7 @@ export async function extractConversation(deps: ExtractDeps, c: Conversation, se
     timeoutMs: 120_000,
     signal,
   });
-  const date = conversationDate(c, deps.zone(), (m) => deps.log.warn(m));
+  const date = conversationDate(c, deps.zone());
   let notes = 0;
   let refused = 0;
   for (const n of (r.json?.notes ?? []).slice(0, MAX_NOTES)) {
