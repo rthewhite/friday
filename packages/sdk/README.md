@@ -43,7 +43,7 @@ export default defineModule({
 | `jobs.schedule(job)` | Declares a background job `<id>/<name>` with a `cron` expression (in `FRIDAY_TIMEZONE`) or `everyMs` (at least 1000). Throws on an invalid declaration, so the module fails to load. In-process modules only; on the remote runner it throws `jobs are not available in this host`. |
 | `jobs.trigger(name)` | Starts one of the module's own jobs now (trigger `module`); returns `{ started: false }` when it is already running. |
 | `llm.generate(request)` | Text generation through core's model. See [Text generation](#text-generation). |
-| `conversations` | Read access to recorded conversations: `list`, `get`, `onQuiet`. In-process modules only; see [Conversations](#conversations). |
+| `conversations` | Read access to recorded conversations: `list`, `get`, `search`, `onQuiet`. In-process modules only; see [Conversations](#conversations). |
 | `db` | Synchronous access to the module's own tables: `prepare`, `exec`, `transaction`. In-process modules only; see [Tables](#tables). |
 | `prompt.addContext(provider)` | Adds text to Friday's voice and chat system prompts. Returns an unsubscribe function. In-process modules only; see [Prompt context](#prompt-context). |
 
@@ -94,6 +94,14 @@ Throwing from a handler yields `{ error: "<message>" }` with `INTERRUPT` so the 
 
 Both keys matter only in voice. In a portal chat turn the result goes back to the model as is, without them; `scheduling` and `endConversation` are ignored.
 
+A handler's second argument says where the call comes from: `channel` (`"voice"` or `"chat"`) and `conversationId`, the conversation the call is recorded in. The id is absent until that conversation is stored: a voice session writes an exchange when its turn ends, so a tool called in the first exchange has none yet. Both are absent when the host calls a tool directly, such as the remote runner or `host.call(name, args)` without options. Tools from MCP servers and remote modules never see it.
+
+```ts
+handler: async ({ query }, { conversationId }) => ({
+  found: await ctx.conversations.search({ query, exclude: conversationId ? [conversationId] : [] }),
+}),
+```
+
 ### Channels
 
 A tool is offered in voice sessions and in portal chat unless it sets `channels`, a non-empty list of `"voice"` and `"chat"`. Chat waits for every tool result before it answers (up to `FRIDAY_CHAT_TOOL_TIMEOUT_MS`), so a tool that deliberately takes long, like `set_timer`, or that only makes sense with a microphone, like `end_conversation`, should be `channels: ["voice"]`. Outside its channels a tool is not declared, and a call to it answers `{ error: "unknown tool <name>" }` without running the handler. Remote module tools carry no channels and are offered in both.
@@ -104,6 +112,7 @@ Core records every conversation as transcript text (never audio): user entries w
 
 - `ctx.conversations.list({ quietSince?, limit? })`: without `quietSince`, the most recently active first. With it, the conversations currently quiet that went quiet after that time, oldest first.
 - `ctx.conversations.get(id)`: the conversation with all its entries, or `undefined`.
+- `ctx.conversations.search({ query?, since?, until?, channel?, device?, exclude?, limit? })`: the conversations whose entries in `[since, until)` (ISO 8601 instants) contain any of the query's words. Words shorter than 3 characters are ignored, and a word matches any part of a word, without case and accents. What is searched is user and assistant text and each tool call's name and the values in its arguments (not their keys), never its result. Results are ordered by the number of distinct words matched, then by most recent activity, and `limit` defaults to 5 (at most 20). Each result is the conversation's summary plus up to 3 `snippets`: the matching entry with the entries before and after it, text cut to 300 characters, tool calls without their result. Without words, it returns the conversations with entries in the window, each with its first 3 of them. An unknown channel, an invalid time or `since` after `until` rejects with a `SearchQueryError`.
 - `ctx.conversations.onQuiet(handler)`: called with `{ id, lastActivityAt, quietAt }` each time a conversation goes quiet. Returns an unsubscribe function; subscriptions end when the module is disposed or reloaded. A throwing handler is logged and does not affect other subscribers.
 
 Notifications are best-effort and in-process: one that fires while the module reloads or Friday restarts is lost. The durable pattern is a watermark in `ctx.storage`, with `onQuiet` only as a nudge:
@@ -127,7 +136,7 @@ init(ctx) {
 }
 ```
 
-For heavier work, make `catchUp` a background job and have the handler call `ctx.jobs.trigger("<name>")` instead, so runs never overlap and show up on the Jobs page. Remote modules get an error `conversations are not available in this host`. In tests, `createTestHost` provides an in-memory store as `host.conversations`: `seed({ entries, ... })` adds a conversation and `await markQuiet(id)` fires the module's handlers.
+For heavier work, make `catchUp` a background job and have the handler call `ctx.jobs.trigger("<name>")` instead, so runs never overlap and show up on the Jobs page. Remote modules get an error `conversations are not available in this host`. In tests, `createTestHost` provides an in-memory store as `host.conversations`: `seed({ entries, ... })` adds a conversation, `await markQuiet(id)` fires the module's handlers, and `search` follows the same rules as core, with substring matching over folded text in place of core's full-text index.
 
 ### Tables
 

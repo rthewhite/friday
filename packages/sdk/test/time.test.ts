@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_TIME_ZONE, householdTimeZone, localDate, resolveTimeZone } from "../src/index.js";
+import { DEFAULT_TIME_ZONE, householdTimeZone, localDate, resolveTimeZone, startOfLocalDay } from "../src/index.js";
 
 /** A reader over a mutable config, recording its warnings. */
 function reader(env: Record<string, string | undefined>) {
@@ -74,4 +74,34 @@ test("the same invalid value is reported again after the zone was fixed in betwe
 test("localDate is the calendar date in the zone, not in UTC", () => {
   assert.equal(localDate(new Date("2026-09-28T23:30:00Z"), "Europe/Amsterdam"), "2026-09-29");
   assert.equal(localDate(new Date("2026-09-28T23:30:00Z"), "UTC"), "2026-09-28");
+});
+
+const hours = (a: Date | undefined, b: Date | undefined) => (b!.getTime() - a!.getTime()) / 3_600_000;
+
+test("startOfLocalDay is local midnight in the zone", () => {
+  assert.equal(startOfLocalDay("2026-09-28", "Europe/Amsterdam")?.toISOString(), "2026-09-27T22:00:00.000Z");
+  assert.equal(startOfLocalDay("2026-01-15", "Europe/Amsterdam")?.toISOString(), "2026-01-14T23:00:00.000Z");
+  assert.equal(startOfLocalDay("2026-09-28", "UTC")?.toISOString(), "2026-09-28T00:00:00.000Z");
+  assert.equal(startOfLocalDay("2026-09-28", "America/New_York")?.toISOString(), "2026-09-28T04:00:00.000Z");
+  assert.equal(startOfLocalDay("2026-09-28", "Asia/Kolkata")?.toISOString(), "2026-09-27T18:30:00.000Z");
+});
+
+test("startOfLocalDay across DST: the spring day has 23 hours, the autumn day 25", () => {
+  const z = "Europe/Amsterdam";
+  assert.equal(hours(startOfLocalDay("2026-03-29", z), startOfLocalDay("2026-03-30", z)), 23);
+  assert.equal(hours(startOfLocalDay("2026-10-25", z), startOfLocalDay("2026-10-26", z)), 25);
+  assert.equal(hours(startOfLocalDay("2026-09-28", z), startOfLocalDay("2026-09-29", z)), 24);
+});
+
+test("startOfLocalDay where DST skips midnight starts at the first moment of the day", () => {
+  // Chile moves from -04:00 to -03:00 at midnight on the first Sunday of September.
+  const start = startOfLocalDay("2026-09-06", "America/Santiago")!;
+  assert.equal(localDate(start, "America/Santiago"), "2026-09-06");
+  assert.equal(localDate(new Date(start.getTime() - 1), "America/Santiago"), "2026-09-05");
+});
+
+test("startOfLocalDay refuses what is not a calendar date", () => {
+  for (const bad of ["2026-02-30", "2026-13-01", "last week", "2026-9-28", "2026-09-28T00:00"]) {
+    assert.equal(startOfLocalDay(bad, "Europe/Amsterdam"), undefined, bad);
+  }
 });

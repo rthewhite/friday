@@ -131,6 +131,28 @@ test("end_conversation ends the recorded conversation quiet with reason ended: d
   assert.equal(c.entries[2].kind === "assistant" && c.entries[2].interrupted, false, "the suppressed interruption is not recorded");
 });
 
+test("a voice tool call carries the conversation id once the conversation is stored, and none in the first exchange", async () => {
+  const { store } = setup();
+  const recorder = store.recorder({ channel: "voice" });
+  const r = new ToolRegistry(quiet);
+  const seen: unknown[] = [];
+  r.add("brain", { name: "recall", description: "", handler: (_args, call) => (seen.push(call), { ok: true }) });
+  const live = fakeLive();
+  const s = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, recorder });
+  await s.open();
+  s.handle(msg({ inputTranscription: { text: "what did we say about the boiler?" } }));
+  s.handle({ toolCall: { functionCalls: [{ id: "1", name: "recall", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 1);
+  s.handle(msg({ outputTranscription: { text: "Nothing yet." }, turnComplete: true }));
+  const id = recorder.conversationId;
+  assert.ok(id, "the first exchange is stored at its turn end");
+  s.handle(msg({ inputTranscription: { text: "and the heater?" } }));
+  s.handle({ toolCall: { functionCalls: [{ id: "2", name: "recall", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 2);
+  assert.deepEqual(seen, [{ channel: "voice" }, { channel: "voice", conversationId: id }]);
+  s.close();
+});
+
 test("a session emits exactly the same events with and without a recorder", async () => {
   const run = async (withRecorder: boolean) => {
     const { store } = setup();

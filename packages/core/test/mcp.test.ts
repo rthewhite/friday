@@ -72,6 +72,21 @@ test("an unreachable server fails alone; the other loads with the secret header 
   }
 });
 
+test("an MCP call forwards only the tool's arguments, never the call context", async () => {
+  const f = await startMcpFixture();
+  const { src, registry, add } = setup();
+  try {
+    add({ name: "home", transport: "http", url: f.url });
+    await src.load();
+    const out = await registry.callTool("home__turn_on", { room: "kitchen" }, { channel: "chat", conversationId: "c1" });
+    assert.deepEqual(out.result, { result: { called: "turn_on" } });
+    assert.deepEqual(f.calls, [{ name: "turn_on", arguments: { room: "kitchen" } }]);
+  } finally {
+    await src.close();
+    await f.close();
+  }
+});
+
 test("a disabled server is not connected and registers no tools", async () => {
   const f = await startMcpFixture();
   const { src, registry, add } = setup();

@@ -12,7 +12,7 @@ test("brain/nightly is scheduled at 03:00 by default, from BRAIN_NIGHTLY_CRON, a
   const errors: string[] = [];
   const bad = await createTestHost(createBrainModule(), { env: { BRAIN_NIGHTLY_CRON: "0 3 * *" }, log: { log() {}, warn() {}, error: (...a) => void errors.push(a.join(" ")) } });
   assert.deepEqual(bad.jobs, []);
-  assert.deepEqual(bad.tools, ["brain_remember", "brain_recall"]);
+  assert.deepEqual(bad.tools, ["brain_remember", "brain_recall", "brain_recall_conversations"]);
   assert.match(errors.join("\n"), /nightly maintenance is disabled: job brain\/nightly: invalid cron "0 3 \* \*".*fix BRAIN_NIGHTLY_CRON/);
 });
 

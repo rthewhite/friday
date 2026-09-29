@@ -205,9 +205,162 @@ test("recall returns at most the exact page plus 3 others", async () => {
   assert.equal(r.pages[1].name, "Boat");
 });
 
-test("the module's only tools are brain_remember and brain_recall, in both channels", async () => {
+test("the module's tools are brain_remember, brain_recall and brain_recall_conversations, in both channels", async () => {
   const { h } = await host();
-  assert.deepEqual(h.tools, ["brain_remember", "brain_recall"]);
-  assert.deepEqual(h.toolsIn("voice"), ["brain_remember", "brain_recall"]);
-  assert.deepEqual(h.toolsIn("chat"), ["brain_remember", "brain_recall"]);
+  const all = ["brain_remember", "brain_recall", "brain_recall_conversations"];
+  assert.deepEqual(h.tools, all);
+  assert.deepEqual(h.toolsIn("voice"), all);
+  assert.deepEqual(h.toolsIn("chat"), all);
+});
+
+// ---- 3.1 brain_recall_conversations ----
+
+type Seed = Parameters<Awaited<ReturnType<typeof createTestHost>>["conversations"]["seed"]>[0];
+const said = (kind: "user" | "assistant", text: string, at: string) =>
+  kind === "user" ? { kind, input: "speech" as const, text, at } : { kind, text, interrupted: false, at };
+
+async function conversations(...seeds: Seed[]) {
+  const { h } = await host();
+  const ids = seeds.map((s) => h.conversations.seed(s).id);
+  const recallConversations = async (args: Record<string, unknown>, conversationId?: string) =>
+    (await h.call("brain_recall_conversations", args, { channel: "voice", conversationId })).result as any;
+  return { h, ids, recallConversations };
+}
+
+test("recall last week's film: the chat about it is found, with its start in local time", async () => {
+  const { ids, recallConversations } = await conversations(
+    {
+      channel: "chat",
+      startedAt: "2026-09-22T18:00:00.000Z",
+      lastActivityAt: "2026-09-22T18:02:00.000Z",
+      entries: [
+        said("user", "Which film should we watch tonight?", "2026-09-22T18:00:00.000Z"),
+        said("assistant", "How about Arrival? It's on Jellyfin.", "2026-09-22T18:01:00.000Z"),
+        said("user", "Sounds good", "2026-09-22T18:02:00.000Z"),
+      ],
+    },
+    { startedAt: "2026-09-18T18:00:00.000Z", entries: [said("user", "a film about sharks", "2026-09-18T18:00:00.000Z")] },
+  );
+  const r = await recallConversations({ query: "the film we talked about", since: "2026-09-21", until: "2026-09-27" });
+  assert.equal(r.found, 1);
+  const [c] = r.conversations;
+  assert.deepEqual({ id: c.id, channel: c.channel, started: c.started, device: c.device }, { id: ids[0], channel: "chat", started: "2026-09-22 20:00", device: undefined });
+  assert.deepEqual(c.snippets, [
+    [
+      { who: "user", text: "Which film should we watch tonight?" },
+      { who: "friday", text: "How about Arrival? It's on Jellyfin." },
+    ],
+  ]);
+});
+
+test("the conversation the call is made in is left out", async () => {
+  const { ids, recallConversations } = await conversations({ entries: [said("user", "what did we say about the boiler?", "2026-09-29T08:00:00.000Z")] });
+  const r = await recallConversations({ query: "boiler" }, ids[0]);
+  assert.deepEqual(r, { found: 0, message: "No earlier conversations matched." });
+  assert.equal((await recallConversations({ query: "boiler" })).found, 1, "found from any other conversation");
+});
+
+test("yesterday without words: the conversations with entries on that local day, most recent first, with their opening turns", async () => {
+  const { ids, recallConversations } = await conversations(
+    // 00:30 on the 28th in Amsterdam
+    { lastActivityAt: "2026-09-27T22:40:00.000Z", entries: [said("user", "good night", "2026-09-27T22:30:00.000Z"), said("assistant", "Sleep well", "2026-09-27T22:31:00.000Z")] },
+    // 14:00 on the 28th, four turns
+    {
+      lastActivityAt: "2026-09-28T12:03:00.000Z",
+      entries: ["a", "b", "c", "d"].map((t, i) => said(i % 2 ? "assistant" : "user", t, `2026-09-28T12:0${i}:00.000Z`)),
+    },
+    // 00:30 on the 29th: today, not yesterday
+    { lastActivityAt: "2026-09-28T22:30:00.000Z", entries: [said("user", "late", "2026-09-28T22:30:00.000Z")] },
+    // 23:30 on the 27th
+    { lastActivityAt: "2026-09-27T21:30:00.000Z", entries: [said("user", "earlier", "2026-09-27T21:30:00.000Z")] },
+  );
+  const r = await recallConversations({ since: "2026-09-28", until: "2026-09-28" });
+  assert.deepEqual(r.conversations.map((c: { id: string }) => c.id), [ids[1], ids[0]]);
+  assert.deepEqual(r.conversations[0].snippets, [[{ who: "user", text: "a" }, { who: "friday", text: "b" }, { who: "user", text: "c" }]]);
+});
+
+test("played media is found through the tool call's arguments, and its result is never returned", async () => {
+  const { ids, recallConversations } = await conversations({
+    device: "living-room",
+    startedAt: "2026-09-26T19:00:00.000Z",
+    entries: [
+      said("user", "continue the war series", "2026-09-26T19:00:00.000Z"),
+      { kind: "tool", name: "play_on_apple_tv", args: { title: "Band of Brothers", episode: 4 }, result: { playing: true, token: "secret" }, truncated: false, at: "2026-09-26T19:00:05.000Z" },
+      said("assistant", "Playing episode 4.", "2026-09-26T19:00:06.000Z"),
+    ],
+  });
+  const r = await recallConversations({ query: "Band of Brothers" });
+  assert.equal(r.conversations[0].id, ids[0]);
+  assert.equal(r.conversations[0].device, "living-room");
+  assert.deepEqual(r.conversations[0].snippets[0][1], { who: "tool", tool: "play_on_apple_tv", args: { title: "Band of Brothers", episode: 4 } });
+  assert.doesNotMatch(JSON.stringify(r), /secret|playing/);
+});
+
+test("a result over 8000 characters drops the lowest-ranked conversations until it fits", async () => {
+  const long = (n: number) => `boiler ${"x".repeat(400)} ${n}`;
+  const seeds: Seed[] = Array.from({ length: 5 }, (_, i) => ({
+    lastActivityAt: `2026-09-2${i}T10:00:00.000Z`,
+    entries: Array.from({ length: 9 }, (_, j) => said(j % 2 ? "assistant" : "user", long(j), `2026-09-2${i}T10:0${j}:00.000Z`)),
+  }));
+  const { ids, recallConversations } = await conversations(...seeds);
+  const r = await recallConversations({ query: "boiler" });
+  assert.ok(JSON.stringify(r).length <= 8000, `${JSON.stringify(r).length} characters`);
+  assert.ok(r.found >= 1 && r.found < 5, `kept ${r.found}`);
+  assert.equal(r.found, r.conversations.length);
+  // Most recent (highest ranked) first, so the kept ones are the newest.
+  assert.deepEqual(r.conversations.map((c: { id: string }) => c.id), [...ids].reverse().slice(0, r.found));
+});
+
+test("an invalid date or since after until is an error the model can act on", async () => {
+  const { recallConversations } = await conversations();
+  assert.deepEqual(await recallConversations({ since: "last week" }), { error: 'since must be a date as YYYY-MM-DD, got "last week"' });
+  assert.match((await recallConversations({ until: "2026-02-30" })).error, /until must be a date as YYYY-MM-DD/);
+  assert.deepEqual(await recallConversations({ since: "2026-09-28", until: "2026-09-27" }), { error: "since (2026-09-28) is after until (2026-09-27)" });
+});
+
+test("without parameters: the most recent conversations, at most 5; nothing found states the dates", async () => {
+  const seeds: Seed[] = Array.from({ length: 7 }, (_, i) => ({ lastActivityAt: `2026-09-2${i}T10:00:00.000Z`, entries: [said("user", `talk ${i}`, `2026-09-2${i}T10:00:00.000Z`)] }));
+  const { ids, recallConversations } = await conversations(...seeds);
+  const r = await recallConversations({});
+  assert.deepEqual(r.conversations.map((c: { id: string }) => c.id), [...ids].reverse().slice(0, 5));
+  assert.deepEqual(await recallConversations({ query: "boiler", since: "2026-09-01", until: "2026-09-02" }), { found: 0, message: "No earlier conversations matched between 2026-09-01 and 2026-09-02." });
+});
+
+test("a query with no searchable words is an error, not a list of the latest conversations", async () => {
+  const { recallConversations } = await conversations({ entries: [said("user", "the TV is broken", "2026-09-28T10:00:00.000Z")] });
+  assert.match((await recallConversations({ query: "TV" })).error, /^query "TV" has no searchable words: .*"television" rather than "TV"/);
+  assert.match((await recallConversations({ query: "what did we", since: "2026-09-28" })).error, /no searchable words/);
+  assert.equal((await recallConversations({ query: "  ", since: "2026-09-28" })).found, 1, "a blank query is no query");
+});
+
+test("a best match over 8000 characters on its own is kept, with its later snippets dropped", async () => {
+  // Control characters take 6 characters each in JSON, so three full snippets of these can't fit.
+  const noisy = `boiler ${"\u0001".repeat(400)}`;
+  const { ids, recallConversations } = await conversations(
+    { lastActivityAt: "2026-09-28T10:00:00.000Z", entries: Array.from({ length: 9 }, (_, j) => said(j % 2 ? "assistant" : "user", noisy, `2026-09-28T10:0${j}:00.000Z`)) },
+    { lastActivityAt: "2026-09-20T10:00:00.000Z", entries: [said("user", "boiler", "2026-09-20T10:00:00.000Z")] },
+  );
+  const r = await recallConversations({ query: "boiler" });
+  assert.ok(JSON.stringify(r).length <= 8000, `${JSON.stringify(r).length} characters`);
+  assert.equal(r.found, 1);
+  assert.equal(r.conversations[0].id, ids[0]);
+  assert.ok(r.conversations[0].snippets.length >= 1 && r.conversations[0].snippets.length < 3);
+});
+
+test("the no-match message names an open end even when the model passes an empty date", async () => {
+  const { recallConversations } = await conversations();
+  assert.deepEqual(await recallConversations({ query: "boiler", since: "", until: "2026-09-02" }), { found: 0, message: "No earlier conversations matched between the start and 2026-09-02." });
+});
+
+test("an until whose next day is past year 9999 is a date error, not a crash", async () => {
+  const { recallConversations } = await conversations();
+  assert.deepEqual(await recallConversations({ until: "9999-12-31" }), { error: 'until must be a date as YYYY-MM-DD, got "9999-12-31"' });
+});
+
+test("the channel parameter narrows to voice or chat", async () => {
+  const { ids, recallConversations } = await conversations(
+    { channel: "voice", entries: [said("user", "boiler", "2026-09-28T10:00:00.000Z")] },
+    { channel: "chat", entries: [said("user", "boiler", "2026-09-28T10:00:00.000Z")] },
+  );
+  assert.deepEqual((await recallConversations({ query: "boiler", channel: "chat" })).conversations.map((c: { id: string }) => c.id), [ids[1]]);
 });

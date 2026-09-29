@@ -109,6 +109,7 @@ function noConversations(id: string): ModuleConversations {
   return {
     list: async () => { throw error(); },
     get: async () => { throw error(); },
+    search: async () => { throw error(); },
     onQuiet: () => { throw error(); },
   };
 }

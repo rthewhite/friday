@@ -1,4 +1,14 @@
 /** Read access to recorded conversations (`ctx.conversations`). In-process modules only. */
+import {
+  compareMatches,
+  foldSearchText,
+  inWindow,
+  searchableText,
+  snippetsFor,
+  validateSearch,
+  type ConversationMatch,
+  type SearchConversationsOptions,
+} from "./conversation-search.js";
 
 export type ConversationChannel = "voice" | "chat";
 /** `speech` is Gemini's transcription of audio (noisy); `text` was typed (exact). */
@@ -51,6 +61,13 @@ export interface ModuleConversations {
   /** Without `quietSince`: most recently active first. With it: quiet since that time, oldest first. */
   list(opts?: ListConversationsOptions): Promise<ConversationSummary[]>;
   get(id: string): Promise<Conversation | undefined>;
+  /**
+   * Conversations whose entries in `[since, until)` hold any of the query's words (any part of a word,
+   * without case and accents), most distinct words first, then most recent activity; each with up to 3
+   * snippets. Without words, the conversations with entries in the window, each with its first 3 of
+   * them. Rejects with a `SearchQueryError` for an unknown channel, an invalid time or `since` after `until`.
+   */
+  search(opts?: SearchConversationsOptions): Promise<ConversationMatch[]>;
   /**
    * Best-effort, in-process notification each time a conversation goes quiet. Missed notifications
    * (restarts, reloads) are recovered with `list({ quietSince: <last quietAt seen> })`.
@@ -130,6 +147,36 @@ export class MemoryConversations implements ModuleConversations {
   async get(id: string): Promise<Conversation | undefined> {
     const c = this.items.get(id);
     return c ? structuredClone(c) : undefined;
+  }
+
+  /** The store's search rules, with folded substring matching in place of the full-text index. */
+  async search(opts: SearchConversationsOptions = {}): Promise<ConversationMatch[]> {
+    const s = validateSearch(opts);
+    const candidates: { c: Conversation; entries: ConversationEntry[]; matching?: Set<number>; words: number }[] = [];
+    for (const c of this.items.values()) {
+      if ((s.channel && c.channel !== s.channel) || (s.device !== undefined && c.device !== s.device) || s.exclude.includes(c.id)) continue;
+      const entries = [...c.entries].sort((a, b) => a.seq - b.seq).filter((e) => inWindow(e.at, s));
+      if (!entries.length) continue;
+      if (!s.words.length) {
+        candidates.push({ c, entries, words: 0 });
+        continue;
+      }
+      const matching = new Set<number>();
+      const found = new Set<string>();
+      for (const e of entries) {
+        const text = foldSearchText(searchableText(e));
+        for (const w of s.words) {
+          if (!text.includes(w)) continue;
+          matching.add(e.seq);
+          found.add(w);
+        }
+      }
+      if (found.size) candidates.push({ c, entries, matching, words: found.size });
+    }
+    return candidates
+      .sort((a, b) => compareMatches({ id: a.c.id, lastActivityAt: a.c.lastActivityAt, words: a.words }, { id: b.c.id, lastActivityAt: b.c.lastActivityAt, words: b.words }))
+      .slice(0, s.limit)
+      .map(({ c: { entries: _all, ...summary }, entries, matching }) => ({ ...structuredClone(summary), snippets: structuredClone(snippetsFor(entries, matching)) }));
   }
 
   onQuiet(handler: (e: QuietEvent) => void | Promise<void>): () => void {

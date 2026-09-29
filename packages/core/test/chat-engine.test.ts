@@ -105,6 +105,17 @@ test("two tools, then an answer: events stream in order, contents carry verbatim
   ]);
 });
 
+test("a chat tool call carries channel chat and the thread's id, on a new and on a resumed thread", async () => {
+  const f = fakeLlm([call("recall")], [text("Done.")], [call("recall")], [text("Again.")]);
+  const { engine: e, registry } = engine(f.llm);
+  const seen: unknown[] = [];
+  registry.add("brain", { name: "recall", description: "", handler: (_args, c) => (seen.push(c), { ok: true }) });
+  const first = await send(e, "what did we say about the boiler?");
+  const second = await send(e, "and the heater?", first.id);
+  assert.equal(second.id, first.id);
+  assert.deepEqual(seen, [{ channel: "chat", conversationId: first.id }, { channel: "chat", conversationId: first.id }]);
+});
+
 test("parallel calls in one round run together and answer in call order", async () => {
   const f = fakeLlm([call("slow"), call("fast")], [text("ok")]);
   const { engine: e, registry } = engine(f.llm);

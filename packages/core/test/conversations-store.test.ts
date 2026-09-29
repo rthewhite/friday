@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { QuietEvent } from "@friday/sdk";
-import { cursorOf } from "../src/conversations/store.js";
+import { cursorOf, InvalidQuery } from "../src/conversations/store.js";
 import { setup } from "./conversation-fixtures.js";
 import { waitFor } from "./helpers.js";
 
@@ -255,4 +255,148 @@ test("settings default to 90 retention days and 30 quiet minutes", async () => {
   const { settings } = await import("../src/config.js");
   assert.equal(settings.conversationRetentionDays, 90);
   assert.equal(settings.conversationQuietMinutes, 30);
+});
+
+// ---- search ----
+
+type Store = ReturnType<typeof setup>["store"];
+type Line = [kind: "user" | "assistant", text: string] | [kind: "tool", name: string, args: unknown, result?: unknown];
+
+/** A conversation with one entry per line, all at `when` (or one minute apart from it), last active then. */
+function converse(store: Store, lines: Line[], when = at, meta: { channel?: "voice" | "chat"; device?: string } = {}): string {
+  const id = store.create({ channel: meta.channel ?? "voice", device: meta.device }, when);
+  lines.forEach((l, i) => {
+    const t = new Date(Date.parse(when) + i * MIN).toISOString();
+    if (l[0] === "tool") store.append(id, i + 1, { kind: "tool", at: t, name: l[1], args: l[2], result: l[3] });
+    else if (l[0] === "user") store.append(id, i + 1, { kind: "user", at: t, input: "speech", text: l[1] });
+    else store.append(id, i + 1, { kind: "assistant", at: t, text: l[1] });
+  });
+  return id;
+}
+
+const ids = (found: { id: string }[]) => found.map((c) => c.id);
+
+test("search: a new entry is searchable while its session is still open", () => {
+  const { store } = setup();
+  const rec = store.recorder({ channel: "voice", device: "kitchen" });
+  rec.user("is the boiler service booked?", "speech");
+  rec.assistant("Yes, on Tuesday.");
+  rec.turnComplete();
+  const found = store.search({ query: "boiler" });
+  assert.deepEqual(ids(found), [rec.conversationId]);
+  assert.equal(found[0].state, "active");
+  assert.equal(found[0].device, "kitchen");
+  assert.ok(store.isLive(rec.conversationId!));
+  rec.end();
+});
+
+test("search: tool names and arguments are indexed, results are not", () => {
+  const { store } = setup();
+  const id = converse(store, [["user", "put it on"], ["tool", "play_on_apple_tv", { title: "Dune" }, { next: "Arrival" }], ["assistant", "Playing."]]);
+  const found = store.search({ query: "Dune" });
+  assert.deepEqual(ids(found), [id]);
+  assert.deepEqual(found[0].snippets, [
+    [
+      { seq: 1, at, kind: "user", input: "speech", text: "put it on" },
+      { seq: 2, at: "2026-10-01T10:01:00.000Z", kind: "tool", name: "play_on_apple_tv", args: { title: "Dune" } },
+      { seq: 3, at: "2026-10-01T10:02:00.000Z", kind: "assistant", text: "Playing.", interrupted: false },
+    ],
+  ]);
+  assert.deepEqual(store.search({ query: "Arrival" }), []);
+  assert.deepEqual(store.search({ query: "title" }), [], "argument keys are not indexed");
+  assert.deepEqual(ids(store.search({ query: "apple" })), [id], "the tool name is");
+});
+
+test("search: conversations deleted through the API or by retention are gone", () => {
+  const { store, clock } = setup();
+  const deleted = converse(store, [["user", "the boiler is loud"]]);
+  const pruned = converse(store, [["user", "boiler again"]]);
+  const kept = converse(store, [["user", "boiler key"]]);
+  assert.equal(store.delete(deleted), "deleted");
+  clock.advance(100 * DAY);
+  store.append(kept, 2, { kind: "assistant", at: clock.now().toISOString(), text: "under the mat" });
+  assert.equal(store.prune(new Date(clock.now().getTime() - 90 * DAY)), 1);
+  assert.deepEqual(ids(store.search({ query: "boiler" })), [kept]);
+  assert.equal(store.get(pruned), undefined);
+});
+
+test("search: more distinct words rank first, then the most recent activity", () => {
+  const { store, clock } = setup();
+  const a = converse(store, [["user", "the boiler is loud"]]);
+  clock.advance(MIN);
+  const b = converse(store, [["user", "book the boiler"], ["assistant", "Service booked."]]);
+  clock.advance(MIN);
+  const c = converse(store, [["user", "the boiler key"]]);
+  assert.deepEqual(ids(store.search({ query: "boiler service" })), [b, c, a]);
+  assert.deepEqual(ids(store.search({ query: "boiler", limit: 2 })), [c, b]);
+});
+
+test("search: part of a word, without case and accents", () => {
+  const { store } = setup();
+  const id = converse(store, [["user", "de boilers in het café"]]);
+  assert.deepEqual(ids(store.search({ query: "boiler cafe" })), [id]);
+  assert.deepEqual(ids(store.search({ query: "BOILER" })), [id]);
+  assert.deepEqual(ids(store.search({ query: "Café" })), [id]);
+});
+
+test("search: the time window keeps entries in [since, until) and snippets come from them", () => {
+  const { store } = setup();
+  converse(store, [["user", "boiler trouble"]], "2026-09-01T10:00:00.000Z");
+  const resumed = converse(store, [["user", "boiler trouble"]], "2026-09-10T10:00:00.000Z");
+  store.append(resumed, 2, { kind: "user", at: "2026-09-20T10:00:00.000Z", input: "text", text: "the boiler again" });
+  const found = store.search({ query: "boiler", since: "2026-09-15T00:00:00.000Z" });
+  assert.deepEqual(ids(found), [resumed]);
+  assert.deepEqual(found[0].snippets.flat().map((e) => e.seq), [2]);
+  assert.deepEqual(store.search({ query: "boiler", until: "2026-09-01T10:00:00.000Z" }), [], "until is exclusive");
+});
+
+test("search: the snippet holds the entry before and after the match", () => {
+  const { store } = setup();
+  converse(store, [["user", "when is it?"], ["assistant", "The boiler service is on Tuesday"], ["user", "thanks"], ["assistant", "You're welcome"]]);
+  const [c] = store.search({ query: "boiler" });
+  assert.deepEqual(c.snippets.map((s) => s.map((e) => e.seq)), [[1, 2, 3]]);
+});
+
+test("search: without words, the conversations in the window with their first 3 entries there, most recent first", () => {
+  const { store, clock } = setup();
+  converse(store, [["user", "old"]], "2026-09-27T10:00:00.000Z");
+  clock.advance(MIN);
+  const morning = converse(store, [["user", "morning"]], "2026-09-28T08:00:00.000Z");
+  clock.advance(MIN);
+  const evening = converse(store, [["user", "a"], ["assistant", "b"], ["user", "c"], ["assistant", "d"]], "2026-09-28T20:00:00.000Z");
+  const found = store.search({ since: "2026-09-28T00:00:00.000Z", until: "2026-09-29T00:00:00.000Z" });
+  assert.deepEqual(ids(found), [evening, morning]);
+  assert.deepEqual(found[0].snippets.map((s) => s.map((e) => e.seq)), [[1, 2, 3]]);
+});
+
+test("search: channel, device and excluded ids narrow the conversations", () => {
+  const { store } = setup();
+  const voice = converse(store, [["user", "boiler"]], at, { device: "kitchen" });
+  const chat = converse(store, [["user", "boiler"]], at, { channel: "chat" });
+  assert.deepEqual(ids(store.search({ query: "boiler", channel: "chat" })), [chat]);
+  assert.deepEqual(ids(store.search({ query: "boiler", device: "kitchen" })), [voice]);
+  assert.deepEqual(ids(store.search({ query: "boiler", exclude: [chat] })), [voice]);
+  assert.deepEqual(store.search({ query: "boiler", exclude: [chat, voice] }), []);
+  assert.deepEqual(store.search({ exclude: [chat, voice] }), []);
+});
+
+test("search: refused input is an InvalidQuery, and forOwner rejects with it", async () => {
+  const { store } = setup();
+  assert.throws(() => store.search({ since: "2026-09-20T00:00:00Z", until: "2026-09-19T00:00:00Z" }), (e) => e instanceof InvalidQuery && /since is after until/.test(e.message));
+  assert.throws(() => store.search({ channel: "email" as never }), InvalidQuery);
+  assert.throws(() => store.search({ since: "last week" }), /invalid since/);
+  await assert.rejects(store.forOwner("brain").search({ until: "nope" }), /invalid until/);
+});
+
+test("search: FTS syntax in the query is read as plain words", () => {
+  const { store } = setup();
+  const id = converse(store, [["user", "the boiler OR the heater"]]);
+  assert.deepEqual(ids(store.search({ query: '"boiler" OR x* NEAR(a b) col:thing' })), [id]);
+  assert.deepEqual(store.search({ query: "x* NEAR(" }), []);
+});
+
+test("search: forOwner gives modules the same results", async () => {
+  const { store } = setup();
+  const id = converse(store, [["user", "boiler"]]);
+  assert.deepEqual(ids(await store.forOwner("brain").search({ query: "boiler" })), [id]);
 });

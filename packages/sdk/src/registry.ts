@@ -1,5 +1,5 @@
 import type { ConversationChannel } from "./conversations.js";
-import { CHANNELS, SCHEDULINGS, type FunctionDeclaration, type Scheduling, type Tool, type ToolResult } from "./tool.js";
+import { CHANNELS, SCHEDULINGS, type FunctionDeclaration, type Scheduling, type Tool, type ToolCallContext, type ToolResult } from "./tool.js";
 
 export interface CallResult {
   result: ToolResult;
@@ -11,6 +11,8 @@ export interface CallResult {
 export interface CallOptions {
   /** Treat tools not offered in this channel as unknown. */
   channel?: ConversationChannel;
+  /** Handed to the handler with the channel, in its call context. */
+  conversationId?: string;
 }
 
 export interface ToolEntry {
@@ -81,7 +83,7 @@ export class ToolRegistry {
     const e = this.tools.get(name);
     if (!e || !offeredIn(e.tool, opts.channel)) return { result: { error: `unknown tool ${name}` }, scheduling: "INTERRUPT" };
     try {
-      const { scheduling, endConversation, ...result } = await e.tool.handler(args ?? {});
+      const { scheduling, endConversation, ...result } = await e.tool.handler(args ?? {}, context(opts));
       const out: CallResult = { result, scheduling: pickScheduling(scheduling) ?? e.tool.scheduling ?? "INTERRUPT" };
       if (typeof endConversation === "string") out.endConversation = endConversation;
       return out;
@@ -99,6 +101,13 @@ export class ToolRegistry {
   private emit(): void {
     for (const l of this.listeners) l();
   }
+}
+
+function context({ channel, conversationId }: CallOptions): ToolCallContext {
+  const call: ToolCallContext = {};
+  if (channel) call.channel = channel;
+  if (conversationId) call.conversationId = conversationId;
+  return call;
 }
 
 function offeredIn(tool: Tool, channel?: ConversationChannel): boolean {

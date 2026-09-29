@@ -64,7 +64,7 @@ export function createBrainModule(opts: BrainOptions = {}) {
         extract: (signal) => runExtract(extractDeps, signal),
         consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage: ctx.storage, log: ctx.log, budget }, signal),
       };
-      defineBrainTools(ctx, store, today);
+      defineBrainTools(ctx, store, today, zone);
       registerBrainRoutes(ctx, store, budget);
       registerRunRoutes(ctx, store, runs);
       scheduleNightly(ctx, runs, steps);

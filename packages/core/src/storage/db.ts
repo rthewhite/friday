@@ -9,7 +9,56 @@ export interface Migration {
   sql: string;
 }
 
+/**
+ * What the search index holds for an entry: its text, or a tool call's name and the values in its arguments
+ * (not their keys, never its result). Arguments cut at 4000 characters are no longer JSON and go in as text.
+ */
+const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE(${e}.tool_name, '') || ' ' || CASE
+    WHEN json_valid(${e}.tool_args) THEN COALESCE((SELECT group_concat(value, ' ') FROM json_tree(${e}.tool_args) WHERE type IN ('text', 'integer', 'real')), '')
+    ELSE COALESCE(${e}.tool_args, '') END
+  ELSE COALESCE(${e}.text, '') END`;
+
 export const migrations: Migration[] = [
+  {
+    version: 6,
+    name: "conversation-search",
+    // Entries gain an explicit INTEGER PRIMARY KEY: the index is keyed by it, and an implicit rowid may be
+    // renumbered by VACUUM. Then a full-text index over what was said, one row per entry. Contentless: the
+    // text stays in conversation_entries. Triggers keep it in step, including cascaded deletes.
+    sql: `
+      CREATE TABLE conversation_entries_new (
+        id INTEGER PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        input TEXT,
+        text TEXT,
+        interrupted INTEGER NOT NULL DEFAULT 0,
+        tool_name TEXT,
+        tool_args TEXT,
+        tool_result TEXT,
+        truncated INTEGER NOT NULL DEFAULT 0,
+        at TEXT NOT NULL,
+        UNIQUE (conversation_id, seq)
+      );
+      INSERT INTO conversation_entries_new (conversation_id, seq, kind, input, text, interrupted, tool_name, tool_args, tool_result, truncated, at)
+        SELECT conversation_id, seq, kind, input, text, interrupted, tool_name, tool_args, tool_result, truncated, at FROM conversation_entries ORDER BY conversation_id, seq;
+      DROP TABLE conversation_entries;
+      ALTER TABLE conversation_entries_new RENAME TO conversation_entries;
+      CREATE VIRTUAL TABLE conversation_search USING fts5(body, content='', contentless_delete=1, tokenize='trigram remove_diacritics 1');
+      CREATE TRIGGER conversation_search_insert AFTER INSERT ON conversation_entries BEGIN
+        INSERT INTO conversation_search (rowid, body) VALUES (new.id, ${SEARCH_BODY("new")});
+      END;
+      CREATE TRIGGER conversation_search_delete AFTER DELETE ON conversation_entries BEGIN
+        DELETE FROM conversation_search WHERE rowid = old.id;
+      END;
+      CREATE TRIGGER conversation_search_update AFTER UPDATE OF kind, text, tool_name, tool_args ON conversation_entries BEGIN
+        DELETE FROM conversation_search WHERE rowid = old.id;
+        INSERT INTO conversation_search (rowid, body) VALUES (new.id, ${SEARCH_BODY("new")});
+      END;
+      INSERT INTO conversation_search (rowid, body) SELECT id, ${SEARCH_BODY("conversation_entries")} FROM conversation_entries;
+    `,
+  },
   {
     version: 5,
     name: "mcp-servers",

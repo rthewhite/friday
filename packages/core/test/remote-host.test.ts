@@ -99,6 +99,19 @@ async function rawRemote(c: Awaited<ReturnType<typeof core>>, tools: Array<{ nam
   return { ws, server, list };
 }
 
+test("a remote call forwards only the tool's arguments, never the call context", async () => {
+  const c = await core();
+  try {
+    const received: unknown[] = [];
+    await rawRemote(c, [{ name: "pit", handler: (a) => (received.push(a), { ok: true }) }]);
+    await waitFor(() => c.registry.names().length === 1);
+    await c.registry.callTool("sim__pit", { lap: 12 }, { channel: "voice", conversationId: "c1" });
+    assert.deepEqual(received, [{ lap: 12 }]);
+  } finally {
+    await c.close();
+  }
+});
+
 test("registration, call forwarding, scheduling metadata, timeout and list_changed", async () => {
   const c = await core({ callTimeoutMs: 100 });
   try {

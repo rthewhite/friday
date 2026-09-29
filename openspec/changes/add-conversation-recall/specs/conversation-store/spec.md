@@ -2,15 +2,19 @@
 
 ### Requirement: What was said is indexed for search
 
-Core SHALL keep a full-text index of every stored conversation's user and assistant text, and of each tool entry's name and arguments. Tool results SHALL NOT be indexed. The index SHALL follow the record: an entry is searchable as soon as it is stored, and a conversation deleted through the API or by retention SHALL no longer be found. Conversations stored before the index existed SHALL be indexed when core upgrades, so they can be searched too.
+Core SHALL keep a full-text index of every stored conversation's user and assistant text, and of each tool entry's name and the values in its arguments. Argument keys and tool results SHALL NOT be indexed. Arguments cut short at 4000 characters are no longer JSON, and SHALL be indexed as their text. The index SHALL follow the record: an entry is searchable as soon as it is stored, and a conversation deleted through the API or by retention SHALL no longer be found. Conversations stored before the index existed SHALL be indexed when core upgrades, so they can be searched too. The index SHALL stay correct when the database is vacuumed.
 
 #### Scenario: New entry is searchable
 - **WHEN** a voice session records the user saying "is the boiler service booked?"
 - **THEN** a search for "boiler" finds that conversation while the session is still open
 
 #### Scenario: Tool arguments are indexed, results are not
-- **WHEN** a conversation holds a `play_on_apple_tv` call with arguments naming "Dune" and a result mentioning "Arrival"
-- **THEN** a search for "Dune" finds it and a search for "Arrival" does not
+- **WHEN** a conversation holds a `play_on_apple_tv` call with arguments `{ "title": "Dune" }` and a result mentioning "Arrival"
+- **THEN** searches for "Dune" and for "apple" find it, and searches for "Arrival" and for "title" do not
+
+#### Scenario: Vacuumed database
+- **WHEN** the database is vacuumed after conversations were deleted
+- **THEN** searches still return the right conversations, and deleting one afterwards removes only that conversation from the index
 
 #### Scenario: Deleted conversation is gone from search
 - **WHEN** a conversation that mentions "boiler" is deleted through `DELETE /api/conversations/:id`

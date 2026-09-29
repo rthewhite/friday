@@ -164,7 +164,9 @@ export class GeminiSession {
     const recorded = this.opts.recorder?.tool(name, args);
     this.toolsInFlight++;
     this.clearIdle();
-    const { result, scheduling, endConversation } = await this.registry.callTool(name, args, { channel: "voice" });
+    // Absent in the session's first exchange: nothing of it is stored until the turn ends.
+    const conversationId = this.opts.recorder?.conversationId;
+    const { result, scheduling, endConversation } = await this.registry.callTool(name, args, { channel: "voice", conversationId });
     this.toolsInFlight--;
     recorded?.result(result);
     this.onEvent({ kind: "tool_result", data: { name, result } });
