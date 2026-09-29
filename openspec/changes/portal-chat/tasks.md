@@ -21,9 +21,9 @@
 
 ## 4. Streaming text model and shared policy
 
-- [ ] 4.1 Add `stream()` to `TextModel` / `GeminiTextModel` (`generateContentStream` with raw contents, tools and `includeThoughts`), yielding thought, text, function-call (with `thoughtSignature`) and final usage chunks; verify with tests against a stubbed stream
-- [ ] 4.2 Add `LlmService.streamCall(owner, req, onChunk)` using the shared semaphore, per-call timeout, error classification and log line, retrying only before the first chunk; verify with tests for a 429 before output (retried, logged), a failure after output (not retried, typed error), a slot held while streaming and shared with `generate`, and a log line without content under owner `chat`
-- [ ] 4.3 Run `pnpm --filter @friday/core test typecheck`
+- [x] 4.1 Add `stream()` to `TextModel` / `GeminiTextModel` (`generateContentStream` with raw contents, tools and `includeThoughts`), yielding thought, text, function-call (with `thoughtSignature`) and final usage chunks; verify with tests against a stubbed stream
+- [x] 4.2 Add `LlmService.streamCall(owner, req, onChunk)` using the shared semaphore, per-call timeout, error classification and log line, retrying only before the first chunk; verify with tests for a 429 before output (retried, logged), a failure after output (not retried, typed error), a slot held while streaming and shared with `generate`, and a log line without content under owner `chat`
+- [x] 4.3 Run `pnpm --filter @friday/core test typecheck`
 
 ## 5. Chat engine
 

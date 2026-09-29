@@ -4,7 +4,15 @@
  * validation (SDK helpers, shared with the test host), and one content-free log line per call.
  */
 import { checkRequest, LlmError, parseOutput, type LlmRequest, type LlmResult, type LlmUsage, type ModuleLlm } from "@friday/sdk";
-import type { TextModel, TextResponse } from "./gemini.js";
+import type { StreamChunk, StreamEnd, StreamRequest, TextModel, TextResponse } from "./gemini.js";
+
+/** A streamed call: the model is already resolved by the caller (the chat model). */
+export interface StreamCallRequest extends StreamRequest {
+  signal?: AbortSignal;
+  /** Per-attempt limit; defaults to the service's. */
+  timeoutMs?: number;
+  maxRetryWaitMs?: number;
+}
 
 export interface LlmServiceOptions {
   model: TextModel;
@@ -24,7 +32,13 @@ export interface LlmServiceOptions {
 
 /** Finish reasons that mean the provider stopped the answer for safety or policy. */
 const BLOCKING_FINISH = new Set(["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "OTHER", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT"]);
-const TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+/** A refused prompt or a response stopped for safety or policy is a `blocked` error. */
+function throwIfBlocked(res: { blockReason?: string; finishReason?: string }): void {
+  const reason = res.blockReason ?? (res.finishReason && BLOCKING_FINISH.has(res.finishReason) ? res.finishReason : undefined);
+  if (reason) throw new LlmError("blocked", `the model provider blocked the ${res.blockReason ? "prompt" : "response"} (${reason})`, { reason });
+}
+
+const TRANSIENT_STATUS =new Set([408, 429, 500, 502, 503, 504]);
 
 const cancelled = () => new LlmError("cancelled", "text generation was cancelled");
 
@@ -198,27 +212,13 @@ export class LlmService {
             res = await this.attempt(model, req);
             break;
           } catch (e) {
-            const f = classify(e);
-            if (f.reason) failed.push({ reason: f.reason });
-            if (!f.retry) throw f.error;
-            if (f.quota && isDaily(f.quota)) throw new LlmError("unavailable", `rate limited: daily quota ${f.quota} exhausted`, { cause: e });
-            const bound = req.maxRetryWaitMs ?? this.maxRetryWaitMs;
-            if (f.waitMs !== undefined && f.waitMs > bound) {
-              throw new LlmError("unavailable", `rate limited: provider asks to wait ${seconds(f.waitMs)} (limit ${seconds(bound)})`, { cause: e });
-            }
-            if (attempts > this.delays.length) throw f.error;
-            // A stated wait is never shortened: retrying early would only burn the attempt.
-            const wait = f.waitMs !== undefined ? f.waitMs * (1 + Math.random() * 0.1) : this.delays[attempts - 1] * (0.8 + Math.random() * 0.4);
-            if (f.reason) failed[failed.length - 1].waitMs = wait;
-            // The concurrency slot is kept while waiting, so queued calls don't hit the same limit at once.
-            await this.sleep(wait, req.signal);
+            await this.retryOrThrow(e, attempts, failed, req);
           }
         }
       } finally {
         release();
       }
-      const reason = res.blockReason ?? (res.finishReason && BLOCKING_FINISH.has(res.finishReason) ? res.finishReason : undefined);
-      if (reason) throw new LlmError("blocked", `the model provider blocked the ${res.blockReason ? "prompt" : "response"} (${reason})`, { reason });
+      throwIfBlocked(res);
       const usage: LlmUsage = res.usage;
       const out: LlmResult<T> = { text: res.text, model, usage };
       if (req.schema) out.json = parseOutput<T>(req.schema, res.text, res.finishReason);
@@ -228,6 +228,91 @@ export class LlmService {
       const error = e instanceof LlmError ? e : new LlmError("unavailable", message(e), { cause: e });
       this.record(owner, model, res, started, attempts, failed, error);
       throw error;
+    }
+  }
+
+  /**
+   * One streamed model call for `owner` (the chat engine uses `chat`), under the same concurrency slot,
+   * per-attempt timeout, error kinds and log line as `generate`. The slot is held until the stream ends.
+   * Failures before the first chunk are retried like `generate`; once a chunk reached `onChunk` a
+   * failure rejects at once, so a retry can never repeat output.
+   */
+  async streamCall(owner: string, req: StreamCallRequest, onChunk: (chunk: StreamChunk) => void): Promise<StreamEnd> {
+    const started = Date.now();
+    let attempts = 0;
+    const failed: FailedAttempt[] = [];
+    let end: StreamEnd | undefined;
+    try {
+      const release = await this.slots.acquire(req.signal);
+      try {
+        for (;;) {
+          attempts++;
+          let emitted = false;
+          try {
+            end = await this.streamAttempt(req, (c) => {
+              emitted = true;
+              onChunk(c);
+            });
+            break;
+          } catch (e) {
+            if (emitted) {
+              const f = classify(e);
+              if (f.reason) failed.push({ reason: f.reason });
+              throw f.error;
+            }
+            await this.retryOrThrow(e, attempts, failed, req);
+          }
+        }
+      } finally {
+        release();
+      }
+      throwIfBlocked(end);
+      this.record(owner, req.model, end, started, attempts, failed, "ok");
+      return end;
+    } catch (e) {
+      const error = e instanceof LlmError ? e : new LlmError("unavailable", message(e), { cause: e });
+      this.record(owner, req.model, end, started, attempts, failed, error);
+      throw error;
+    }
+  }
+
+  /** Sleeps before the next attempt when the failure is worth one, and throws the typed error otherwise. */
+  private async retryOrThrow(e: unknown, attempts: number, failed: FailedAttempt[], req: { signal?: AbortSignal; maxRetryWaitMs?: number }): Promise<void> {
+    const f = classify(e);
+    if (f.reason) failed.push({ reason: f.reason });
+    if (!f.retry) throw f.error;
+    if (f.quota && isDaily(f.quota)) throw new LlmError("unavailable", `rate limited: daily quota ${f.quota} exhausted`, { cause: e });
+    const bound = req.maxRetryWaitMs ?? this.maxRetryWaitMs;
+    if (f.waitMs !== undefined && f.waitMs > bound) {
+      throw new LlmError("unavailable", `rate limited: provider asks to wait ${seconds(f.waitMs)} (limit ${seconds(bound)})`, { cause: e });
+    }
+    if (attempts > this.delays.length) throw f.error;
+    // A stated wait is never shortened: retrying early would only burn the attempt.
+    const wait = f.waitMs !== undefined ? f.waitMs * (1 + Math.random() * 0.1) : this.delays[attempts - 1] * (0.8 + Math.random() * 0.4);
+    if (f.reason) failed[failed.length - 1].waitMs = wait;
+    // The concurrency slot is kept while waiting, so queued calls don't hit the same limit at once.
+    await this.sleep(wait, req.signal);
+  }
+
+  /** One streamed provider call bounded by the caller's signal and the per-attempt timeout. */
+  private async streamAttempt(req: StreamCallRequest, onChunk: (chunk: StreamChunk) => void): Promise<StreamEnd> {
+    if (!this.opts.model.stream) throw new LlmError("unavailable", "the text model does not support streaming");
+    const ms = req.timeoutMs ?? this.opts.timeoutMs;
+    const timeout = AbortSignal.timeout(ms);
+    const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
+    const { model, system, contents, tools, thoughts } = req;
+    const it = this.opts.model.stream({ model, system, contents, tools, thoughts }, { signal });
+    try {
+      for (;;) {
+        const r = await raceAbort(it.next(), signal);
+        if (r.done) return r.value;
+        onChunk(r.value);
+      }
+    } catch (e) {
+      void it.return?.(undefined as never)?.catch(() => {});
+      if (req.signal?.aborted) throw cancelled();
+      if (timeout.aborted) throw new LlmError("unavailable", `timed out after ${ms} ms`);
+      throw e;
     }
   }
 
@@ -247,7 +332,7 @@ export class LlmService {
   }
 
   /** One line per settled call. Never includes prompts, messages or output. */
-  private record(owner: string, model: string, res: TextResponse | undefined, started: number, attempts: number, failed: FailedAttempt[], outcome: "ok" | LlmError): void {
+  private record(owner: string, model: string, res: Pick<TextResponse, "model" | "usage"> | undefined, started: number, attempts: number, failed: FailedAttempt[], outcome: "ok" | LlmError): void {
     const u = res?.usage;
     const version = res && res.model !== model ? ` (${res.model})` : "";
     const tokens = u ? ` in=${u.inputTokens} out=${u.outputTokens}${u.thoughtTokens ? ` think=${u.thoughtTokens}` : ""}` : "";
