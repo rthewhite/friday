@@ -20,7 +20,7 @@ export const ALIASES_MAX = 20;
 export const BODY_MAX = 20000;
 export const FACT_MAX = 500;
 
-export type BrainErrorCode = "invalid" | "stale" | "name_taken" | "tombstoned" | "not_found" | "profile" | "not_deleted" | "not_empty";
+export type BrainErrorCode = "invalid" | "stale" | "name_taken" | "tombstoned" | "not_found" | "profile" | "not_deleted";
 
 export class BrainError extends Error {
   constructor(
@@ -331,20 +331,6 @@ export class BrainStore {
       this.db.prepare("UPDATE brain__pages SET deleted_at = ? WHERE id = ?").run(at, id);
       return this.writeRevision({ ...page, deletedAt: at }, author, page, { note: opts.note ?? "deleted" });
     });
-  }
-
-  /**
-   * Import only (`import.ts`): gives a freshly created page the times it had in Jarvis, and marks it
-   * deleted there when it was (freeing its names, as a soft delete does, without another revision).
-   */
-  setImportedTimes(id: string, t: { createdAt: string; updatedAt: string; deletedAt?: string }): void {
-    this.db.prepare("UPDATE brain__pages SET created_at = ?, updated_at = ?, deleted_at = ? WHERE id = ?").run(t.createdAt, t.updatedAt, t.deletedAt ?? null, id);
-    if (t.deletedAt) this.db.prepare("DELETE FROM brain__names WHERE page_id = ?").run(id);
-  }
-
-  /** Import only (`import.ts`): tombstones a name that was purged in Jarvis. */
-  addTombstone(name: string, purgedAt: string): void {
-    this.db.prepare("INSERT INTO brain__tombstones (key, name, purged_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING").run(nameKey(name), cleanName(name), purgedAt);
   }
 
   /** The id of the newest revision in the brain (0 when there is none). */

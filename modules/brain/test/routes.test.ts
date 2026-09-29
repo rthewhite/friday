@@ -124,3 +124,8 @@ test("purge: a wrong confirmation is 400, a live page 409, and a purge lists the
   const again = await req("POST", "pages", { name: "Old job" });
   assert.equal(again.status, 201, "a user create lifts the tombstone");
 });
+
+test("the one-off Jarvis import route is gone", async () => {
+  const { req } = await host();
+  assert.equal((await req("POST", "import", { pages: [], dryRun: true })).status, 404);
+});
