@@ -83,3 +83,76 @@ test("README example: the watermark catches up on missed conversations and proce
   await h.conversations.markQuiet(later.id, "2026-10-01T05:00:00.000Z");
   assert.equal(summaries.length, 3, "a conversation that goes quiet again is processed again");
 });
+
+const day = (d: string, t = "10:00") => `2026-09-${d}T${t}:00.000Z`;
+
+test("search: the module sees only the matching conversation, with a snippet around the match", async () => {
+  let search: ((q: string) => Promise<unknown>) | undefined;
+  const h = await createTestHost(defineModule({ manifest: { id: "brain", label: "Brain" }, init(ctx) { search = async (query) => ctx.conversations.search({ query }); } }));
+  h.conversations.seed({ id: "other", entries: [{ kind: "user", input: "speech", text: "what's the weather?" }] });
+  h.conversations.seed({
+    id: "boiler",
+    startedAt: day("20"),
+    entries: [
+      { kind: "user", input: "speech", text: "when is the service?" },
+      { kind: "assistant", text: "The boiler service is on Tuesday", interrupted: false },
+      { kind: "user", input: "speech", text: "thanks" },
+      { kind: "assistant", text: "You're welcome", interrupted: false },
+    ],
+  });
+  const found = (await search!("boiler")) as { id: string; snippets: { seq: number; kind: string }[][] }[];
+  assert.deepEqual(found.map((c) => c.id), ["boiler"]);
+  assert.deepEqual(found[0].snippets.map((s) => s.map((e) => e.seq)), [[1, 2, 3]]);
+  assert.equal("entries" in found[0], false);
+});
+
+test("search: best match first, parts of words and accents, active and quiet alike", async () => {
+  const h = await createTestHost(defineModule({ manifest: { id: "m", label: "M" }, init() {} }));
+  const a = h.conversations.seed({ lastActivityAt: day("21"), entries: [{ kind: "user", input: "speech", text: "the boiler is loud" }] });
+  const b = h.conversations.seed({ lastActivityAt: day("20"), quietAt: day("20", "11:00"), entries: [{ kind: "user", input: "text", text: "book the boiler" }, { kind: "assistant", text: "Service booked.", interrupted: false }] });
+  const c = h.conversations.seed({ lastActivityAt: day("22"), entries: [{ kind: "user", input: "speech", text: "de boilers in het café" }] });
+  // b matches two distinct words; c and a one each, c more recently active.
+  assert.deepEqual((await h.conversations.search({ query: "boiler service" })).map((x) => x.id), [b.id, c.id, a.id]);
+  assert.deepEqual((await h.conversations.search({ query: "BOILER cafe" })).map((x) => x.id), [c.id, a.id, b.id]);
+});
+
+test("search: the time window, channel, device and excluded ids narrow the result", async () => {
+  const h = await createTestHost(defineModule({ manifest: { id: "m", label: "M" }, init() {} }));
+  const early = h.conversations.seed({ lastActivityAt: day("01"), entries: [{ kind: "user", input: "speech", text: "boiler", at: day("01") }] });
+  const late = h.conversations.seed({
+    channel: "chat",
+    device: null,
+    lastActivityAt: day("20"),
+    entries: [
+      { kind: "user", input: "text", text: "boiler question", at: day("10") },
+      { kind: "user", input: "text", text: "boiler again", at: day("20") },
+    ],
+  });
+  const kitchen = h.conversations.seed({ device: "kitchen", lastActivityAt: day("19"), entries: [{ kind: "user", input: "speech", text: "boiler", at: day("19") }] });
+  const window = await h.conversations.search({ query: "boiler", since: day("15", "00:00") });
+  assert.deepEqual(window.map((x) => x.id), [late.id, kitchen.id]);
+  assert.deepEqual(window[0].snippets.flat().map((e) => e.at), [day("20")], "snippets come from entries in the window");
+  assert.deepEqual((await h.conversations.search({ query: "boiler", channel: "chat" })).map((x) => x.id), [late.id]);
+  assert.deepEqual((await h.conversations.search({ query: "boiler", device: "kitchen" })).map((x) => x.id), [kitchen.id]);
+  assert.deepEqual((await h.conversations.search({ query: "boiler", exclude: [late.id, kitchen.id] })).map((x) => x.id), [early.id]);
+  assert.deepEqual(await h.conversations.search({ query: "boiler", exclude: [late.id, kitchen.id, early.id] }), []);
+});
+
+test("search: without words, the conversations in the window with their first 3 entries, most recent first", async () => {
+  const h = await createTestHost(defineModule({ manifest: { id: "m", label: "M" }, init() {} }));
+  h.conversations.seed({ lastActivityAt: day("27"), entries: [{ kind: "user", input: "speech", text: "old", at: day("27") }] });
+  const morning = h.conversations.seed({ lastActivityAt: day("28", "08:00"), entries: [{ kind: "user", input: "speech", text: "a", at: day("28", "08:00") }] });
+  const evening = h.conversations.seed({
+    lastActivityAt: day("28", "20:00"),
+    entries: ["a", "b", "c", "d"].map((text, i) => ({ kind: "user" as const, input: "speech" as const, text, at: day("28", `20:0${i}`) })),
+  });
+  const found = await h.conversations.search({ since: day("28", "00:00"), until: day("29", "00:00") });
+  assert.deepEqual(found.map((x) => x.id), [evening.id, morning.id]);
+  assert.deepEqual(found[0].snippets.map((s) => s.map((e) => e.kind === "user" && e.text)), [["a", "b", "c"]]);
+});
+
+test("search: an invalid window is refused", async () => {
+  const h = await createTestHost(defineModule({ manifest: { id: "m", label: "M" }, init() {} }));
+  await assert.rejects(h.conversations.search({ since: day("20"), until: day("19") }), /since is after until/);
+  await assert.rejects(h.conversations.search({ channel: "email" as never }), /invalid channel/);
+});

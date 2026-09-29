@@ -7,6 +7,7 @@ export * from "./storage.js";
 export * from "./jobs.js";
 export * from "./llm.js";
 export * from "./conversations.js";
+export * from "./conversation-search.js";
 export * from "./prompt.js";
 export type { ModuleDb, ModuleMigration } from "./db.js";
 export * from "./time.js";

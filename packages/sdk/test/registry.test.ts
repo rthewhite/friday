@@ -125,3 +125,19 @@ test("callTool restricted to a channel treats out-of-channel tools as unknown", 
   assert.deepEqual((await r.callTool("set_timer", {})).result, { done: true });
   assert.equal(ran, 2);
 });
+
+test("callTool hands the handler its channel and conversation id", async () => {
+  const r = new ToolRegistry(quiet);
+  const seen: unknown[] = [];
+  r.add("brain", { name: "t", description: "", handler: (_args, call) => (seen.push(call), {}) });
+  await r.callTool("t", {}, { channel: "chat", conversationId: "c1" });
+  await r.callTool("t", {}, { channel: "voice" });
+  await r.callTool("t", {});
+  assert.deepEqual(seen, [{ channel: "chat", conversationId: "c1" }, { channel: "voice" }, {}]);
+});
+
+test("a handler that takes only its args behaves as before", async () => {
+  const r = new ToolRegistry(quiet);
+  r.add("a", { name: "echo", description: "", handler: (args: { x?: number }) => ({ x: args.x }) });
+  assert.deepEqual(await r.callTool("echo", { x: 1 }, { channel: "chat", conversationId: "c1" }), { result: { x: 1 }, scheduling: "INTERRUPT" });
+});

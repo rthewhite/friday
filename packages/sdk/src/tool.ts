@@ -38,6 +38,13 @@ export interface Schema {
   items?: Schema;
 }
 
+/** Where a call comes from, as passed to `callTool`. MCP and remote tools never see it. */
+export interface ToolCallContext {
+  channel?: ConversationChannel;
+  /** The conversation the call is recorded in, once that conversation is stored. */
+  conversationId?: string;
+}
+
 export interface Tool<A = any> {
   name: string;
   description: string;
@@ -48,7 +55,7 @@ export interface Tool<A = any> {
   scheduling?: Scheduling;
   /** Conversation channels the tool is offered in; both when omitted. */
   channels?: ConversationChannel[];
-  handler: (args: A) => ToolResult | Promise<ToolResult>;
+  handler: (args: A, call: ToolCallContext) => ToolResult | Promise<ToolResult>;
 }
 
 /** What is sent to the model for one tool. */

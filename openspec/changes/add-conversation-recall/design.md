@@ -108,7 +108,7 @@ The SDK stays dependency-free, and none of this is imported by `@friday/sdk/remo
 - **Dates:** a strict `^\d{4}-\d{2}-\d{2}$` check, plus a round-trip check that rejects `2026-02-30`.
   - `since` maps to the local midnight at the start of that day.
   - `until` maps to the local midnight at the start of the next day, the exclusive end.
-  - Both use a new `@friday/sdk` helper, `startOfLocalDay(date, zone): Date`, that handles DST (23- and 25-hour days).
+  - Both use a new `@friday/sdk` helper, `startOfLocalDay(date, zone): Date | undefined`, that handles DST (23- and 25-hour days, and a midnight skipped by DST) and returns `undefined` for anything that isn't a real calendar date, so it also serves as the tool's date check.
   - The travel module's private `zoneOffsetMinutes` isn't refactored in this change.
 - **Words:** `searchTerms(query)` from `search.ts`, joined with spaces, becomes the store `query`.
 - **Result shape:** `{ found, conversations: [{ id, channel, device?, started: "YYYY-MM-DD HH:mm", snippets: [[{ who: "user" | "friday" | "tool", text? , tool?, args? }]] }] }`.

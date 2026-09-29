@@ -102,6 +102,7 @@ test("conversations are not available to remote modules", async () => {
   await h.connected();
   await assert.rejects(ctx!.conversations.list(), /m: conversations are not available in this host/);
   await assert.rejects(ctx!.conversations.get("x"), /conversations are not available in this host/);
+  await assert.rejects(ctx!.conversations.search({ query: "boiler" }), /m: conversations are not available in this host/);
   assert.throws(() => ctx!.conversations.onQuiet(() => {}), /conversations are not available in this host/);
   await h.stop();
   core.close();
