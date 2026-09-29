@@ -148,8 +148,35 @@ describe("validateTimeArgs", () => {
     assert.deepEqual(validateTimeArgs({ arriveAt: "2026-08-09T09:00:00Z" }, zone, now), { ok: true, arriveAt: "2026-08-09T09:00:00Z" });
   });
 
-  it("accepts an arriveAt in the past — only departure is checked", () => {
-    assert.equal(validateTimeArgs({ arriveAt: "2026-08-08T11:00:00Z" }, zone, now).ok, true);
+  it("rejects an arriveAt in the past rather than spending requests on a TomTom 400", () => {
+    assert.match(failure(validateTimeArgs({ arriveAt: "2026-08-08T11:00:00Z" }, zone, now)), /arriveAt "2026-08-08T11:00:00Z" is in the past/);
+  });
+
+  it("treats an empty or null argument as absent", () => {
+    assert.deepEqual(validateTimeArgs({ departAt: "", arriveAt: "2026-08-09T09:00" }, zone, now), { ok: true, arriveAt: "2026-08-09T09:00:00+02:00" });
+    assert.deepEqual(validateTimeArgs({ departAt: "2026-08-09T08:00Z", arriveAt: "  " }, zone, now), { ok: true, departAt: "2026-08-09T08:00:00Z" });
+    assert.deepEqual(validateTimeArgs({ departAt: null, arriveAt: null }, zone, now), { ok: true });
+  });
+
+  it("rejects a date that does not exist even with an offset", () => {
+    assert.match(failure(validateTimeArgs({ departAt: "2026-02-30T08:00:00+01:00" }, zone, now)), /departAt is not a valid timestamp/);
+  });
+
+  it("rejects offset forms that are not RFC 3339, which Date.parse would accept", () => {
+    assert.match(failure(validateTimeArgs({ departAt: "Thu, 01 Oct 2026 08:00:00 +0200" }, zone, now)), /not a valid timestamp/);
+    assert.match(failure(validateTimeArgs({ departAt: "2026-10-01T08:00+0200" }, zone, now)), /not a valid timestamp/);
+    assert.match(failure(validateTimeArgs({ departAt: "2026-10-01T08:00+25:00" }, zone, now)), /not a valid timestamp/);
+  });
+
+  it("keeps the caller's offset while writing the date-time in RFC 3339 form", () => {
+    assert.deepEqual(validateTimeArgs({ departAt: " 2026-10-01 08:00+05:30 " }, zone, now), { ok: true, departAt: "2026-10-01T08:00:00+05:30" });
+    assert.deepEqual(validateTimeArgs({ arriveAt: "2026-10-01T08:00:00.250z" }, zone, now), { ok: true, arriveAt: "2026-10-01T08:00:00Z" });
+  });
+
+  it("checks the past against the offset's instant", () => {
+    // 13:30+02:00 is 11:30Z, before now; 13:30Z is after it.
+    assert.match(failure(validateTimeArgs({ departAt: "2026-08-08T13:30+02:00" }, zone, now)), /in the past/);
+    assert.equal(validateTimeArgs({ departAt: "2026-08-08T13:30Z" }, zone, now).ok, true);
   });
 });
 

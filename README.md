@@ -319,11 +319,11 @@ The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 `modules/travel` has one tool, `get_travel_time`, on voice and chat. "How long to drive to Schiphol?" or "when do I have to leave to be in Utrecht at nine?" It is car travel only.
 
 - `origin` and `destination` are place names, addresses, points of interest, or a `lat,lon` pair (coordinates skip the lookup). The answer names the places TomTom actually matched, so a wrong match shows up ("to Schiphol-Rijk, 12 min").
-- Without a time, it routes on live traffic. `departAt` or `arriveAt` (one, never both) routes on predicted traffic; `arriveAt` gives the latest departure that still makes it. A time without an offset is read in `FRIDAY_TIMEZONE`, and a `departAt` in the past is refused rather than quietly answered for now.
+- Without a time, it routes on live traffic. `departAt` or `arriveAt` (one, never both) routes on predicted traffic; `arriveAt` gives the latest departure that still makes it. A time without an offset is read in `FRIDAY_TIMEZONE`, and a time in the past is refused rather than quietly answered for now.
 - The result has `durationText` ("1 hour 12 min") for Friday to read out, plus seconds, distance, traffic delay, and departure and arrival times.
-- Place lookups are cached for 24 hours; routes never are.
+- Place lookups are cached for 24 hours (a lookup that found nothing for 10 minutes); routes never are.
 
-Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
+Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
 
 ## Voice Preview Edition (ESP32)
 

@@ -230,6 +230,38 @@ describe("calculateRoute", () => {
   });
 });
 
+describe("malformed responses", () => {
+  it("reports a 200 geocode body that is not JSON as an upstream error", async () => {
+    const { c, lines } = client(() => new Response("<html>captive portal</html>", { status: 200 }));
+
+    await assert.rejects(c.resolvePlace("Amsterdam"), { name: "UpstreamRequestError", request: "geocode", status: 200 });
+    assert.equal(lines.length, 1);
+  });
+
+  it("reports a 200 route body that is not JSON as an upstream error", async () => {
+    const { c } = client(() => new Response("{truncated", { status: 200 }));
+
+    await assert.rejects(c.calculateRoute({ origin: AMSTERDAM, destination: UTRECHT }), { name: "UpstreamRequestError", request: "route", status: 200 });
+  });
+
+  it("rejects a route summary without a travel time rather than answering NaN", async () => {
+    const { c } = client(() => jsonResponse({ routes: [{ summary: { lengthInMeters: 500, departureTime: "x", arrivalTime: "y" } }] }));
+
+    await assert.rejects(c.calculateRoute({ origin: AMSTERDAM, destination: UTRECHT }), (err: unknown) => {
+      assert.ok(err instanceof UpstreamRequestError);
+      assert.equal(err.request, "route");
+      assert.match(err.message, /no travel time or length/);
+      return true;
+    });
+  });
+
+  it("treats a geocode result without numeric coordinates as no match", async () => {
+    const { c } = client(() => jsonResponse({ results: [{ poi: { name: "X" }, position: { lat: "52", lon: null } }] }));
+
+    assert.equal(await c.resolvePlace("X"), null);
+  });
+});
+
 describe("timeouts and secrecy", () => {
   /** Never answers; rejects only when the request's signal aborts, as real fetch does. */
   const hang = (_url: string, init?: RequestInit) =>
@@ -321,6 +353,46 @@ describe("resolution cache", () => {
     await c.resolvePlace("one");
 
     assert.equal(calls.length, 4);
+  });
+
+  it("keeps a miss only for the short miss TTL", async () => {
+    let clock = 1000;
+    const { c, calls } = client(() => jsonResponse({ results: [] }), { now: () => clock, cacheMissTtlMs: 100, cacheTtlMs: 10_000 });
+
+    await c.resolvePlace("Utrecht Centraal");
+    clock += 50;
+    await c.resolvePlace("Utrecht Centraal");
+    clock += 51;
+    await c.resolvePlace("Utrecht Centraal");
+
+    assert.equal(calls.length, 2);
+  });
+
+  it("defaults the miss TTL to ten minutes while hits last a day", async () => {
+    let clock = 0;
+    let results: unknown[] = [];
+    const { c, calls } = client(() => jsonResponse({ results }), { now: () => clock });
+
+    await c.resolvePlace("New Place");
+    clock += 10 * 60 * 1000 + 1;
+    results = GEO_BODY.results;
+    await c.resolvePlace("New Place");
+    clock += 23 * 60 * 60 * 1000;
+    await c.resolvePlace("New Place");
+
+    assert.equal(calls.length, 2);
+  });
+
+  it("evicts the least recently used entry, so a frequently asked place survives", async () => {
+    const { c, calls } = client(() => jsonResponse(GEO_BODY), { cacheMaxEntries: 2 });
+
+    await c.resolvePlace("home");
+    await c.resolvePlace("two");
+    await c.resolvePlace("home"); // hit: home is now the most recently used
+    await c.resolvePlace("three"); // evicts two, not home
+    await c.resolvePlace("home");
+
+    assert.equal(calls.length, 3);
   });
 
   it("never caches route results — traffic is the point", async () => {

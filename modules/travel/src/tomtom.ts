@@ -18,6 +18,9 @@ const PLACES_API_VERSION = "1";
 // Coordinates are effectively static and "home → work" gets asked over and over,
 // so resolutions are cached. Route results never are: traffic is the whole point.
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+// A miss is cached only briefly: long enough that a typo repeated in one conversation
+// is not re-queried, short enough that a transient empty answer does not stick all day.
+const CACHE_MISS_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 500;
 
 // A hung request would otherwise hold the voice turn until the tool call times out.
@@ -28,6 +31,7 @@ export interface TomTomClientOptions {
   log?: ModuleLogger;
   now?: () => number;
   cacheTtlMs?: number;
+  cacheMissTtlMs?: number;
   cacheMaxEntries?: number;
   timeoutMs?: number;
 }
@@ -42,6 +46,7 @@ export function createTomTomClient(apiKey: string, options: TomTomClientOptions 
   const log = options.log ?? console;
   const now = options.now ?? Date.now;
   const ttlMs = options.cacheTtlMs ?? CACHE_TTL_MS;
+  const missTtlMs = options.cacheMissTtlMs ?? CACHE_MISS_TTL_MS;
   const maxEntries = options.cacheMaxEntries ?? CACHE_MAX_ENTRIES;
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
 
@@ -50,20 +55,20 @@ export function createTomTomClient(apiKey: string, options: TomTomClientOptions 
   function cacheGet(key: string): CacheEntry | undefined {
     const entry = cache.get(key);
     if (!entry) return undefined;
-    if (entry.expiresAt <= now()) {
-      cache.delete(key);
-      return undefined;
-    }
+    cache.delete(key);
+    if (entry.expiresAt <= now()) return undefined;
+    // Re-inserted on every hit, so the Map's order is least recently used first
+    // and "home" survives however many one-off places are asked about.
+    cache.set(key, entry);
     return entry;
   }
 
   function cacheSet(key: string, place: ResolvedPlace | null): void {
-    // Insertion-ordered Map, so the first key is the oldest.
     if (cache.size >= maxEntries) {
       const oldest = cache.keys().next();
       if (!oldest.done) cache.delete(oldest.value);
     }
-    cache.set(key, { place, expiresAt: now() + ttlMs });
+    cache.set(key, { place, expiresAt: now() + (place ? ttlMs : missTtlMs) });
   }
 
   /**
@@ -100,6 +105,17 @@ export function createTomTomClient(apiKey: string, options: TomTomClientOptions 
     }
   }
 
+  /** A body that is not JSON (a proxy's HTML page, a download cut off by the timeout) is an upstream failure. */
+  async function readJson<T>(request: UpstreamRequest, res: Response, context: Record<string, unknown>): Promise<T> {
+    try {
+      return (await res.json()) as T;
+    } catch (err) {
+      const cause = redact(describeCause(err));
+      log.error(`TomTom ${request} response could not be read`, { ...context, status: res.status, cause });
+      throw new UpstreamRequestError(request, res.status, `unreadable response: ${cause}`);
+    }
+  }
+
   async function resolvePlace(query: string): Promise<ResolvedPlace | null> {
     const key = normaliseQuery(query);
     const cached = cacheGet(key);
@@ -112,12 +128,12 @@ export function createTomTomClient(apiKey: string, options: TomTomClientOptions 
     const res = await send("geocode", url, { query });
     if (!res.ok) fail("geocode", res.status, await readBody(res), { query });
 
-    const body = (await res.json()) as SearchResponse;
+    const body = await readJson<SearchResponse>("geocode", res, { query });
     const top = body.results?.[0];
 
     // No match is a normal outcome, not a failure — the handler turns it into an
     // error that names which parameter the user needs to rephrase.
-    if (!top?.position) {
+    if (!top?.position || !Number.isFinite(top.position.lat) || !Number.isFinite(top.position.lon)) {
       cacheSet(key, null);
       return null;
     }
@@ -154,10 +170,15 @@ export function createTomTomClient(apiKey: string, options: TomTomClientOptions 
       fail("route", res.status, errorBody, logContext);
     }
 
-    const body = (await res.json()) as RouteResponse;
+    const body = await readJson<RouteResponse>("route", res, logContext);
     const summary = body.routes?.[0]?.summary;
     if (!summary) {
       throw new NoRouteFoundError(origin.name, destination.name);
+    }
+    // Better an error than Friday reading out "NaN hours NaN min" with confidence.
+    if (!Number.isFinite(summary.travelTimeInSeconds) || !Number.isFinite(summary.lengthInMeters)) {
+      log.error("TomTom route summary has no travel time or length", logContext);
+      throw new UpstreamRequestError("route", res.status, "the route summary has no travel time or length");
     }
 
     return {

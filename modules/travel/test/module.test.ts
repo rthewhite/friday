@@ -111,6 +111,39 @@ test("a rejected key becomes an { error } result that explains it and does not c
   assert.ok(lines.every((l) => !l.includes(KEY)));
 });
 
+test("a key corrected after init is used on the next call, without a reload", async () => {
+  const calls: string[] = [];
+  const liveEnv: Record<string, string> = { ...env, TOMTOM_API_KEY: "wrong-key" };
+  const h = await createTestHost(createTravelModule({ fetch: fakeTomTom(calls) }), { env: liveEnv });
+
+  await h.call("get_travel_time", { origin: "52.37,4.89", destination: "52.30,4.76" });
+  liveEnv.TOMTOM_API_KEY = "fixed-key";
+  await h.call("get_travel_time", { origin: "52.37,4.89", destination: "52.30,4.76" });
+
+  assert.deepEqual(calls.map((c) => new URL(c).searchParams.get("key")), ["wrong-key", "fixed-key"]);
+});
+
+test("the geocode cache survives between calls while the key is unchanged", async () => {
+  const calls: string[] = [];
+  const h = await createTestHost(createTravelModule({ fetch: fakeTomTom(calls) }), { env });
+
+  await h.call("get_travel_time", { origin: "Home", destination: "52.30,4.76" });
+  await h.call("get_travel_time", { origin: "Home", destination: "52.30,4.76" });
+
+  assert.equal(calls.filter((c) => c.includes("/places/search/")).length, 1);
+});
+
+test("an empty optional time from the model is ignored", async () => {
+  const calls: string[] = [];
+  const h = await createTestHost(createTravelModule({ fetch: fakeTomTom(calls) }), { env });
+
+  const r = await h.call("get_travel_time", { origin: "52.37,4.89", destination: "52.30,4.76", departAt: "", arriveAt: "2099-07-01T09:00" });
+
+  assert.equal((r.result as { mode?: string }).mode, "driving");
+  assert.equal(new URL(calls[0]).searchParams.get("arriveAt"), "2099-07-01T09:00:00+02:00");
+  assert.equal(new URL(calls[0]).searchParams.get("departAt"), null);
+});
+
 test("a time validation failure makes no request", async () => {
   const calls: string[] = [];
   const h = await createTestHost(createTravelModule({ fetch: fakeTomTom(calls) }), { env });

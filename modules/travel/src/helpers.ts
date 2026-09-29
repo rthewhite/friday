@@ -42,15 +42,20 @@ export function resolveTimeZone(zone: string | undefined): { zone: string; valid
  * be silently answered as "now" — which looks like a correct answer to a
  * question nobody asked.
  *
+ * A past arriveAt is refused too: TomTom would answer it with a bare HTTP 400
+ * after two geocodes have already been spent.
+ *
  * `timeZone` is the household's zone (FRIDAY_TIMEZONE): a time without an offset
  * means wall-clock time there, not in the server's zone (the container runs in UTC).
  */
 export function validateTimeArgs(
-  args: { departAt?: string; arriveAt?: string },
+  args: { departAt?: string | null; arriveAt?: string | null },
   timeZone: string = DEFAULT_TIME_ZONE,
   now: number = Date.now(),
 ): TimeArgsResult {
-  const { departAt, arriveAt } = args;
+  // Models often fill an optional argument with "" (or null) instead of leaving it out.
+  const departAt = present(args.departAt);
+  const arriveAt = present(args.arriveAt);
 
   if (departAt && arriveAt) {
     return {
@@ -59,7 +64,7 @@ export function validateTimeArgs(
     };
   }
 
-  if (departAt !== undefined) {
+  if (departAt) {
     const parsed = toRfc3339(departAt, timeZone);
     if (!parsed) {
       return { ok: false, message: `departAt is not a valid timestamp: "${departAt}".` };
@@ -73,10 +78,13 @@ export function validateTimeArgs(
     return { ok: true, departAt: parsed.value };
   }
 
-  if (arriveAt !== undefined) {
+  if (arriveAt) {
     const parsed = toRfc3339(arriveAt, timeZone);
     if (!parsed) {
       return { ok: false, message: `arriveAt is not a valid timestamp: "${arriveAt}".` };
+    }
+    if (parsed.instant < now) {
+      return { ok: false, message: `arriveAt "${arriveAt}" is in the past. Did you mean a later day?` };
     }
     return { ok: true, arriveAt: parsed.value };
   }
@@ -84,22 +92,25 @@ export function validateTimeArgs(
   return { ok: true };
 }
 
-/** "2026-10-01T08:00" or "2026-10-01 08:00:00.000": an ISO 8601 date-time without an offset. */
-const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+function present(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
 
 /**
- * TomTom wants RFC 3339. A value that already carries an offset is passed
- * through untouched so the caller's intended zone survives; a local date-time
- * is given `timeZone`'s offset at that moment. Anything else is not a timestamp.
+ * "2026-10-01T08:00", "2026-10-01 08:00:00.000", "2026-10-01T08:00:00+02:00", "…Z":
+ * an ISO 8601 date-time with an optional RFC 3339 offset.
  */
-function toRfc3339(original: string, timeZone: string): { value: string; instant: number } | null {
-  const value = original.trim();
-  if (hasExplicitOffset(value)) {
-    const instant = Date.parse(value);
-    return Number.isNaN(instant) ? null : { value, instant };
-  }
+const DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/i;
 
-  const m = LOCAL_DATE_TIME.exec(value);
+/**
+ * TomTom wants RFC 3339, written as `YYYY-MM-DDTHH:mm:ss` plus an offset. A value
+ * that carries an offset keeps it, so the caller's intended zone survives; a local
+ * date-time is given `timeZone`'s offset at that moment. Anything else, including
+ * a date that does not exist, is not a timestamp. (Date.parse is not used: V8
+ * accepts RFC 2822, "+0200" and 30 February.)
+ */
+function toRfc3339(value: string, timeZone: string): { value: string; instant: number } | null {
+  const m = DATE_TIME.exec(value);
   if (!m) return null;
   const [y, mo, d, h, mi, s] = [m[1], m[2], m[3], m[4], m[5], m[6] ?? "00"].map(Number);
   const wallClock = Date.UTC(y, mo - 1, d, h, mi, s);
@@ -109,16 +120,30 @@ function toRfc3339(original: string, timeZone: string): { value: string; instant
     return null;
   }
 
-  // The offset depends on the instant, which depends on the offset: guess with the
-  // wall-clock time read as UTC, then correct once in case that crossed a DST change.
-  const offset = zoneOffsetMinutes(timeZone, wallClock - zoneOffsetMinutes(timeZone, wallClock) * 60_000);
+  let offset: number;
+  let suffix: string;
+  if (m[7]) {
+    offset = parseOffset(m[7]);
+    if (Number.isNaN(offset)) return null;
+    suffix = m[7].toUpperCase();
+  } else {
+    // The offset depends on the instant, which depends on the offset: guess with the
+    // wall-clock time read as UTC, then correct once in case that crossed a DST change.
+    offset = zoneOffsetMinutes(timeZone, wallClock - zoneOffsetMinutes(timeZone, wallClock) * 60_000);
+    suffix = formatOffset(offset);
+  }
 
   const date = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] ?? "00"}`;
-  return { value: date + formatOffset(offset), instant: wallClock - offset * 60_000 };
+  return { value: date + suffix, instant: wallClock - offset * 60_000 };
 }
 
-function hasExplicitOffset(value: string): boolean {
-  return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+/** "Z" or "±HH:MM" as minutes east of UTC; NaN when out of range. */
+function parseOffset(offset: string): number {
+  if (offset.toUpperCase() === "Z") return 0;
+  const hours = Number(offset.slice(1, 3));
+  const minutes = Number(offset.slice(4, 6));
+  if (hours > 23 || minutes > 59) return NaN;
+  return (offset[0] === "-" ? -1 : 1) * (hours * 60 + minutes);
 }
 
 /** Minutes east of UTC for `timeZone` at `instant`, e.g. 120 for Amsterdam in summer. */

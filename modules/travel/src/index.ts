@@ -34,10 +34,15 @@ export function createTravelModule(opts: TravelOptions = {}) {
 }
 
 function defineTravelTools(ctx: ModuleContext, fetchImpl: typeof fetch | undefined): void {
-  // Built on first use and kept for the life of this init, so the geocode cache
-  // survives between calls; a reload (e.g. after changing the key) starts afresh.
-  let client: TomTomClient | undefined;
-  const tomtom = () => (client ??= createTomTomClient(ctx.config.require("TOMTOM_API_KEY"), { fetchImpl, log: ctx.log }));
+  // Kept between calls so the geocode cache survives, but rebuilt when the key
+  // changes: saving a corrected key in the portal does not reload the module, and
+  // the credential error tells the user to go and fix exactly that.
+  let client: { key: string; tomtom: TomTomClient } | undefined;
+  function tomtom(): TomTomClient {
+    const key = ctx.config.require("TOMTOM_API_KEY");
+    if (client?.key !== key) client = { key, tomtom: createTomTomClient(key, { fetchImpl, log: ctx.log }) };
+    return client.tomtom;
+  }
 
   let warnedZone: string | undefined;
   function timeZone(): string {

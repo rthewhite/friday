@@ -5,8 +5,9 @@ import type { ResolvedPlace, TomTomClient } from "./types.js";
 export interface TravelTimeParams {
   origin: string;
   destination: string;
-  departAt?: string;
-  arriveAt?: string;
+  /** "" and null count as absent: models sometimes send them for optional arguments. */
+  departAt?: string | null;
+  arriveAt?: string | null;
 }
 
 // A type rather than an interface so it is assignable to the SDK's ToolResult record.

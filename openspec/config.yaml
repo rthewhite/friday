@@ -26,7 +26,8 @@ context: |
   Integrations: Jellyfin (REST), Home Assistant (REST, controls an Apple TV running Infuse), TomTom
   (modules/travel, id travel: get_travel_time, car travel time with traffic via Orbis Places Search v1 and
   Routing v2; TOMTOM_API_KEY required secret, sent as a query parameter so URLs are never logged; geocodes
-  cached 24h in memory, routes never; offset-less departAt/arriveAt read in FRIDAY_TIMEZONE).
+  cached in memory (LRU, hits 24h, misses 10 min), routes never; client rebuilt when the key changes, no
+  reload needed; offset-less departAt/arriveAt read in FRIDAY_TIMEZONE, past times refused).
   Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
   tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
   extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall
