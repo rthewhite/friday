@@ -6,8 +6,8 @@
 
 ## 2. Portal shows and clears each stored scope
 
-- [ ] 2.1 Add `packages/portal/src/lib/config-stored.ts` with `extraScopes(entry)` and `overrides(entry)`, and `packages/portal/test/config-stored.test.ts` covering: one stored scope (0 extra, no overrides), global plus a module (1 extra, that module overrides), a module only (no overrides), global plus `core` (core is not a module override); verify `pnpm --filter @friday/portal test` passes
-- [ ] 2.2 In `ConfigurationPage.vue`, show `global +N` in the scope cell, replace "stored for {scope}" and the footer `Clear` with a "Stored values" list (scope, plain value, update time, override note, per-scope `Clear` via `DELETE /api/config/:scope/:key`), and add the hint under the scope selector when saving globally over overrides; verify `pnpm --filter @friday/portal typecheck` and `build` pass
+- [x] 2.1 Add `packages/portal/src/lib/config-stored.ts` with `extraScopes(entry)` and `overrides(entry)`, and `packages/portal/test/config-stored.test.ts` covering: one stored scope (0 extra, no overrides), global plus a module (1 extra, that module overrides), a module only (no overrides), global plus `core` (core is not a module override); verify `pnpm --filter @friday/portal test` passes
+- [x] 2.2 In `ConfigurationPage.vue`, show `global +N` in the scope cell, replace "stored for {scope}" and the footer `Clear` with a "Stored values" list (scope, plain value, update time, override note, per-scope `Clear` via `DELETE /api/config/:scope/:key`), and add the hint under the scope selector when saving globally over overrides; verify `pnpm --filter @friday/portal typecheck` and `build` pass
 
 ## 3. Documentation
 
