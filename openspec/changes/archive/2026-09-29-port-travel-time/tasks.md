@@ -27,6 +27,7 @@
 ## 6. Integration
 
 - [x] 6.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`; verify all green
-- [ ] 6.2 With a real `TOMTOM_API_KEY` from `.env` (if available), start core on a free port and call `get_travel_time` through `POST /api/chat` or the Modules page to confirm a live answer; stop the dev server afterwards. Record in the task if skipped for lack of a key
+- [x] 6.2 With a real `TOMTOM_API_KEY` from `.env` (if available), start core on a free port and call `get_travel_time` through `POST /api/chat` or the Modules page to confirm a live answer; stop the dev server afterwards. Record in the task if skipped for lack of a key
   - Skipped the live call on 2026-09-29: no TOMTOM_API_KEY in .env. Verified instead that the built core loads the module and reports `module travel: missing required config TOMTOM_API_KEY`, with the key listed as a required secret in /api/config. Tick after one live call with a real key.
   - Merged without it by decision on 2026-09-29; the live check is done once deployed to the homelab.
+  - Live check passed after deploy on 2026-09-29: get_travel_time answered with a real key.
