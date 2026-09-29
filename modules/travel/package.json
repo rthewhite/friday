@@ -1,0 +1,17 @@
+{
+  "name": "@friday/module-travel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Friday travel module: driving travel time with live traffic via TomTom.",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@friday/sdk": "workspace:*"
+  }
+}

@@ -11,6 +11,7 @@ COPY packages/portal-ui/package.json packages/portal-ui/
 COPY modules/brain/package.json modules/brain/
 COPY modules/builtin/package.json modules/builtin/
 COPY modules/media/package.json modules/media/
+COPY modules/travel/package.json modules/travel/
 COPY remote/simracing/package.json remote/simracing/
 RUN pnpm install --frozen-lockfile
 COPY packages/ packages/
