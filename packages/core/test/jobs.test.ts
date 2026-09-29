@@ -439,10 +439,10 @@ test("removeOwner only affects that owner's jobs", async () => {
 });
 
 test("settings defaults for jobs", async () => {
-  for (const k of ["FRIDAY_JOB_HISTORY", "FRIDAY_JOB_CATCHUP_DELAY_MS", "FRIDAY_TIMEZONE"]) delete process.env[k];
+  for (const k of ["FRIDAY_JOB_HISTORY", "FRIDAY_JOB_CATCHUP_DELAY_MS"]) delete process.env[k];
   const { settings } = await import("../src/config.js");
   assert.equal(settings.jobHistory, 50);
   assert.equal(settings.jobCatchupDelayMs, 30_000);
-  // Raw on purpose: the scheduler resolves unset to Europe/Amsterdam (tested above), and logs invalid values.
-  assert.equal(settings.timezone, undefined);
+  // FRIDAY_TIMEZONE is not a startup setting: the scheduler reads it through core's config resolver.
+  assert.ok(!("timezone" in settings));
 });

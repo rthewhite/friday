@@ -12,9 +12,12 @@ const store = () => {
   return new ConfigStore(db, randomBytes(32));
 };
 
-test("core declares GEMINI_API_KEY as a required secret", () => {
+test("core declares GEMINI_API_KEY as a required secret and FRIDAY_TIMEZONE as an optional plain key", () => {
   assert.equal(coreManifest.id, "core");
-  assert.deepEqual(coreManifest.config?.map(({ key, secret, required }) => ({ key, secret, required })), [{ key: "GEMINI_API_KEY", secret: true, required: true }]);
+  assert.deepEqual(coreManifest.config?.map(({ key, secret, required }) => ({ key, secret: secret === true, required: required === true })), [
+    { key: "GEMINI_API_KEY", secret: true, required: true },
+    { key: "FRIDAY_TIMEZONE", secret: false, required: false },
+  ]);
 });
 
 test("core keys resolve core scope, then global, then env, read at each use", () => {

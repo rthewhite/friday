@@ -19,6 +19,7 @@ import { ConversationStore } from "../src/conversations/store.js";
 import { waitFor } from "./helpers.js";
 import { JobStore } from "../src/jobs/store.js";
 import { Scheduler } from "../src/jobs/scheduler.js";
+import { coreConfig, followTimezone } from "../src/core-config.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 
@@ -36,7 +37,7 @@ function talk(store: ConversationStore, end?: string) {
 /** Entries requested by modules (the tests below predate core's own keys). */
 const moduleEntries = (cfg: { entries: Array<{ modules: Array<{ id: string }> }> }) => cfg.entries.filter((e) => !e.modules.some((m) => m.id === "core"));
 
-async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string } = {}) {
+async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string; withJobs?: boolean; onConfigChange?: (scope: string, key: string) => void } = {}) {
   const db = new DatabaseSync(":memory:");
   migrate(db, migrations, quiet);
   const env = opts.env ?? {};
@@ -52,14 +53,17 @@ async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string
   const keys = new SqliteKeyStore(db);
   const conversations = new ConversationStore(db, { log: quiet });
   const remote = new RemoteHost({ registry, keys: new CompositeKeyStore([keys, new EnvKeyStore(opts.envKeys)]), pingMs: 0, log: quiet });
-  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), remote, webDir: "/nonexistent", configStore, keys, env, conversations }));
+  // Built as server.ts builds it: cron's zone from core's resolver, re-planned when FRIDAY_TIMEZONE is saved.
+  const jobs = opts.withJobs ? new Scheduler({ store: new JobStore(db), log: quiet, timezone: () => coreConfig(configStore, env)("FRIDAY_TIMEZONE"), graceMs: 100 }) : undefined;
+  const onConfigChange = opts.onConfigChange ?? (jobs ? followTimezone(jobs) : undefined);
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), remote, webDir: "/nonexistent", configStore, keys, env, conversations, jobs, onConfigChange }));
   remote.attach(server);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
   const base = `http://127.0.0.1:${port}`;
   const j = (path: string, init?: RequestInit) => fetch(base + path, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
-  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, registry, remote, conversations, configStore, close: async () => { await remote.closeAll(); server.close(); await once(server, "close"); } };
+  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, registry, remote, conversations, configStore, jobs, close: async () => { await jobs?.stop(); await remote.closeAll(); server.close(); await once(server, "close"); } };
 }
 
 test("conversations: list summary shape and the full conversation with entries", async () => {
@@ -332,6 +336,52 @@ test("core requests GEMINI_API_KEY: listed as a secret, storable for core, never
     assert.equal((await s.j("/api/config/global/GEMINI_API_KEY", { method: "PUT", body: JSON.stringify({ value: "g", secret: false }) })).status, 204);
     assert.equal(s.configStore.info("global", "GEMINI_API_KEY")?.secret, true);
     assert.equal((await s.j("/api/config/nope/GEMINI_API_KEY", { method: "PUT", body: JSON.stringify({ value: "x" }) })).status, 404);
+  } finally {
+    await s.close();
+  }
+});
+
+test("core requests FRIDAY_TIMEZONE as a plain, optional key", async () => {
+  const s = await start();
+  try {
+    const entry = (await (await s.j("/api/config")).json()).entries.find((e: any) => e.key === "FRIDAY_TIMEZONE");
+    assert.deepEqual(entry, { key: "FRIDAY_TIMEZONE", secret: false, required: false, description: "IANA zone for cron job schedules (default Europe/Amsterdam)", modules: [{ id: "core", required: false }], status: "pending" });
+  } finally {
+    await s.close();
+  }
+});
+
+test("a stored or deleted config value is reported to onConfigChange; a rejected write is not", async () => {
+  const changes: string[] = [];
+  const s = await start({ onConfigChange: (scope, key) => void changes.push(`${scope}/${key}`) });
+  try {
+    assert.equal((await s.j("/api/config/global/FRIDAY_TIMEZONE", { method: "PUT", body: JSON.stringify({ value: "Asia/Tokyo" }) })).status, 204);
+    assert.equal((await s.j("/api/config/media/HA_URL", { method: "DELETE" })).status, 204);
+    assert.equal((await s.j("/api/config/global/FRIDAY_TIMEZONE", { method: "PUT", body: JSON.stringify({ value: "" }) })).status, 400);
+    assert.equal((await s.j("/api/config/nope/FRIDAY_TIMEZONE", { method: "PUT", body: JSON.stringify({ value: "UTC" }) })).status, 404);
+    assert.deepEqual(changes, ["global/FRIDAY_TIMEZONE", "media/HA_URL"]);
+  } finally {
+    await s.close();
+  }
+});
+
+test("saving FRIDAY_TIMEZONE globally re-plans cron at once, and clearing it falls back to the environment", async () => {
+  const s = await start({ withJobs: true, env: { FRIDAY_TIMEZONE: "Europe/Amsterdam" } });
+  const localTime = (iso: string, timeZone: string) => new Date(iso).toLocaleTimeString("en-GB", { timeZone, hour: "2-digit", minute: "2-digit" });
+  const nightly = async () => ((await (await s.j("/api/jobs")).json()) as any[]).find((j) => j.id === "core/nightly");
+  try {
+    s.jobs!.register("core", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+    assert.equal((await nightly()).schedule.timezone, "Europe/Amsterdam");
+
+    assert.equal((await s.j("/api/config/global/FRIDAY_TIMEZONE", { method: "PUT", body: JSON.stringify({ value: "America/New_York" }) })).status, 204);
+    const moved = await nightly();
+    assert.deepEqual(moved.schedule, { cron: "0 3 * * *", timezone: "America/New_York" });
+    assert.equal(localTime(moved.nextRunAt, "America/New_York"), "03:00");
+
+    assert.equal((await s.j("/api/config/global/FRIDAY_TIMEZONE", { method: "DELETE" })).status, 204);
+    const back = await nightly();
+    assert.equal(back.schedule.timezone, "Europe/Amsterdam", "the environment value applies again");
+    assert.equal(localTime(back.nextRunAt, "Europe/Amsterdam"), "03:00");
   } finally {
     await s.close();
   }

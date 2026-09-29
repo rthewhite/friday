@@ -52,6 +52,8 @@ export interface AppDeps {
   chat?: ChatEngine;
   /** Interval of the chat stream's keep-alive comments (tests shorten it). */
   chatHeartbeatMs?: number;
+  /** Called after a configuration value is stored or deleted through the API. */
+  onConfigChange?: (scope: string, key: string) => void;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -190,12 +192,14 @@ export function createApp(deps: AppDeps) {
         if (e instanceof ConfigStoreDisabled) return sendJson(res, { error: e.message }, 503);
         throw e;
       }
+      deps.onConfigChange?.(scope, key);
       res.statusCode = 204;
       res.end();
     })
     .add("DELETE", "/api/config/:scope/:key", (_req, res, { scope, key }) => {
       if (!deps.configStore) return sendJson(res, { error: "no configuration store" }, 503);
       deps.configStore.delete(scope, key);
+      deps.onConfigChange?.(scope, key);
       res.statusCode = 204;
       res.end();
     })

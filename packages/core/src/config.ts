@@ -98,11 +98,6 @@ export const settings = {
   vadPrefixPaddingMs: Number(process.env.FRIDAY_VAD_PREFIX_MS ?? 200),
   /** Print what Gemini hears the user say to the server log. Useful for echo debugging; off by default. */
   logTranscripts: process.env.FRIDAY_LOG_TRANSCRIPTS === "1",
-  /**
-   * FRIDAY_TIMEZONE as set, for cron job schedules; read from the environment once at startup (modules read it
-   * through ctx.config). Deliberately raw: the scheduler resolves it, so an invalid value is logged there.
-   */
-  timezone: process.env.FRIDAY_TIMEZONE,
   /** Recorded runs kept per background job. */
   jobHistory: Number(process.env.FRIDAY_JOB_HISTORY ?? 50),
   /** Delay before the one catch-up run of a job whose due time passed while Friday was down. */
