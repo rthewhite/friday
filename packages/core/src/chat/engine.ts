@@ -131,7 +131,8 @@ export class ChatTurn {
     const id = this.conversationId;
     emit({ event: "start", data: { conversationId: id } });
     try {
-      const system = this.opts.system();      const contents = this.history();
+      const system = this.opts.system();
+      const contents = this.history();
       const tools = this.opts.registry.declarations("chat") as FunctionDeclaration[];
       let rounds = 0;
       let streamed = false;

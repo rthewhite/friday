@@ -4,7 +4,8 @@
  * test host so both apply the same rules. Imported only by hosts, never by `@friday/sdk/remote`.
  */
 import { constants as C, DatabaseSync, type StatementSync } from "node:sqlite";
-import type { ModuleLogger } from "./module.js";
+import { MODULE_ID, type ModuleLogger } from "./module.js";
+import { isThenable } from "./thenable.js";
 
 /**
  * Synchronous access to the module's tables. Statements are node's `StatementSync`
@@ -30,11 +31,9 @@ export interface ModuleMigration {
   up: string | ((db: ModuleDb) => void);
 }
 
-const ID = /^[a-z][a-z0-9-]*$/;
-
 /** `brain` → `brain__`, `media-x` → `media_x__`. Throws for ids whose prefix could overlap another module's. */
 export function tablePrefix(moduleId: string): string {
-  if (!ID.test(moduleId)) throw new Error(`invalid module id ${JSON.stringify(moduleId)}`);
+  if (!MODULE_ID.test(moduleId)) throw new Error(`invalid module id ${JSON.stringify(moduleId)}`);
   if (moduleId.includes("--") || moduleId.endsWith("-")) {
     throw new Error(`module ${moduleId}: an id with "--" or a trailing "-" cannot own tables (its table prefix would overlap another module's)`);
   }
@@ -75,15 +74,38 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
 
   /** Set around the runner's own statements so they may use `module_schema`. Modules never see it. */
   let internal = false;
+  /** Set around `transaction()`'s own BEGIN / SAVEPOINT / COMMIT / ROLLBACK; modules can't issue them. */
+  let control = false;
   /** SQL being prepared, for the rename check (the authorizer is not told a table's new name). */
   let current: string | undefined;
   /** First operation refused while preparing the current statement, for the error message. */
   let refused: string | undefined;
+  /**
+   * DDL or ANALYZE on the module's own objects was allowed in the current prepare/exec call: SQLite then
+   * updates its bookkeeping tables itself. The authorizer can't tell statements of one exec apart, so this
+   * holds for the rest of the call; it stops plain module statements, not a deliberate combination.
+   */
+  let ddl = false;
 
+  const own = (n: string): boolean => n.startsWith(prefix) || (internal && n === SCHEMA_TABLE);
+  /** Names a module may use as objects: its own, and SQLite's internal ones (which SQLite itself refuses to create or drop). */
   const owned = (name: string | null): boolean => {
     if (!name) return false;
     const n = name.toLowerCase();
-    return n.startsWith(prefix) || n.startsWith("sqlite_") || (internal && n === SCHEMA_TABLE);
+    return own(n) || n.startsWith("sqlite_");
+  };
+  /**
+   * Writes to SQLite's internal tables: the schema tables are guarded by SQLite itself (writable_schema
+   * is a refused pragma). The shared AUTOINCREMENT counters only change as a side effect of the module's
+   * own DDL (see `ddl`), and planner statistics can be dropped but never written by a module.
+   */
+  const writable = (name: string | null, del = false): boolean => {
+    if (!name) return false;
+    const n = name.toLowerCase();
+    if (own(n) || n === "sqlite_master" || n === "sqlite_schema" || n === "sqlite_temp_master" || n === "sqlite_temp_schema") return true;
+    // ANALYZE deletes old statistics before it is authorized; dropping statistics only reverts to default plans.
+    if (n.startsWith("sqlite_stat")) return del;
+    return ddl && n === "sqlite_sequence";
   };
   const deny = (what: string): number => {
     refused ??= what;
@@ -93,46 +115,53 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
     for (const n of names) if (!owned(n)) return deny(`${action} ${n ?? "(unnamed)"}`);
     return C.SQLITE_OK;
   };
+  const write = (action: string, name: string | null): number => (writable(name, action === "delete from") ? C.SQLITE_OK : deny(`${action} ${name ?? "(unnamed)"}`));
+  const schemaChange = (result: number): number => {
+    if (result === C.SQLITE_OK) ddl = true;
+    return result;
+  };
 
   raw.setAuthorizer((code, arg1, arg2) => {
     switch (code) {
       case C.SQLITE_SELECT:
       case C.SQLITE_FUNCTION:
       case C.SQLITE_RECURSIVE:
+        return C.SQLITE_OK;
+      // A module-issued BEGIN could hold the write lock across an await; transactions go through transaction().
       case C.SQLITE_TRANSACTION:
       case C.SQLITE_SAVEPOINT:
-        return C.SQLITE_OK;
+        return control ? C.SQLITE_OK : deny(`${arg1?.toLowerCase() ?? "transaction"} statement (use ctx.db.transaction)`);
       case C.SQLITE_READ: return check("read", arg1);
-      case C.SQLITE_INSERT: return check("insert into", arg1);
-      case C.SQLITE_UPDATE: return check("update", arg1);
-      case C.SQLITE_DELETE: return check("delete from", arg1);
+      case C.SQLITE_INSERT: return write("insert into", arg1);
+      case C.SQLITE_UPDATE: return write("update", arg1);
+      case C.SQLITE_DELETE: return write("delete from", arg1);
       case C.SQLITE_CREATE_TABLE:
-      case C.SQLITE_CREATE_TEMP_TABLE: return check("create table", arg1);
+      case C.SQLITE_CREATE_TEMP_TABLE: return schemaChange(check("create table", arg1));
       case C.SQLITE_DROP_TABLE:
-      case C.SQLITE_DROP_TEMP_TABLE: return check("drop table", arg1);
+      case C.SQLITE_DROP_TEMP_TABLE: return schemaChange(check("drop table", arg1));
       case C.SQLITE_CREATE_VIEW:
-      case C.SQLITE_CREATE_TEMP_VIEW: return check("create view", arg1);
+      case C.SQLITE_CREATE_TEMP_VIEW: return schemaChange(check("create view", arg1));
       case C.SQLITE_DROP_VIEW:
-      case C.SQLITE_DROP_TEMP_VIEW: return check("drop view", arg1);
+      case C.SQLITE_DROP_TEMP_VIEW: return schemaChange(check("drop view", arg1));
       // arg2 is the virtual table module (fts5, ...), not a schema object.
-      case C.SQLITE_CREATE_VTABLE: return check("create virtual table", arg1);
-      case C.SQLITE_DROP_VTABLE: return check("drop virtual table", arg1);
+      case C.SQLITE_CREATE_VTABLE: return schemaChange(check("create virtual table", arg1));
+      case C.SQLITE_DROP_VTABLE: return schemaChange(check("drop virtual table", arg1));
       // arg1 is the index or trigger, arg2 the table it belongs to.
       case C.SQLITE_CREATE_INDEX:
-      case C.SQLITE_CREATE_TEMP_INDEX: return check("create index", arg1, arg2);
+      case C.SQLITE_CREATE_TEMP_INDEX: return schemaChange(check("create index", arg1, arg2));
       case C.SQLITE_DROP_INDEX:
-      case C.SQLITE_DROP_TEMP_INDEX: return check("drop index", arg1, arg2);
+      case C.SQLITE_DROP_TEMP_INDEX: return schemaChange(check("drop index", arg1, arg2));
       case C.SQLITE_CREATE_TRIGGER:
-      case C.SQLITE_CREATE_TEMP_TRIGGER: return check("create trigger", arg1, arg2);
+      case C.SQLITE_CREATE_TEMP_TRIGGER: return schemaChange(check("create trigger", arg1, arg2));
       case C.SQLITE_DROP_TRIGGER:
-      case C.SQLITE_DROP_TEMP_TRIGGER: return check("drop trigger", arg1, arg2);
-      case C.SQLITE_REINDEX: return check("reindex", arg1);
-      case C.SQLITE_ANALYZE: return check("analyze", arg1);
+      case C.SQLITE_DROP_TEMP_TRIGGER: return schemaChange(check("drop trigger", arg1, arg2));
+      case C.SQLITE_REINDEX: return schemaChange(check("reindex", arg1));
+      case C.SQLITE_ANALYZE: return schemaChange(check("analyze", arg1));
       // arg1 is the database, arg2 the table.
       case C.SQLITE_ALTER_TABLE: {
         if (check("alter table", arg2) !== C.SQLITE_OK) return C.SQLITE_DENY;
-        for (const to of renameTargets(current ?? "")) if (!owned(to)) return deny(`rename table to ${to}`);
-        return C.SQLITE_OK;
+        for (const to of renameTargets(current ?? "")) if (!own(to.toLowerCase())) return deny(`rename table to ${to}`);
+        return schemaChange(C.SQLITE_OK);
       }
       // FTS5 reads data_version internally; every other pragma (foreign_keys, writable_schema, ...) is refused.
       case C.SQLITE_PRAGMA:
@@ -147,6 +176,7 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
   const guarded = <T>(sql: string, run: () => T): T => {
     current = sql;
     refused = undefined;
+    ddl = false;
     try {
       return run();
     } catch (e) {
@@ -156,6 +186,17 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
       throw e;
     } finally {
       current = undefined;
+      ddl = false;
+    }
+  };
+
+  /** transaction()'s own control statements, the only ones the authorizer lets through. */
+  const txn = (sql: string): void => {
+    control = true;
+    try {
+      raw.exec(sql);
+    } finally {
+      control = false;
     }
   };
 
@@ -165,8 +206,15 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
     exec: (sql) => guarded(sql, () => raw.exec(sql)),
     transaction<T>(fn: () => T): T {
       const savepoint = raw.isTransaction ? `friday_sp_${++savepoints}` : undefined;
-      raw.exec(savepoint ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
-      const rollback = () => raw.exec(savepoint ? `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}` : "ROLLBACK");
+      txn(savepoint ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
+      // Never lets a failed rollback hide the error that caused it.
+      const rollback = () => {
+        try {
+          if (raw.isTransaction) txn(savepoint ? `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}` : "ROLLBACK");
+        } catch {
+          // the transaction is already gone
+        }
+      };
       let result: T;
       try {
         result = fn();
@@ -181,9 +229,9 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
         throw new Error(`module ${moduleId}: transaction bodies must be synchronous (the body returned a promise; nothing it wrote before its first await was kept)`);
       }
       try {
-        raw.exec(savepoint ? `RELEASE ${savepoint}` : "COMMIT");
+        txn(savepoint ? `RELEASE ${savepoint}` : "COMMIT");
       } catch (e) {
-        if (raw.isTransaction) rollback();
+        rollback();
         throw e;
       }
       return result;
@@ -219,12 +267,19 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
         if (m.version <= recorded) continue;
         try {
           db.transaction(() => {
+            const before = schemaNames(raw);
             if (typeof m.up === "string") db.exec(m.up);
             else {
               const r: unknown = m.up(db);
               if (isThenable(r)) {
                 void Promise.resolve(r).catch(() => {});
                 throw new Error("migration functions must be synchronous (up returned a promise)");
+              }
+            }
+            // Backstop for the authorizer: whatever the SQL looked like, nothing new may sit outside the prefix.
+            for (const name of schemaNames(raw)) {
+              if (!before.has(name) && !name.startsWith(prefix) && !name.startsWith("sqlite_")) {
+                throw new Error(`module ${moduleId}: database access refused: the migration created ${name} (a module may only use ${prefix}* tables)`);
               }
             }
             asHost(() => raw
@@ -267,15 +322,55 @@ export function validateMigrations(moduleId: string, migrations: readonly Module
   return [...migrations].sort((a, b) => a.version - b.version);
 }
 
-/** Table names after `RENAME TO` in `sql` (quoted or bare). `RENAME [COLUMN] a TO b` renames a column and is not matched. */
-function renameTargets(sql: string): string[] {
+/**
+ * Table names after `RENAME TO` in `sql` (quoted or bare), with comments removed first so they
+ * can't split the keywords. `RENAME [COLUMN] a TO b` renames a column and is not matched.
+ */
+export function renameTargets(sql: string): string[] {
   const out: string[] = [];
-  for (const m of sql.matchAll(/\bRENAME\s+TO\s+(?:"((?:[^"]|"")+)"|`([^`]+)`|\[([^\]]+)\]|'((?:[^']|'')+)'|([\w$]+))/gi)) {
-    out.push((m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5]).replace(/""|''/g, (q) => q[0]));
+  for (const m of withoutComments(sql).matchAll(/\bRENAME\s+TO\s+(?:"((?:[^"]|"")*)"|`((?:[^`]|``)*)`|\[([^\]]*)\]|'((?:[^']|'')*)'|([^\s;]+))/gi)) {
+    out.push((m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5]).replace(/""|``|''/g, (q) => q[0]));
   }
   return out;
 }
 
-function isThenable(v: unknown): v is PromiseLike<unknown> {
-  return (typeof v === "object" || typeof v === "function") && v !== null && typeof (v as { then?: unknown }).then === "function";
+/** `sql` with `--` and `/* *\/` comments replaced by a space; quoted text is kept as is. */
+function withoutComments(sql: string): string {
+  let out = "";
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    if (c === "'" || c === '"' || c === "`" || c === "[") {
+      const close = c === "[" ? "]" : c;
+      let j = i + 1;
+      for (;;) {
+        if (j >= sql.length) break;
+        if (sql[j] === close) {
+          if (close !== "]" && sql[j + 1] === close) j += 2;
+          else break;
+        } else j++;
+      }
+      out += sql.slice(i, j + 1);
+      i = j + 1;
+    } else if (c === "-" && sql[i + 1] === "-") {
+      const end = sql.indexOf("\n", i);
+      i = end === -1 ? sql.length : end;
+      out += " ";
+    } else if (c === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      out += " ";
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
 }
+
+/** Names of every schema object, for spotting what a migration created. */
+function schemaNames(raw: DatabaseSync): Set<string> {
+  const rows = raw.prepare("SELECT name FROM sqlite_master UNION SELECT name FROM sqlite_temp_master").all() as { name: string }[];
+  return new Set(rows.map((r) => r.name.toLowerCase()));
+}
+

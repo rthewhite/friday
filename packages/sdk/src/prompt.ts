@@ -4,6 +4,7 @@
  */
 import type { ConversationChannel } from "./conversations.js";
 import type { ModuleLogger } from "./module.js";
+import { isThenable } from "./thenable.js";
 
 export interface PromptContextInfo {
   /** The prompt being built: `voice` when a Live session opens, `chat` when a chat turn starts. */
@@ -82,7 +83,7 @@ export class PromptContext {
       let text = parts.join("\n\n");
       if (text.length > this.maxChars) {
         this.log.warn(`prompt context from ${owner} is ${text.length} characters; cut to ${this.maxChars}`);
-        text = `${text.slice(0, this.maxChars - 1)}…`;
+        text = `${cut(text, this.maxChars - 1)}…`;
       }
       blocks.push(text);
     }
@@ -93,7 +94,7 @@ export class PromptContext {
     const started = this.now();
     try {
       const out: unknown = fn({ channel });
-      if (typeof (out as PromiseLike<unknown> | undefined)?.then === "function") {
+      if (isThenable(out)) {
         void Promise.resolve(out).catch(() => {});
         this.log.warn(`prompt context provider of ${owner} returned a promise and was skipped; providers must be synchronous`);
         return undefined;
@@ -107,6 +108,12 @@ export class PromptContext {
       if (ms > SLOW_PROVIDER_MS) this.log.warn(`prompt context provider of ${owner} took ${Math.round(ms)} ms`);
     }
   }
+}
+
+/** The first `n` UTF-16 units of `s`, one fewer when that would split a surrogate pair (emoji, ...). */
+function cut(s: string, n: number): string {
+  const code = s.charCodeAt(n - 1);
+  return s.slice(0, code >= 0xd800 && code <= 0xdbff ? n - 1 : n);
 }
 
 /** A channel prompt followed by the module context, when there is any. */

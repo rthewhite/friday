@@ -49,6 +49,10 @@ test("a module's combined context is cut at the cap with … and a warning", () 
   const small = new PromptContext({ maxChars: 10, log });
   small.forOwner("m").addContext(() => "0123456789ABC");
   assert.equal(small.render("chat"), "012345678…");
+  // The cut never splits a surrogate pair.
+  const emoji = new PromptContext({ maxChars: 10, log });
+  emoji.forOwner("m").addContext(() => "01234567🐝 and more");
+  assert.equal(emoji.render("chat"), "01234567…");
 });
 
 test("a throwing provider is logged with its module and skipped", () => {

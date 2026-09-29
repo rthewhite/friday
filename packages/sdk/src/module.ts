@@ -70,13 +70,14 @@ export interface FridayModule {
 /** Identity helper that gives module authors type checking and completion. */
 export const defineModule = (m: FridayModule): FridayModule => m;
 
-const ID = /^[a-z][a-z0-9-]*$/;
+/** What a module id looks like; table prefixes (`db.ts`) rely on it too. */
+export const MODULE_ID = /^[a-z][a-z0-9-]*$/;
 /** Ids core uses as an owner itself (job ids are `<owner>/<name>`). */
 const RESERVED_IDS = ["core"];
 
 /** Throws when a manifest is malformed. */
 export function validateManifest(m: ModuleManifest): void {
-  if (!m || typeof m.id !== "string" || !ID.test(m.id)) throw new Error(`invalid module id ${JSON.stringify(m?.id)}`);
+  if (!m || typeof m.id !== "string" || !MODULE_ID.test(m.id)) throw new Error(`invalid module id ${JSON.stringify(m?.id)}`);
   if (RESERVED_IDS.includes(m.id)) throw new Error(`module id "${m.id}" is reserved`);
   if (typeof m.label !== "string" || !m.label) throw new Error(`module ${m.id}: label is required`);
 }

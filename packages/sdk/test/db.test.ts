@@ -113,6 +113,63 @@ test("pragmas and attached databases are refused; foreign keys stay enforced", (
   assert.throws(() => db.prepare("INSERT INTO brain__revisions (page) VALUES (42)").run(), /FOREIGN KEY constraint failed/);
 });
 
+test("a rename out of the prefix is refused however the SQL is written", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const { db } = f.open("brain");
+  db.exec("CREATE TABLE brain__pages (a)");
+  for (const sql of [
+    "ALTER TABLE brain__pages RENAME /* sneaky */ TO pages",
+    "ALTER TABLE brain__pages RENAME -- sneaky\n TO pages",
+    "ALTER TABLE brain__pages RENAME TO/**/pages",
+    'ALTER TABLE brain__pages RENAME TO "media__notes"',
+    "ALTER TABLE brain__pages RENAME TO [conversations2]",
+    "ALTER TABLE brain__pages RENAME TO évil",
+  ]) assert.throws(() => db.exec(sql), /module brain: database access refused: rename table to /, sql);
+  db.exec("ALTER TABLE brain__pages RENAME /* fine */ TO brain__docs");
+  // A column rename is not a table rename.
+  db.exec("ALTER TABLE brain__docs RENAME COLUMN a TO pages");
+  assert.deepEqual(f.core.prepare("SELECT name FROM sqlite_master WHERE name NOT IN ('conversations', 'config_values', 'media_x__cache') AND name NOT LIKE 'sqlite%' ORDER BY name").all().map((r) => r.name), ["brain__docs"]);
+});
+
+test("SQLite's shared bookkeeping tables are read-only to modules, except as a side effect of their own DDL", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  f.core.exec("CREATE TABLE secrets (id INTEGER PRIMARY KEY AUTOINCREMENT, v); INSERT INTO secrets (v) VALUES (1); CREATE INDEX secrets_v ON secrets (v); ANALYZE");
+  const { db } = f.open("brain");
+  assert.throws(() => db.exec("UPDATE sqlite_sequence SET seq = 999 WHERE name = 'secrets'"), /refused: update sqlite_sequence/);
+  assert.throws(() => db.exec("DELETE FROM sqlite_sequence"), /refused: delete from sqlite_sequence/);
+  assert.throws(() => db.exec("INSERT INTO sqlite_stat1 VALUES ('secrets', NULL, '1')"), /refused/);
+  assert.equal(f.core.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'secrets'").get()?.seq, 1);
+  // Its own AUTOINCREMENT tables and statistics still work through DDL.
+  db.exec("CREATE TABLE brain__a (id INTEGER PRIMARY KEY AUTOINCREMENT, x); CREATE INDEX brain__a_x ON brain__a (x); INSERT INTO brain__a (x) VALUES (1), (2)");
+  db.exec("ANALYZE brain__a");
+  db.exec("ALTER TABLE brain__a RENAME TO brain__b");
+  db.exec("DROP TABLE brain__b");
+  assert.equal(f.core.prepare("SELECT count(*) AS n FROM sqlite_sequence WHERE name LIKE 'brain%'").get()?.n, 0);
+  // Reading the schema stays allowed.
+  assert.ok(db.prepare("SELECT name FROM sqlite_master").all().length > 0);
+});
+
+test("transaction statements are refused outside transaction()", () => {
+  const { db, count } = pages();
+  for (const sql of ["BEGIN", "BEGIN IMMEDIATE", "COMMIT", "ROLLBACK", "SAVEPOINT x", "RELEASE x"]) {
+    assert.throws(() => db.exec(sql), /module brain: database access refused: .*statement \(use ctx\.db\.transaction\)/, sql);
+  }
+  assert.throws(() => db.transaction(() => db.exec("COMMIT")), /refused/);
+  db.transaction(() => db.prepare("INSERT INTO brain__pages (title) VALUES ('ok')").run());
+  assert.equal(count("brain__pages"), 1);
+});
+
+test("renameTargets ignores comments but keeps quoted names", async () => {
+  const { renameTargets } = await import("../src/db.js");
+  assert.deepEqual(renameTargets("ALTER TABLE a RENAME /* x */ TO b; ALTER TABLE c RENAME TO \"d \"\"e\"\"\""), ["b", 'd "e"']);
+  assert.deepEqual(renameTargets("SELECT 1 -- RENAME TO y\n/* RENAME TO z */"), []);
+  // Text in string literals is matched: conservative, it can only refuse more.
+  assert.deepEqual(renameTargets("SELECT '/* RENAME TO x */'"), ["x"]);
+  assert.deepEqual(renameTargets("ALTER TABLE a RENAME COLUMN x TO y"), []);
+});
+
 test("an FTS5 table can be created and queried with MATCH", (t) => {
   const f = fixture();
   t.after(f.cleanup);
@@ -283,6 +340,15 @@ test("a schema newer than the module's migrations fails and touches nothing", (t
   assert.equal(recorded(f.core), 3);
   assert.deepEqual(tables(f.core), ["brain__pages", "brain__revisions", "brain__tags"]);
   assert.equal(f.core.prepare("SELECT count(*) AS n FROM brain__pages").get()?.n, 1);
+});
+
+test("a migration may not manage its own transaction", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const m = f.open("brain");
+  assert.throws(() => m.migrate([{ version: 1, name: "tx", up: "BEGIN; CREATE TABLE brain__a (x); COMMIT" }]), /migration 1 "tx" failed: .*refused: begin statement/);
+  assert.equal(recorded(f.core), undefined);
+  assert.deepEqual(tables(f.core), []);
 });
 
 test("an async migration function fails the migration", (t) => {

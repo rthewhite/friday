@@ -65,7 +65,8 @@ export class GeminiSession {
     const connect: LiveConnect = this.opts.connect ?? ((p, apiKey) => new GoogleGenAI({ apiKey }).live.connect(p));
     const apiKey = (this.opts.geminiKey ?? (() => settings.apiKey))() ?? "";
     const decls = this.registry.declarations("voice") as FunctionDeclaration[];
-    const systemInstruction = (this.opts.systemPrompt ?? (() => settings.systemPrompt))();    this.session = await connect({
+    const systemInstruction = (this.opts.systemPrompt ?? (() => settings.systemPrompt))();
+    this.session = await connect({
       model: settings.model,
       config: {
         responseModalities: [Modality.AUDIO],

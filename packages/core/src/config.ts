@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { DEFAULT_PROMPT_CONTEXT_MAX_CHARS } from "@friday/sdk";
 
 /** packages/core/{src,dist}/config.ts -> packages/portal/dist. Override with FRIDAY_WEB_DIR (the image sets it). */
 const defaultWebDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "portal", "dist");
@@ -38,7 +39,7 @@ export function promptSettings(env: Record<string, string | undefined>) {
   const max = Math.floor(Number(env.FRIDAY_PROMPT_CONTEXT_MAX_CHARS));
   return {
     /** Each module's prompt context is cut to this many characters. */
-    promptContextMaxChars: Number.isFinite(max) && max > 0 ? max : 12000,
+    promptContextMaxChars: Number.isFinite(max) && max > 0 ? max : DEFAULT_PROMPT_CONTEXT_MAX_CHARS,
   };
 }
 
