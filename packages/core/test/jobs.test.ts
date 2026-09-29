@@ -136,6 +136,80 @@ test("an invalid timezone logs an error and cron jobs run in Europe/Amsterdam, l
   await s.stop();
 });
 
+/** A scheduler whose zone comes from a reader the test can change, like core's store-backed one. */
+function liveZone(start: string, zone: string | undefined = "Europe/Amsterdam") {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const clock = new FakeClock(Date.parse(start));
+  const { lines, log } = logger();
+  const cfg = { zone };
+  const s = new Scheduler({ store: new JobStore(db, 50), clock, log, timezone: () => cfg.zone, catchupDelayMs: 30_000, graceMs: 1000 });
+  return { s, clock, lines, cfg };
+}
+
+test("a changed zone re-plans cron jobs from now, and they run at the new local time", async () => {
+  const { s, clock, lines, cfg } = liveZone("2026-09-28T12:00:00Z");
+  const runs: string[] = [];
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => void runs.push(iso(clock.now())) });
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T01:00:00.000Z", "03:00 Amsterdam");
+
+  cfg.zone = "America/New_York";
+  s.refreshTimezone();
+
+  assert.deepEqual(s.list()[0].schedule, { cron: "0 3 * * *", timezone: "America/New_York" });
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T07:00:00.000Z", "03:00 New York");
+  assert.ok(lines.some((l) => l.includes("timezone changed to America/New_York; 1 cron job(s) re-planned")));
+  await clock.to("2026-09-29T06:59:00Z");
+  assert.deepEqual(runs, [], "the old Amsterdam slot is gone");
+  await clock.to("2026-09-29T07:00:00Z");
+  assert.deepEqual(runs, ["2026-09-29T07:00:00.000Z"]);
+  await s.stop();
+});
+
+test("refreshing with the zone unchanged re-plans nothing", async () => {
+  const { s, clock, lines } = liveZone("2026-09-28T12:00:00Z");
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  const timers = [...clock.timers.keys()];
+  s.refreshTimezone();
+  assert.deepEqual([...clock.timers.keys()], timers);
+  assert.ok(!lines.some((l) => l.includes("re-planned")));
+  await s.stop();
+});
+
+test("a zone change leaves interval jobs on their schedule", async () => {
+  const { s, cfg } = liveZone("2026-09-28T12:00:00Z");
+  s.register("media", { name: "poll", everyMs: 900_000, run: () => {} });
+  cfg.zone = "Asia/Tokyo";
+  s.refreshTimezone();
+  assert.equal(s.list()[0].nextRunAt, "2026-09-28T12:15:00.000Z");
+  await s.stop();
+});
+
+test("an invalid zone saved while running falls back to Amsterdam and logs one error", async () => {
+  const { s, lines, cfg } = liveZone("2026-09-28T12:00:00Z", "America/New_York");
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => {} });
+  cfg.zone = "Mars/Olympus";
+  s.refreshTimezone();
+  s.refreshTimezone();
+  assert.equal(s.timezone, "Europe/Amsterdam");
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T01:00:00.000Z");
+  assert.equal(lines.filter((l) => l.startsWith("error") && l.includes('"Mars/Olympus"')).length, 1);
+  await s.stop();
+});
+
+test("a zone change does not cancel a run in progress", async () => {
+  const { s, clock, cfg } = liveZone("2026-09-29T00:59:00Z");
+  s.register("brain", { name: "nightly", cron: "0 3 * * *", run: () => clock.sleep(10 * 60_000).then(() => ({ summary: "done" })) });
+  await clock.to("2026-09-29T01:01:00Z");
+  assert.equal(s.list()[0].running, true);
+  cfg.zone = "America/New_York";
+  s.refreshTimezone();
+  await clock.to("2026-09-29T01:15:00Z");
+  assert.equal(s.list()[0].lastRun?.outcome, "ok");
+  assert.equal(s.list()[0].nextRunAt, "2026-09-29T07:00:00.000Z");
+  await s.stop();
+});
+
 test("an unset or blank timezone means Europe/Amsterdam, without an error", async () => {
   for (const timezone of [undefined, "", "  "]) {
     const db = new DatabaseSync(":memory:");

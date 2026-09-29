@@ -2,7 +2,7 @@
 
 ## 1. Scheduler follows a zone reader
 
-- [ ] 1.1 In `packages/core/src/jobs/scheduler.ts`, accept `timezone` as a string or a reader, expose `timezone` as a getter, and add `refreshTimezone()` that re-resolves, logs an invalid value once per distinct value, and, when the zone changed, re-plans every cron job's `nextDue` from now and re-arms it, leaving interval jobs, active runs, catch-up timers and stored due times alone; add tests to `packages/core/test/jobs.test.ts` with a mutable reader and the fake clock: a change re-plans `0 3 * * *` to 03:00 New York and `list()` reports the new zone and next run; an unchanged zone re-plans nothing; an `everyMs` job keeps its next run; an invalid value falls back to Amsterdam and logs one error across two refreshes; a job's run in progress is not cancelled; verify `pnpm --filter @friday/core test` and `typecheck` pass
+- [x] 1.1 In `packages/core/src/jobs/scheduler.ts`, accept `timezone` as a string or a reader, expose `timezone` as a getter, and add `refreshTimezone()` that re-resolves, logs an invalid value once per distinct value, and, when the zone changed, re-plans every cron job's `nextDue` from now and re-arms it, leaving interval jobs, active runs, catch-up timers and stored due times alone; add tests to `packages/core/test/jobs.test.ts` with a mutable reader and the fake clock: a change re-plans `0 3 * * *` to 03:00 New York and `list()` reports the new zone and next run; an unchanged zone re-plans nothing; an `everyMs` job keeps its next run; an invalid value falls back to Amsterdam and logs one error across two refreshes; a job's run in progress is not cancelled; verify `pnpm --filter @friday/core test` and `typecheck` pass
 
 ## 2. Core resolves FRIDAY_TIMEZONE from the configuration store
 

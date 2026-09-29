@@ -23,8 +23,11 @@ export const systemClock: Clock = {
 
 export interface SchedulerOptions {
   store: JobStore;
-  /** IANA zone for cron expressions (FRIDAY_TIMEZONE, raw). Unset or blank means Europe/Amsterdam; invalid logs an error and falls back to it, as modules do. */
-  timezone?: string;
+  /**
+   * IANA zone for cron expressions (FRIDAY_TIMEZONE, raw), or a reader of it that `refreshTimezone` consults again.
+   * Unset or blank means Europe/Amsterdam; invalid logs an error and falls back to it, as modules do.
+   */
+  timezone?: string | (() => string | undefined);
   /** Wait this long after registration before a catch-up run (FRIDAY_JOB_CATCHUP_DELAY_MS). */
   catchupDelayMs?: number;
   /** How long removeOwner/stop wait for aborted runs to settle. */
@@ -78,7 +81,10 @@ interface Run {
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export class Scheduler {
-  readonly timezone: string;
+  private zone = DEFAULT_TIME_ZONE;
+  private readonly readZone: () => string | undefined;
+  /** The last invalid value logged, so each distinct bad value is reported once. */
+  private reportedInvalid: string | undefined;
   private readonly jobs = new Map<string, Job>();
   /** In-flight runs by job id. Outlives unregistration so a re-registered job cannot overlap a run that ignored its signal. */
   private readonly active = new Map<string, Run>();
@@ -94,9 +100,48 @@ export class Scheduler {
     this.log = opts.log ?? console;
     this.catchupDelayMs = opts.catchupDelayMs ?? 30_000;
     this.graceMs = opts.graceMs ?? 10_000;
-    const { zone, valid } = resolveTimeZone(opts.timezone);
-    if (!valid) this.log.error(`jobs: invalid timezone "${opts.timezone}" (FRIDAY_TIMEZONE); cron jobs are scheduled in ${DEFAULT_TIME_ZONE}`);
-    this.timezone = zone;
+    const tz = opts.timezone;
+    this.readZone = typeof tz === "function" ? tz : () => tz;
+    this.zone = this.resolveZone();
+  }
+
+  /** The zone cron expressions are evaluated in right now. */
+  get timezone(): string {
+    return this.zone;
+  }
+
+  /**
+   * Read FRIDAY_TIMEZONE again (core calls this when it is saved or cleared). When the zone changed, every
+   * cron job's next run is planned afresh from now in the new zone. Interval jobs, runs in progress, pending
+   * catch-ups and the stored due times are left alone.
+   */
+  refreshTimezone(): void {
+    const zone = this.resolveZone();
+    if (zone === this.zone) return;
+    this.zone = zone;
+    const now = this.clock.now();
+    let replanned = 0;
+    for (const job of this.jobs.values()) {
+      if (job.spec.cron === undefined) continue;
+      if (job.timer !== undefined) this.clock.clearTimeout(job.timer);
+      job.timer = undefined;
+      job.nextDue = this.next(job, now);
+      this.arm(job);
+      replanned++;
+    }
+    this.log.log(`jobs: timezone changed to ${zone}; ${replanned} cron job(s) re-planned`);
+  }
+
+  private resolveZone(): string {
+    const raw = this.readZone();
+    const { zone, valid } = resolveTimeZone(raw);
+    if (valid) {
+      this.reportedInvalid = undefined;
+    } else if (this.reportedInvalid !== raw) {
+      this.reportedInvalid = raw;
+      this.log.error(`jobs: invalid timezone "${raw}" (FRIDAY_TIMEZONE); cron jobs are scheduled in ${DEFAULT_TIME_ZONE}`);
+    }
+    return zone;
   }
 
   forOwner(owner: string): OwnerJobs {
