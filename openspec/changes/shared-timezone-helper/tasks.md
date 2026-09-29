@@ -2,7 +2,7 @@
 
 ## 1. SDK helper
 
-- [ ] 1.1 Add `packages/sdk/src/time.ts` with `DEFAULT_TIME_ZONE`, `resolveTimeZone`, `localDate` and `householdTimeZone`, and export it from `packages/sdk/src/index.ts`; add `packages/sdk/test/time.test.ts` covering a valid zone, unset and blank (default, no warning), an invalid zone warning once across three calls with the shared wording, a zone changed between calls, a new invalid value warning again, and `localDate` across midnight in `Europe/Amsterdam`; verify `pnpm --filter @friday/sdk test` and `typecheck` pass and `pnpm --filter @friday/sdk build` emits `dist/time.js`
+- [x] 1.1 Add `packages/sdk/src/time.ts` with `DEFAULT_TIME_ZONE`, `resolveTimeZone`, `localDate` and `householdTimeZone`, and export it from `packages/sdk/src/index.ts`; add `packages/sdk/test/time.test.ts` covering a valid zone, unset and blank (default, no warning), an invalid zone warning once across three calls with the shared wording, a zone changed between calls, a new invalid value warning again, and `localDate` across midnight in `Europe/Amsterdam`; verify `pnpm --filter @friday/sdk test` and `typecheck` pass and `pnpm --filter @friday/sdk build` emits `dist/time.js`
 
 ## 2. Modules
 
