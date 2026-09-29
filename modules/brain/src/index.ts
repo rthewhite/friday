@@ -7,6 +7,7 @@
  */
 import { defineModule } from "@friday/sdk";
 import { renderContext } from "./context.js";
+import { runConsolidate } from "./nightly/consolidate.js";
 import { runExtract } from "./nightly/extract.js";
 import { DEFAULT_NIGHTLY_CRON, scheduleNightly, type NightlySteps } from "./nightly/job.js";
 import { RunStore } from "./nightly/runs.js";
@@ -61,7 +62,7 @@ export function createBrainModule(opts: BrainOptions = {}) {
       const extractDeps = { store, conversations: ctx.conversations, llm: ctx.llm, storage: ctx.storage, log: ctx.log, maxConversations, zone: () => ctx.config.get("FRIDAY_TIMEZONE") };
       const steps: NightlySteps = {
         extract: (signal) => runExtract(extractDeps, signal),
-        consolidate: async () => ({ ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }),
+        consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage: ctx.storage, log: ctx.log, budget }, signal),
       };
       defineBrainTools(ctx, store, today);
       registerBrainRoutes(ctx, store, budget);

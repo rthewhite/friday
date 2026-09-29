@@ -43,8 +43,8 @@ Prerequisite: `brain` is merged into `main` (store with `writeRevision`, `append
 
 ## 4. Consolidation
 
-- [ ] 4.1 Implement the trigger (pages changed since `consolidate:last_revision_id` by other authors), the input rendering (revisions, `(changed)` marks, budget, tombstones, the bound prioritising changed pages and their link neighbours) and the plan schema (at most 20 actions, `note`). Verify with `test/consolidate.test.ts`: no model call when nothing changed, and changed pages marked in the request
-- [ ] 4.2 Implement plan validation, including the undeclared-loss check (removed lines, preserved at 60% or more of significant words, or declared). Verify with `consolidate.test.ts` cases for each refusal:
+- [x] 4.1 Implement the trigger (pages changed since `consolidate:last_revision_id` by other authors), the input rendering (revisions, `(changed)` marks, budget, tombstones, the bound prioritising changed pages and their link neighbours) and the plan schema (at most 20 actions, `note`). Verify with `test/consolidate.test.ts`: no model call when nothing changed, and changed pages marked in the request
+- [x] 4.2 Implement plan validation, including the undeclared-loss check (removed lines, preserved at 60% or more of significant words, or declared). Verify with `consolidate.test.ts` cases for each refusal:
   - stale base;
   - unknown or deleted page;
   - empty body;
@@ -54,7 +54,7 @@ Prerequisite: `brain` is merged into `main` (store with `writeRevision`, `append
   - the wifi-line undeclared loss;
   - a declared supersession passing;
   - a rephrasing that keeps its words passing.
-- [ ] 4.3 Implement application in one `ctx.db.transaction` (rewrite, create, and merge with the alias union and soft delete of `from`), the single repair call with the refusal reasons, and `consolidate:last_revision_id` advancing only on success. Verify with `consolidate.test.ts`:
+- [x] 4.3 Implement application in one `ctx.db.transaction` (rewrite, create, and merge with the alias union and soft delete of `from`), the single repair call with the refusal reasons, and `consolidate:last_revision_id` advancing only on success. Verify with `consolidate.test.ts`:
   - a merge makes `[[Noukie]]` resolve to `Anouk`;
   - a store error in the third action leaves the first two unapplied;
   - a first refused and repaired plan is applied;

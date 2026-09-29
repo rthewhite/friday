@@ -311,14 +311,22 @@ export class BrainStore {
     });
   }
 
-  softDelete(id: string, author: Author): Page {
+  softDelete(id: string, author: Author, opts: { base?: number; note?: string } = {}): Page {
     return this.db.transaction(() => {
       const page = this.live(id);
       if (page.isProfile) throw new BrainError("profile", "the profile cannot be deleted");
+      if (opts.base !== undefined && opts.base !== page.revisionId) throw new BrainError("stale", "the page changed since it was opened", page);
       const at = this.now().toISOString();
       this.db.prepare("UPDATE brain__pages SET deleted_at = ? WHERE id = ?").run(at, id);
-      return this.writeRevision({ ...page, deletedAt: at }, author, page, { note: "deleted" });
+      return this.writeRevision({ ...page, deletedAt: at }, author, page, { note: opts.note ?? "deleted" });
     });
+  }
+
+  /** The id of the newest revision in the brain (0 when there is none). */
+  lastRevisionId(): number {
+    const seq = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'brain__revisions'").get() as { seq: number } | undefined;
+    const max = (this.db.prepare("SELECT max(id) AS m FROM brain__revisions").get() as { m: number | null }).m ?? 0;
+    return Math.max(seq?.seq ?? 0, max);
   }
 
   undelete(id: string, author: Author): Page {

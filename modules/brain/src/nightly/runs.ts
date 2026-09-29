@@ -104,7 +104,6 @@ export class RunStore {
     const max = (this.db.prepare("SELECT max(id) AS m FROM brain__revisions").get() as { m: number | null }).m ?? 0;
     return Math.max(seq?.seq ?? 0, max) + 1;
   }
-
   start(trigger: string): Run {
     const id = Number(this.db
       .prepare("INSERT INTO brain__runs (trigger, started_at, first_revision_id) VALUES (?, ?, ?)")

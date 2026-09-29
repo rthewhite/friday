@@ -10,7 +10,7 @@
   "fake": {
     "plan": {
       "actions": [
-        { "kind": "rewrite", "page": "{{id:Anouk}}", "base": "{{rev:Anouk}}", "body": "My sister. Lives in Utrecht. Birthday: 3 November.", "dropped": [{ "line": "My sister. Lives in Amsterdam.", "reason": "superseded by the 2026-09-29 note: moved to Utrecht" }] }
+        { "kind": "rewrite", "page": "{{id:Anouk}}", "base": "{{rev:Anouk}}", "body": "My sister. Moved to Utrecht in September 2026. Birthday: 3 November.", "dropped": [{ "line": "My sister. Lives in Amsterdam.", "reason": "superseded by the 2026-09-29 note: moved to Utrecht" }] }
       ],
       "note": "Folded Anouk's notes."
     }

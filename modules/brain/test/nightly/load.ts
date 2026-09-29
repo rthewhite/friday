@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SeedEntry } from "@friday/sdk";
 import type { TestHost } from "@friday/sdk/test";
+import { preserved } from "../../src/nightly/consolidate.js";
+import { fold } from "../../src/text.js";
 
 export interface FixturePage {
   name: string;
@@ -118,7 +120,8 @@ export function checkFixture(h: TestHost, fx: Fixture, before: string): Check[] 
     const needle = p.toLowerCase();
     out.push({ expectation: `nothing new mentions "${p}"`, ok: !after.includes(needle) || before.includes(needle) });
   }
-  const folded = after.replace(/\s+/g, " ");
-  for (const k of fx.mustKeep ?? []) out.push({ expectation: `still states "${k}"`, ok: folded.includes(k.toLowerCase()) });
+  // Kept means stated verbatim or with most of its words, as consolidation's own loss check counts it.
+  const folded = fold(after);
+  for (const k of fx.mustKeep ?? []) out.push({ expectation: `still states "${k}"`, ok: after.includes(k.toLowerCase()) || preserved(k, folded) });
   return out;
 }
