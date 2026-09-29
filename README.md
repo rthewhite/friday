@@ -248,6 +248,8 @@ ctx.jobs.schedule({
 
 `ctx.jobs.trigger("nightly")` starts it on demand. Remote modules have no `ctx.jobs`. Behaviour:
 
+- **Time zone.** Cron is evaluated in `FRIDAY_TIMEZONE` from the environment, read once at startup (a value saved in the portal reaches modules but not cron yet). Unset or invalid means `Europe/Amsterdam`, the same fallback every module uses; an invalid value is logged as an error. Modules resolve the zone with `householdTimeZone(ctx.config, warn)` from `@friday/sdk`, which reads it per call and warns once per invalid value.
+
 - **No overlap.** A run that comes due while the previous one is still going is recorded as `skipped`. After a timeout, reload or shutdown the handler's `signal` is aborted, and the job doesn't run again until the handler has actually settled.
 - **Catch-up.** Core stores the due time of each job's last scheduled run. If one or more due times passed while Friday was down, the job runs once (trigger `catch-up`) `FRIDAY_JOB_CATCHUP_DELAY_MS` (30 s) after startup, then continues on its schedule. A new job waits for its first due time, and a quick module reload doesn't cause a catch-up.
 - **History.** Every run is recorded with trigger (`schedule`, `catch-up`, `manual`, `module`), start, duration, outcome (`ok`, `failed`, `skipped`, `cancelled`), summary and error; the last `FRIDAY_JOB_HISTORY` (50) runs per job are kept. A failing run never affects the schedule or the server. Runs still going when Friday is killed are marked `cancelled` at the next start.

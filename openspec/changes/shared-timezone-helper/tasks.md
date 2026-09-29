@@ -16,7 +16,7 @@
 
 ## 4. Documentation
 
-- [ ] 4.1 Update `FRIDAY_TIMEZONE` wherever it is documented (README, `.env.example`, `openspec/config.yaml` context): one default and fallback, `Europe/Amsterdam`, for modules and cron, and a note that cron reads it from the environment at startup only; verify with `grep -rn FRIDAY_TIMEZONE README.md .env.example openspec/config.yaml` that no text still says cron falls back to UTC
+- [x] 4.1 Update `FRIDAY_TIMEZONE` wherever it is documented (README, `.env.example`, `openspec/config.yaml` context): one default and fallback, `Europe/Amsterdam`, for modules and cron, and a note that cron reads it from the environment at startup only; verify with `grep -rn FRIDAY_TIMEZONE README.md .env.example openspec/config.yaml` that no text still says cron falls back to UTC
 
 ## 5. Integration
 
