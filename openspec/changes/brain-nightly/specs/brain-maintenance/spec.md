@@ -166,7 +166,7 @@ The brain SHALL serve its recent runs, newest first, at `GET /api/modules/brain/
 - soft-delete a page the run created;
 - for a merge target, also undelete the absorbed page.
 
-It SHALL respond 409 `stale` when the page changed after the run. The portal's brain page SHALL have a `Nightly` tab listing runs with time, trigger, outcome and summary. It SHALL show, for a selected run, each page's diff from before to after the run, its dropped lines and reasons, its source conversations, and a `Revert` action.
+It SHALL respond 409 `stale` when the page changed after the run, or was written by someone other than the nightly pass during it. The portal's brain page SHALL have a `Nightly` tab listing runs with time, trigger, outcome and summary. It SHALL show, for a selected run, each page's diff from before to after the run, its dropped lines and reasons, its source conversations, and a `Revert` action.
 
 #### Scenario: Review last night
 - **WHEN** the user opens the `Nightly` tab after a run that rewrote `Anouk` and dropped one line

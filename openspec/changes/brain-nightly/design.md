@@ -42,13 +42,13 @@ brain/nightly  (cron BRAIN_NIGHTLY_CRON, timeoutMs 30 min)
 - **`brain__runs` (brain migration 2):** `id`, `trigger`, `started_at`, `finished_at`, `outcome` (`ok`, `partial` or `failed`; unset while running), `conversations`, `skipped`, `notes`, `refused` (notes the brain refused), `rewrites`, `creates`, `merges`, `dropped_json` (`[{ pageId, page, line, reason }]`), `merges_json` (`[{ from: pageId, into: pageId }]`), `first_revision_id`, `last_revision_id`, `error`, `summary` (the line the Jobs page shows, so the Nightly tab shows the same).
 - **Why the brain keeps its own run table** alongside the Jobs page history: the review UI needs the revision range, the dropped lines and the merges of each run. The Jobs page keeps timing and the summary line.
 - **Cancellation:** the signal is passed to every `generate` call and checked between conversations. A cancelled run finishes its row as `partial` with `cancelled` (as the spec requires for an interrupted extraction), skips consolidation, and leaves the watermark where the last completed conversation put it. `failed` is kept for runs that threw.
-- **Config:** `BRAIN_NIGHTLY_CRON` is read at `init`. `off` skips `schedule`, and changing it needs a module reload (Modules page), like any config read at `init`.
+- **Config:** `BRAIN_NIGHTLY_CRON` is read at `init`. `off` skips `schedule`, and changing it needs a module reload (Modules page), like any config read at `init`. An invalid expression disables only the job, with an error in the log; the brain's tools, context and portal still load.
 
 ### D2. Watermark, per-conversation progress, retries
 
 All of this is kept in `ctx.storage`:
 
-- `extract:watermark`: the `quietAt` of the last conversation handled, in list order.
+- `extract:watermark`: `{ quietAt, ids }`, the `quietAt` of the last conversation handled in list order plus the ids already handled at exactly that time. Several conversations can go quiet in the same millisecond, and core lists with a strict `quiet_at > ?`, so the next run lists from just before `quietAt` and skips those ids.
 - `extract:seen:<id>`: `{ seq }`, the last entry seq extracted from that conversation.
 - `extract:retry:<id>`: `{ attempts, lastError }`.
 
@@ -64,7 +64,7 @@ Per run:
    - On success, set `seen.seq` to the last entry and clear the retry key.
    - On `invalid_output` or `blocked`, increment `attempts`. At 3 attempts, log it, count it in the run's `error`, mark it seen and clear the retry key.
    - On `unavailable`, stop the extract step at once and mark the run `partial`. This is the only failure that doesn't advance past the conversation. `cancelled` works the same way.
-4. Advance `extract:watermark` to each listed conversation's `quietAt` right after it is handled, including skipped and retry-queued ones. A crash mid-run then repeats at most one conversation, and appending it again is idempotent: its notes carry the conversation's date (D3), so `appendNote`'s duplicate skip (the latest note, or a note of the same day) recognises them.
+4. Advance `extract:watermark` to each listed conversation's `quietAt` right after it is handled, including skipped and retry-queued ones. A conversation that is both a retry and listed (it went quiet again) is handled once, first, but only moves the watermark at its list position, so the watermark never passes an unhandled conversation. A crash mid-run then repeats at most one conversation, and appending it again is idempotent: its notes carry the conversation's date (D3), so `appendNote`'s duplicate skip (the latest note, or a note of the same day) recognises them.
 
 - **The first run** has no watermark and lists from the beginning, so the retained backlog is worked through `BRAIN_NIGHTLY_MAX_CONVERSATIONS` at a time over the following nights.
 - **Pruning:** `extract:seen:*` keys for conversations that no longer exist are pruned at the end of each run, one `get` per key. Retention keeps that set bounded.
@@ -135,7 +135,7 @@ The schema is one flat action object with optional fields, and the merge bases a
 - The names of created or renamed pages aren't tombstoned or taken. This is checked again by the store inside the transaction.
 - **No undeclared loss:**
   - Take every non-empty line removed from the pages the plan touches. That is lines in the old bodies of rewritten or merged pages that no longer appear verbatim anywhere in the plan's resulting pages. Blank lines, headings and a note's date prefix are ignored.
-  - Such a line is **preserved** when at least 60% of its significant words (at least 3 characters and not a stopword, or a number) occur in the folded text of the resulting pages.
+  - Such a line is **preserved** when at least 60% of its significant words (at least 3 characters and not a stopword, or a number) occur as words of the resulting pages: whole, or by a shared prefix of at least 4 letters for plurals and inflections. Numbers match exactly, so a "2" isn't found inside a date.
   - A removed line that is neither preserved nor declared in `dropped` refuses the plan, and the reason names the page and the line.
 - **Profile budget:** when the profile is over budget before the plan, the plan must not make it larger.
 
@@ -147,7 +147,8 @@ The schema is one flat action object with optional fields, and the merge bases a
   - `merge` writes the `into` body. Its aliases become the union of both pages' aliases plus the `from` name. It then soft-deletes `from` and frees its names first, so they can move.
 - Any store error rolls back the whole plan, and counts as a refusal (its message is a repair reason).
 - **Repair:** after a refusal, the model gets one second call with its plan and the list of reasons ("revise the plan to fix these; an empty plan is fine"). When that also fails, nothing is written and the run is `partial`, with the reasons in `error`.
-- `consolidate:last_revision_id` advances only after a successful plan or an empty one.
+- `consolidate:last_revision_id` advances only after a successful plan or an empty one, to the newest revision id taken **before** the model was asked (changes made while it thinks stay pending). When changed pages were beyond the 60000-character bound and only indexed, it stops just before the first of their changes, so they come back next time. Only pages shown in full may be rewritten or merged.
+- Revisions noted `reverted nightly run <id>` don't count as changes: consolidating the page again would redo what the user just undid.
 
 **Model settings:** `model: "standard"`, `temperature: 0.2`, `maxOutputTokens: 32768`, `timeoutMs: 300000`.
 
@@ -181,7 +182,7 @@ The schema is one flat action object with optional fields, and the merge bases a
   - a page changed by the run: restore the pre-run revision as a new `user` revision noted `reverted nightly run <id>`;
   - a page created by the run: soft-delete it;
   - the `into` of a merge: restore it and undelete the `from` page (its names were freed by the restore); reverting the `from` page reverts the merge through its `into`;
-  - all in one transaction. It returns 409 `stale` when the page changed after the run, and the UI then offers to open the page instead.
+  - all in one transaction. It returns 409 `stale` when the page changed after the run, or when someone else (the user, `brain_remember`) wrote it during the run, since restoring the pre-run revision would erase that write. The UI then offers to open the page instead.
 
 **UI:** a `Nightly` tab in `/m/brain`:
 
