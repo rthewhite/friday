@@ -4,8 +4,8 @@ Prerequisite: `brain` is merged into `main` (store with `writeRevision`, `append
 
 ## 1. Run record and job skeleton
 
-- [ ] 1.1 Add brain migration 2 (`brain__runs` per design D1), and a run-record helper to start and finish runs with counts, dropped lines, merges, the revision range and the error. Verify with `modules/brain/test/runs.test.ts`: a started and finished run round-trips, and `first_revision_id`/`last_revision_id` bracket the revisions written in between
-- [ ] 1.2 Schedule `nightly` from `BRAIN_NIGHTLY_CRON` (default `0 3 * * *`, `off` skips it, `timeoutMs` 30 min) with a handler that runs extract, then consolidate, finishes the run row and returns the summary. Add both keys to the manifest config. Verify with `test/nightly.test.ts` via `createTestHost`: `host.jobs` shows the cron, `off` registers nothing, and `runJob` on an empty brain returns `ok` with a zero-count summary
+- [x] 1.1 Add brain migration 2 (`brain__runs` per design D1), and a run-record helper to start and finish runs with counts, dropped lines, merges, the revision range and the error. Verify with `modules/brain/test/runs.test.ts`: a started and finished run round-trips, and `first_revision_id`/`last_revision_id` bracket the revisions written in between
+- [x] 1.2 Schedule `nightly` from `BRAIN_NIGHTLY_CRON` (default `0 3 * * *`, `off` skips it, `timeoutMs` 30 min) with a handler that runs extract, then consolidate, finishes the run row and returns the summary. Add both keys to the manifest config. Verify with `test/nightly.test.ts` via `createTestHost`: `host.jobs` shows the cron, `off` registers nothing, and `runJob` on an empty brain returns `ok` with a zero-count summary
 
 ## 2. Shared guidance and fixtures
 

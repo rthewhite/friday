@@ -62,4 +62,32 @@ export const migrations: ModuleMigration[] = [
       db.prepare("INSERT INTO brain__names (key, page_id, kind) VALUES ('profile', ?, 'name')").run(PROFILE_ID);
     },
   },
+  {
+    version: 2,
+    name: "nightly-runs",
+    // One row per brain/nightly run (brain-nightly design D1): counts, dropped lines, merges, and the
+    // range of revision ids it may have written, for the Nightly review and revert.
+    up: `
+      CREATE TABLE brain__runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        outcome TEXT,
+        conversations INTEGER NOT NULL DEFAULT 0,
+        skipped INTEGER NOT NULL DEFAULT 0,
+        notes INTEGER NOT NULL DEFAULT 0,
+        refused INTEGER NOT NULL DEFAULT 0,
+        rewrites INTEGER NOT NULL DEFAULT 0,
+        creates INTEGER NOT NULL DEFAULT 0,
+        merges INTEGER NOT NULL DEFAULT 0,
+        dropped_json TEXT NOT NULL DEFAULT '[]',
+        merges_json TEXT NOT NULL DEFAULT '[]',
+        first_revision_id INTEGER NOT NULL,
+        last_revision_id INTEGER,
+        error TEXT
+      );
+      CREATE INDEX brain__runs_started ON brain__runs (started_at DESC);
+    `,
+  },
 ];

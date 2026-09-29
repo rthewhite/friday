@@ -25,7 +25,7 @@ test("a second start on the same data runs no migration and keeps the single pro
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = join(dir, "friday.db");
   const first = openModuleDb(file, "brain");
-  assert.deepEqual(first.migrate(migrations), [1]);
+  assert.deepEqual(first.migrate(migrations), [1, 2]);
   first.close();
   const second = openModuleDb(file, "brain");
   assert.deepEqual(second.migrate(migrations), []);
