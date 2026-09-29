@@ -9,6 +9,12 @@ test("module exposes the three builtin tools", async () => {
   assert.equal(builtin.manifest.id, "builtin");
 });
 
+test("set_timer and end_conversation are voice-only; get_current_time is offered in both", async () => {
+  const h = await createTestHost(builtin);
+  assert.deepEqual(h.toolsIn("voice"), ["get_current_time", "set_timer", "end_conversation"]);
+  assert.deepEqual(h.toolsIn("chat"), ["get_current_time"]);
+});
+
 test("get_current_time: default zone, configured zone, explicit zone", async () => {
   const h = await createTestHost(builtin);
   const d = await h.call("get_current_time");

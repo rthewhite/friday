@@ -36,6 +36,8 @@ export default defineModule({
         required: ["seconds"],
       },
       scheduling: "WHEN_IDLE",
+      // A chat turn waits for every tool result before it answers, so a timer would hold the reply.
+      channels: ["voice"],
       handler: async ({ seconds, label = "timer" }) => {
         await new Promise((r) => setTimeout(r, seconds * 1000));
         return { done: true, label, message: `${label} finished after ${seconds} seconds` };
@@ -52,6 +54,7 @@ export default defineModule({
         properties: { reason: { type: Type.STRING, description: "Short reason, e.g. 'request done' or 'user said goodbye'" } },
       },
       scheduling: "SILENT",
+      channels: ["voice"],
       // `endConversation` is the registry's reserved key: stripped from the result, it tells the session to close.
       handler: ({ reason = "done" }) => ({ ending: true, reason, endConversation: reason }),
     });

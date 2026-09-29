@@ -2,11 +2,11 @@
 
 ## 1. Tool channels
 
-- [ ] 1.1 Add `channels` to `Tool` in `packages/sdk/src/tool.ts`, validate it in `ToolRegistry.add` (`invalid channels for <name>`), filter `declarations(channel?)`, and treat out-of-channel tools as unknown in `callTool(name, args, { channel })`; verify with new registry tests in `packages/sdk/test/` covering default channels, narrowing, invalid values and the restricted call not running the handler
-- [ ] 1.2 Pass `channels` through `ctx.defineTool` and `createTestHost`; verify a module test can read a tool's channels
-- [ ] 1.3 Mark `set_timer` and `end_conversation` as `channels: ["voice"]` in `modules/builtin`; verify with builtin tests that neither is in `declarations("chat")` and both are in `declarations("voice")`
-- [ ] 1.4 Make `GeminiSession.open` use `declarations("voice")`; verify with a session test that a chat-only tool is not declared
-- [ ] 1.5 Verify that MCP and remote module tools register without `channels` and appear in both channels (existing MCP/remote tests extended); run `pnpm --filter @friday/sdk test typecheck`, `pnpm --filter @friday/core test typecheck` and the builtin module's tests
+- [x] 1.1 Add `channels` to `Tool` in `packages/sdk/src/tool.ts`, validate it in `ToolRegistry.add` (`invalid channels for <name>`), filter `declarations(channel?)`, and treat out-of-channel tools as unknown in `callTool(name, args, { channel })`; verify with new registry tests in `packages/sdk/test/` covering default channels, narrowing, invalid values and the restricted call not running the handler
+- [x] 1.2 Pass `channels` through `ctx.defineTool` and `createTestHost`; verify a module test can read a tool's channels
+- [x] 1.3 Mark `set_timer` and `end_conversation` as `channels: ["voice"]` in `modules/builtin`; verify with builtin tests that neither is in `declarations("chat")` and both are in `declarations("voice")`
+- [x] 1.4 Make `GeminiSession.open` use `declarations("voice")`; verify with a session test that a chat-only tool is not declared
+- [x] 1.5 Verify that MCP and remote module tools register without `channels` and appear in both channels (existing MCP/remote tests extended); run `pnpm --filter @friday/sdk test typecheck`, `pnpm --filter @friday/core test typecheck` and the builtin module's tests
 
 ## 2. Prompt split and chat settings
 
