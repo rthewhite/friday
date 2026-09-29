@@ -64,6 +64,7 @@ export async function runNightly(runs: RunStore, steps: NightlySteps, trigger: J
     const problems = [e.stopped, ...e.errors, c?.failed].filter((x): x is string => !!x);
     const outcome: RunOutcome = e.stopped || c?.failed ? "partial" : "ok";
     const error = problems.length ? problems.join("; ") : undefined;
+    const summary = summarize(e, c, outcome, error);
     const finished = runs.finish(run.id, {
       outcome,
       conversations: e.conversations,
@@ -75,11 +76,12 @@ export async function runNightly(runs: RunStore, steps: NightlySteps, trigger: J
       mergeRecords: c?.merges ?? [],
       dropped: c?.dropped ?? [],
       error,
+      summary,
     });
-    return { run: finished, summary: summarize(e, c, outcome, error) };
+    return { run: finished, summary };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    runs.finish(run.id, { outcome: "failed", conversations: e.conversations, skipped: e.skipped, notes: e.notes, refused: e.refused, error: message });
+    runs.finish(run.id, { outcome: "failed", conversations: e.conversations, skipped: e.skipped, notes: e.notes, refused: e.refused, error: message, summary: `failed: ${message}`.slice(0, 500) });
     throw err;
   }
 }

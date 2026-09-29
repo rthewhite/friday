@@ -62,7 +62,7 @@ Prerequisite: `brain` is merged into `main` (store with `writeRevision`, `append
 
 ## 5. Review and revert
 
-- [ ] 5.1 Add the routes `GET runs`, `GET runs/:id` (pages touched with pre-run and last revisions, dropped lines, merges, source conversations marked gone via `ctx.conversations.get`) and `POST runs/:id/pages/:pageId/revert` (restore, soft-delete a created page, undelete a merge's `from`, one transaction, 409 `stale`). Verify with `test/runs-routes.test.ts` via `host.request`: review shape, revert of a rewrite, revert of a merge restoring `Noukie`, revert of a created page, stale 409, and a gone source
+- [x] 5.1 Add the routes `GET runs`, `GET runs/:id` (pages touched with pre-run and last revisions, dropped lines, merges, source conversations marked gone via `ctx.conversations.get`) and `POST runs/:id/pages/:pageId/revert` (restore, soft-delete a created page, undelete a merge's `from`, one transaction, 409 `stale`). Verify with `test/runs-routes.test.ts` via `host.request`: review shape, revert of a rewrite, revert of a merge restoring `Noukie`, revert of a created page, stale 409, and a gone source
 - [ ] 5.2 Add the `Nightly` tab to the brain UI: a runs table (time, trigger, outcome, summary), and a run view with a per-page diff from the brain's line diff, dropped lines with reasons, source links (gone marked), `Revert` with the stale fallback to open the page, and an empty state linking to `/settings/jobs`. Verify `pnpm --filter @friday/portal build` passes, then in `pnpm dev` seed a run through `Run now` on the Jobs page (with a real key) and revert one page
 
 ## 6. Eval, docs and integration

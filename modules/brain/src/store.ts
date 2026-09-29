@@ -302,12 +302,12 @@ export class BrainStore {
   }
 
   /** Makes a revision's content current again, as a new revision noting which one was restored. */
-  restore(id: string, revisionId: number, author: Author, base?: number): Page {
+  restore(id: string, revisionId: number, author: Author, base?: number, note = `restored revision ${revisionId}`): Page {
     return this.db.transaction(() => {
       const page = this.live(id);
       const rev = this.revision(id, revisionId);
       if (!rev) throw new BrainError("not_found", `revision ${revisionId} of this page does not exist`);
-      return this.writeRevision(page, author, rev, { base, note: `restored revision ${revisionId}`, keepOldName: false });
+      return this.writeRevision(page, author, rev, { base, note, keepOldName: false });
     });
   }
 

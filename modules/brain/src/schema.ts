@@ -85,7 +85,8 @@ export const migrations: ModuleMigration[] = [
         merges_json TEXT NOT NULL DEFAULT '[]',
         first_revision_id INTEGER NOT NULL,
         last_revision_id INTEGER,
-        error TEXT
+        error TEXT,
+        summary TEXT
       );
       CREATE INDEX brain__runs_started ON brain__runs (started_at DESC);
     `,

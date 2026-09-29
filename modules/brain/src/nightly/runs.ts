@@ -45,6 +45,8 @@ export interface Run extends RunCounts {
   firstRevisionId: number;
   lastRevisionId?: number;
   error?: string;
+  /** The line the Jobs page shows for this run. */
+  summary?: string;
 }
 
 export interface RunFinish extends Partial<RunCounts> {
@@ -53,6 +55,7 @@ export interface RunFinish extends Partial<RunCounts> {
   merges?: number;
   mergeRecords?: MergeRecord[];
   error?: string;
+  summary?: string;
 }
 
 interface RunRow {
@@ -73,6 +76,7 @@ interface RunRow {
   first_revision_id: number;
   last_revision_id: number | null;
   error: string | null;
+  summary: string | null;
 }
 
 const toRun = (r: RunRow): Run => ({
@@ -93,6 +97,7 @@ const toRun = (r: RunRow): Run => ({
   firstRevisionId: r.first_revision_id,
   ...(r.last_revision_id !== null ? { lastRevisionId: r.last_revision_id } : {}),
   ...(r.error !== null ? { error: r.error } : {}),
+  ...(r.summary !== null ? { summary: r.summary } : {}),
 });
 
 export class RunStore {
@@ -114,11 +119,11 @@ export class RunStore {
   finish(id: number, f: RunFinish): Run {
     this.db
       .prepare(`UPDATE brain__runs SET finished_at = ?, outcome = ?, conversations = ?, skipped = ?, notes = ?, refused = ?,
-        rewrites = ?, creates = ?, merges = ?, dropped_json = ?, merges_json = ?, last_revision_id = ?, error = ? WHERE id = ?`)
+        rewrites = ?, creates = ?, merges = ?, dropped_json = ?, merges_json = ?, last_revision_id = ?, error = ?, summary = ? WHERE id = ?`)
       .run(
         this.now().toISOString(), f.outcome, f.conversations ?? 0, f.skipped ?? 0, f.notes ?? 0, f.refused ?? 0,
         f.rewrites ?? 0, f.creates ?? 0, f.merges ?? f.mergeRecords?.length ?? 0,
-        JSON.stringify(f.dropped ?? []), JSON.stringify(f.mergeRecords ?? []), this.nextRevisionId() - 1, f.error ?? null, id,
+        JSON.stringify(f.dropped ?? []), JSON.stringify(f.mergeRecords ?? []), this.nextRevisionId() - 1, f.error ?? null, f.summary ?? null, id,
       );
     return this.get(id)!;
   }

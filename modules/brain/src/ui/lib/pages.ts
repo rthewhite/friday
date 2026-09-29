@@ -50,6 +50,31 @@ export interface RevisionDetail {
   createdAt: string;
 }
 
+export interface RunSummary {
+  id: number;
+  trigger: string;
+  startedAt: string;
+  finishedAt?: string;
+  outcome?: "ok" | "partial" | "failed";
+  summary?: string;
+  error?: string;
+}
+
+export interface RunPageView {
+  pageId: string;
+  name: string;
+  deleted: boolean;
+  before?: RevisionDetail;
+  after: RevisionDetail;
+  authors: string[];
+  sources: { id: string; exists: boolean }[];
+  dropped: { line: string; reason: string }[];
+  mergedInto?: string;
+  mergedFrom?: string;
+  currentRevisionId: number;
+  changedSince: boolean;
+}
+
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string | undefined, message: string, readonly body: Record<string, unknown>) {
     super(message);

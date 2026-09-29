@@ -10,6 +10,7 @@ import { renderContext } from "./context.js";
 import { runConsolidate } from "./nightly/consolidate.js";
 import { runExtract } from "./nightly/extract.js";
 import { DEFAULT_NIGHTLY_CRON, scheduleNightly, type NightlySteps } from "./nightly/job.js";
+import { registerRunRoutes } from "./nightly/review.js";
 import { RunStore } from "./nightly/runs.js";
 import { registerBrainRoutes } from "./routes.js";
 import { migrations } from "./schema.js";
@@ -66,6 +67,7 @@ export function createBrainModule(opts: BrainOptions = {}) {
       };
       defineBrainTools(ctx, store, today);
       registerBrainRoutes(ctx, store, budget);
+      registerRunRoutes(ctx, store, runs);
       scheduleNightly(ctx, runs, steps);
       ctx.prompt.addContext(() => renderContext(store));
     },
