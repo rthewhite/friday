@@ -68,6 +68,28 @@ test("a fact already on the page is not written again", async () => {
   assert.equal(revisions(), before);
 });
 
+test("a correction back to an older fact is stored as the newest note; same-day repeats are skipped", async () => {
+  const { remember, body, setNow } = await host();
+  setNow("2025-01-10T08:00:00Z");
+  await remember({ entity: "Home", fact: "Lives in Utrecht" });
+  setNow("2026-03-01T08:00:00Z");
+  await remember({ entity: "Home", fact: "Lives in Amsterdam" });
+  setNow("2026-09-29T08:00:00Z");
+  // Moving back: the older note says the same, but it isn't the latest one.
+  assert.deepEqual(await remember({ entity: "Home", fact: "Lives in Utrecht" }), { stored: true, page: "Home", created: false });
+  await remember({ entity: "Home", fact: "Has a garden" });
+  // Said twice in one conversation: the same-day note counts even when it isn't the latest.
+  assert.equal((await remember({ entity: "Home", fact: "lives in  utrecht" })).reason, "already_known");
+  assert.equal(body("Home"), "## Notes\n- 2025-01-10: Lives in Utrecht\n- 2026-03-01: Lives in Amsterdam\n- 2026-09-29: Lives in Utrecht\n- 2026-09-29: Has a garden");
+});
+
+test("a fact mentioned in the page's own text, or inside a longer note, is still noted", async () => {
+  const { h, remember, body } = await host();
+  await h.request("POST", "pages", { name: "Anouk", body: "She likes coffee a lot.\n\n## Notes\n- 2026-01-01: Dislikes coffee in the evening" });
+  assert.equal((await remember({ entity: "Anouk", fact: "likes coffee" })).stored, true);
+  assert.match(body("Anouk")!, /- 2026-09-29: likes coffee$/);
+});
+
 test("entity profile appends to the profile, whatever its budget", async () => {
   const { remember, body } = await host({ BRAIN_PROFILE_TOKEN_BUDGET: "5" });
   assert.deepEqual(await remember({ entity: "Profile", fact: "Prefers Celsius" }), { stored: true, page: "Profile", created: false });

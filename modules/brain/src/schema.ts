@@ -32,9 +32,10 @@ export const migrations: ModuleMigration[] = [
           kind TEXT NOT NULL
         );
         CREATE INDEX brain__names_page ON brain__names (page_id);
-        -- A full snapshot per write. Integer ids give revisions a total order (no AUTOINCREMENT).
+        -- A full snapshot per write. AUTOINCREMENT keeps ids increasing even after a purge deletes the
+        -- highest ones, so "revisions since id N" (brain-nightly) never misses a write.
         CREATE TABLE brain__revisions (
-          id INTEGER PRIMARY KEY,
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
           page_id TEXT NOT NULL REFERENCES brain__pages (id) ON DELETE CASCADE,
           author TEXT NOT NULL,
           base_revision_id INTEGER,

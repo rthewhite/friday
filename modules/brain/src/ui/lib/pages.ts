@@ -1,11 +1,9 @@
 /** Types and small helpers the brain UI shares between its pages. */
 import { nameKey } from "../../links.js";
-import { estimateTokens, hint } from "../../text.js";
+import { estimateTokens, fold, hint } from "../../text.js";
+import { PAGE_TYPES, type PageType } from "../../types.js";
 
-export { hint, estimateTokens, nameKey };
-
-export const PAGE_TYPES = ["person", "place", "project", "other"] as const;
-export type PageType = (typeof PAGE_TYPES)[number];
+export { hint, estimateTokens, nameKey, PAGE_TYPES, type PageType };
 
 export interface PageSummary {
   id: string;
@@ -70,11 +68,11 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   return data as T;
 }
 
-/** Whether a page matches the list's search box: every word in the name, aliases or body, case-insensitive. */
+/** Whether a page matches the list's search box: every word in the name, aliases or body, ignoring case and accents. */
 export function matches(page: Pick<PageSummary, "name" | "aliases" | "body">, query: string): boolean {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const words = fold(query).split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const text = [page.name, ...page.aliases, page.body].join("\n").toLowerCase();
+  const text = fold([page.name, ...page.aliases, page.body].join("\n"));
   return words.every((w) => text.includes(w));
 }
 

@@ -80,9 +80,13 @@ async function save() {
   } catch (e) {
     if (e instanceof ApiError && e.code === "stale") {
       // Keep the user's text; say who changed the page, and let them discard or overwrite.
-      const current = await api<PageDetail>("GET", `pages/${encodeURIComponent(id.value)}`);
-      const latest = current.revisions[0];
-      conflict.value = { author: latest?.author ?? "someone", at: latest?.createdAt ?? current.updatedAt, revisionId: current.revisionId };
+      try {
+        const current = await api<PageDetail>("GET", `pages/${encodeURIComponent(id.value)}`);
+        const latest = current.revisions[0];
+        conflict.value = { author: latest?.author ?? "someone", at: latest?.createdAt ?? current.updatedAt, revisionId: current.revisionId };
+      } catch (again) {
+        saveError.value = `The page changed since you opened it, and reloading it failed: ${again instanceof Error ? again.message : String(again)}. Your text is still here.`;
+      }
       return;
     }
     saveError.value = e instanceof Error ? e.message : String(e);
@@ -133,8 +137,8 @@ async function selectRevision(revId: number) {
   const idx = list.findIndex((r) => r.id === revId);
   const prevId = idx >= 0 ? list[idx + 1]?.id : undefined;
   try {
-    const rev = await api<RevisionDetail>("GET", `pages/${encodeURIComponent(id.value)}/revisions/${revId}`);
-    const previous = prevId !== undefined ? await api<RevisionDetail>("GET", `pages/${encodeURIComponent(id.value)}/revisions/${prevId}`) : undefined;
+    const get = (r: number) => api<RevisionDetail>("GET", `pages/${encodeURIComponent(id.value)}/revisions/${r}`);
+    const [rev, previous] = await Promise.all([get(revId), prevId !== undefined ? get(prevId) : undefined]);
     selected.value = { rev, ...(previous ? { previous } : {}) };
   } catch (e) {
     historyError.value = e instanceof Error ? e.message : String(e);

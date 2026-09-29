@@ -46,6 +46,19 @@ test("a link to nothing is dangling; links in deleted pages are ignored", (t) =>
   assert.equal(store.links(trip)[0]!.pageId, undefined);
 });
 
+test("links inside code spans and fenced blocks are not links, as on the rendered page", (t) => {
+  const body = "Real [[Anouk]] and `[[Code]]` and ``a ` [[Tick]]``\n```\n[[Fenced]]\n```\n~~~js\n[[Tilde]]\n~~~\nUnclosed ` [[After]]";
+  assert.deepEqual(parseLinks(body).map((l) => l.target), ["Anouk", "After"]);
+  assert.equal(unlink(body, new Set(["code", "fenced", "anouk", "tilde", "tick"])), body.replace("[[Anouk]]", "Anouk"));
+  const { store, close } = brainStore();
+  t.after(close);
+  const job = store.create({ name: "Old job" }, "user");
+  store.create({ name: "Notes", body: "`[[Old job]]` is a code sample" }, "user");
+  assert.deepEqual(store.backlinks(job), []);
+  store.softDelete(job.id, "user");
+  assert.deepEqual(store.purge(job.id, "Old job", "user"), []);
+});
+
 test("unlink rewrites only the given names and leaves other links intact", () => {
   const body = "Worked at [[Old job]] and [[old  JOB]], lives in [[Utrecht]].";
   assert.equal(unlink(body, new Set(["old job"])), "Worked at Old job and old  JOB, lives in [[Utrecht]].");

@@ -95,6 +95,27 @@ test("a rename keeps the old name as an alias unless the save opts out", (t) => 
   assert.equal(store.resolve("Anouk de Wit"), undefined);
 });
 
+test("a rename that can't keep the old name as a 21st alias says so", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const p = store.create({ name: "Anouk", aliases: Array.from({ length: 20 }, (_, i) => `a${i}`) }, "user");
+  assert.throws(() => store.save(p.id, { ...p, name: "Anouk de Wit" }, "user"), code("invalid", /renaming keeps "Anouk" as an alias, but the page already has 20/));
+  assert.equal(store.save(p.id, { ...p, name: "Anouk de Wit" }, "user", { keepOldName: false }).name, "Anouk de Wit");
+});
+
+test("revision ids keep increasing after a purge deletes the newest ones", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const keep = store.create({ name: "Keep" }, "user");
+  const gone = store.create({ name: "Gone" }, "user");
+  store.save(gone.id, { ...gone, body: "more" }, "user");
+  store.softDelete(gone.id, "user");
+  const highest = store.get(gone.id)!.revisionId;
+  store.purge(gone.id, "Gone", "user");
+  const next = store.save(keep.id, { ...keep, body: "after the purge" }, "user");
+  assert.ok(next.revisionId > highest, `${next.revisionId} > ${highest}`);
+});
+
 test("the profile can't be renamed, retyped or deleted", (t) => {
   const { store, close } = brainStore();
   t.after(close);

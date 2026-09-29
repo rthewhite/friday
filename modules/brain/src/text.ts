@@ -1,5 +1,10 @@
 /** Small text helpers shared by the prompt context and the portal UI (no Node or database imports). */
 
+/** Lower-cased, accents stripped: how search compares text (brain_recall and the portal's search box). */
+export function fold(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase();
+}
+
 /** The profile budget's token estimate: characters divided by 4, rounded up. */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);

@@ -4,11 +4,9 @@
  * per distinct term in its body, or two when the term is in its name or aliases.
  */
 import type { Page } from "./store.js";
+import { fold } from "./text.js";
 
-/** Lower-cased, accents stripped. */
-export function fold(text: string): string {
-  return text.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase();
-}
+export { fold };
 
 /** Longest query the search considers, in distinct words. */
 export const MAX_TERMS = 8;

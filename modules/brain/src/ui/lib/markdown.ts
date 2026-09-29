@@ -7,6 +7,7 @@
  * inside the rendered HTML.
  */
 import MarkdownIt, { type StateInline } from "markdown-it";
+import { isLinkTarget } from "../../links.js";
 
 /** Maps a link target (as written) to a page id, or undefined when it is dangling. */
 export type Resolve = (target: string) => string | undefined;
@@ -28,7 +29,7 @@ function wikilink(state: StateInline, silent: boolean): boolean {
   const end = src.indexOf("]]", start + 2);
   if (end === -1) return false;
   const target = src.slice(start + 2, end);
-  if (!target.trim() || target.length > 80 || /[[\]\n]/.test(target)) return false;
+  if (!isLinkTarget(target)) return false;
   if (!silent) {
     const token = state.push("wikilink", "", 0);
     token.content = target.trim();

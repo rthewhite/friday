@@ -8,9 +8,9 @@ import { randomUUID } from "node:crypto";
 import type { ModuleDb } from "@friday/sdk";
 import { nameKey, parseLinks, unlink } from "./links.js";
 import { PROFILE_ID } from "./schema.js";
+import { PAGE_TYPES, type PageType } from "./types.js";
 
-export const PAGE_TYPES = ["person", "place", "project", "other"] as const;
-export type PageType = (typeof PAGE_TYPES)[number];
+export { PAGE_TYPES, type PageType };
 
 export const AUTHORS = ["system", "user", "remember", "extraction", "consolidation"] as const;
 export type Author = (typeof AUTHORS)[number];
@@ -344,7 +344,9 @@ export class BrainStore {
 
   /**
    * `brain_remember` (design D3): appends `- <date>: <fact>` under the page's `## Notes`, creating the
-   * page when nothing matches `entity`. Never changes existing text; a fact already on the page is skipped.
+   * page when nothing matches `entity` (`profile` resolves through its name). Never changes existing text.
+   * A fact that repeats the latest note, or a note of the same day, is skipped; anything else is a new
+   * note, so a correction back to an older fact is kept as the newest one.
    */
   appendNote(entity: string, fact: string, type: PageType | undefined, date: string): RememberResult {
     const clean = typeof fact === "string" ? fact.replace(/\s+/g, " ").trim() : "";
@@ -354,12 +356,12 @@ export class BrainStore {
     const note = `- ${date}: ${clean}`;
     try {
       return this.db.transaction((): RememberResult => {
-        const target = typeof entity === "string" && nameKey(entity) === "profile" ? this.profile() : this.resolve(String(entity ?? ""));
+        const target = this.resolve(String(entity ?? ""));
         if (!target) {
           const page = this.create({ name: String(entity ?? ""), type: type ?? "other", aliases: [], body: `## Notes\n${note}` }, "remember");
           return { stored: true, page: page.name, created: true };
         }
-        if (target.body.toLowerCase().includes(clean.toLowerCase())) {
+        if (alreadyNoted(target.body, clean, date)) {
           return { stored: false, reason: "already_known", page: target.name, message: `${target.name} already has this fact` };
         }
         this.writeRevision(target, "remember", { ...target, body: appendUnderNotes(target.body, note) }, { keepOldName: false });
@@ -386,7 +388,10 @@ export class BrainStore {
     }
     const renamed = page.name !== "" && nameKey(fields.name) !== nameKey(page.name);
     if (renamed && opts.keepOldName !== false && !fields.aliases.some((a) => nameKey(a) === nameKey(page.name))) {
-      fields.aliases = validateFields({ ...fields, aliases: [...fields.aliases, page.name] }).aliases;
+      if (fields.aliases.length >= ALIASES_MAX) {
+        throw new BrainError("invalid", `renaming keeps "${page.name}" as an alias, but the page already has ${ALIASES_MAX}; remove an alias or don't keep the old name`);
+      }
+      fields.aliases = [...fields.aliases, page.name];
     }
     const keys = keysOf(fields);
 
@@ -429,6 +434,23 @@ export class BrainStore {
   private owner(key: string): string | undefined {
     return (this.db.prepare("SELECT page_id FROM brain__names WHERE key = ?").get(key) as { page_id: string } | undefined)?.page_id;
   }
+}
+
+/** A dated note line: `- 2026-09-29: text`. */
+const NOTE_LINE = /^\s*[-*]\s+(\d{4}-\d{2}-\d{2}):\s*(.*?)\s*$/;
+
+/**
+ * Whether `fact` repeats the page's latest dated note, or a note dated `date` (the same day), compared
+ * case-insensitively. Older notes don't count: remembering an earlier fact again is a correction.
+ */
+export function alreadyNoted(body: string, fact: string, date: string): boolean {
+  const same = (text: string) => text.replace(/\s+/g, " ").toLowerCase() === fact.toLowerCase();
+  const notes = body.split("\n").flatMap((l) => {
+    const m = NOTE_LINE.exec(l);
+    return m ? [{ date: m[1]!, text: m[2]! }] : [];
+  });
+  const latest = notes.at(-1);
+  return (latest !== undefined && same(latest.text)) || notes.some((n) => n.date === date && same(n.text));
 }
 
 /** `note` as the last line of the last `## Notes` section, adding the section at the end when there is none. */

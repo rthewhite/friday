@@ -48,11 +48,24 @@ test("the line diff marks added and removed lines", () => {
   assert.deepEqual(lineDiff("same", "same"), [{ kind: "same", text: "same" }]);
 });
 
+test("a huge diff keeps the shared lines and falls back to removed-then-added in the middle", () => {
+  const head = Array.from({ length: 50 }, (_, i) => `h${i}`);
+  const a = [...head, ...Array.from({ length: 3000 }, (_, i) => `a${i}`), "tail"].join("\n");
+  const b = [...head, ...Array.from({ length: 3000 }, (_, i) => `b${i}`), "tail"].join("\n");
+  const d = lineDiff(a, b);
+  assert.equal(d.length, 50 + 3000 + 3000 + 1);
+  assert.deepEqual(d[0], { kind: "same", text: "h0" });
+  assert.deepEqual(d[50], { kind: "del", text: "a0" });
+  assert.deepEqual(d[3050], { kind: "add", text: "b0" });
+  assert.deepEqual(d.at(-1), { kind: "same", text: "tail" });
+});
+
 test("list search matches every word in name, aliases or body; aliases parse from a comma list", () => {
   const page = { name: "Anouk", aliases: ["Noukie"], body: "Lives in Utrecht" };
   assert.ok(matches(page, "utrecht"));
   assert.ok(matches(page, "NOUKIE utrecht"));
   assert.ok(!matches(page, "amsterdam"));
   assert.ok(matches(page, "  "));
+  assert.ok(matches({ name: "Zoë", aliases: [], body: "Café de Jaren" }, "zoe cafe"));
   assert.deepEqual(parseAliases(" Noukie, , Nouk ,"), ["Noukie", "Nouk"]);
 });
