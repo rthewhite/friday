@@ -4,7 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openModuleDb, tablePrefix } from "../src/db.js";
+import { openModuleDb, tablePrefix, type ModuleDb } from "../src/db.js";
+import { defineModule, Type } from "../src/index.js";
+import { createTestHost } from "../src/test.js";
 
 /** node:sqlite rows have a null prototype. */
 const plain = (rows: unknown[]) => rows.map((r) => ({ ...(r as object) }));
@@ -183,4 +185,178 @@ test("an inner transaction that throws is undone without ending the outer one", 
   });
   assert.deepEqual(plain(db.prepare("SELECT title FROM brain__pages").all()), [{ title: "outer" }]);
   assert.equal(count("brain__revisions"), 1);
+});
+
+const pagesV1 = { version: 1, name: "pages", up: "CREATE TABLE brain__pages (id INTEGER PRIMARY KEY, title TEXT NOT NULL)" };
+const revisionsV2 = { version: 2, name: "revisions", up: "CREATE TABLE brain__revisions (id INTEGER PRIMARY KEY, page INTEGER NOT NULL REFERENCES brain__pages (id))" };
+const tagsV3 = { version: 3, name: "tags", up: (db: ModuleDb) => db.exec("CREATE TABLE brain__tags (name TEXT PRIMARY KEY)") };
+const recorded = (core: DatabaseSync, id = "brain") => !core.prepare("SELECT 1 FROM sqlite_master WHERE name = 'module_schema'").get() ? undefined : (core.prepare("SELECT version FROM module_schema WHERE module_id = ?").get(id) as { version: number } | undefined)?.version;
+const tables = (core: DatabaseSync) => (core.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'brain\\_\\_%' ESCAPE '\\' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+
+test("first start runs every migration in version order and records the latest", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const lines: string[] = [];
+  const m = f.open("brain");
+  // Declared out of order on purpose.
+  assert.deepEqual(m.migrate([revisionsV2, pagesV1], { log: (...a) => lines.push(a.join(" ")), warn() {}, error() {} }), [1, 2]);
+  assert.equal(recorded(f.core), 2);
+  assert.equal(m.version(), 2);
+  assert.deepEqual(tables(f.core), ["brain__pages", "brain__revisions"]);
+  assert.deepEqual(lines, ['migration 1 "pages" applied', 'migration 2 "revisions" applied']);
+  const row = f.core.prepare("SELECT updated_at FROM module_schema WHERE module_id = 'brain'").get() as { updated_at: string };
+  assert.ok(!Number.isNaN(Date.parse(row.updated_at)));
+});
+
+test("an upgrade runs only the pending migrations, and nothing pending runs nothing", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  f.open("brain").migrate([pagesV1]);
+  const again = f.open("brain");
+  assert.deepEqual(again.migrate([pagesV1, revisionsV2, tagsV3]), [2, 3]);
+  assert.equal(recorded(f.core), 3);
+  assert.deepEqual(again.migrate([pagesV1, revisionsV2, tagsV3]), []);
+  assert.deepEqual(tables(f.core), ["brain__pages", "brain__revisions", "brain__tags"]);
+});
+
+test("each module has its own recorded version", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  f.open("brain").migrate([pagesV1, revisionsV2]);
+  f.open("media-x").migrate([{ version: 1, name: "cache2", up: "CREATE TABLE media_x__cache2 (k TEXT)" }]);
+  assert.equal(recorded(f.core, "brain"), 2);
+  assert.equal(recorded(f.core, "media-x"), 1);
+});
+
+test("an invalid list fails before any migration runs", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const m = f.open("brain");
+  assert.throws(() => m.migrate([pagesV1, revisionsV2, { ...tagsV3, version: 2 }]), /module brain: duplicate migration version 2/);
+  assert.throws(() => m.migrate([{ ...pagesV1, version: 0 }]), /module brain: migration version 0 is not a positive integer/);
+  assert.throws(() => m.migrate([{ ...pagesV1, version: 1.5 }]), /not a positive integer/);
+  assert.throws(() => m.migrate([{ ...pagesV1, name: " " }]), /module brain: migration 1 has no name/);
+  assert.throws(() => m.migrate([{ ...pagesV1, up: undefined as unknown as string }]), /migration 1 "pages" has no up/);
+  assert.deepEqual(tables(f.core), []);
+  assert.equal(recorded(f.core), undefined);
+});
+
+test("a broken migration is rolled back with its version; earlier ones stay applied", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const m = f.open("brain");
+  const broken = { version: 2, name: "revisions", up: "CREATE TABLE brain__revisions (id INTEGER PRIMARY KEY); CREAT TABLE brain__oops (a)" };
+  assert.throws(() => m.migrate([pagesV1, broken, tagsV3]), /module brain: migration 2 "revisions" failed: .*syntax error/);
+  assert.equal(recorded(f.core), 1);
+  assert.deepEqual(tables(f.core), ["brain__pages"]);
+  assert.throws(() => m.migrate([pagesV1, { ...tagsV3, version: 2, up: () => { throw new Error("boom"); } }]), /migration 2 "tags" failed: boom/);
+  assert.equal(recorded(f.core), 1);
+});
+
+test("an unprefixed CREATE TABLE in a migration fails it", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const m = f.open("brain");
+  assert.throws(() => m.migrate([{ version: 1, name: "pages", up: "CREATE TABLE pages (a)" }]), /module brain: migration 1 "pages" failed: module brain: database access refused: create table pages/);
+  assert.equal(recorded(f.core), undefined);
+  assert.equal(f.core.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'pages'").get()?.n, 0);
+});
+
+test("module_schema is not reachable through ctx.db or a migration", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const m = f.open("brain");
+  m.migrate([pagesV1]);
+  assert.throws(() => m.db.prepare("SELECT * FROM module_schema"), /refused: read module_schema/);
+  assert.throws(() => m.db.exec("UPDATE module_schema SET version = 99"), /refused/);
+  assert.throws(() => m.migrate([pagesV1, { version: 2, name: "sneaky", up: "DELETE FROM module_schema" }]), /migration 2 "sneaky" failed: .*refused: delete from module_schema/);
+  assert.equal(recorded(f.core), 1);
+});
+
+test("a schema newer than the module's migrations fails and touches nothing", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  f.open("brain").migrate([pagesV1, revisionsV2, tagsV3]);
+  f.core.exec("INSERT INTO brain__pages (title) VALUES ('kept')");
+  const older = f.open("brain");
+  assert.throws(() => older.migrate([pagesV1, revisionsV2]), { message: "database schema v3 is newer than module brain's migrations (v2)" });
+  assert.equal(recorded(f.core), 3);
+  assert.deepEqual(tables(f.core), ["brain__pages", "brain__revisions", "brain__tags"]);
+  assert.equal(f.core.prepare("SELECT count(*) AS n FROM brain__pages").get()?.n, 1);
+});
+
+test("an async migration function fails the migration", (t) => {
+  const f = fixture();
+  t.after(f.cleanup);
+  const m = f.open("brain");
+  const up = (async (db: ModuleDb) => db.exec("CREATE TABLE brain__a (x)")) as unknown as (db: ModuleDb) => void;
+  assert.throws(() => m.migrate([{ version: 1, name: "async", up }]), /migration 1 "async" failed: .*must be synchronous/);
+  assert.equal(recorded(f.core), undefined);
+});
+
+// The example from README.md ("Tables" and "Testing a module"), verbatim.
+export const notes = defineModule({
+  manifest: { id: "notes", label: "Notes" },
+  migrations: [
+    { version: 1, name: "notes", up: "CREATE TABLE notes__notes (id INTEGER PRIMARY KEY, text TEXT NOT NULL, created_at TEXT NOT NULL)" },
+    {
+      version: 2,
+      name: "tags",
+      up: (db) => {
+        db.exec("CREATE TABLE notes__tags (note INTEGER NOT NULL REFERENCES notes__notes (id) ON DELETE CASCADE, tag TEXT NOT NULL, PRIMARY KEY (note, tag))");
+        db.exec("CREATE INDEX notes__tags_tag ON notes__tags (tag)");
+      },
+    },
+  ],
+  init(ctx) {
+    const insertNote = ctx.db.prepare("INSERT INTO notes__notes (text, created_at) VALUES (?, ?)");
+    const insertTag = ctx.db.prepare("INSERT INTO notes__tags (note, tag) VALUES (?, ?)");
+    const byTag = ctx.db.prepare("SELECT n.id, n.text FROM notes__notes n JOIN notes__tags t ON t.note = n.id WHERE t.tag = ? ORDER BY n.id");
+
+    ctx.defineTool<{ text: string; tags?: string[] }>({
+      name: "add_note",
+      description: "Saves a note with optional tags",
+      parameters: {
+        type: Type.OBJECT,
+        properties: { text: { type: Type.STRING }, tags: { type: Type.ARRAY, items: { type: Type.STRING } } },
+        required: ["text"],
+      },
+      // The note and its tags are written together or not at all.
+      handler: ({ text, tags = [] }) =>
+        ctx.db.transaction(() => {
+          const id = Number(insertNote.run(text, new Date().toISOString()).lastInsertRowid);
+          for (const tag of tags) insertTag.run(id, tag);
+          return { id };
+        }),
+    });
+    ctx.defineTool<{ tag: string }>({
+      name: "notes_by_tag",
+      description: "Notes with a tag",
+      parameters: { type: Type.OBJECT, properties: { tag: { type: Type.STRING } }, required: ["tag"] },
+      handler: ({ tag }) => ({ notes: byTag.all(tag) }),
+    });
+
+    // Tell Friday the notes exist (see Prompt context).
+    const count = ctx.db.prepare("SELECT count(*) AS n FROM notes__notes");
+    ctx.prompt.addContext(({ channel }) => {
+      const { n } = count.get() as { n: number };
+      if (!n) return undefined;
+      return channel === "voice"
+        ? `## Notes\nThe user has ${n} notes; use notes_by_tag to look them up.`
+        : `## Notes\nThe user has ${n} saved notes. Use notes_by_tag to find them and cite the note ids.`;
+    });
+  },
+});
+
+test("the README notes example migrates, writes atomically and renders its prompt context", async () => {
+  const h = await createTestHost(notes);
+  h.db.prepare("INSERT INTO notes__notes (text, created_at) VALUES (?, ?)").run("Buy milk", "2026-01-01T00:00:00Z");
+  await h.call("add_note", { text: "Call the plumber", tags: ["house"] });
+  assert.deepEqual(h.db.prepare("SELECT tag FROM notes__tags").all().map((r) => r.tag), ["house"]);
+  assert.equal(h.promptContext("voice"), "## Notes\nThe user has 2 notes; use notes_by_tag to look them up.");
+  // Beyond the README: the chat variant, the query tool, and a failed tag insert rolling back its note.
+  assert.equal(h.promptContext("chat"), "## Notes\nThe user has 2 saved notes. Use notes_by_tag to find them and cite the note ids.");
+  assert.deepEqual(plain((await h.call("notes_by_tag", { tag: "house" })).result.notes as unknown[]), [{ id: 2, text: "Call the plumber" }]);
+  assert.match(String((await h.call("add_note", { text: "dup", tags: ["a", "a"] })).result.error), /UNIQUE constraint failed/);
+  assert.equal(h.db.prepare("SELECT count(*) AS n FROM notes__notes").get()?.n, 2);
 });

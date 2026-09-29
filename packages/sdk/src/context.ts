@@ -9,6 +9,8 @@ import type { ModuleConfig, ModuleContext, ModuleLogger, ModuleManifest } from "
 import type { ToolRegistry } from "./registry.js";
 import type { ModuleStorage } from "./storage.js";
 import type { ModuleConversations } from "./conversations.js";
+import type { ModuleDb } from "./db.js";
+import type { ModulePrompt } from "./prompt.js";
 import type { Tool } from "./tool.js";
 
 export type Env = Record<string, string | undefined>;
@@ -68,6 +70,10 @@ export interface ContextOptions {
   llm?: ModuleLlm;
   /** Conversation store access; defaults to one that fails (hosts without a store, like the remote runner). */
   conversations?: ModuleConversations;
+  /** The module's database handle; defaults to one whose every call throws (hosts without friday.db). */
+  db?: ModuleDb;
+  /** The module's prompt context; defaults to one whose `addContext` throws (hosts without prompt assembly). */
+  prompt?: ModulePrompt;
 }
 
 export function createContext(manifest: ModuleManifest, o: ContextOptions): ModuleContext {
@@ -88,7 +94,14 @@ export function createContext(manifest: ModuleManifest, o: ContextOptions): Modu
     },
     llm: o.llm ?? { generate: async () => { throw new LlmError("unavailable", "text generation is not available in this host"); } },
     conversations: o.conversations ?? noConversations(manifest.id),
+    db: o.db ?? noDb(manifest.id),
+    prompt: o.prompt ?? { addContext: () => { throw new Error(`${manifest.id}: prompt context is not available in this host`); } },
   };
+}
+
+function noDb(id: string): ModuleDb {
+  const fail = (): never => { throw new Error(`${id}: database is not available in this host`); };
+  return { prepare: fail, exec: fail, transaction: fail };
 }
 
 function noConversations(id: string): ModuleConversations {

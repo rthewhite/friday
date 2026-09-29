@@ -220,7 +220,13 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
         try {
           db.transaction(() => {
             if (typeof m.up === "string") db.exec(m.up);
-            else m.up(db);
+            else {
+              const r: unknown = m.up(db);
+              if (isThenable(r)) {
+                void Promise.resolve(r).catch(() => {});
+                throw new Error("migration functions must be synchronous (up returned a promise)");
+              }
+            }
             asHost(() => raw
               .prepare(`INSERT INTO ${SCHEMA_TABLE} (module_id, version, updated_at) VALUES (?, ?, ?) ON CONFLICT(module_id) DO UPDATE SET version = excluded.version, updated_at = excluded.updated_at`)
               .run(moduleId, m.version, new Date().toISOString()));
@@ -234,6 +240,15 @@ export function openModuleDb(location: string, moduleId: string, opts: OpenModul
       return applied;
     },
     close: () => raw.close(),
+  };
+}
+
+/** A `ctx.db` that asks `open` for the module's connection at each call; hosts memoize `open` to open lazily. */
+export function lazyDb(open: () => ModuleDatabase): ModuleDb {
+  return {
+    prepare: (sql) => open().db.prepare(sql),
+    exec: (sql) => open().db.exec(sql),
+    transaction: (fn) => open().db.transaction(fn),
   };
 }
 

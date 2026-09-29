@@ -12,7 +12,7 @@
 
 ## 2. SDK migrations and context
 
-- [ ] 2.1 Add `migrations` to `FridayModule` and implement the runner in `db.ts`:
+- [x] 2.1 Add `migrations` to `FridayModule` and implement the runner in `db.ts`:
   - validate the full list first;
   - create `module_schema` if missing;
   - run pending migrations in version order, each in one transaction with its version row, through the host-internal flag for `module_schema`;
@@ -20,8 +20,8 @@
   - when the recorded version is newer than the highest declared one, fail with both versions.
 
   Verify with `db.test.ts` cases for first start, upgrade (only pending run), nothing pending, duplicate version, broken SQL (recorded version unchanged), unprefixed `CREATE TABLE` refused, and schema newer than the module
-- [ ] 2.2 Add `db` and `prompt` to `ModuleContext`, `ContextOptions` and `createContext`, with stubs that throw `<id>: database is not available in this host` and `<id>: prompt context is not available in this host`. Make `runRemote` log and ignore declared migrations. Verify with a `remote-runner.test.ts` case: a module with migrations runs remotely, and `ctx.db.prepare` and `ctx.prompt.addContext` throw those messages
-- [ ] 2.3 Implement prompt context rendering in the SDK, shared by core and the test host:
+- [x] 2.2 Add `db` and `prompt` to `ModuleContext`, `ContextOptions` and `createContext`, with stubs that throw `<id>: database is not available in this host` and `<id>: prompt context is not available in this host`. Make `runRemote` log and ignore declared migrations. Verify with a `remote-runner.test.ts` case: a module with migrations runs remotely, and `ctx.db.prepare` and `ctx.prompt.addContext` throw those messages
+- [x] 2.3 Implement prompt context rendering in the SDK, shared by core and the test host:
   - registration order within a module, trimmed blocks joined by a blank line, empty results skipped;
   - a per-module cap with `…` and a warning;
   - a throwing provider is logged and skipped;
@@ -29,8 +29,8 @@
   - `addContext` returns an unsubscribe function.
 
   Verify with unit tests in `packages/sdk/test/prompt.test.ts` for ordering, channel-specific output, cap and warning, a throwing provider, the slow-provider log (with an injected clock) and unsubscribe
-- [ ] 2.4 Extend `createTestHost`: run migrations on an in-memory database before `init` (rejecting with the real host's errors), expose `db`, and add `promptContext(channel)`. Verify with `test-host.test.ts` cases for seed-and-inspect through `host.db`, a failing migration rejecting `createTestHost`, and `promptContext("voice")` returning a provider's output
-- [ ] 2.5 Document `migrations`, `ctx.db` (synchronous, `transaction`, prefix rule, what is refused) and `ctx.prompt.addContext` in `packages/sdk/README.md` (Module, `ModuleContext` and Testing sections). Verify the README's migration-and-query example compiles by using it verbatim in `db.test.ts`
+- [x] 2.4 Extend `createTestHost`: run migrations on an in-memory database before `init` (rejecting with the real host's errors), expose `db`, and add `promptContext(channel)`. Verify with `test-host.test.ts` cases for seed-and-inspect through `host.db`, a failing migration rejecting `createTestHost`, and `promptContext("voice")` returning a provider's output
+- [x] 2.5 Document `migrations`, `ctx.db` (synchronous, `transaction`, prefix rule, what is refused) and `ctx.prompt.addContext` in `packages/sdk/README.md` (Module, `ModuleContext` and Testing sections). Verify the README's migration-and-query example compiles by using it verbatim in `db.test.ts`
 
 ## 3. Core host and prompt wiring
 

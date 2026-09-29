@@ -11,6 +11,8 @@ import { ToolRegistry, type CallOptions, type CallResult } from "./registry.js";
 import type { ConversationChannel } from "./conversations.js";
 import { MemoryStorage } from "./storage.js";
 import { MemoryConversations } from "./conversations.js";
+import { lazyDb, openModuleDb, type ModuleDatabase, type ModuleDb } from "./db.js";
+import { PromptContext } from "./prompt.js";
 
 export interface TestHostOptions {
   /** Configuration the module sees. Defaults to an empty environment, not `process.env`. */
@@ -68,6 +70,13 @@ export interface TestHost {
   jobs: TestJob[];
   /** Run a scheduled job's handler once (trigger `manual`) and report how it settled. */
   runJob(name: string): Promise<TestJobRun>;
+  /**
+   * The module's `ctx.db`, on an in-memory database its migrations already ran on. Seed and inspect its
+   * tables here; the prefix rules apply as in core.
+   */
+  db: ModuleDb;
+  /** The module's prompt context for a channel, rendered as core would (empty when it adds none). */
+  promptContext(channel: ConversationChannel): string;
   dispose(): Promise<void>;
 }
 
@@ -113,7 +122,12 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
       return { started: true };
     },
   };
-  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm }));
+  let database: ModuleDatabase | undefined;
+  const open = () => (database ??= openModuleDb(":memory:", id));
+  if (module.migrations?.length) open().migrate(module.migrations, prefixedLogger(id, log));
+  const db = lazyDb(open);
+  const prompts = new PromptContext({ log });
+  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm, db, prompt: prompts.forOwner(id) }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args, opts) => registry.callTool(name, args, opts),
@@ -150,9 +164,14 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
     },
     jobs,
     runJob: (name) => runJob(name, "manual"),
+    db,
+    promptContext: (channel) => prompts.render(channel),
     dispose: async () => {
       conversations.clearSubscriptions();
+      prompts.clear(id);
       await module.dispose?.();
+      database?.close();
+      database = undefined;
     },
   };
 }

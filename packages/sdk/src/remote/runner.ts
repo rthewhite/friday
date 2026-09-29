@@ -48,6 +48,8 @@ export function runRemote(module: FridayModule, opts: RemoteOptions): RemoteHand
 
   const ready = (async () => {
     assertConfig(module.manifest, env);
+    const migrations = module.migrations?.length ?? 0;
+    if (migrations) log.warn(`remote ${module.manifest.id}: ignoring ${migrations} declared migration(s); remote modules have no database`);
     await module.init(createContext(module.manifest, { env, registry, log }));
   })();
 

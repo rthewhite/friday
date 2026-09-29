@@ -3,6 +3,8 @@ import type { ModuleJobs } from "./jobs.js";
 import type { ModuleLlm } from "./llm.js";
 import type { ModuleStorage } from "./storage.js";
 import type { ModuleConversations } from "./conversations.js";
+import type { ModuleDb, ModuleMigration } from "./db.js";
+import type { ModulePrompt } from "./prompt.js";
 import type { Tool } from "./tool.js";
 
 /** A configuration value the module reads through `ctx.config`. */
@@ -48,12 +50,21 @@ export interface ModuleContext {
   llm: ModuleLlm;
   /** Read access to recorded conversations, and quiet notifications. Not available to remote modules. */
   conversations: ModuleConversations;
+  /**
+   * Synchronous access to the module's own tables (`<prefix>__*`) in friday.db, created by `migrations`.
+   * Not available to remote modules.
+   */
+  db: ModuleDb;
+  /** Adds text to Friday's voice and chat system prompts. Not available to remote modules. */
+  prompt: ModulePrompt;
 }
 
 export interface FridayModule {
   manifest: ModuleManifest;
   init(ctx: ModuleContext): void | Promise<void>;
   dispose?(): void | Promise<void>;
+  /** Schema steps for the module's tables; the host runs pending ones before `init`. Ignored by remote hosts. */
+  migrations?: ModuleMigration[];
 }
 
 /** Identity helper that gives module authors type checking and completion. */

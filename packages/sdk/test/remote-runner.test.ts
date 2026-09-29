@@ -106,3 +106,23 @@ test("conversations are not available to remote modules", async () => {
   await h.stop();
   core.close();
 });
+
+test("a module with migrations runs remotely; ctx.db and ctx.prompt are unavailable", async () => {
+  let ctx: ModuleContext | undefined;
+  const warnings: string[] = [];
+  const m = defineModule({
+    manifest: { id: "m", label: "M" },
+    migrations: [{ version: 1, name: "items", up: "CREATE TABLE m__items (id INTEGER PRIMARY KEY)" }],
+    init(c) { ctx = c; c.defineTool({ name: "t", description: "", handler: () => ({}) }); },
+  });
+  const core = await fakeCore((ws) => ws.send(JSON.stringify({ type: "welcome", id: "m" })));
+  const h = runRemote(m, { url: core.url, key: "k", log: { ...quiet, warn: (...a: unknown[]) => void warnings.push(a.join(" ")) }, env: {} });
+  await h.connected();
+  assert.deepEqual(warnings, ["remote m: ignoring 1 declared migration(s); remote modules have no database"]);
+  assert.throws(() => ctx!.db.prepare("SELECT 1"), { message: "m: database is not available in this host" });
+  assert.throws(() => ctx!.db.exec("SELECT 1"), /m: database is not available in this host/);
+  assert.throws(() => ctx!.db.transaction(() => 1), /m: database is not available in this host/);
+  assert.throws(() => ctx!.prompt.addContext(() => "x"), { message: "m: prompt context is not available in this host" });
+  await h.stop();
+  core.close();
+});
