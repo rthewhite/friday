@@ -126,7 +126,7 @@ async function endingSession(idleTimeoutMs = 20) {
     }
     s.handle(msg({ turnComplete: true }));
   };
-  return { s, live, events, logs, turn, restore };
+  return { s, r, live, events, logs, turn, restore };
 }
 
 const closedWith = (events: Event[]) => events.filter((e) => e.kind === "closed").map((e) => (e as { data?: string }).data);
@@ -142,6 +142,45 @@ test("an end requested in a turn that ends with a question keeps the session ope
     assert.ok(t.logs.includes("gemini: end requested after a question, keeping the session open"));
     assert.ok((t.s as any).idleTimer, "idle timer armed");
   } finally {
+    t.restore();
+  }
+});
+
+test("a question before a closing quote, or with a full-width or Arabic mark, also keeps the session open", async () => {
+  for (const words of ['You said "which room?" ', "还有别的吗？", "هل هناك شيء آخر؟"]) {
+    const t = await endingSession(60_000);
+    try {
+      await t.turn(words, "request done");
+      assert.deepEqual(closedWith(t.events), [], words);
+    } finally {
+      t.restore();
+    }
+  }
+});
+
+test("speech cancels the idle timer", async () => {
+  const t = await endingSession();
+  try {
+    await t.turn("Lights are on.");
+    t.s.handle(msg({ inputTranscription: { text: "And the kitchen" } }));
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(closedWith(t.events), []);
+  } finally {
+    t.restore();
+  }
+});
+
+test("the idle timer is not armed while a tool is still running", async () => {
+  const t = await endingSession();
+  let finish!: () => void;
+  t.r.add("x", { name: "slow", description: "", handler: () => new Promise((done) => (finish = () => done({ ok: true }))) });
+  try {
+    t.s.handle({ toolCall: { functionCalls: [{ id: "slow", name: "slow", args: {} }] } } as LiveServerMessage);
+    await t.turn("Timer set.");
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(closedWith(t.events), []);
+  } finally {
+    finish?.();
     t.restore();
   }
 });
