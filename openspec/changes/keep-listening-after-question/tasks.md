@@ -13,4 +13,4 @@
 
 ## 3. Integration
 
-- [ ] 3.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all are green.
+- [x] 3.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify all are green.
