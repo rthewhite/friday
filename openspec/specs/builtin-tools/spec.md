@@ -44,7 +44,7 @@ The tool SHALL wait `seconds` (required integer) and then return `{ done: true, 
 
 ### Requirement: end_conversation
 
-The tool SHALL be named `end_conversation`, accept an optional `reason`, return `{ ending: true, reason, endConversation: reason }` (reason defaulting to `done`), and use scheduling `SILENT`. The `endConversation` key is the reserved registry key that signals the session to close after the model's current turn; it is stripped before the result reaches Gemini. It SHALL be available only in the `voice` channel.
+The tool SHALL be named `end_conversation`, accept an optional `reason`, return `{ ending: true, reason, endConversation: reason }` (reason defaulting to `done`), and use scheduling `SILENT`. The `endConversation` key is the reserved registry key that signals the session to close after the model's current turn; it is stripped before the result reaches Gemini. It SHALL be available only in the `voice` channel. Its description SHALL tell the model to call it in the same turn as its final words once a request is fully handled or the user says goodbye, and never when those final words are a question or invite the user to talk.
 
 #### Scenario: Called with reason
 - **WHEN** the model calls `end_conversation` with `reason: "user said goodbye"`
@@ -57,6 +57,10 @@ The tool SHALL be named `end_conversation`, accept an optional `reason`, return 
 #### Scenario: Not offered in chat
 - **WHEN** a chat turn starts
 - **THEN** `end_conversation` is not among its declarations
+
+#### Scenario: Description forbids ending after a question
+- **WHEN** the voice declarations are listed
+- **THEN** the `end_conversation` description says not to call it when the final words are a question
 
 ### Requirement: Builtin tools ship as the `builtin` module
 
