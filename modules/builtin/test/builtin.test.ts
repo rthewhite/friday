@@ -15,6 +15,12 @@ test("set_timer and end_conversation are voice-only; get_current_time is offered
   assert.deepEqual(h.toolsIn("chat"), ["get_current_time"]);
 });
 
+test("the end_conversation description says not to call it when the final words are a question", async () => {
+  const h = await createTestHost(builtin);
+  const d = h.registry.declarations("voice").find((t) => t.name === "end_conversation");
+  assert.match(String(d?.description), /Never call it when your final words are a question or invite the user to talk/);
+});
+
 test("get_current_time: default zone, configured zone, explicit zone", async () => {
   const h = await createTestHost(builtin);
   const d = await h.call("get_current_time");

@@ -52,7 +52,8 @@ export default defineModule({
       name: "end_conversation",
       description:
         "End the voice conversation and stop listening. Call this in the same turn as your final spoken words " +
-        "once a request is fully handled and you have no follow-up question, or when the user says goodbye.",
+        "once a request is fully handled and you have no follow-up question, or when the user says goodbye. " +
+        "Never call it when your final words are a question or invite the user to talk; wait for the answer instead.",
       parameters: {
         type: Type.OBJECT,
         properties: { reason: { type: Type.STRING, description: "Short reason, e.g. 'request done' or 'user said goodbye'" } },

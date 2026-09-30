@@ -7,9 +7,9 @@
 
 ## 2. Prompt and tool wording
 
-- [ ] 2.1 Extend the voice part in `packages/core/src/config.ts`: never call `end_conversation` in a turn whose reply ends with a question or invites the user to talk, and an invitation to chat, tell something or share information is an open conversation, not a finished request. Verify with an assertion in `packages/core/test/chat-config.test.ts` that the voice prompt contains the question rule and that chat and base still don't mention `end_conversation`.
-- [ ] 2.2 Update the `end_conversation` description in `modules/builtin/src/index.ts` to say never to call it when the final words are a question or invite the user to talk. Verify with an assertion in `modules/builtin/test/builtin.test.ts` on the voice declaration's description, then run `pnpm --filter @friday/module-builtin test` and `typecheck`.
-- [ ] 2.3 Update README's voice-session bullets (ending after a question keeps listening until the idle timeout) and the end-reason list in the conversations section (add `ended: no follow-up (end after question)`). Verify by reading the rendered sections against the voice-session spec delta.
+- [x] 2.1 Extend the voice part in `packages/core/src/config.ts`: never call `end_conversation` in a turn whose reply ends with a question or invites the user to talk, and an invitation to chat, tell something or share information is an open conversation, not a finished request. Verify with an assertion in `packages/core/test/chat-config.test.ts` that the voice prompt contains the question rule and that chat and base still don't mention `end_conversation`.
+- [x] 2.2 Update the `end_conversation` description in `modules/builtin/src/index.ts` to say never to call it when the final words are a question or invite the user to talk. Verify with an assertion in `modules/builtin/test/builtin.test.ts` on the voice declaration's description, then run `pnpm --filter @friday/module-builtin test` and `typecheck`.
+- [x] 2.3 Update README's voice-session bullets (ending after a question keeps listening until the idle timeout) and the end-reason list in the conversations section (add `ended: no follow-up (end after question)`). Verify by reading the rendered sections against the voice-session spec delta.
 
 ## 3. Integration
 
