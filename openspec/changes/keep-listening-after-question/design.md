@@ -21,7 +21,7 @@
 
 **Drop the request instead of keeping it pending.** When the check matches, clear `endRequested` and arm the idle timer. If `endRequested` stayed set, the user's answer would be followed by a close at the next `turnComplete`, which would cut off the conversation the guard just saved. The alternative, "close at the next turn unless the user speaks", is exactly what the idle timer already does.
 
-**Use a distinct idle reason via a flag.** A `endedAfterQuestion` flag is set when a request is dropped. `armIdle` uses `ended: no follow-up (end after question)` when the flag is set, and the flag is cleared when the user speaks or a new turn completes normally. The reason is recorded as the conversation's end reason, so these cases can be found in the Conversations page and by `?q=` search without adding a new field.
+**Pass a distinct idle reason to the timer.** `armIdle` takes the close reason as a parameter, `ended: no follow-up` by default. The turn that drops a request arms it with `ended: no follow-up (end after question)`. Every later `turnComplete` re-arms with the default, and speech clears the timer, so no state needs to be kept. A flag was considered and rejected: it would have to be cleared on the same events, for the same result. The reason is recorded as the conversation's end reason, so these cases show in the Conversations page without adding a new field.
 
 **The prompt and tool description are the first layer, and the session check is the backstop.** Better wording reduces how often the case happens. The check covers the times the model still gets it wrong.
 

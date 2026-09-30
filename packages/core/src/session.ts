@@ -27,6 +27,15 @@ export type Event =
   | { kind: "tool_result"; data: { name: string; result: unknown } }
   | { kind: "closed"; data?: string };
 
+/** Trailing characters skipped when deciding whether spoken words end with a question. */
+const CLOSING = /[\s"'“”‘’«»)\]}」』]+$/u;
+const QUESTION_MARKS = new Set(["?", "？", "؟"]);
+
+/** True when the text's last character, past closing quotes and brackets, is a question mark. */
+export function endsWithQuestion(text: string): boolean {
+  return QUESTION_MARKS.has(text.replace(CLOSING, "").at(-1) ?? "");
+}
+
 /** The subset of the Live API the session uses; tests inject a fake. `apiKey` is the key resolved at open. */
 export type LiveConnect = (params: LiveConnectParameters, apiKey: string) => Promise<Pick<Session, "sendRealtimeInput" | "sendClientContent" | "sendToolResponse" | "close">>;
 
@@ -50,6 +59,8 @@ export class GeminiSession {
   /** Set when a tool asked to end the conversation; we close after the model's turn finishes. */
   private endRequested?: string;
   private idleTimer?: NodeJS.Timeout;
+  /** Friday's spoken words in the current turn, checked for a trailing question when it completes. */
+  private turnText = "";
   private toolsInFlight = 0;
   private readonly log: Pick<Console, "log" | "error">;
 
@@ -125,6 +136,7 @@ export class GeminiSession {
       this.opts.recorder?.user(sc.inputTranscription.text, "speech");
     }
     if (sc.outputTranscription?.text) {
+      this.turnText += sc.outputTranscription.text;
       this.onEvent({ kind: "bot_text", data: sc.outputTranscription.text });
       this.opts.recorder?.assistant(sc.outputTranscription.text);
     }
@@ -134,16 +146,24 @@ export class GeminiSession {
     if (sc.turnComplete) {
       this.onEvent({ kind: "turn_complete" });
       this.opts.recorder?.turnComplete();
-      if (this.endRequested) this.finish(`ended: ${this.endRequested}`);
+      const askedQuestion = endsWithQuestion(this.turnText);
+      this.turnText = "";
+      if (this.endRequested && askedQuestion) {
+        // The model asked something and ended in the same turn: let the user answer, and let the
+        // idle timer end it if they don't. A later turn has to ask for the end again.
+        this.log.log("gemini: end requested after a question, keeping the session open");
+        this.endRequested = undefined;
+        this.armIdle("ended: no follow-up (end after question)");
+      } else if (this.endRequested) this.finish(`ended: ${this.endRequested}`);
       else this.armIdle();
     }
   }
 
   /** Close once the user has been silent for idleTimeoutMs after a turn, unless a tool is still pending. */
-  private armIdle(): void {
+  private armIdle(reason = "ended: no follow-up"): void {
     this.clearIdle();
     if (!settings.idleTimeoutMs || this.toolsInFlight > 0) return;
-    this.idleTimer = setTimeout(() => this.finish("ended: no follow-up"), settings.idleTimeoutMs);
+    this.idleTimer = setTimeout(() => this.finish(reason), settings.idleTimeoutMs);
   }
 
   private clearIdle(): void {
