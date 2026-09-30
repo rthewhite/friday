@@ -93,10 +93,10 @@ test("without endConversation the turn completes normally", async () => {
 const msg = (serverContent: LiveServerMessage["serverContent"]) => ({ serverContent }) as LiveServerMessage;
 
 test("endsWithQuestion looks at the last character past closing quotes, brackets and whitespace", () => {
-  for (const t of ["What would you like to share?", 'She asked "ready?"', "(anything else?) ", "准备好了吗？", "هل أنت مستعد؟", "Klaar?”\n"]) {
+  for (const t of ["What would you like to share?", 'She asked "ready?"', "(anything else?) ", "准备好了吗？", "هل أنت مستعد؟", "Είσαι έτοιμος;", "Klaar?”\n", "Really?!", "Which room?…", "Anything else?."]) {
     assert.equal(endsWithQuestion(t), true, t);
   }
-  for (const t of ["Want the lights on? Done, they're on.", "Goodbye!", "", "   ", "?!"]) {
+  for (const t of ["Want the lights on? Done, they're on.", "Goodbye!", "Right...", "", "   ", "!!!"]) {
     assert.equal(endsWithQuestion(t), false, t);
   }
 });
@@ -155,6 +155,38 @@ test("a question before a closing quote, or with a full-width or Arabic mark, al
     } finally {
       t.restore();
     }
+  }
+});
+
+test("after a dropped end, a late interrupted flag is withheld until the user speaks or types", async () => {
+  for (const takeTurn of [
+    (t: Awaited<ReturnType<typeof endingSession>>) => t.s.handle(msg({ inputTranscription: { text: "My sister" } })),
+    (t: Awaited<ReturnType<typeof endingSession>>) => t.s.sendText("My sister"),
+  ]) {
+    const t = await endingSession(60_000);
+    try {
+      await t.turn("What would you like to share with me today?", "request done");
+      t.s.handle(msg({ interrupted: true }));
+      assert.ok(!t.events.some((e) => e.kind === "interrupted"), "late flag withheld");
+      takeTurn(t);
+      t.s.handle(msg({ outputTranscription: { text: "Tell me" } }));
+      t.s.handle(msg({ interrupted: true }));
+      assert.equal(t.events.filter((e) => e.kind === "interrupted").length, 1, "a real barge-in is forwarded again");
+    } finally {
+      t.restore();
+    }
+  }
+});
+
+test("a barge-in drops the interrupted turn's words, so they don't count for the next end", async () => {
+  const t = await endingSession(60_000);
+  try {
+    t.s.handle(msg({ outputTranscription: { text: "Shall I turn on the kitchen lights?" } }));
+    t.s.handle(msg({ interrupted: true }));
+    await t.turn("", "user said goodbye");
+    assert.deepEqual(closedWith(t.events), ["ended: user said goodbye"]);
+  } finally {
+    t.restore();
   }
 });
 

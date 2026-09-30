@@ -27,11 +27,11 @@ export type Event =
   | { kind: "tool_result"; data: { name: string; result: unknown } }
   | { kind: "closed"; data?: string };
 
-/** Trailing characters skipped when deciding whether spoken words end with a question. */
-const CLOSING = /[\s"'“”‘’«»)\]}」』]+$/u;
-const QUESTION_MARKS = new Set(["?", "？", "؟"]);
+/** Trailing characters skipped when deciding whether spoken words end with a question ("Really?!", "Which room?…"). */
+const CLOSING = /[\s"'“”‘’«»)\]}」』.!…]+$/u;
+const QUESTION_MARKS = new Set(["?", "？", "؟", ";"]);
 
-/** True when the text's last character, past closing quotes and brackets, is a question mark. */
+/** True when the text's last character, past closing quotes, brackets and `.!…`, is a question mark. */
 export function endsWithQuestion(text: string): boolean {
   return QUESTION_MARKS.has(text.replace(CLOSING, "").at(-1) ?? "");
 }
@@ -61,6 +61,8 @@ export class GeminiSession {
   private idleTimer?: NodeJS.Timeout;
   /** Friday's spoken words in the current turn, checked for a trailing question when it completes. */
   private turnText = "";
+  /** Set when an end was dropped after a question: Gemini's late interrupted flag for it is withheld until the user speaks or types. */
+  private holdInterrupted = false;
   private toolsInFlight = 0;
   private readonly log: Pick<Console, "log" | "error">;
 
@@ -113,6 +115,7 @@ export class GeminiSession {
   }
 
   sendText(text: string): void {
+    this.holdInterrupted = false;
     this.session?.sendClientContent({ turns: [{ role: "user", parts: [{ text }] }] });
     this.opts.recorder?.user(text, "text");
   }
@@ -122,12 +125,14 @@ export class GeminiSession {
     for (const fc of m.toolCall?.functionCalls ?? []) void this.runTool(fc.id, fc.name, fc.args);
     const sc = m.serverContent;
     if (!sc) return;
+    if (sc.inputTranscription?.text) this.holdInterrupted = false; // the user took their turn
     // Gemini flags its own turn as interrupted when the end_conversation tool response
     // arrives; forwarding that would make clients cut Friday's final words.
-    if (sc.interrupted && !this.endRequested) {
+    if (sc.interrupted && !this.endRequested && !this.holdInterrupted) {
       this.log.log("gemini: interrupted");
       this.onEvent({ kind: "interrupted" });
       this.opts.recorder?.interrupted();
+      this.turnText = ""; // a barge-in ends that turn's words
     }
     if (sc.inputTranscription?.text) {
       if (settings.logTranscripts) this.log.log(`gemini: heard ${JSON.stringify(sc.inputTranscription.text)}`);
@@ -146,13 +151,14 @@ export class GeminiSession {
     if (sc.turnComplete) {
       this.onEvent({ kind: "turn_complete" });
       this.opts.recorder?.turnComplete();
-      const askedQuestion = endsWithQuestion(this.turnText);
+      const askedQuestion = this.endRequested !== undefined && endsWithQuestion(this.turnText);
       this.turnText = "";
-      if (this.endRequested && askedQuestion) {
+      if (askedQuestion) {
         // The model asked something and ended in the same turn: let the user answer, and let the
         // idle timer end it if they don't. A later turn has to ask for the end again.
         this.log.log("gemini: end requested after a question, keeping the session open");
         this.endRequested = undefined;
+        this.holdInterrupted = true;
         this.armIdle("ended: no follow-up (end after question)");
       } else if (this.endRequested) this.finish(`ended: ${this.endRequested}`);
       else this.armIdle();

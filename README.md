@@ -47,7 +47,7 @@ Browsers only allow the microphone on `localhost` or HTTPS.
 
 The session closes itself in two ways:
 
-- Friday calls the `end_conversation` tool once a request is fully handled and it has no follow-up question, or when you say "goodbye", "thanks", "that's all", etc. The session closes after its final words. If those words end with a question (`?`, `？` or `؟`), the session ignores the request and keeps listening so you can answer. If you don't answer, the idle timeout below closes it with `ended: no follow-up (end after question)`.
+- Friday calls the `end_conversation` tool once a request is fully handled and it has no follow-up question, or when you say "goodbye", "thanks", "that's all", etc. The session closes after its final words. If those words end with a question (`?`, `？`, `؟` or Greek `;`, also when followed by `!`, `.` or `…`), the session ignores the request and keeps listening so you can answer. If you don't answer, the idle timeout below closes it with `ended: no follow-up (end after question)`.
 - If you stay silent for `FRIDAY_IDLE_TIMEOUT_MS` (default 8000) after Friday finishes a turn, the session closes. Set to `0` to disable. The timer is paused while a tool (e.g. a timer) is still running.
 
 Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturing but finish playing queued audio.
