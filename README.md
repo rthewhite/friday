@@ -47,7 +47,7 @@ Browsers only allow the microphone on `localhost` or HTTPS.
 
 The session closes itself in two ways:
 
-- Friday calls the `end_conversation` tool once a request is fully handled and it has no follow-up question, or when you say "goodbye", "thanks", "that's all", etc. The session closes after its final words.
+- Friday calls the `end_conversation` tool once a request is fully handled and it has no follow-up question, or when you say "goodbye", "thanks", "that's all", etc. The session closes after its final words. If those words end with a question (`?`, `？`, `؟` or Greek `;`, also when followed by `!`, `.` or `…`), the session ignores the request and keeps listening so you can answer. If you don't answer, the idle timeout below closes it with `ended: no follow-up (end after question)`.
 - If you stay silent for `FRIDAY_IDLE_TIMEOUT_MS` (default 8000) after Friday finishes a turn, the session closes. Set to `0` to disable. The timer is paused while a tool (e.g. a timer) is still running.
 
 Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturing but finish playing queued audio.
@@ -146,7 +146,7 @@ The portal's build step scans the workspace for `friday.ui` declarations and gen
 
 Friday keeps a text record of every conversation in `friday.db`, for the portal's history and for background work that reads what was said.
 
-- **What is stored.** Transcript text only, never audio. A conversation has a channel (`voice` or `chat`), the client's `?device=` when it sends one, its start and last-activity times, and how it ended (`ended: done`, `ended: no follow-up`, `client closed`). Its entries are the user's turns, marked `speech` (Gemini's transcription, noisy) or `text` (typed, exact); Friday's answers, marked interrupted on a barge-in; and each tool call with its arguments and result, cut at 4000 characters. A session in which nothing was said, such as a false wake, leaves nothing behind. Whoever speaks near a Voice PE ends up in the record.
+- **What is stored.** Transcript text only, never audio. A conversation has a channel (`voice` or `chat`), the client's `?device=` when it sends one, its start and last-activity times, and how it ended (`ended: done`, `ended: no follow-up`, `ended: no follow-up (end after question)`, `client closed`). Its entries are the user's turns, marked `speech` (Gemini's transcription, noisy) or `text` (typed, exact); Friday's answers, marked interrupted on a barge-in; and each tool call with its arguments and result, cut at 4000 characters. A session in which nothing was said, such as a false wake, leaves nothing behind. Whoever speaks near a Voice PE ends up in the record.
 - **Quiet.** A voice conversation goes quiet when its session closes; any conversation goes quiet after `FRIDAY_CONVERSATION_QUIET_MINUTES` (default 30) without activity. In-process modules read conversations and hear when one goes quiet through `ctx.conversations` (see `packages/sdk/README.md`).
 - **Search.** A full-text index covers what was said: user and assistant text, and each tool call's name and the values in its arguments (not their keys), never its result. It is kept in step with the record, including deletes and retention, and was built for older conversations on upgrade. Friday searches it with `brain_recall_conversations` (see [Memory](#memory)), and modules with `ctx.conversations.search`.
 - **Retention.** A nightly core job at 04:00 deletes conversations whose last activity is older than `FRIDAY_CONVERSATION_RETENTION_DAYS` (default 90). `0` keeps them forever.

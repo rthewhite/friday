@@ -12,6 +12,11 @@ test("voice and chat prompts share the base; only voice mentions end_conversatio
   assert.match(prompts.chat, /Markdown/);
 });
 
+test("the voice prompt forbids ending after a question or an invitation to talk", () => {
+  assert.match(prompts.voice, /Never call end_conversation in a turn whose reply ends with a question\s+or invites the user to talk/);
+  assert.match(prompts.voice, /invites you to chat[\s\S]*open conversation/);
+});
+
 test("chat model falls back to the text model; tool timeout defaults to 30 s", () => {
   assert.deepEqual(chatSettings({}), { chatModel: "gemini-flash-latest", chatToolTimeoutMs: 30000 });
   assert.equal(chatSettings({ FRIDAY_TEXT_MODEL: "gemini-3.8-flash" }).chatModel, "gemini-3.8-flash");

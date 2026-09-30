@@ -4,7 +4,7 @@
 
 When a tool call returns an `endConversation` request (as the builtin `end_conversation` tool does), the session SHALL close after the current turn completes so the model's final words are delivered, and the `closed` event SHALL carry `ended: <reason>`. Once an end has been requested, the session SHALL NOT forward an `interrupted` event for the remainder of that turn, because Gemini marks its own turn as interrupted when the tool response arrives and clients would otherwise discard the final words. The session SHALL NOT reference any tool by name.
 
-The exception is a turn that ends with a question. If the output transcription received since the previous turn completed ends with a question mark (`?`, `？` or `؟`) once trailing whitespace, closing quotes and closing brackets are ignored, the session SHALL NOT close when that turn completes. It SHALL drop the end request, so a later turn only ends the conversation when it asks again, and it SHALL arm the idle timer as for any other completed turn. The session SHALL log that it kept listening because the turn ended with a question.
+The exception is a turn that ends with a question. The session SHALL look at the output transcription received since the previous turn completed or was interrupted by the user. If that text ends with a question mark (`?`, `？`, `؟` or the Greek `;` U+037E) once trailing whitespace, closing quotes, closing brackets, `.`, `!` and `…` are ignored, the session SHALL NOT close when the turn completes. It SHALL drop the end request, so a later turn only ends the conversation when it asks again, and it SHALL arm the idle timer as for any other completed turn. The session SHALL log that it kept listening because the turn ended with a question. It SHALL go on withholding `interrupted` events until the user next speaks or sends text, so an interruption flag that Gemini sends late for the dropped end cannot discard the question the session stayed open for.
 
 #### Scenario: Model ends conversation
 - **WHEN** the model calls `end_conversation` with a reason and then finishes its turn
@@ -40,9 +40,21 @@ The exception is a turn that ends with a question. If the output transcription r
 - **WHEN** the turn's transcription ends with `?"` or `?)` followed by whitespace, and an end was requested
 - **THEN** the turn counts as ending with a question and the session stays open
 
-#### Scenario: Full-width and Arabic question marks
-- **WHEN** the turn's transcription ends with `？` or `؟` and an end was requested
+#### Scenario: Full-width, Arabic and Greek question marks
+- **WHEN** the turn's transcription ends with `？`, `؟` or `;` (U+037E) and an end was requested
 - **THEN** the session stays open
+
+#### Scenario: Question followed by other punctuation
+- **WHEN** the turn's transcription ends with `?!`, `?…` or `?.` and an end was requested
+- **THEN** the turn counts as ending with a question and the session stays open
+
+#### Scenario: Late interrupted flag after a dropped end
+- **WHEN** an end request was dropped because the turn ended with a question, and Gemini then reports an interruption before the user speaks or types
+- **THEN** no `interrupted` event is emitted
+
+#### Scenario: Barge-in before the next turn
+- **WHEN** a turn ending with a question is interrupted by the user, and the next turn requests an end without any new transcription
+- **THEN** the interrupted turn's words do not count, and the session closes after the next turn
 
 ### Requirement: Idle timeout closes the session
 

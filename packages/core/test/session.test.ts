@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ToolRegistry } from "@friday/sdk";
 import type { LiveConnectParameters, LiveServerMessage } from "@google/genai";
-import { GeminiSession, type Event, type LiveConnect } from "../src/session.js";
+import { GeminiSession, endsWithQuestion, type Event, type LiveConnect } from "../src/session.js";
 import { waitFor } from "./helpers.js";
 import { setup } from "./conversation-fixtures.js";
 import { prompts, settings } from "../src/config.js";
@@ -91,6 +91,182 @@ test("without endConversation the turn completes normally", async () => {
 });
 
 const msg = (serverContent: LiveServerMessage["serverContent"]) => ({ serverContent }) as LiveServerMessage;
+
+test("endsWithQuestion looks at the last character past closing quotes, brackets and whitespace", () => {
+  for (const t of ["What would you like to share?", 'She asked "ready?"', "(anything else?) ", "准备好了吗？", "هل أنت مستعد؟", "Είσαι έτοιμος;", "Klaar?”\n", "Really?!", "Which room?…", "Anything else?."]) {
+    assert.equal(endsWithQuestion(t), true, t);
+  }
+  for (const t of ["Want the lights on? Done, they're on.", "Goodbye!", "Right...", "", "   ", "!!!"]) {
+    assert.equal(endsWithQuestion(t), false, t);
+  }
+});
+
+/** A session with a SILENT tool that asks to end, and a short idle timeout. */
+async function endingSession(idleTimeoutMs = 20) {
+  const r = new ToolRegistry(quiet);
+  r.add("builtin", { name: "end_conversation", description: "", scheduling: "SILENT", handler: ({ reason }: { reason?: string }) => ({ ending: true, endConversation: reason ?? "done" }) });
+  const live = fakeLive();
+  const events: Event[] = [];
+  const logs: string[] = [];
+  const s = new GeminiSession((e) => events.push(e), r, { connect: live.connect, log: { log: (m: string) => void logs.push(m), error() {} } });
+  await s.open();
+  const previous = settings.idleTimeoutMs;
+  settings.idleTimeoutMs = idleTimeoutMs;
+  const restore = () => {
+    settings.idleTimeoutMs = previous;
+    s.close();
+  };
+  /** One model turn: its spoken words, optionally an end request, then turnComplete. */
+  const turn = async (text: string, end?: string) => {
+    s.handle(msg({ outputTranscription: { text } }));
+    if (end !== undefined) {
+      const n = live.responses.length;
+      s.handle({ toolCall: { functionCalls: [{ id: String(n), name: "end_conversation", args: { reason: end } }] } } as LiveServerMessage);
+      await waitFor(() => live.responses.length === n + 1);
+    }
+    s.handle(msg({ turnComplete: true }));
+  };
+  return { s, r, live, events, logs, turn, restore };
+}
+
+const closedWith = (events: Event[]) => events.filter((e) => e.kind === "closed").map((e) => (e as { data?: string }).data);
+
+test("an end requested in a turn that ends with a question keeps the session open and arms the idle timer", async () => {
+  const t = await endingSession(60_000);
+  try {
+    // Conversation c1e1a36e: Friday asked a question and ended in the same turn.
+    t.s.handle(msg({ outputTranscription: { text: "Good morning! I'd love to learn more about your life. " } }));
+    await t.turn("What would you like to share with me today?", "request done");
+    assert.deepEqual(closedWith(t.events), []);
+    assert.equal(t.live.closed, 0);
+    assert.ok(t.logs.includes("gemini: end requested after a question, keeping the session open"));
+    assert.ok((t.s as any).idleTimer, "idle timer armed");
+  } finally {
+    t.restore();
+  }
+});
+
+test("a question before a closing quote, or with a full-width or Arabic mark, also keeps the session open", async () => {
+  for (const words of ['You said "which room?" ', "还有别的吗？", "هل هناك شيء آخر؟"]) {
+    const t = await endingSession(60_000);
+    try {
+      await t.turn(words, "request done");
+      assert.deepEqual(closedWith(t.events), [], words);
+    } finally {
+      t.restore();
+    }
+  }
+});
+
+test("after a dropped end, a late interrupted flag is withheld until the user speaks or types", async () => {
+  for (const takeTurn of [
+    (t: Awaited<ReturnType<typeof endingSession>>) => t.s.handle(msg({ inputTranscription: { text: "My sister" } })),
+    (t: Awaited<ReturnType<typeof endingSession>>) => t.s.sendText("My sister"),
+  ]) {
+    const t = await endingSession(60_000);
+    try {
+      await t.turn("What would you like to share with me today?", "request done");
+      t.s.handle(msg({ interrupted: true }));
+      assert.ok(!t.events.some((e) => e.kind === "interrupted"), "late flag withheld");
+      takeTurn(t);
+      t.s.handle(msg({ outputTranscription: { text: "Tell me" } }));
+      t.s.handle(msg({ interrupted: true }));
+      assert.equal(t.events.filter((e) => e.kind === "interrupted").length, 1, "a real barge-in is forwarded again");
+    } finally {
+      t.restore();
+    }
+  }
+});
+
+test("a barge-in drops the interrupted turn's words, so they don't count for the next end", async () => {
+  const t = await endingSession(60_000);
+  try {
+    t.s.handle(msg({ outputTranscription: { text: "Shall I turn on the kitchen lights?" } }));
+    t.s.handle(msg({ interrupted: true }));
+    await t.turn("", "user said goodbye");
+    assert.deepEqual(closedWith(t.events), ["ended: user said goodbye"]);
+  } finally {
+    t.restore();
+  }
+});
+
+test("speech cancels the idle timer", async () => {
+  const t = await endingSession();
+  try {
+    await t.turn("Lights are on.");
+    t.s.handle(msg({ inputTranscription: { text: "And the kitchen" } }));
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(closedWith(t.events), []);
+  } finally {
+    t.restore();
+  }
+});
+
+test("the idle timer is not armed while a tool is still running", async () => {
+  const t = await endingSession();
+  let finish!: () => void;
+  t.r.add("x", { name: "slow", description: "", handler: () => new Promise((done) => (finish = () => done({ ok: true }))) });
+  try {
+    t.s.handle({ toolCall: { functionCalls: [{ id: "slow", name: "slow", args: {} }] } } as LiveServerMessage);
+    await t.turn("Timer set.");
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(closedWith(t.events), []);
+  } finally {
+    finish?.();
+    t.restore();
+  }
+});
+
+test("silence after a dropped end closes with ended: no follow-up (end after question)", async () => {
+  const t = await endingSession();
+  try {
+    await t.turn("What would you like to share with me today?", "request done");
+    await waitFor(() => t.events.some((e) => e.kind === "closed"));
+    assert.deepEqual(closedWith(t.events), ["ended: no follow-up (end after question)"]);
+    assert.equal(t.live.closed, 1);
+  } finally {
+    t.restore();
+  }
+});
+
+test("after a dropped end the user can answer, and the next turn neither ends nor carries the question reason", async () => {
+  const t = await endingSession(60_000);
+  try {
+    await t.turn("Anything else?", "request done");
+    t.s.handle(msg({ inputTranscription: { text: "Yes, my daughter's birthday is in May." } }));
+    await t.turn("Noted, I'll remember that.");
+    assert.deepEqual(closedWith(t.events), []);
+    settings.idleTimeoutMs = 20;
+    await t.turn("Anything more?");
+    await waitFor(() => t.events.some((e) => e.kind === "closed"));
+    assert.deepEqual(closedWith(t.events), ["ended: no follow-up"]);
+  } finally {
+    t.restore();
+  }
+});
+
+test("an end after a statement, or after a question in the middle of the turn, still closes right away", async () => {
+  for (const words of ["Done.", "Want the lights on? Done, they're on."]) {
+    const t = await endingSession(60_000);
+    try {
+      await t.turn(words, "request done");
+      assert.deepEqual(closedWith(t.events), ["ended: request done"], words);
+    } finally {
+      t.restore();
+    }
+  }
+});
+
+test("a dropped end with the idle timeout disabled leaves the session open", async () => {
+  const t = await endingSession(0);
+  try {
+    await t.turn("Which room?", "request done");
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepEqual(closedWith(t.events), []);
+  } finally {
+    t.restore();
+  }
+});
 
 test("typed text is recorded as input text, followed by the answer", async () => {
   const { store } = setup();
