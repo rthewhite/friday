@@ -2,7 +2,7 @@
 
 ## 1. Guidance: the profile as a summary, facts routed to entities
 
-- [ ] 1.1 In `modules/brain/src/nightly/guidance.ts`, make these edits per design D1 and D4, and export `GUIDANCE_VERSION = 2`, with a comment on when to bump it:
+- [x] 1.1 In `modules/brain/src/nightly/guidance.ts`, make these edits per design D1 and D4, and export `GUIDANCE_VERSION = 2`, with a comment on when to bump it:
   - rewrite `PROFILE` as a summary backed by entity pages, with the "beyond name and relation" threshold, the `[[link]]` line, and facts allowed in both places;
   - reword `CONSOLIDATION_ROLE`'s `rewrite`/`create` bullets to move or copy entity detail off the profile whatever the budget;
   - replace `EXTRACTION_FILTER`'s "me/I" rule with routing by who a fact is about, with the relation in the fact.
@@ -11,8 +11,8 @@
   - both prompts carry the new `PROFILE` block;
   - the consolidation prompt no longer limits `create` to an over-budget profile;
   - the extraction prompt states the first-person routing rule.
-- [ ] 1.2 Update `brain_remember`'s description in `src/tools.ts` (design D4). Verify with `test/tools.test.ts`: the description routes facts about a named person, place, project or organisation to that entity, also in the first person, and reserves `profile` for the user or the household as a whole.
-- [ ] 1.3 Add the profile-summary sentence to `INTRO` in `src/context.ts` (design D5). Verify with `test/context.test.ts`: the context says the profile is a summary with details on the pages, also for an empty brain, and the existing size-bound tests still pass.
+- [x] 1.2 Update `brain_remember`'s description in `src/tools.ts` (design D4). Verify with `test/tools.test.ts`: the description routes facts about a named person, place, project or organisation to that entity, also in the first person, and reserves `profile` for the user or the household as a whole.
+- [x] 1.3 Add the profile-summary sentence to `INTRO` in `src/context.ts` (design D5). Verify with `test/context.test.ts`: the context says the profile is a summary with details on the pages, also for an empty brain, and the existing size-bound tests still pass.
 
 ## 2. Consolidation: guidance trigger and named-page loss check
 

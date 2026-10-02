@@ -13,7 +13,9 @@ export const INDEX_MAX = 50;
 const INTRO = `## Memory
 You have a long-term memory about the user and their household. Use it as
 background knowledge; don't recite it unprompted. Lines under "Notes" are
-dated; when two contradict, the newer one holds.`;
+dated; when two contradict, the newer one holds. The profile is a summary;
+details about the people, places and projects it names are on their pages
+(brain_recall).`;
 
 const PAGES_INTRO = `Call brain_recall before answering about any of these, or when the user
 refers to something you might have noted before:`;
