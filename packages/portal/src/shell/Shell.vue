@@ -22,6 +22,7 @@ const items = computed<NavItem[]>(() => [
     .sort((a, b) => (a.nav.order ?? 100) - (b.nav.order ?? 100) || a.nav.label.localeCompare(b.nav.label))
     .map((u) => ({ to: `/m/${u.id}`, label: u.nav.label, icon: u.nav.icon, group: "Modules" })),
   { to: "/settings/config", label: "Configuration", icon: "settings", group: "System" },
+  { to: "/settings/devices", label: "Voice devices", icon: "speaker", group: "System" },
   { to: "/settings/keys", label: "Remote modules", icon: "key", group: "System" },
   { to: "/settings/jobs", label: "Jobs", icon: "clock", group: "System" },
 ]);

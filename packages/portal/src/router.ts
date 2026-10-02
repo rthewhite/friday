@@ -9,6 +9,7 @@ export function createPortalRouter(uis: ModuleUi[]) {
     { path: "/conversations", name: "conversations", component: () => import("./pages/ConversationsPage.vue") },
     { path: "/modules", name: "modules", component: () => import("./pages/ModulesPage.vue") },
     { path: "/settings/config", name: "settings-config", component: () => import("./pages/settings/ConfigurationPage.vue") },
+    { path: "/settings/devices", name: "settings-devices", component: () => import("./pages/settings/VoiceDevicesPage.vue") },
     { path: "/settings/keys", name: "settings-keys", component: () => import("./pages/settings/RemoteModulesPage.vue") },
     { path: "/settings/jobs", name: "settings-jobs", component: () => import("./pages/settings/JobsPage.vue") },
     ...uis.map<RouteRecordRaw>((ui) => ({

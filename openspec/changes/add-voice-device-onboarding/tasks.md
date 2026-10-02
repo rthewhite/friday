@@ -42,7 +42,7 @@
 
 ## 3. Portal
 
-- [ ] 3.1 Add `packages/portal/src/pages/settings/VoiceDevicesPage.vue` (design D7):
+- [x] 3.1 Add `packages/portal/src/pages/settings/VoiceDevicesPage.vue` (design D7):
   - pending table with `Accept` and `Ignore`,
   - accept drawer showing id and fingerprint, with label, area (with the HA area hint) and notes,
   - devices table with status dot, label, id, area, fingerprint, last connected and a replacement marker,
@@ -50,8 +50,8 @@
   - `Refresh` and the help text.
 
   Register `/settings/devices` in `router.ts` and add `Voice devices` to the System group in `shell/Shell.vue`, after `Configuration`. Verify `pnpm --filter @friday/portal typecheck` and `build` pass.
-- [ ] 3.2 Show device labels on the Conversations page: add a small `packages/portal/src/lib/devices.ts` (id-to-label map and a display helper falling back to the id), load `/api/devices` once in `ConversationsPage.vue`, and show the label with the id as a `title` in the table and the drawer. Add `packages/portal/test/devices.test.ts` for the registered and unregistered cases. Verify `pnpm --filter @friday/portal test` and `typecheck` pass.
-- [ ] 3.3 Start a dev server on free ports (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`), then:
+- [x] 3.2 Show device labels on the Conversations page: add a small `packages/portal/src/lib/devices.ts` (id-to-label map and a display helper falling back to the id), load `/api/devices` once in `ConversationsPage.vue`, and show the label with the id as a `title` in the table and the drawer. Add `packages/portal/test/devices.test.ts` for the registered and unregistered cases. Verify `pnpm --filter @friday/portal test` and `typecheck` pass.
+- [x] 3.3 Start a dev server on free ports (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`), then:
   1. Simulate a device with a `ws` client script that sends `?device=test-sat` and a random Bearer key.
   2. Confirm it is closed with `4403` and listed under pending with the fingerprint the script prints.
   3. Accept it with an area.
@@ -59,6 +59,15 @@
   5. Edit its notes, revoke it while connected (the socket closes with `4401`), and delete it.
 
   Stop the dev server.
+  - Done on 2026-10-02 on port 8081, with a Node `ws` script as the device and the API calls the page makes (`curl`).
+    - The first connect closed with `4403 pending approval`, and `test-sat` was listed with the fingerprint the script printed (`b097-8953`).
+    - Accepting with area `Kitchen` answered 201.
+    - The reconnect logged `ws: [test-sat] session open` (a real Gemini session) and the listing showed `connected: true`.
+    - Editing the notes saved them. Revoking during a session closed it with `4401 unauthorized`, and the next attempt was rejected with `4401` and not listed as pending. Delete answered 204.
+    - `/settings/devices` and `/api/devices` answered through the Vite dev server.
+    - The page was not clicked through in a browser.
+    - The dev server reads `.env` from `packages/core` (`dotenv/config` uses the cwd), so the Gemini key had to be copied there for the session to open. Without a key the session closed with 1005 right after it was accepted.
+    - The dev server was stopped afterwards.
 
 ## 4. Firmware and deployment
 
