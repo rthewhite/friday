@@ -54,4 +54,5 @@
 
 ## 5. Integration
 
-- [ ] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify that all three succeed.
+- [x] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify that all three succeed.
+  - All three succeeded: 758 tests, 755 passed, 0 failed, and the 3 opt-in live Gemini tests skipped.
