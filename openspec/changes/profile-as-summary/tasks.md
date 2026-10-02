@@ -45,12 +45,12 @@
 
 ## 4. Docs
 
-- [ ] 4.1 Update `README.md`'s Memory section and verify it states:
+- [x] 4.1 Update `README.md`'s Memory section and verify it states:
   - the profile is a summary and detail lives on entity pages;
   - first-person facts about named others go to their page (the extraction bullet);
   - consolidation creates entity pages whatever the budget;
   - a guidance change reconsiders the profile once, with `Run now` to do it right away.
-- [ ] 4.2 Update the brain part of the `openspec/config.yaml` context (profile as a summary, the guidance version in `ctx.storage`, the named-page loss check). Verify that `openspec validate profile-as-summary --strict` passes.
+- [x] 4.2 Update the brain part of the `openspec/config.yaml` context (profile as a summary, the guidance version in `ctx.storage`, the named-page loss check). Verify that `openspec validate profile-as-summary --strict` passes.
 
 ## 5. Integration
 
