@@ -96,15 +96,38 @@ key, `/ws/modules` rejects every connection and startup logs a warning.
 | Client | URL |
 |---|---|
 | Browser | `https://friday.thewhite.nl` (websecure) |
-| Voice PE | `ws://friday.thewhite.nl:80/ws/audio` (web entrypoint, this path only) |
+| Voice devices | `wss://friday.thewhite.nl/ws/audio?device=<id>` (websecure, whole-host route; key in `Authorization`) |
 | Remote modules | `wss://friday.thewhite.nl/ws/modules` (websecure, whole-host route) |
 
-`*.thewhite.nl` resolves to Traefik on the LAN via AdGuard. The plain-HTTP route
-exists because the ESPHome `friday_client` component does not do TLS yet; drop
-`friday-ws-plain` from `deploy/k8s.yaml` once it does.
+`*.thewhite.nl` resolves to Traefik on the LAN via AdGuard. Voice devices accepted
+under Settings > Voice devices connect over TLS like everything else; there is no
+plain-HTTP route.
+
+### Moving the Voice PE to device keys (once)
+
+The plain-HTTP `friday-ws-plain` IngressRoute was removed from `deploy/k8s.yaml`
+when voice devices got keys. The deploy runs `kubectl apply` without pruning, so
+it stays in the cluster until it is deleted by hand. The order:
+
+1. Merge and push; the deploy rolls out. The Voice PE on the old firmware is now
+   rejected (no key) and shows the red error pulse.
+2. Delete the old route:
+   ```bash
+   kubectl -n friday delete ingressroute friday-ws-plain
+   ```
+3. Flash the new firmware over OTA: `esphome run esphome/friday-voice-pe.yaml`.
+   It generates its key and logs its fingerprint.
+4. Say "hey friday". The ring pulses amber and `friday-voice` appears under
+   Settings > Voice devices > Pending.
+5. Accept it with its label, Home Assistant area and notes, and wake it again.
 
 ## 5. Rollback
 
 ```bash
 kubectl -n friday rollout undo deploy/friday
 ```
+
+The previous server accepts the new firmware: it ignores the `Authorization`
+header and serves `wss://` on the same host. Going back to the old firmware
+needs the `friday-ws-plain` route again (apply it from the manifest of an
+earlier commit).

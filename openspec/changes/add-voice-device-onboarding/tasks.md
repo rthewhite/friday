@@ -94,7 +94,10 @@
   - Instead of `wss://${friday_host}/ws/audio`, the YAML has one `friday_url` substitution (`wss://friday.thewhite.nl/ws/audio`), so a `pnpm dev` server (`ws://<LAN IP>:8080/ws/audio`) needs only that line changed.
   - The wake word is gated by the existing idle-only check, which also covers pending.
   - It compiled after these edits, and the grep finds nothing.
-- [ ] 4.3 Remove the `friday-ws-plain` IngressRoute from `deploy/k8s.yaml` and its mention in the comments. Add the one-off `kubectl -n friday delete ingressroute friday-ws-plain` and the rollout order (design Migration Plan) to `infra/README.md`. Verify with `grep -n "friday-ws-plain" deploy/k8s.yaml` (no match) and `kubectl apply --dry-run=client -f deploy/k8s.yaml` (or a YAML parse) succeeding.
+- [x] 4.3 Remove the `friday-ws-plain` IngressRoute from `deploy/k8s.yaml` and its mention in the comments. Add the one-off `kubectl -n friday delete ingressroute friday-ws-plain` and the rollout order (design Migration Plan) to `infra/README.md`. Verify with `grep -n "friday-ws-plain" deploy/k8s.yaml` (no match) and `kubectl apply --dry-run=client -f deploy/k8s.yaml` (or a YAML parse) succeeding.
+  - The grep finds no match. The YAML parses into four documents: Deployment, PersistentVolumeClaim, Service and IngressRoute `friday`.
+  - `kubectl --dry-run=client` was not run, because the IngressRoute CRD needs the cluster.
+  - `infra/README.md` gained the endpoints update, the one-off delete, the rollout order and the rollback note.
 
 ## 5. Integration
 
