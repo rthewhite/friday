@@ -80,7 +80,7 @@ Extraction doesn't also write a profile line. Keeping the profile summary up to 
 
 ### D6. Fixtures
 
-- `relative-first-person.json` (extraction): "my wife Lisa teaches at De Regenboog, and I'm an engineer at Schuberg Philis". It expects a note on `Lisa` containing "Regenboog", and one on `Schuberg Philis` or the profile containing "engineer". `mustNotNote` covers nothing on the profile about De Regenboog.
+- `relative-first-person.json` (extraction): "my wife Lisa teaches at De Regenboog, and I'm an engineer at Schuberg Philis". It expects a note on `Lisa` containing "Regenboog", and one on the profile containing "engineer" (a fact about the speaker). `mustNotNote` applies to every page, so it can't say "not on the profile". It covers Friday's own reply instead, and the fake-model test checks separately that the profile doesn't mention De Regenboog.
 - `profile-summary.json` (consolidation): a profile under budget whose notes are about Lisa, Tim and Schuberg Philis, plus "Has a brother, Mark", and no other pages. It expects:
   - pages `Lisa`, `Tim` and `Schuberg Philis` holding their facts;
   - a profile that still names each of them;

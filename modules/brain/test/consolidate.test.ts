@@ -7,7 +7,7 @@ import { preserved, renderConsolidation, validatePlan, type Plan } from "../src/
 import { GUIDANCE_VERSION } from "../src/nightly/guidance.js";
 import { BrainStore } from "../src/store.js";
 import { brainStore } from "./fixtures.js";
-import { loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
+import { brainText, checkFixture, loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
 
 const fixtures = new Map(loadFixtures().map((f) => [f.name, f]));
 const fixture = (name: string): Fixture => fixtures.get(name)!;
@@ -434,14 +434,16 @@ test("a reverted page is not rewritten again on the next night", async () => {
   assert.match(again.summary!, /nothing to consolidate/);
 });
 
-test("the fixture plans apply: notes folded with a declared drop, detail moved off an over-budget profile", async () => {
-  for (const name of ["fold-notes", "profile-over-budget"]) {
+test("the fixture plans apply: notes folded with a declared drop, detail moved off the profile, over budget or not", async () => {
+  for (const name of ["fold-notes", "profile-over-budget", "profile-summary"]) {
     const f = fixture(name);
     const t = await host(() => fill(t.h, f.fake!.plan), f.env ?? {});
     await seedFixture(t.h, f);
+    const before = brainText(t.h);
     const r = await t.run();
     assert.equal(r.row.outcome, "ok", `${name}: ${r.row.error}`);
     const all = (t.h.db.prepare("SELECT body FROM brain__pages WHERE deleted_at IS NULL").all() as { body: string }[]).map((p) => p.body).join("\n");
     for (const k of f.mustKeep ?? []) assert.ok(all.includes(k), `${name} keeps ${k}`);
+    for (const c of checkFixture(t.h, f, before)) assert.ok(c.ok, `${name}: ${c.expectation}`);
   }
 });

@@ -37,9 +37,11 @@
 
 ## 3. Fixtures and eval
 
-- [ ] 3.1 Add an optional `mustNotPage: string[]` field to the fixture format in `test/nightly/load.ts`, checked by `checkFixture` (no live page has that name or alias). Verify with a `nightly-fixtures.test.ts` case where a seeded page fails the check and a missing one passes.
-- [ ] 3.2 Add `test/fixtures/nightly/relative-first-person.json` (extraction) and `profile-summary.json` (consolidation) per design D6, with fake answers. List both in the coverage test in `nightly-fixtures.test.ts`. Verify with `pnpm --filter @friday/module-brain test`: both fixtures pass against the fake model, and the `profile-summary` fake plan passes `validatePlan`.
-- [ ] 3.3 Run `pnpm --filter @friday/module-brain eval relative-first-person profile-summary fold-notes profile-over-budget` against the real model, and verify that each expectation passes. Where one fails, tune the guidance from 1.1, then re-run the guidance and fixture tests and the eval. Record the eval result in the commit message.
+- [x] 3.1 Add an optional `mustNotPage: string[]` field to the fixture format in `test/nightly/load.ts`, checked by `checkFixture` (no live page has that name or alias). Verify with a `nightly-fixtures.test.ts` case where a seeded page fails the check and a missing one passes.
+- [x] 3.2 Add `test/fixtures/nightly/relative-first-person.json` (extraction) and `profile-summary.json` (consolidation) per design D6, with fake answers. List both in the coverage test in `nightly-fixtures.test.ts`. Verify with `pnpm --filter @friday/module-brain test`: both fixtures pass against the fake model, and the `profile-summary` fake plan passes `validatePlan`.
+- [x] 3.3 Run `pnpm --filter @friday/module-brain eval relative-first-person profile-summary fold-notes profile-over-budget` against the real model, and verify that each expectation passes. Where one fails, tune the guidance from 1.1, then re-run the guidance and fixture tests and the eval. Record the eval result in the commit message.
+  - With `gemini-flash-latest`, the four fixtures passed 23 of 23 expectations on the first run, and the full set passed 46 of 46, so no tuning was needed.
+  - The script was started as `node --env-file-if-exists=../../.env --import tsx scripts/eval.ts`, the command behind the package's eval script.
 
 ## 4. Docs
 

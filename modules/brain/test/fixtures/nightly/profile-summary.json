@@ -1,0 +1,32 @@
+{
+  "description": "A profile under budget holding detail about the user's wife, son and employer: consolidation gives each its own page and keeps a summary with links; a brother known only by name gets no page.",
+  "kind": "consolidation",
+  "profile": "Lives in Amsterdam.\n\n## Notes\n- 2026-09-28: Wife is Lisa.\n- 2026-09-28: Lisa teaches at De Regenboog, a primary school.\n- 2026-09-28: Son Tim is 9 and plays football on Saturdays.\n- 2026-09-28: Works as an engineer at Schuberg Philis.\n- 2026-09-28: Schuberg Philis is in Schiphol-Rijk; goes to the office on Tuesdays.\n- 2026-09-28: Has a brother, Mark.\n- 2026-09-28: Prefers tea over coffee.",
+  "mustNote": [
+    { "entity": "Lisa", "contains": "Regenboog" },
+    { "entity": "Tim", "contains": "football" },
+    { "entity": "Schuberg Philis", "contains": "Tuesday" },
+    { "entity": "profile", "contains": "Lisa" },
+    { "entity": "profile", "contains": "Tim" },
+    { "entity": "profile", "contains": "Schuberg Philis" }
+  ],
+  "mustKeep": ["Prefers tea over coffee", "Has a brother, Mark", "Schiphol-Rijk"],
+  "mustNotPage": ["Mark"],
+  "fake": {
+    "plan": {
+      "actions": [
+        { "kind": "create", "name": "Lisa", "type": "person", "body": "The user's wife. Teaches at De Regenboog, a primary school." },
+        { "kind": "create", "name": "Tim", "type": "person", "body": "The user's son, 9 years old. Plays football on Saturdays." },
+        { "kind": "create", "name": "Schuberg Philis", "type": "other", "body": "The user's employer; the user works there as an engineer. The office is in Schiphol-Rijk; the user goes to the office on Tuesdays." },
+        {
+          "kind": "rewrite",
+          "page": "{{id:Profile}}",
+          "base": "{{rev:Profile}}",
+          "body": "Lives in Amsterdam.\n- Wife: [[Lisa]], a teacher.\n- Son: [[Tim]], 9.\n- Has a brother, Mark.\n- Works as an engineer at [[Schuberg Philis]].\n- Prefers tea over coffee.",
+          "dropped": []
+        }
+      ],
+      "note": "Gave Lisa, Tim and Schuberg Philis their own pages and kept a summary on the profile."
+    }
+  }
+}

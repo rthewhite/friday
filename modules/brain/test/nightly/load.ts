@@ -45,6 +45,8 @@ export interface Fixture {
   mustKeep?: string[];
   /** Consolidation: lines that may be dropped (superseded). */
   mayDrop?: string[];
+  /** No live page may have one of these as its name or alias after the run. */
+  mustNotPage?: string[];
   /** Canned model answers for the fake-model tests. */
   fake?: { notes?: unknown[]; plan?: unknown };
 }
@@ -123,5 +125,6 @@ export function checkFixture(h: TestHost, fx: Fixture, before: string): Check[] 
   // Kept means stated verbatim or with most of its words, as consolidation's own loss check counts it.
   const folded = fold(after);
   for (const k of fx.mustKeep ?? []) out.push({ expectation: `still states "${k}"`, ok: after.includes(k.toLowerCase()) || preserved(k, folded) });
+  for (const n of fx.mustNotPage ?? []) out.push({ expectation: `no page named "${n}"`, ok: bodyOf(h, n) === undefined });
   return out;
 }
