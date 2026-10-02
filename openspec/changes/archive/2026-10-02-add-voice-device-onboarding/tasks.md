@@ -102,7 +102,7 @@
 ## 5. Integration
 
 - [x] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all green.
-- [ ] 5.2 On the real Voice PE against a dev server or the deployed build (with the user's go-ahead for deploying):
+- [x] 5.2 On the real Voice PE against a dev server or the deployed build (with the user's go-ahead for deploying):
   1. OTA-flash the new firmware and note the fingerprint sensor in Home Assistant.
   2. Say "hey friday" and confirm the pending LED, and that the portal lists `friday-voice` with the same fingerprint.
   3. Accept it with its HA area.
@@ -118,6 +118,14 @@
   - Step 5 passed: after a power cycle it connected without a new pending attempt, with the same fingerprint.
   - Still open: step 4's HA call and step 6 (`wss://` timing) need the deployed build, then an OTA reflash with the default `friday_url`.
   - Noted: the first session after accepting caught noise (`juste à스팅`), was answered in Korean, and the client closed after 3.5 s. Later sessions were normal.
+
+  Completed on 2026-10-02 against the deployed build (`fac0a34`), after `friday-ws-plain` was deleted and the device was OTA-flashed with the default `wss://` URL:
+  - The homelab rejected the device with `4403 pending approval` (amber pulse), and it was accepted with fingerprint `0e9b-b90c` and area `Bedroom`.
+  - Step 4 passed: "turn off the lights" turned off only the bedroom lights.
+  - Step 6: wake word to listening over `wss://` took 471–580 ms over three wakes, TLS handshake included.
+  - Noted:
+    - an `unparseable text frame (536 bytes)` warning when the HA tool result arrived; the firmware ignores tool events, and that parser is older than this change;
+    - wake-word ring-buffer warnings during the TLS handshake, harmless because the wake word is ignored during a session.
 
 ## 6. Review fixes
 
