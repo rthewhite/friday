@@ -101,7 +101,7 @@
 
 ## 5. Integration
 
-- [ ] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all green.
+- [x] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all green.
 - [ ] 5.2 On the real Voice PE against a dev server or the deployed build (with the user's go-ahead for deploying):
   1. OTA-flash the new firmware and note the fingerprint sensor in Home Assistant.
   2. Say "hey friday" and confirm the pending LED, and that the portal lists `friday-voice` with the same fingerprint.
