@@ -16,7 +16,7 @@
 
 ## 2. Consolidation: guidance trigger and named-page loss check
 
-- [ ] 2.1 In `src/nightly/consolidate.ts`, implement the guidance version trigger (design D2):
+- [x] 2.1 In `src/nightly/consolidate.ts`, implement the guidance version trigger (design D2):
   - read `consolidate:guidance` (absent = 1);
   - when it is older, add the profile to `changed` and add the "guidance changed" header line;
   - store `GUIDANCE_VERSION` after an applied plan, an empty one included;
@@ -28,7 +28,8 @@
   - a plan refused twice leaves the version older, so the run after calls again;
   - an empty brain records the version with no call;
   - the existing "no model call when no page changed" test sets the current version and still passes.
-- [ ] 2.2 Extend `validatePlan`'s loss check (design D3): a removed line also counts as preserved when a live page it names (`[[link]]`, or name/alias as whole words), other than its own page and not touched or merged away by the plan, states most of its significant words. Verify with `consolidate.test.ts`:
+  - It passes unchanged: its empty brain records the version without a call, and its seeded brain records it with the first applied plan. A separate test checks that an input without an older version has no guidance line.
+- [x] 2.2 Extend `validatePlan`'s loss check (design D3): a removed line also counts as preserved when a live page it names (`[[link]]`, or name/alias as whole words), other than its own page and not touched or merged away by the plan, states most of its significant words. Verify with `consolidate.test.ts`:
   - "Already on the linked page" is applied;
   - "Not on the named page" is refused, naming the profile and the line;
   - a line naming no page is still refused as before;
