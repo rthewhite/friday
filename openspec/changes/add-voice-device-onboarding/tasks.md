@@ -2,8 +2,8 @@
 
 ## 1. Core: device store
 
-- [ ] 1.1 Add migration 7 `voice-devices` to `packages/core/src/storage/db.ts` with the `devices` and `device_attempts` tables (design D1). Add a case to `packages/core/test/storage.test.ts` that a database at version 6 upgrades to 7 with both tables empty and existing conversations untouched. Verify `pnpm --filter @friday/core test` and `typecheck` pass.
-- [ ] 1.2 Implement `DeviceStore` in `packages/core/src/devices/store.ts` (design D1, D4, D6):
+- [x] 1.1 Add migration 7 `voice-devices` to `packages/core/src/storage/db.ts` with the `devices` and `device_attempts` tables (design D1). Add a case to `packages/core/test/storage.test.ts` that a database at version 6 upgrades to 7 with both tables empty and existing conversations untouched. Verify `pnpm --filter @friday/core test` and `typecheck` pass.
+- [x] 1.2 Implement `DeviceStore` in `packages/core/src/devices/store.ts` (design D1, D4, D6):
   - id and key validation,
   - `authenticate(id, key)` returning the device snapshot or `{ code, reason }`, as in the audio-transport delta's table, comparing the hash with `timingSafeEqual`, updating `last_seen_at` on success, and upserting an attempt for an unknown id or a different key (never for a revoked id),
   - lazy pruning of attempts (24 hours, at most 20 rows),
@@ -12,7 +12,7 @@
   - `fingerprint(hash)`.
 
   Add `packages/core/test/device-store.test.ts` covering each scenario in the voice-devices delta: key at rest, fingerprint format, first and repeated attempts, the stale attempt and the 20-row cap, no key, replacement while the old key still works, accept, accept with a stale fingerprint, ignore, replace, an edit with an over-long note refused, revoke (rejected with no attempt), and delete followed by re-onboarding. Verify the core tests and typecheck pass.
-- [ ] 1.3 Add `DeviceSessions` in `packages/core/src/devices/sessions.ts` (design D3): add and remove a socket per device id, `connected(id)`, and `disconnect(id)` closing each socket with `4401 unauthorized`. Add unit cases to `packages/core/test/device-store.test.ts` (or its own file) for two sockets on one id, connected status after one closes, and disconnect closing both. Verify the core tests and typecheck pass.
+- [x] 1.3 Add `DeviceSessions` in `packages/core/src/devices/sessions.ts` (design D3): add and remove a socket per device id, `connected(id)`, and `disconnect(id)` closing each socket with `4401 unauthorized`. Add unit cases to `packages/core/test/device-store.test.ts` (or its own file) for two sockets on one id, connected status after one closes, and disconnect closing both. Verify the core tests and typecheck pass.
 
 ## 2. Core: transport, prompt and API
 

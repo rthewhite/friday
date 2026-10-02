@@ -20,6 +20,32 @@ const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE($
 
 export const migrations: Migration[] = [
   {
+    version: 7,
+    name: "voice-devices",
+    // Registered voice devices (key as a SHA-256 hash only) and pending connection attempts, one per claimed id.
+    // An attempt can exist next to a device with the same id: that device came back with a different key.
+    sql: `
+      CREATE TABLE devices (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        area TEXT,
+        notes TEXT,
+        key_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        key_replaced_at TEXT,
+        last_seen_at TEXT,
+        revoked_at TEXT
+      );
+      CREATE TABLE device_attempts (
+        device_id TEXT PRIMARY KEY,
+        key_hash TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL
+      );
+    `,
+  },
+  {
     version: 6,
     name: "conversation-search",
     // Entries gain an explicit INTEGER PRIMARY KEY: the index is keyed by it, and an implicit rowid may be
