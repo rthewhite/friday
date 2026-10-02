@@ -56,3 +56,23 @@
 
 - [x] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree and verify that all three succeed.
   - All three succeeded: 758 tests, 755 passed, 0 failed, and the 3 opt-in live Gemini tests skipped.
+
+## 6. Review fixes
+
+- [x] 6.1 Fix the `/opsx:verify` and `/code-review` findings:
+  - **Spec, empty brain:** the spec now has the exception for a brain that holds only an empty profile.
+  - **Spec, loss check wording:** it now matches the code.
+  - **Loss check fix:** a removed line is judged against a named page without that page's own name and alias words, so "My brother Mark is a cellist" no longer passes on a page that only says "The user's brother." (with a test and a new spec scenario).
+  - **Links:** they now resolve through `store.links`, so a link inside code is not a link.
+  - **Name patterns:** they are built only when a line falls through to the named-page check.
+
+  Verified with:
+  - `pnpm --filter @friday/module-brain test` (164 passed) and `typecheck`;
+  - `openspec validate --strict`;
+  - the eval with `gemini-flash-latest`: `profile-summary`, `profile-over-budget`, `fold-notes`, `merge-duplicates` and `relative-first-person` passed 26 of 26.
+
+  Not changed:
+  - **Nightly retries after a refused reconsideration:** the spec requires them, the same as for refused plans on changed pages.
+  - **Short common names as candidates:** the rest of the line must now be on that page anyway.
+  - **The positional `guidanceChanged` parameter:** style only.
+  - `/security-review` was not run: nothing here touches secrets, auth, the HTTP API or processes.

@@ -5,7 +5,7 @@
  */
 import { LlmError, type LlmMessage, type ModuleDb, type ModuleLlm, type ModuleLogger, type ModuleStorage } from "@friday/sdk";
 import { indexLine } from "../context.js";
-import { LINK_PATTERN, nameKey } from "../links.js";
+import { nameKey } from "../links.js";
 import { fold, significantWords } from "../search.js";
 import { BrainError, validateFields, type BrainStore, type Page, type PageType } from "../store.js";
 import { estimateTokens } from "../text.js";
@@ -177,22 +177,35 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * The live pages a line names (design D3): `[[link]]` targets, and names or aliases that occur in it as whole words.
- * Built once per plan; the brain is small, so testing every name against a removed line is cheap.
+ * The name patterns are built on the first line that needs them, once per plan; the brain is small, so testing
+ * every name against a removed line is cheap. Links resolve as everywhere else (`store.links`, code is not a link).
  */
 function namedPagesFinder(store: BrainStore): (line: string) => Page[] {
-  const names = store.list().flatMap((p) =>
-    [p.name, ...p.aliases].map((n) => ({ page: p, word: new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(fold(n).trim().replace(/\s+/g, " "))}(?:$|[^\\p{L}\\p{N}])`, "u") })),
-  );
+  let names: { page: Page; word: RegExp }[] | undefined;
   return (line) => {
+    names ??= store.list().flatMap((p) =>
+      [p.name, ...p.aliases].map((n) => ({ page: p, word: new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(fold(n).trim().replace(/\s+/g, " "))}(?:$|[^\\p{L}\\p{N}])`, "u") })),
+    );
     const found = new Map<string, Page>();
-    for (const m of line.matchAll(LINK_PATTERN)) {
-      const p = store.resolve(m[1]!.trim());
+    const byId = new Map(names.map((n) => [n.page.id, n.page]));
+    for (const l of store.links({ body: line })) {
+      const p = l.pageId ? byId.get(l.pageId) : undefined;
       if (p) found.set(p.id, p);
     }
     const text = fold(line).replace(/\s+/g, " ");
     for (const n of names) if (n.word.test(text)) found.set(n.page.id, n.page);
     return [...found.values()];
   };
+}
+
+/**
+ * Whether `page` states `line`: most of the line's significant words, other than the page's own names, are in its
+ * body. The names don't count, or "My brother Mark is a cellist" would pass on a page that only says "brother".
+ */
+function statedOn(line: string, page: Page): boolean {
+  const own = new Set(significantWords([page.name, ...page.aliases].join("\n")));
+  const rest = significantWords(content(line)).filter((w) => !own.has(w));
+  return rest.length > 0 && preserved(rest.join(" "), page.body);
 }
 
 /** Everything wrong with `plan`, as reasons for the model; empty when it may be applied. */
@@ -211,8 +224,7 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number, show
   // A page the plan changes is judged by its new body, which is part of the result text above.
   const namedIn = namedPagesFinder(store);
   const changedByPlan = new Set(plan.actions.flatMap((a) => [a?.page, a?.from, a?.into]).filter((id): id is string => typeof id === "string"));
-  const keptOnNamedPage = (line: string, own: Page) =>
-    namedIn(line).some((p) => p.id !== own.id && !changedByPlan.has(p.id) && preserved(line, `${p.name}\n${p.aliases.join("\n")}\n${p.body}`));
+  const keptOnNamedPage = (line: string, own: Page) => namedIn(line).some((p) => p.id !== own.id && !changedByPlan.has(p.id) && statedOn(line, p));
 
   const live = (i: number, a: PlanAction, id: string | undefined, base: number | undefined, role: string): Page | undefined => {
     const p = id ? store.get(id) : undefined;

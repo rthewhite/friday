@@ -267,6 +267,17 @@ test("a name without a link counts too, but a line naming no page, or only an un
   void profile;
 });
 
+test("the named page's own name doesn't count toward the line's words: the fact itself must be on the page", (t) => {
+  const { store, close, profile } = household();
+  t.after(close);
+  store.save(profile.id, { name: "Profile", type: "other", aliases: [], body: "Engineer.\nMy brother Mark is a cellist.\nLisa and Tim go to De Regenboog." }, "user");
+  const p = store.profile();
+  const r = reasonsFor(store, trimProfile(p, "Engineer."));
+  // Mark's page says "The user's brother." and Lisa's says she teaches at De Regenboog, but neither states these facts.
+  assert.match(r, /Profile loses the line "My brother Mark is a cellist\."/);
+  assert.match(r, /Profile loses the line "Lisa and Tim go to De Regenboog\."/);
+});
+
 test("a named page the plan rewrites is judged by its new body, not its old one", (t) => {
   const { store, close, profile, lisa } = household();
   t.after(close);
