@@ -76,6 +76,9 @@ api:
   id: api_id
   encryption:
     key: !secret api_encryption_key
+  # Friday talks to the device over its own WebSocket, not this API, so nothing may be connected here (no Home
+  # Assistant). ESPHome's default would then restart the device every 15 minutes.
+  reboot_timeout: 0s
   on_client_connected:
     - script.execute: control_leds
   on_client_disconnected:
