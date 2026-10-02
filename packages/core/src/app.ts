@@ -357,7 +357,7 @@ export function createApp(deps: AppDeps) {
     .add("GET", "/api/devices", (req, res) =>
       deviceRoute(deps, req, res, false, (store) => {
         const { devices, pending } = store.list();
-        sendJson(res, { devices: devices.map((d) => ({ ...d, connected: deps.deviceSessions?.connected(d.id) ?? false })), pending });
+        sendJson(res, { devices: devices.map((d) => withConnected(deps, d)), pending });
       }),
     )
     .add("POST", "/api/devices/pending/:id/accept", (req, res, { id }) =>

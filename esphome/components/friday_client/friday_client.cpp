@@ -347,6 +347,7 @@ void FridayClient::on_ws_event_(int32_t event_id, esp_websocket_event_data_t *d)
         if (!this->user_stopping_ && !this->draining_) {
           if (this->close_code_ == CLOSE_PENDING_APPROVAL) this->pending_();
           else if (this->close_code_ == 4401) this->fail_("unauthorized: this device is revoked, or sent no key");
+          else if (this->close_code_ == 4400) this->fail_("bad device: Friday does not accept this device id or key format");
           else this->fail_(event_id == WEBSOCKET_EVENT_ERROR ? "connection error" : "connection lost");
         }
       }

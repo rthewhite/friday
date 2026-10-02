@@ -52,8 +52,13 @@ test("a new device is recorded as pending and repeated attempts update one row",
   assert.equal(pending[0].firstSeenAt, "2026-10-02T10:00:00.000Z");
   assert.equal(pending[0].lastSeenAt, "2026-10-02T10:02:00.000Z");
   const other = newKey();
+  clock.t += 60_000;
   store.authenticate("friday-kitchen", other);
-  assert.equal(store.list().pending[0].fingerprint, fp(other), "a later attempt with another key replaces the key");
+  ({ pending } = store.list());
+  assert.equal(pending[0].fingerprint, fp(other), "a later attempt with another key replaces the key");
+  // The history shown next to a fingerprint is that key's own: the old key's attempts don't vouch for it.
+  assert.equal(pending[0].attempts, 1);
+  assert.equal(pending[0].firstSeenAt, "2026-10-02T10:03:00.000Z");
 });
 
 test("a pending attempt disappears 24 hours after its last attempt", () => {
@@ -137,6 +142,16 @@ test("a known device with a different key is a pending replacement and its old k
   assert.equal(devices[0].replacement?.fingerprint, fp(fresh));
   assert.equal(devices[0].replacement?.attempts, 1);
   assert.equal(store.authenticate("friday-voice", old).ok, true);
+});
+
+test("a connection with the stored key clears a pending replacement", () => {
+  const { store, onboard } = setup();
+  const old = onboard("friday-voice");
+  store.authenticate("friday-voice", newKey());
+  assert.ok(store.get("friday-voice")!.replacement);
+  assert.equal(store.authenticate("friday-voice", old).ok, true);
+  assert.equal(store.get("friday-voice")!.replacement, undefined, "the device still holds its key, so the other one is not its replacement");
+  assert.throws(() => store.replaceKey("friday-voice", { fingerprint: fp(old) }), DeviceNotFound);
 });
 
 test("replacing the key keeps the metadata and only the new key is accepted", () => {

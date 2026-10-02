@@ -120,6 +120,8 @@ export class DeviceStore {
     const hash = hashKey(key);
     if (row && sameHash(row.key_hash, hash)) {
       this.db.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(this.iso(), id);
+      // The device still holds its key, so another key presented for this id is not its replacement.
+      this.db.prepare("DELETE FROM device_attempts WHERE device_id = ?").run(id);
       return { ok: true, device: snapshot(row) };
     }
     this.recordAttempt(id, hash);
@@ -208,12 +210,17 @@ export class DeviceStore {
     });
   }
 
+  /** One attempt per id; a different key starts its history over, so the count shown belongs to the fingerprint shown. */
   private recordAttempt(id: string, hash: string): void {
     const at = this.iso();
     this.db
       .prepare(
         `INSERT INTO device_attempts (device_id, key_hash, first_seen_at, last_seen_at, attempts) VALUES (?, ?, ?, ?, 1)
-         ON CONFLICT (device_id) DO UPDATE SET key_hash = excluded.key_hash, last_seen_at = excluded.last_seen_at, attempts = attempts + 1`,
+         ON CONFLICT (device_id) DO UPDATE SET
+           first_seen_at = CASE WHEN key_hash = excluded.key_hash THEN first_seen_at ELSE excluded.first_seen_at END,
+           attempts = CASE WHEN key_hash = excluded.key_hash THEN attempts + 1 ELSE 1 END,
+           key_hash = excluded.key_hash,
+           last_seen_at = excluded.last_seen_at`,
       )
       .run(id, hash, at, at);
     this.prune();

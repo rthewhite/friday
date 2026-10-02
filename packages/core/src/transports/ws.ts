@@ -7,7 +7,8 @@
  *                      session opens; a rejected connection is closed at once with
  *                      4400 bad device (malformed id or key), 4401 unauthorized (no key, or the
  *                      device is revoked) or 4403 pending approval (unknown id or a different key,
- *                      recorded for the portal to accept). An accepted device is logged, recorded
+ *                      recorded for the portal to accept); 1011 internal error when the device
+ *                      store fails. An accepted device is logged, recorded
  *                      as the conversation's device and gets its device block in the prompt.
  *                      Without `device` no key is needed (the portal's Talk page). Unknown query
  *                      parameters are ignored.
@@ -84,7 +85,15 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
   const claimed = new URL(req?.url ?? "/", "http://x").searchParams.get("device");
   let device: DeviceSnapshot | undefined;
   if (claimed !== null) {
-    const auth = opts.devices?.authenticate(claimed, bearerKey(req)) ?? UNAUTHORIZED;
+    let auth: AuthResult;
+    try {
+      auth = opts.devices?.authenticate(claimed, bearerKey(req)) ?? UNAUTHORIZED;
+    } catch (e) {
+      // serveWs runs unawaited: a store error (a locked or full database) must close this socket, not the process.
+      console.error(`ws: [${JSON.stringify(claimed.slice(0, 64))}] could not check the device`, e);
+      ws.close(1011, "internal error");
+      return;
+    }
     if (!auth.ok) {
       // Frames sent before the close are dropped: no message handler is attached.
       console.log(`ws: [${JSON.stringify(claimed.slice(0, 64))}] rejected: ${auth.code} ${auth.reason}`);

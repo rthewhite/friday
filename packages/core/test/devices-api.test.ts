@@ -103,8 +103,8 @@ test("errors: unknown attempt 404, stale fingerprint 409, already registered 409
     s.store.authenticate("friday-voice", fresh);
     const stale = await s.call("POST", "/api/devices/friday-voice/replace-key", { fingerprint: fp(key) });
     assert.equal(stale.status, 409);
-    assert.equal(s.store.authenticate("friday-voice", key).ok, true, "the stored key is unchanged");
     assert.equal((await s.call("POST", "/api/devices/pending/friday-voice/accept", { fingerprint: fp(fresh) })).status, 409, "already registered");
+    assert.equal(s.store.authenticate("friday-voice", key).ok, true, "the stored key is unchanged");
     const bad = await s.call("PUT", "/api/devices/friday-voice", { notes: "x".repeat(1001) });
     assert.equal(bad.status, 400);
     assert.match(bad.body.error, /notes/);

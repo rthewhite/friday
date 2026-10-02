@@ -339,3 +339,19 @@ test("a connection without a device needs no key, even when a device store is wi
     await h.close();
   }
 });
+
+test("a device store error closes the connection with 1011 instead of escaping as an unhandled rejection", async () => {
+  const devices = {
+    authenticate(): never {
+      throw new Error("disk I/O error");
+    },
+  };
+  const h = await startHarness({ devices });
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen", randomKey()), { code: 1011, reason: "internal error" });
+    assert.equal(StubSession.instances.length, 0);
+    assert.ok(h.logs.some((l) => l.includes("disk I/O error")), "the error is logged");
+  } finally {
+    await h.close();
+  }
+});

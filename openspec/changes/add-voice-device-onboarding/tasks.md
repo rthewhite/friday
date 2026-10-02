@@ -118,3 +118,21 @@
   - Step 5 passed: after a power cycle it connected without a new pending attempt, with the same fingerprint.
   - Still open: step 4's HA call and step 6 (`wss://` timing) need the deployed build, then an OTA reflash with the default `friday_url`.
   - Noted: the first session after accepting caught noise (`juste à스팅`), was answered in Korean, and the client closed after 3.5 s. Later sessions were normal.
+
+## 6. Review fixes
+
+- [x] 6.1 Fix the confirmed `/code-review` findings, with tests first:
+  - a different key for a pending id starts its count and first-seen time over;
+  - a connection with the stored key clears a pending replacement (spec updated for both);
+  - a device-store error in `serveWs` closes the socket with `1011 internal error` instead of becoming an unhandled rejection;
+  - the firmware's `device_id` (or the node name) is checked against Friday's id format, and `4400` gets its own error message;
+  - `GET /api/devices` uses `withConnected`.
+
+  Verified with `pnpm --filter @friday/core test` (322 passed, 3 live tests skipped) and `typecheck`, `esphome config` (the real YAML passes and `device_id: Kitchen_PE` is refused), and `esphome compile`.
+  - Not changed:
+    - the pending upsert taking a new key (the spec requires it; flooding is a DoS concern);
+    - the 32-bit fingerprint (the spec defines it, and the portal has no login);
+    - the brief LISTENING before PENDING (it needs a protocol signal);
+    - `get()` building the full listing (the tables are tiny);
+    - the duplicated LED effect (it follows the YAML's existing per-effect pattern).
+  - `/security-review` found nothing.
