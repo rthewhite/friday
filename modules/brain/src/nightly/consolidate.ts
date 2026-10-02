@@ -10,7 +10,7 @@ import { fold, significantWords } from "../search.js";
 import { BrainError, validateFields, type BrainStore, type Page, type PageType } from "../store.js";
 import { estimateTokens } from "../text.js";
 import { PAGE_TYPES } from "../types.js";
-import { consolidationSystem } from "./guidance.js";
+import { consolidationSystem, GUIDANCE_VERSION } from "./guidance.js";
 import type { ConsolidateOutcome } from "./job.js";
 import { BRAIN_MAX } from "./render.js";
 import type { DroppedLine, MergeRecord } from "./runs.js";
@@ -19,6 +19,8 @@ export const MAX_ACTIONS = 20;
 /** A removed line counts as preserved when at least this share of its significant words is in the result. */
 export const PRESERVED_SHARE = 0.6;
 const WATERMARK = "consolidate:last_revision_id";
+/** The GUIDANCE_VERSION of the last applied plan; absent means version 1. */
+const GUIDANCE = "consolidate:guidance";
 
 const DROPPED = {
   type: "array",
@@ -98,16 +100,20 @@ function pageBlock(p: Page, changed: boolean): string {
  * The plan's input: the profile budget, pages in full (the profile, changed pages and their link
  * neighbours first, then the rest until `max`), an index of pages beyond the bound, and forgotten names.
  */
-export function renderConsolidation(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX): string {
-  return consolidationInput(store, changed, budget, max).text;
+export function renderConsolidation(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX, guidanceChanged = false): string {
+  return consolidationInput(store, changed, budget, max, guidanceChanged).text;
 }
 
 /** `renderConsolidation`, plus the ids of the pages shown in full (the only ones a plan may change). */
-export function consolidationInput(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX): { text: string; full: Set<string> } {
+export function consolidationInput(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX, guidanceChanged = false): { text: string; full: Set<string> } {
   const pages = store.list();
   const profile = pages.find((p) => p.isProfile)!;
   const used = estimateTokens(profile.body);
-  const header = `Profile budget: about ${used} of ${budget} tokens${used > budget ? " (over budget: move detail to entity pages; don't make it longer)" : ""}.\nOnly pages shown in full may be rewritten or merged.`;
+  const header = [
+    `Profile budget: about ${used} of ${budget} tokens${used > budget ? " (over budget: move detail to entity pages; don't make it longer)" : ""}.`,
+    "Only pages shown in full may be rewritten or merged.",
+    ...(guidanceChanged ? ["The guidance changed since the last tidy-up; check the profile against it."] : []),
+  ].join("\n");
   const forgotten = store.tombstones().map((t) => t.name);
   const tail = `## Deliberately forgotten names (never use)\n${forgotten.length ? forgotten.map((n) => `- ${n}`).join("\n") : "(none)"}`;
 
@@ -167,6 +173,41 @@ export function preserved(line: string, result: string | ReadonlySet<string>): b
   return words.filter(found).length / words.length >= PRESERVED_SHARE;
 }
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The live pages a line names (design D3): `[[link]]` targets, and names or aliases that occur in it as whole words.
+ * The name patterns are built on the first line that needs them, once per plan; the brain is small, so testing
+ * every name against a removed line is cheap. Links resolve as everywhere else (`store.links`, code is not a link).
+ */
+function namedPagesFinder(store: BrainStore): (line: string) => Page[] {
+  let names: { page: Page; word: RegExp }[] | undefined;
+  return (line) => {
+    names ??= store.list().flatMap((p) =>
+      [p.name, ...p.aliases].map((n) => ({ page: p, word: new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(fold(n).trim().replace(/\s+/g, " "))}(?:$|[^\\p{L}\\p{N}])`, "u") })),
+    );
+    const found = new Map<string, Page>();
+    const byId = new Map(names.map((n) => [n.page.id, n.page]));
+    for (const l of store.links({ body: line })) {
+      const p = l.pageId ? byId.get(l.pageId) : undefined;
+      if (p) found.set(p.id, p);
+    }
+    const text = fold(line).replace(/\s+/g, " ");
+    for (const n of names) if (n.word.test(text)) found.set(n.page.id, n.page);
+    return [...found.values()];
+  };
+}
+
+/**
+ * Whether `page` states `line`: most of the line's significant words, other than the page's own names, are in its
+ * body. The names don't count, or "My brother Mark is a cellist" would pass on a page that only says "brother".
+ */
+function statedOn(line: string, page: Page): boolean {
+  const own = new Set(significantWords([page.name, ...page.aliases].join("\n")));
+  const rest = significantWords(content(line)).filter((w) => !own.has(w));
+  return rest.length > 0 && preserved(rest.join(" "), page.body);
+}
+
 /** Everything wrong with `plan`, as reasons for the model; empty when it may be applied. */
 /** `shown`: the pages the model saw in full; only those may be rewritten or merged (all when omitted). */
 export function validatePlan(store: BrainStore, plan: Plan, budget: number, shown?: ReadonlySet<string>): string[] {
@@ -179,6 +220,11 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number, show
   const resultText = plan.actions.map((a) => `${a.name ?? ""}\n${(a.aliases ?? []).join("\n")}\n${a.body ?? ""}`).join("\n");
   const resultWords = new Set(significantWords(resultText));
   const label = (i: number, a: PlanAction) => `action ${i + 1} (${a.kind})`;
+  // A removed line is also kept when a page it names, and that the plan leaves alone, already states it (design D3).
+  // A page the plan changes is judged by its new body, which is part of the result text above.
+  const namedIn = namedPagesFinder(store);
+  const changedByPlan = new Set(plan.actions.flatMap((a) => [a?.page, a?.from, a?.into]).filter((id): id is string => typeof id === "string"));
+  const keptOnNamedPage = (line: string, own: Page) => namedIn(line).some((p) => p.id !== own.id && !changedByPlan.has(p.id) && statedOn(line, p));
 
   const live = (i: number, a: PlanAction, id: string | undefined, base: number | undefined, role: string): Page | undefined => {
     const p = id ? store.get(id) : undefined;
@@ -202,7 +248,7 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number, show
       for (const line of p.body.split("\n")) {
         const c = content(line);
         if (!c || /^#{1,6}(\s|$)/.test(line.trim())) continue;
-        if (resultText.includes(c) || preserved(c, resultWords)) continue;
+        if (resultText.includes(c) || preserved(c, resultWords) || keptOnNamedPage(c, p)) continue;
         if ((a.dropped ?? []).some((d) => typeof d?.line === "string" && same(d.line, line))) continue;
         reasons.push(`${label(i, a)}: ${p.name} loses the line "${line.trim()}" without declaring it in dropped`);
       }
@@ -295,9 +341,20 @@ export async function runConsolidate(deps: ConsolidateDeps, signal: AbortSignal)
   const seenUpTo = deps.store.lastRevisionId();
   const changes = deps.store.changesSince(since);
   const changed = new Set(changes.keys());
+  // A brain consolidated under older guidance is reconsidered once, with the profile as the changed page (design D2).
+  const guidanceChanged = ((await deps.storage.get<number>(GUIDANCE)) ?? 1) < GUIDANCE_VERSION;
+  if (guidanceChanged) {
+    const profile = deps.store.profile();
+    if (!changed.size && !profile.body.trim() && deps.store.count() === 0) {
+      // Only an empty profile: nothing to reconsider, and no model call on a fresh install's first night.
+      await deps.storage.set(GUIDANCE, GUIDANCE_VERSION);
+      return { ran: false, ...EMPTY };
+    }
+    changed.add(profile.id);
+  }
   if (!changed.size) return { ran: false, ...EMPTY };
   const budget = deps.budget();
-  const input = consolidationInput(deps.store, changed, budget);
+  const input = consolidationInput(deps.store, changed, budget, BRAIN_MAX, guidanceChanged);
   const prompt = `${input.text}\n\nPropose the plan (an empty plan is fine when the pages are tidy).`;
   // Changed pages beyond the bound were only indexed: stop the watermark before their first change.
   const unseen = [...changes].filter(([id]) => !input.full.has(id)).map(([, first]) => first);
@@ -342,5 +399,6 @@ export async function runConsolidate(deps: ConsolidateDeps, signal: AbortSignal)
     return { ran: true, ...EMPTY, failed };
   }
   await deps.storage.set(WATERMARK, nextWatermark);
+  await deps.storage.set(GUIDANCE, GUIDANCE_VERSION);
   return { ran: true, ...result.applied };
 }

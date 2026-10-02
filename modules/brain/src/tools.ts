@@ -24,6 +24,16 @@ export const RECALL_CONNECTIONS = 10;
 /** Page names listed when nothing matches. */
 export const RECALL_NAMES = 50;
 
+/** `brain_remember`'s description: facts go on the entity they're about (profile-as-summary, design D4). */
+export const REMEMBER_DESCRIPTION =
+  "Store one lasting fact in Friday's long-term memory, as a dated note on a page. Use the name of the person, place, " +
+  "project or organisation the fact is about as entity, also when the user says it in the first person (\"my sister Anouk " +
+  "works at the library\" goes on Anouk), and include the relation to the user in the fact. Reuse a name or alias from " +
+  "the memory index when one fits. Use \"profile\" only for facts about the user themselves or the household as a whole. " +
+  "Friday can't tell voices apart: facts about the speaker go on the profile unless they say who they are. One fact per " +
+  "call; write it so it reads on its own. [[Name]] may reference other pages. Existing notes are never changed; a " +
+  "correction is stored as a new, newer note.";
+
 export interface Connection {
   from: string;
   to: string;
@@ -34,12 +44,7 @@ export interface Connection {
 export function defineBrainTools(ctx: ModuleContext, store: BrainStore, today: () => string, zone: () => string): void {
   ctx.defineTool<{ entity: string; fact: string; type?: PageType }>({
     name: "brain_remember",
-    description:
-      "Store one lasting fact in Friday's long-term memory, as a dated note on a page. Use the name of a person, " +
-      "place or project as entity (reuse a name or alias from the memory index when one fits), or \"profile\" for facts " +
-      "about the user or the household. Friday can't tell voices apart: facts about the speaker go on the profile unless " +
-      "they say who they are. One fact per call; write it so it reads on its own. [[Name]] may reference other pages. " +
-      "Existing notes are never changed; a correction is stored as a new, newer note.",
+    description: REMEMBER_DESCRIPTION,
     parameters: {
       type: Type.OBJECT,
       properties: {

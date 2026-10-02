@@ -1,0 +1,23 @@
+{
+  "description": "A get-to-know-you chat: a first-person fact about a named relative goes on that person's page, a fact about the speaker on the profile.",
+  "kind": "extraction",
+  "profile": "Lives in Amsterdam.",
+  "conversation": {
+    "channel": "chat",
+    "entries": [
+      { "kind": "user", "input": "text", "text": "Let's get to know each other a bit. My wife Lisa teaches at De Regenboog, and I'm an engineer at Schuberg Philis." },
+      { "kind": "assistant", "text": "Nice to meet you properly! A teacher and an engineer, that sounds like a busy household.", "interrupted": false }
+    ]
+  },
+  "mustNote": [
+    { "entity": "Lisa", "contains": "Regenboog" },
+    { "entity": "profile", "contains": "engineer" }
+  ],
+  "mustNotNote": ["busy household"],
+  "fake": {
+    "notes": [
+      { "entity": "Lisa", "fact": "The user's wife; teaches at De Regenboog.", "type": "person", "reason": "stated by the user about their wife" },
+      { "entity": "profile", "fact": "Works as an engineer at Schuberg Philis.", "reason": "stated by the user about themselves" }
+    ]
+  }
+}

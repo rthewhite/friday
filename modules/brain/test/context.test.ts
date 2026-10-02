@@ -39,6 +39,7 @@ test("an empty brain still tells the model about brain_remember", async () => {
   assert.match(text, /### Pages\n\(no pages yet\)/);
   assert.match(text, /call brain_remember/);
   assert.doesNotMatch(text, /more; brain_recall/);
+  assert.match(text.replace(/\s+/g, " "), /The profile is a summary; details about the people, places and projects it names are on their pages \(brain_recall\)/);
 });
 
 test("with 80 pages the index lists the 50 most recent and says there are 30 more", async () => {

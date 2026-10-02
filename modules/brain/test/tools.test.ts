@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createTestHost } from "@friday/sdk/test";
 import { localDate } from "@friday/sdk";
 import { createBrainModule } from "../src/index.js";
+import { REMEMBER_DESCRIPTION } from "../src/tools.js";
 
 /** A host whose clock is 29 September 2026, 10:00 in Amsterdam. */
 async function host(env: Record<string, string> = {}) {
@@ -203,6 +204,14 @@ test("recall returns at most the exact page plus 3 others", async () => {
   assert.equal(r.pages.length, 4);
   assert.equal(r.pages[0].name, "A1");
   assert.equal(r.pages[1].name, "Boat");
+});
+
+test("brain_remember's description routes a fact to the entity it is about, also in the first person", () => {
+  const d = REMEMBER_DESCRIPTION.replace(/\s+/g, " ");
+  assert.match(d, /person, place, project or organisation/);
+  assert.match(d, /also when the user says it in the first person/);
+  assert.match(d, /relation to the user/);
+  assert.match(d, /"profile" only for facts about the user themselves or the household as a whole/);
 });
 
 test("the module's tools are brain_remember, brain_recall and brain_recall_conversations, in both channels", async () => {

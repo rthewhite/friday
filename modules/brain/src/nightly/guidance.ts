@@ -3,6 +3,12 @@
  * so extraction and consolidation can't drift apart on how pages are written.
  */
 
+/**
+ * Bump when a guidance change should make existing brains be reconsidered: the next consolidation then
+ * runs even if no page changed, with the profile marked as changed (profile-as-summary, design D2).
+ */
+export const GUIDANCE_VERSION = 2;
+
 export const EXTRACTION_FILTER = `## What to note
 Most conversations contain nothing worth keeping. An empty list of notes is the normal answer.
 
@@ -21,7 +27,12 @@ Never note:
 
 Transcribed speech is noisy. Skip names you can't place, and never "correct" a name into an existing page without clear evidence.
 A device or account name (for example "kitchen") is where the user spoke, not a person.
-Facts about "me" or "I" go on the profile (entity "profile"), unless the speaker says who they are.
+Note a fact on the entity it is about:
+- facts about the speaker go on the profile (entity "profile"), unless the speaker says who they are;
+- facts about a named other person, place, project or organisation go on that entity, also when the user says them
+  in the first person ("my sister Anouk works at…" goes on "Anouk"); include the relation to the user in the fact
+  ("The user's sister; works at the library.");
+- facts about the household as a whole go on the profile.
 Only entries under [new] may produce notes; [earlier] entries are context.`;
 
 export const PAGE_WRITING = `## Writing pages
@@ -37,8 +48,13 @@ export const LINKING = `## Links
 - Only link relationships the text already states.`;
 
 export const PROFILE = `## The profile
-The profile holds what is always relevant: who the user is, the household's members, and standing preferences.
-It stays under its token budget; detail about a person, place or project belongs on that entity's page.`;
+The profile is a short summary Friday always has at hand: who the user is, the household's members and the user's
+close relations by name and relation, and standing preferences.
+Every person, place, project or organisation the memory knows a fact about beyond its name and its relation to the
+user gets its own page, also when the profile is under budget. The profile keeps at most a short line about it, with
+a [[Name]] link to its page ("Wife: [[Lisa]], a teacher"). A fact may be stated both on the profile, in short form,
+and on the entity's page.
+The profile stays under its token budget; when it is over budget, never make it longer.`;
 
 const EXTRACTION_ROLE = `You maintain the long-term memory of Friday, a household voice assistant.
 Read one finished conversation and list the lasting facts it adds to the memory, as notes.
@@ -51,7 +67,8 @@ Propose a plan of at most 20 actions over the pages below. Pages marked (changed
 Actions:
 - rewrite: give a page's full new body (and optionally a new name, aliases or type), based on its revision.
   Fold its "## Notes" into the body (remove the section when empty), dedupe, keep the newer fact, add [[links]].
-- create: a new page, for example to move detail off an over-budget profile.
+  Move or copy entity detail from the profile to the entity's page, and shorten the profile to its summary.
+- create: a new page, for example for a person, place, project or organisation the profile holds detail about.
 - merge: fold page "from" into page "into" when both are about the same thing; give "into"'s full new body.
   "from" is deleted and its names become aliases of "into".
 

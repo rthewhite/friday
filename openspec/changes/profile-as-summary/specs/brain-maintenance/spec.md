@@ -40,7 +40,7 @@ The extraction instructions SHALL make "no notes" the expected answer. Notes SHA
 
 ### Requirement: Consolidation proposes a plan over the whole brain
 
-Consolidation SHALL call the text model when a live page has changed since the last successful consolidation, other than by consolidation itself, or when the consolidation guidance has changed since the last successful consolidation. In the second case, the profile SHALL count as changed. Consolidation SHALL send the model:
+Consolidation SHALL call the text model when a live page has changed since the last successful consolidation, other than by consolidation itself, or when the consolidation guidance has changed since the last successful consolidation. In the second case, the profile SHALL count as changed. When the guidance changed, no page changed, and the brain holds only an empty profile, consolidation SHALL instead count the current guidance as handled without calling the model. Consolidation SHALL send the model:
 - the page-writing guidance, including the profile guidance;
 - the profile budget and the profile's current size;
 - every live page with its current revision, marking the pages that count as changed;
@@ -69,6 +69,10 @@ Each `rewrite` and `merge` SHALL list the lines it deliberately drops, each with
 - **WHEN** the guidance changed and both plans of the run are refused
 - **THEN** the guidance still counts as changed on the next run
 
+#### Scenario: Guidance changed on an empty brain
+- **WHEN** the guidance changed and the brain holds only an empty profile
+- **THEN** no model call is made, and the current guidance counts as handled
+
 ### Requirement: A plan is validated and applied all or nothing
 
 Before writing, consolidation SHALL refuse the whole plan when any action:
@@ -79,7 +83,7 @@ Before writing, consolidation SHALL refuse the whole plan when any action:
 - makes an over-budget profile larger;
 - removes a line from a page that is neither declared as dropped nor preserved.
 
-A removed line SHALL count as preserved when most of its significant words occur in the plan's resulting pages. It SHALL also count as preserved when they occur in the current body of a live page that the line names, by `[[link]]`, name or alias, and that the plan doesn't change or merge away. A valid plan SHALL be applied in one transaction:
+A removed line SHALL count as preserved when most of its significant words occur in the plan's resulting pages. It SHALL also count as preserved when it names a live page, by `[[link]]`, name or alias, that the plan doesn't change or merge away, and most of the line's significant words other than that page's own name and aliases occur in its current body. A valid plan SHALL be applied in one transaction:
 - rewrites and creates are written as revisions with author `consolidation`;
 - a merge writes the target's new body, adds the absorbed page's name and aliases to the target's aliases, and soft-deletes the absorbed page.
 
@@ -96,6 +100,10 @@ When any write fails, no action of the plan SHALL remain applied.
 #### Scenario: Already on the linked page
 - **WHEN** page `Lisa` says "Teaches at De Regenboog", and a plan rewrites only the profile, removing "My wife [[Lisa]] teaches at De Regenboog" and keeping "Wife: [[Lisa]]"
 - **THEN** the removed line counts as preserved and the plan is applied
+
+#### Scenario: Only the name is on the page
+- **WHEN** page `Mark` says only "The user's brother.", and a plan removes "My brother Mark is a cellist." from the profile without declaring it
+- **THEN** the plan is refused, because the page doesn't state that Mark is a cellist
 
 #### Scenario: Not on the named page
 - **WHEN** a plan removes "My wife [[Lisa]] teaches at De Regenboog" from the profile, page `Lisa` doesn't state it, and no action of the plan does

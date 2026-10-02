@@ -54,7 +54,7 @@ The watermark logic is unchanged. Marking the profile as changed only adds it to
 
 ### D3. The loss check also looks at the pages a line names
 
-In `lossCheck`, a removed line that isn't preserved in the plan's result text gets one more chance. It counts as kept when `preserved(line, words)` holds for the text of a page the line names. Such a page:
+In `lossCheck`, a removed line that isn't preserved in the plan's result text gets one more chance. It counts as kept when a page the line names states it: the line's significant words, minus that page's own name and alias words, pass `preserved` against the page's body. The name words are left out because they would always match. Otherwise "My brother Mark is a cellist" would pass on a page that only says "The user's brother." (found in code review). Such a page:
 
 - is named by a `[[link]]` in the line, resolved with `store.resolve`, or by its name or an alias appearing in the line as whole words (folded, like `search.ts`);
 - is live, isn't the page the line came from, and isn't touched or merged away by the plan. A touched page's new body is already in the result text.
@@ -80,7 +80,7 @@ Extraction doesn't also write a profile line. Keeping the profile summary up to 
 
 ### D6. Fixtures
 
-- `relative-first-person.json` (extraction): "my wife Lisa teaches at De Regenboog, and I'm an engineer at Schuberg Philis". It expects a note on `Lisa` containing "Regenboog", and one on `Schuberg Philis` or the profile containing "engineer". `mustNotNote` covers nothing on the profile about De Regenboog.
+- `relative-first-person.json` (extraction): "my wife Lisa teaches at De Regenboog, and I'm an engineer at Schuberg Philis". It expects a note on `Lisa` containing "Regenboog", and one on the profile containing "engineer" (a fact about the speaker). `mustNotNote` applies to every page, so it can't say "not on the profile". It covers Friday's own reply instead, and the fake-model test checks separately that the profile doesn't mention De Regenboog.
 - `profile-summary.json` (consolidation): a profile under budget whose notes are about Lisa, Tim and Schuberg Philis, plus "Has a brother, Mark", and no other pages. It expects:
   - pages `Lisa`, `Tim` and `Schuberg Philis` holding their facts;
   - a profile that still names each of them;

@@ -6,7 +6,7 @@ import { createBrainModule } from "../src/index.js";
 import { extractConversation } from "../src/nightly/extract.js";
 import { renderBrain } from "../src/nightly/render.js";
 import { BrainStore } from "../src/store.js";
-import { loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
+import { brainText, checkFixture, loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
 
 const fixtures = new Map(loadFixtures().map((f) => [f.name, f]));
 const fixture = (name: string): Fixture => fixtures.get(name)!;
@@ -113,6 +113,19 @@ test("a fact said in passing becomes a sourced extraction note dated with the co
   const rev = t.h.db.prepare("SELECT author, sources_json FROM brain__revisions ORDER BY id DESC LIMIT 1").get() as { author: string; sources_json: string };
   assert.deepEqual({ ...rev }, { author: "extraction", sources_json: JSON.stringify([id]) });
   assert.deepEqual([t.extractions[0]!.model, t.extractions[0]!.temperature, t.extractions[0]!.maxOutputTokens], ["standard", 0.2, 4096]);
+});
+
+test("a first-person fact about a named relative lands on a new page for them, a fact about the speaker on the profile", async () => {
+  const f = fixture("relative-first-person");
+  const t = await host(() => f.fake);
+  await seedFixture(t.h, f);
+  const before = brainText(t.h);
+  const r = await t.run();
+  assert.equal(r.outcome, "ok");
+  assert.equal(t.body("Lisa"), "## Notes\n- 2026-09-29: The user's wife; teaches at De Regenboog.");
+  assert.equal((t.h.db.prepare("SELECT type FROM brain__pages WHERE name = 'Lisa'").get() as { type: string }).type, "person");
+  for (const c of checkFixture(t.h, f, before)) assert.ok(c.ok, c.expectation);
+  assert.doesNotMatch(t.body("profile")!, /Regenboog/, "the wife's job is not on the profile");
 });
 
 test("the date shown to the model is the date the notes get, even if the zone changes during the model call", async () => {
