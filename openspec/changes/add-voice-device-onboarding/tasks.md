@@ -109,3 +109,12 @@
   4. Ask "turn on the lights" and confirm the HA MCP call carries that area (the Conversations drawer's tool entry).
   5. Power-cycle the device and confirm it still connects without re-approval.
   6. Measure wake-to-listening time over `wss://` and record it here.
+
+  Run on 2026-10-02 against a dev server (`pnpm --filter @friday/core dev` on port 8081, firmware built with `-s friday_url ws://192.168.1.191:8081/ws/audio`):
+  - Step 1 passed: flashed over USB (not OTA). The device logs and the *Friday key fingerprint* sensor show `0e9b-b90c`.
+  - Step 2 passed: amber pending pulse; `ws: ["friday-voice"] rejected: 4403 pending approval`; `/api/devices` listed pending `friday-voice` with `0e9b-b90c`.
+  - Step 3 passed: accepted with area `Bedroom`; the next wake opened a session, recorded with `device: friday-voice`.
+  - Step 4 partly done: "Which room are you in?" got "I'm in the bedroom.", so the device block reaches the prompt. The HA MCP call wasn't tested, because the dev `friday.db` has no HA MCP server.
+  - Step 5 passed: after a power cycle it connected without a new pending attempt, with the same fingerprint.
+  - Still open: step 4's HA call and step 6 (`wss://` timing) need the deployed build, then an OTA reflash with the default `friday_url`.
+  - Noted: the first session after accepting caught noise (`juste à스팅`), was answered in Korean, and the client closed after 3.5 s. Later sessions were normal.
