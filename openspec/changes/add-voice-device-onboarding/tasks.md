@@ -71,7 +71,7 @@
 
 ## 4. Firmware and deployment
 
-- [ ] 4.1 In `esphome/components/friday_client/` (design D8):
+- [x] 4.1 In `esphome/components/friday_client/` (design D8):
   - generate and persist the key (preference, `esp_fill_random`, immediate `sync()`),
   - compute the fingerprint with mbedtls, log it in `setup()` and `dump_config()`, and expose `get_key_fingerprint()`,
   - send the `Authorization` header,
@@ -80,7 +80,10 @@
   - parse the close code, and add `State::PENDING` with `pending` in `state_name` and the idle return after `error_hold`.
 
   Update the component docstring. Verify `esphome compile esphome/friday-voice-pe.yaml` succeeds.
-- [ ] 4.2 Update `esphome/friday-voice-pe.yaml`:
+  - ESPHome only compiles the CA bundle when a component asks for it, so `to_code` calls `require_certificate_bundle()` for `wss://` urls, and the C++ references `esp_crt_bundle_attach` only under `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE`.
+  - A 4401 close is logged as `unauthorized`.
+  - Compiled with ESPHome 2026.9.0, with no warnings from the component. The build has `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y` (the common-CA bundle), and `friday.thewhite.nl` is issued by Let's Encrypt, which that bundle covers.
+- [x] 4.2 Update `esphome/friday-voice-pe.yaml`:
   - url `wss://${friday_host}/ws/audio` (drop `friday_port`),
   - remove `device_id`,
   - a "Pending" LED effect (slow amber pulse) in `control_leds`,
@@ -88,6 +91,9 @@
   - a diagnostic template text sensor "Friday key fingerprint".
 
   Update the README Voice PE section: setup, the pending LED, the fingerprint sensor, `wss://`, and the troubleshooting lines that mention `ws://` and port 8080. Verify `esphome compile esphome/friday-voice-pe.yaml` succeeds and `grep -n "ws://friday" README.md esphome/friday-voice-pe.yaml` finds nothing.
+  - Instead of `wss://${friday_host}/ws/audio`, the YAML has one `friday_url` substitution (`wss://friday.thewhite.nl/ws/audio`), so a `pnpm dev` server (`ws://<LAN IP>:8080/ws/audio`) needs only that line changed.
+  - The wake word is gated by the existing idle-only check, which also covers pending.
+  - It compiled after these edits, and the grep finds nothing.
 - [ ] 4.3 Remove the `friday-ws-plain` IngressRoute from `deploy/k8s.yaml` and its mention in the comments. Add the one-off `kubectl -n friday delete ingressroute friday-ws-plain` and the rollout order (design Migration Plan) to `infra/README.md`. Verify with `grep -n "friday-ws-plain" deploy/k8s.yaml` (no match) and `kubectl apply --dry-run=client -f deploy/k8s.yaml` (or a YAML parse) succeeding.
 
 ## 5. Integration

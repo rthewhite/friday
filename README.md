@@ -354,10 +354,14 @@ Prerequisites: ESPHome 2026.9 or newer on your machine (`brew install esphome` o
 ```sh
 cd esphome
 cp secrets.yaml.example secrets.yaml      # Wi-Fi, API key (openssl rand -base64 32), OTA password
-$EDITOR friday-voice-pe.yaml              # set friday_host (and friday_port) under substitutions
+$EDITOR friday-voice-pe.yaml              # check friday_url under substitutions (wss://friday.thewhite.nl/ws/audio)
 esphome run friday-voice-pe.yaml          # first time over USB; afterwards it offers OTA
 esphome logs friday-voice-pe.yaml         # tail the device log
 ```
+
+Then onboard it (see [Voice devices](#voice-devices)): on first boot the device generates its key and logs `device friday-voice, key fingerprint xxxx-xxxx`, also shown as the **Friday key fingerprint** sensor in Home Assistant. Say "hey friday" once: the ring pulses amber (pending) and the device appears under Settings > Voice devices > Pending. Accept it with the same fingerprint, its Home Assistant area and any notes, and wake it again. The key stays in flash across power cuts, OTA updates and reflashes; only **Factory Reset** makes a new one, after which you *Replace key* in the portal.
+
+The device id is the node name (`friday-voice`); set `device_id:` on `friday_client` to override it. It connects over `wss://` and checks the server certificate against the bundled public CAs (Let's Encrypt included). For a local `pnpm dev` server set `friday_url` to `ws://<LAN IP>:8080/ws/audio`; that sends the key unencrypted, so only do it on a trusted network.
 
 Usage: say **"hey friday"** (or press the top button) to start talking. A short chime confirms the wake word was heard. Friday ends the session itself after handling a request or when you say goodbye; the LEDs go off once its last words have played. While Friday is talking you can talk over it, or say "stop" and Friday ends the session; the button also stops it. The dial sets the speaker volume.
 
@@ -370,13 +374,15 @@ Wake word detection runs on the device with ESPHome's `micro_wake_word`; the mic
 | Slow spin | Connecting to Friday |
 | Fast spin | Listening |
 | Reverse spin | Friday is speaking |
-| Red pulse | Error (server unreachable, connection lost, or pressed while muted); clears after 2 s |
+| Amber pulse | Friday has not accepted this device yet (pending); clears after 2 s |
+| Red pulse | Error (server unreachable, connection lost, device revoked, or pressed while muted); clears after 2 s |
 | Two red dots | Microphone muted |
 | Red every third LED | XMOS voice kit failed to start |
 
 Troubleshooting:
 
-- **Red pulse right after pressing**: the device cannot reach `ws://<friday_host>:<port>/ws/audio`. Check `friday_host`, that the server is running, and that nothing blocks port 8080. The server log prints `[friday-voice] session open` on success.
+- **Red pulse right after pressing**: the device cannot reach `friday_url`, its certificate check failed, or Friday rejected it. The device log says which (`connection error`, or `unauthorized` for a revoked device or one without a key). Check `friday_url` and that the server is running. The server log prints `[friday-voice] session open` on success and `rejected: <code> <reason>` otherwise.
+- **Amber pulse after waking it**: Friday has not accepted this device, or it presented a different key than the one accepted (after a factory reset). Accept it, or use *Replace key*, under Settings > Voice devices.
 - **Red pulse while muted**: the side switch is on, or Mute is on in Home Assistant.
 - **Choppy or late speech**: raise `buffer_duration` on the `friday_speaker` resampler (default 2000ms) at the cost of a little more delay before Friday starts talking.
 - **Friday reacts to its own voice**: all playback must go through `friday_speaker`; anything bypassing the mixer defeats the XMOS echo cancellation.
@@ -413,4 +419,4 @@ Run `pnpm test` for the transport tests.
 
 ## Deploy
 
-Every push to `main` builds `registry.thewhite.nl/friday/friday:<sha>` on the homelab runner and rolls it out to the `friday` namespace (`.github/workflows/deploy.yml`, manifest in `deploy/k8s.yaml`). Portal at `https://friday.thewhite.nl`; the Voice PE connects to `ws://friday.thewhite.nl/ws/audio`. One-time bootstrap (namespace, secrets, registry user) is in `infra/README.md`.
+Every push to `main` builds `registry.thewhite.nl/friday/friday:<sha>` on the homelab runner and rolls it out to the `friday` namespace (`.github/workflows/deploy.yml`, manifest in `deploy/k8s.yaml`). Portal at `https://friday.thewhite.nl`; the Voice PE connects to `wss://friday.thewhite.nl/ws/audio` on the same TLS host (there is no plain-HTTP route). One-time bootstrap (namespace, secrets, registry user) is in `infra/README.md`.

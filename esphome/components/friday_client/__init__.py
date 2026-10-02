@@ -3,13 +3,20 @@
 Streams 16 kHz mono PCM from a microphone source to Friday's /ws/audio
 WebSocket and plays the 24 kHz reply through a speaker. Session state is
 exposed through an on_state trigger; start/stop/toggle/error are actions.
+
+The device identifies itself with `device_id` (default: the node name) and a
+key it generates on first boot and keeps in flash, sent as an
+`Authorization: Bearer` header. Friday rejects an unknown key with 4403 until
+it is accepted under Settings > Voice devices; the device then shows the
+`pending` state. Use `wss://` (verified against the bundled public CAs) in
+production; `ws://` sends the key unencrypted and is for development only.
 """
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 from esphome.components import microphone, speaker
-from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
+from esphome.components.esp32 import add_idf_component, include_builtin_idf_component, require_certificate_bundle
 from esphome.const import CONF_ID, CONF_MICROPHONE, CONF_SPEAKER, CONF_TRIGGER_ID, CONF_URL
 
 DEPENDENCIES = ["esp32", "microphone", "speaker"]
@@ -35,8 +42,8 @@ ChimeAction = friday_ns.class_("ChimeAction", automation.Action, cg.Parented.tem
 
 def _ws_url(value):
     value = cv.string_strict(value)
-    if not value.startswith("ws://"):
-        raise cv.Invalid("url must start with ws:// (TLS is not supported yet)")
+    if not value.startswith(("wss://", "ws://")):
+        raise cv.Invalid("url must start with wss:// (or ws:// for development)")
     return value
 
 
@@ -104,6 +111,9 @@ async def to_code(config):
     add_idf_component(name="espressif/esp_websocket_client", ref="1.8.0")
     include_builtin_idf_component("esp-tls")
     include_builtin_idf_component("tcp_transport")
+    # wss:// verifies the server certificate against the public CA bundle, which ESPHome only compiles on request.
+    if config[CONF_URL].startswith("wss://"):
+        require_certificate_bundle()
 
 
 ACTION_SCHEMA = cv.maybe_simple_value({cv.GenerateID(): cv.use_id(FridayClient)}, key=CONF_ID)

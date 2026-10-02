@@ -19,11 +19,17 @@
 
 namespace esphome::friday_client {
 
-enum class State : uint8_t { IDLE = 0, CONNECTING, LISTENING, SPEAKING, ERROR };
+/// PENDING: Friday answered 4403, this device's key is waiting to be accepted in the portal. Shown briefly, like ERROR.
+enum class State : uint8_t { IDLE = 0, CONNECTING, LISTENING, SPEAKING, ERROR, PENDING };
 const char *state_name(State s);
 
 /**
  * Press-to-talk client for Friday's /ws/audio protocol.
+ *
+ * Identity: on first boot the device generates a random key and keeps it in flash (NVS), so it survives
+ * power loss, OTA and reflashes; a factory reset makes a new one. The key goes in an `Authorization: Bearer`
+ * header (never the URL or the log); its fingerprint (first 8 hex characters of its SHA-256) is logged and
+ * exposed so the user can compare it with the portal before accepting the device.
  *
  * Threads: ESPHome main loop (actions, state trigger, timers), the microphone
  * task (data callback -> ring buffer), a sender task (ring buffer -> socket)
@@ -60,6 +66,8 @@ class FridayClient : public Component {
   void chime();
 
   State get_state() const { return this->state_.load(); }
+  /// `xxxx-xxxx`, as the portal shows it for this device's key. Empty until setup() ran.
+  const std::string &get_key_fingerprint() const { return this->fingerprint_; }
   bool is_active() const {
     auto s = this->get_state();
     return s == State::CONNECTING || s == State::LISTENING || s == State::SPEAKING;
@@ -90,9 +98,13 @@ class FridayClient : public Component {
   void speaker_flush_();
   bool playback_pending_() const { return this->play_pending_.load() > 0 || this->speaker_->has_buffered_data(); }
 
+  // --- identity ---
+  bool load_or_create_key_();
+
   // --- state ---
   void set_state_(State s);
   void fail_(const char *why);
+  void pending_();
   void go_idle_();
 
   microphone::MicrophoneSource *mic_source_{nullptr};
@@ -100,6 +112,10 @@ class FridayClient : public Component {
   speaker::Speaker *speaker_{nullptr};
   std::string url_;
   std::string device_id_;
+  std::string key_;          // base64url, 43 characters; never logged
+  std::string fingerprint_;
+  std::string headers_;      // "Authorization: Bearer <key>\r\n", kept alive for the client
+  std::atomic<uint16_t> close_code_{0};  // from the server's close frame, 0 when none
   uint32_t connect_timeout_ms_{10000};
   uint32_t drain_timeout_ms_{5000};
   uint32_t error_hold_ms_{2000};
@@ -121,7 +137,7 @@ class FridayClient : public Component {
   std::atomic<bool> speaker_started_{false};
   uint32_t connect_started_at_{0};
   uint32_t drain_started_at_{0};
-  uint32_t error_since_{0};
+  uint32_t error_since_{0};  // also when PENDING was entered
   uint32_t drop_warn_at_{0};
 
   RingbufHandle_t mic_rb_{nullptr};
