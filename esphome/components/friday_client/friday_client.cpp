@@ -1,10 +1,18 @@
 #include "friday_client.h"
 
+#include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/json/json_util.h"
 
 #include <esp_heap_caps.h>
+#include <esp_random.h>
+#include <mbedtls/sha256.h>
+#include <sdkconfig.h>
+#ifdef CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+#include <esp_crt_bundle.h>
+#endif
 #include <cmath>
 #include <cstring>
 
@@ -24,6 +32,15 @@ struct PlayItem {
   uint8_t data[];
 };
 static constexpr uint8_t WS_OP_TEXT = 0x1, WS_OP_BINARY = 0x2, WS_OP_CLOSE = 0x8;
+// Friday's close code for a device whose key is waiting to be accepted in the portal.
+static constexpr uint16_t CLOSE_PENDING_APPROVAL = 4403;
+
+// The device key in NVS, under a fixed id so renaming the node keeps it. Bump the version to force a new key.
+struct KeyBlob {
+  uint8_t version;
+  uint8_t bytes[32];
+};
+static constexpr uint8_t KEY_VERSION = 1;
 
 const char *state_name(State s) {
   switch (s) {
@@ -32,13 +49,66 @@ const char *state_name(State s) {
     case State::LISTENING: return "listening";
     case State::SPEAKING: return "speaking";
     case State::ERROR: return "error";
+    case State::PENDING: return "pending";
   }
   return "?";
 }
 
+/// Unpadded base64url, as Friday's key format expects.
+static std::string base64url(const uint8_t *data, size_t len) {
+  static const char *const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  std::string out;
+  out.reserve((len * 4 + 2) / 3);
+  for (size_t i = 0; i < len; i += 3) {
+    uint32_t n = uint32_t(data[i]) << 16;
+    if (i + 1 < len) n |= uint32_t(data[i + 1]) << 8;
+    if (i + 2 < len) n |= data[i + 2];
+    out += ALPHABET[(n >> 18) & 63];
+    out += ALPHABET[(n >> 12) & 63];
+    if (i + 1 < len) out += ALPHABET[(n >> 6) & 63];
+    if (i + 2 < len) out += ALPHABET[n & 63];
+  }
+  return out;
+}
+
+/// First 8 hex characters of the key's SHA-256, as `xxxx-xxxx` (the portal derives the same from its stored hash).
+static std::string fingerprint_of(const std::string &key) {
+  uint8_t digest[32];
+  mbedtls_sha256(reinterpret_cast<const unsigned char *>(key.data()), key.size(), digest, 0);
+  char buf[10];
+  snprintf(buf, sizeof(buf), "%02x%02x-%02x%02x", digest[0], digest[1], digest[2], digest[3]);
+  return buf;
+}
+
 // ------------------------------------------------------------------ lifecycle
 
+bool FridayClient::load_or_create_key_() {
+  ESPPreferenceObject pref = global_preferences->make_preference<KeyBlob>(fnv1_hash(std::string("friday_client.key")), true);
+  KeyBlob blob{};
+  if (!pref.load(&blob) || blob.version != KEY_VERSION) {
+    // Runs after Wi-Fi setup, so the radio is on and esp_fill_random draws from the hardware RNG.
+    blob.version = KEY_VERSION;
+    esp_fill_random(blob.bytes, sizeof(blob.bytes));
+    // Write it now rather than at the next preference flush, so a power cut cannot lose a key Friday has seen.
+    if (!pref.save(&blob) || !global_preferences->sync()) {
+      ESP_LOGE(TAG, "could not store the device key");
+      return false;
+    }
+    ESP_LOGI(TAG, "generated a new device key");
+  }
+  this->key_ = base64url(blob.bytes, sizeof(blob.bytes));
+  this->fingerprint_ = fingerprint_of(this->key_);
+  this->headers_ = "Authorization: Bearer " + this->key_ + "\r\n";
+  return true;
+}
+
 void FridayClient::setup() {
+  if (this->device_id_.empty()) this->device_id_ = App.get_name();
+  if (!this->load_or_create_key_()) {
+    this->mark_failed();
+    return;
+  }
+  ESP_LOGI(TAG, "device %s, key fingerprint %s", this->device_id_.c_str(), this->fingerprint_.c_str());
   this->client_mutex_ = xSemaphoreCreateMutex();
   this->mic_rb_ = xRingbufferCreateWithCaps(MIC_RB_BYTES, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (this->mic_rb_ == nullptr) this->mic_rb_ = xRingbufferCreate(MIC_RB_BYTES, RINGBUF_TYPE_BYTEBUF);
@@ -60,9 +130,9 @@ void FridayClient::setup() {
 }
 
 void FridayClient::dump_config() {
-  ESP_LOGCONFIG(TAG, "Friday client:\n  URL: %s\n  Device id: %s\n  Send chunk: %u bytes\n  Barge-in delay: %u ms",
-                this->url_.c_str(), this->device_id_.c_str(), (unsigned) this->send_chunk_bytes_,
-                (unsigned) this->barge_in_delay_ms_);
+  ESP_LOGCONFIG(TAG, "Friday client:\n  URL: %s\n  Device id: %s\n  Key fingerprint: %s\n  Send chunk: %u bytes\n  Barge-in delay: %u ms",
+                this->url_.c_str(), this->device_id_.c_str(), this->fingerprint_.c_str(),
+                (unsigned) this->send_chunk_bytes_, (unsigned) this->barge_in_delay_ms_);
 }
 
 void FridayClient::loop() {
@@ -95,6 +165,7 @@ void FridayClient::loop() {
       }
       break;
     case State::ERROR:
+    case State::PENDING:
       if (now - this->error_since_ > this->error_hold_ms_) this->go_idle_();
       break;
     default:
@@ -168,6 +239,17 @@ void FridayClient::fail_(const char *why) {
   this->set_state_(State::ERROR);
 }
 
+void FridayClient::pending_() {
+  ESP_LOGW(TAG, "Friday has not accepted this device yet: accept %s (fingerprint %s) under Settings > Voice devices",
+           this->device_id_.c_str(), this->fingerprint_.c_str());
+  this->mic_stop_();
+  this->speaker_flush_();
+  this->draining_ = false;
+  this->request_teardown_();
+  this->error_since_ = millis();
+  this->set_state_(State::PENDING);
+}
+
 void FridayClient::go_idle_() {
   this->mic_stop_();
   this->set_state_(State::IDLE);
@@ -177,12 +259,17 @@ void FridayClient::go_idle_() {
 
 bool FridayClient::connect_() {
   std::string uri = this->url_;
-  if (!this->device_id_.empty()) {
-    uri += (uri.find('?') == std::string::npos) ? "?device=" : "&device=";
-    uri += this->device_id_;
-  }
+  uri += (uri.find('?') == std::string::npos) ? "?device=" : "&device=";
+  uri += this->device_id_;
+  this->close_code_ = 0;
   esp_websocket_client_config_t cfg = {};
   cfg.uri = uri.c_str();
+  cfg.headers = this->headers_.c_str();
+  // wss:// verifies the server against the bundled public CAs; the key is only sent once that succeeded.
+  // The component requests the bundle for wss:// urls (see __init__.py).
+#ifdef CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+  if (uri.rfind("wss://", 0) == 0) cfg.crt_bundle_attach = esp_crt_bundle_attach;
+#endif
   cfg.buffer_size = 4096;
   cfg.task_stack = 8192;
   cfg.disable_auto_reconnect = true;
@@ -240,7 +327,14 @@ void FridayClient::on_ws_event_(int32_t event_id, esp_websocket_event_data_t *d)
           this->text_acc_.clear();
         }
       } else if (op == WS_OP_CLOSE) {
-        ESP_LOGD(TAG, "server sent close frame");
+        // Payload: 2-byte big-endian close code, then the reason.
+        if (d->data_len >= 2) {
+          const auto *p = reinterpret_cast<const uint8_t *>(d->data_ptr);
+          this->close_code_ = uint16_t(p[0] << 8 | p[1]);
+          ESP_LOGD(TAG, "server closed the connection: %u %.*s", (unsigned) this->close_code_.load(), d->data_len - 2, d->data_ptr + 2);
+        } else {
+          ESP_LOGD(TAG, "server sent close frame");
+        }
       }
       break;
     }
@@ -251,7 +345,10 @@ void FridayClient::on_ws_event_(int32_t event_id, esp_websocket_event_data_t *d)
       if (this->connected_.exchange(false) || this->get_state() == State::CONNECTING) {
         // Expected when we asked for it or Friday said goodbye; otherwise an error.
         if (!this->user_stopping_ && !this->draining_) {
-          this->fail_(event_id == WEBSOCKET_EVENT_ERROR ? "connection error" : "connection lost");
+          if (this->close_code_ == CLOSE_PENDING_APPROVAL) this->pending_();
+          else if (this->close_code_ == 4401) this->fail_("unauthorized: this device is revoked, or sent no key");
+          else if (this->close_code_ == 4400) this->fail_("bad device: Friday does not accept this device id or key format");
+          else this->fail_(event_id == WEBSOCKET_EVENT_ERROR ? "connection error" : "connection lost");
         }
       }
       break;

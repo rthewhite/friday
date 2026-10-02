@@ -76,6 +76,16 @@ context: |
   Configuration edits them; POST /api/modules/:id/reload re-initializes a module. Remote module keys are issued
   in the portal (/api/keys, hashed in module_keys) with FRIDAY_MODULE_KEYS as fallback (CompositeKeyStore).
   Env vars are documented in .env.example. Keep the total tool count modest (Gemini caps at 512).
+  Voice devices (packages/core/src/devices/, migration 7: devices + device_attempts) are onboarded by trust on
+  first use: the device generates its own key (NVS), /ws/audio?device=<id> must send Authorization: Bearer <key>,
+  checked in serveWs before any Gemini session (4400 bad device, 4401 unauthorized for no key or revoked,
+  4403 pending approval for an unknown id or different key, recorded as a pending attempt: one per id, 24h, max 20).
+  Keys are SHA-256 hashed; fingerprint = first 8 hex of the hash as xxxx-xxxx, also computed by the firmware.
+  Settings > Voice devices (/settings/devices, /api/devices) accepts (with the fingerprint seen, 409 if stale),
+  ignores, edits label/area/notes, replaces keys, revokes and deletes; DeviceSessions closes a device's sockets
+  with 4401 on revoke/delete/replace. A device session's voice prompt ends with a "## Where you are" block
+  (label, its Home Assistant area as the default for requests naming no room, notes), from the snapshot taken at
+  accept, via systemPrompt(context, "voice", device). Connections without ?device= (the Talk page) need no key.
   Clients: browser and ESP32 / Voice PE (esphome/) on the same WebSocket protocol. One container image
   built with pnpm deploy; tests use node:test via `pnpm test`.
 

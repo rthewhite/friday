@@ -15,7 +15,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
   const search = ["conversation_search", "conversation_search_config", "conversation_search_data", "conversation_search_docsize", "conversation_search_idx"];
-  assert.deepEqual(tables, ["config_values", "conversation_entries", ...search, "conversations", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
+  assert.deepEqual(tables, ["config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -123,7 +123,7 @@ test("a version-5 database gains the search index over its existing entries: tex
   old.close();
 
   const db = openDatabase(dir, "friday.db", quiet);
-  assert.equal(schemaVersion(db), 6);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   assert.deepEqual(matching(db, "boiler"), ["c1"]);
   assert.deepEqual(matching(db, "dune"), ["c2"], "argument values are indexed");
   assert.deepEqual(matching(db, "nederlands"), ["c2"], "nested values too");
@@ -179,5 +179,25 @@ test("the search index follows new entries and cascaded deletes", async () => {
   db.exec("DELETE FROM conversations WHERE id = 'c1'");
   assert.deepEqual(matching(db, "boiler"), ["c2"]);
   assert.equal((db.prepare("SELECT COUNT(*) AS n FROM conversation_search WHERE conversation_search MATCH '\"boilers\"'").get() as { n: number }).n, 0);
+  db.close();
+});
+
+test("a version-6 database gains the empty device tables and keeps its conversations", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  old.exec("PRAGMA foreign_keys = ON");
+  migrate(old, migrations.filter((m) => m.version <= 6), quiet);
+  old.exec(`
+    INSERT INTO conversations (id, channel, device, started_at, last_activity_at) VALUES ('c1', 'voice', 'friday-voice', 't', 't');
+    INSERT INTO conversation_entries (conversation_id, seq, kind, input, text, at) VALUES ('c1', 1, 'user', 'speech', 'Turn on the lights', 't');
+  `);
+  old.close();
+
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.equal(schemaVersion(db), 7);
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM devices").get() }, { n: 0 });
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM device_attempts").get() }, { n: 0 });
+  assert.deepEqual({ ...db.prepare("SELECT id, device FROM conversations").get() }, { id: "c1", device: "friday-voice" });
+  assert.deepEqual(matching(db, "lights"), ["c1"], "the search index is untouched");
   db.close();
 });

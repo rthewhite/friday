@@ -3,14 +3,25 @@
 Streams 16 kHz mono PCM from a microphone source to Friday's /ws/audio
 WebSocket and plays the 24 kHz reply through a speaker. Session state is
 exposed through an on_state trigger; start/stop/toggle/error are actions.
+
+The device identifies itself with `device_id` (default: the node name) and a
+key it generates on first boot and keeps in flash, sent as an
+`Authorization: Bearer` header. Friday rejects an unknown key with 4403 until
+it is accepted under Settings > Voice devices; the device then shows the
+`pending` state. Use `wss://` (verified against the bundled public CAs) in
+production; `ws://` sends the key unencrypted and is for development only.
 """
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import re
+
 from esphome import automation
+import esphome.final_validate as fv
 from esphome.components import microphone, speaker
-from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
+from esphome.components.esp32 import add_idf_component, include_builtin_idf_component, require_certificate_bundle
 from esphome.const import CONF_ID, CONF_MICROPHONE, CONF_SPEAKER, CONF_TRIGGER_ID, CONF_URL
+from esphome.core import CORE
 
 DEPENDENCIES = ["esp32", "microphone", "speaker"]
 AUTO_LOAD = ["json"]
@@ -33,10 +44,34 @@ ErrorAction = friday_ns.class_("ErrorAction", automation.Action, cg.Parented.tem
 ChimeAction = friday_ns.class_("ChimeAction", automation.Action, cg.Parented.template(FridayClient))
 
 
+# Friday's device id format (packages/core/src/devices/store.ts); any other id is closed with 4400 on every wake.
+DEVICE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+DEVICE_ID_HINT = "1 to 63 lowercase letters, digits and hyphens, starting with a letter or digit"
+
+
+def _device_id(value):
+    value = cv.string_strict(value)
+    if value and not DEVICE_ID.match(value):
+        raise cv.Invalid(f"device_id must be {DEVICE_ID_HINT}")
+    return value
+
+
+def _default_device_id(config):
+    """Without device_id the node name is the id, MAC suffix included: check it the same way."""
+    if config.get(CONF_DEVICE_ID):
+        return config
+    name = CORE.name
+    if fv.full_config.get().get("esphome", {}).get("name_add_mac_suffix"):
+        name += "-xxxxxx"  # six hex digits at runtime
+    if not DEVICE_ID.match(name):
+        raise cv.Invalid(f"the node name {CORE.name!r} is the device id, which must be {DEVICE_ID_HINT}; set device_id to one that is")
+    return config
+
+
 def _ws_url(value):
     value = cv.string_strict(value)
-    if not value.startswith("ws://"):
-        raise cv.Invalid("url must start with ws:// (TLS is not supported yet)")
+    if not value.startswith(("wss://", "ws://")):
+        raise cv.Invalid("url must start with wss:// (or ws:// for development)")
     return value
 
 
@@ -45,7 +80,7 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(FridayClient),
             cv.Required(CONF_URL): _ws_url,
-            cv.Optional(CONF_DEVICE_ID, default=""): cv.string,
+            cv.Optional(CONF_DEVICE_ID, default=""): _device_id,
             cv.Required(CONF_MICROPHONE): microphone.microphone_source_schema(
                 min_bits_per_sample=16, max_bits_per_sample=16, min_channels=1, max_channels=1
             ),
@@ -66,13 +101,16 @@ CONFIG_SCHEMA = cv.All(
     cv.only_with_framework(cv.Framework.ESP_IDF),
 )
 
-FINAL_VALIDATE_SCHEMA = cv.Schema(
-    {
-        cv.Required(CONF_MICROPHONE): microphone.final_validate_microphone_source_schema(
-            "friday_client", sample_rate=16000
-        ),
-    },
-    extra=cv.ALLOW_EXTRA,
+FINAL_VALIDATE_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.Required(CONF_MICROPHONE): microphone.final_validate_microphone_source_schema(
+                "friday_client", sample_rate=16000
+            ),
+        },
+        extra=cv.ALLOW_EXTRA,
+    ),
+    _default_device_id,
 )
 
 
@@ -104,6 +142,9 @@ async def to_code(config):
     add_idf_component(name="espressif/esp_websocket_client", ref="1.8.0")
     include_builtin_idf_component("esp-tls")
     include_builtin_idf_component("tcp_transport")
+    # wss:// verifies the server certificate against the public CA bundle, which ESPHome only compiles on request.
+    if config[CONF_URL].startswith("wss://"):
+        require_certificate_bundle()
 
 
 ACTION_SCHEMA = cv.maybe_simple_value({cv.GenerateID(): cv.use_id(FridayClient)}, key=CONF_ID)

@@ -20,7 +20,7 @@ test("audio and remote endpoints coexist on one server; unknown paths get 404", 
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
   try {
-    const audio = new WebSocket(`ws://127.0.0.1:${port}/ws/audio?device=x`);
+    const audio = new WebSocket(`ws://127.0.0.1:${port}/ws/audio`);
     await once(audio, "open");
     const mods = new WebSocket(`ws://127.0.0.1:${port}/ws/modules`);
     await once(mods, "open");

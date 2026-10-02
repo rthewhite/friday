@@ -2,8 +2,8 @@
 
 ## 1. Core: device store
 
-- [ ] 1.1 Add migration 7 `voice-devices` to `packages/core/src/storage/db.ts` with the `devices` and `device_attempts` tables (design D1). Add a case to `packages/core/test/storage.test.ts` that a database at version 6 upgrades to 7 with both tables empty and existing conversations untouched. Verify `pnpm --filter @friday/core test` and `typecheck` pass.
-- [ ] 1.2 Implement `DeviceStore` in `packages/core/src/devices/store.ts` (design D1, D4, D6):
+- [x] 1.1 Add migration 7 `voice-devices` to `packages/core/src/storage/db.ts` with the `devices` and `device_attempts` tables (design D1). Add a case to `packages/core/test/storage.test.ts` that a database at version 6 upgrades to 7 with both tables empty and existing conversations untouched. Verify `pnpm --filter @friday/core test` and `typecheck` pass.
+- [x] 1.2 Implement `DeviceStore` in `packages/core/src/devices/store.ts` (design D1, D4, D6):
   - id and key validation,
   - `authenticate(id, key)` returning the device snapshot or `{ code, reason }`, as in the audio-transport delta's table, comparing the hash with `timingSafeEqual`, updating `last_seen_at` on success, and upserting an attempt for an unknown id or a different key (never for a revoked id),
   - lazy pruning of attempts (24 hours, at most 20 rows),
@@ -12,11 +12,11 @@
   - `fingerprint(hash)`.
 
   Add `packages/core/test/device-store.test.ts` covering each scenario in the voice-devices delta: key at rest, fingerprint format, first and repeated attempts, the stale attempt and the 20-row cap, no key, replacement while the old key still works, accept, accept with a stale fingerprint, ignore, replace, an edit with an over-long note refused, revoke (rejected with no attempt), and delete followed by re-onboarding. Verify the core tests and typecheck pass.
-- [ ] 1.3 Add `DeviceSessions` in `packages/core/src/devices/sessions.ts` (design D3): add and remove a socket per device id, `connected(id)`, and `disconnect(id)` closing each socket with `4401 unauthorized`. Add unit cases to `packages/core/test/device-store.test.ts` (or its own file) for two sockets on one id, connected status after one closes, and disconnect closing both. Verify the core tests and typecheck pass.
+- [x] 1.3 Add `DeviceSessions` in `packages/core/src/devices/sessions.ts` (design D3): add and remove a socket per device id, `connected(id)`, and `disconnect(id)` closing each socket with `4401 unauthorized`. Add unit cases to `packages/core/test/device-store.test.ts` (or its own file) for two sockets on one id, connected status after one closes, and disconnect closing both. Verify the core tests and typecheck pass.
 
 ## 2. Core: transport, prompt and API
 
-- [ ] 2.1 In `packages/core/src/transports/ws.ts`, authenticate `?device=` connections before creating the recorder or session (design D2):
+- [x] 2.1 In `packages/core/src/transports/ws.ts`, authenticate `?device=` connections before creating the recorder or session (design D2):
   - read the key from `Authorization: Bearer`,
   - close with the store's code and reason, dropping any frames that arrive before the close,
   - close with `4401` when no store is wired,
@@ -25,8 +25,8 @@
   - update the protocol comment at the top of the file.
 
   Extend `startHarness` in `packages/core/test/helpers.ts` to take a store and request headers. Update the existing `?device=` tests in `packages/core/test/ws.test.ts` to connect with a registered key. Add cases for each audio-transport delta scenario: accepted device, new device (`4403`, no session, attempt recorded), missing key, revoked device, malformed id, key in the URL, and revoking while a session is open (`4401`, session closed). Also cover a connection without `device` that still needs no key. Verify the core tests and typecheck pass.
-- [ ] 2.2 Add the device block to `systemPrompt` in `packages/core/src/prompt-context.ts` (design D5), and have the default session factory in `ws.ts` pass the accepted device. Add cases to `packages/core/test/prompt-context.test.ts` for the voice-session delta's device scenarios: with area and notes, without either, no device, and the snapshot staying fixed after an edit. Add a case to `packages/core/test/ws.test.ts` checking that the session created for a registered device receives the device. Verify the core tests and typecheck pass.
-- [ ] 2.3 Add the `/api/devices` routes to `packages/core/src/app.ts` (design D7):
+- [x] 2.2 Add the device block to `systemPrompt` in `packages/core/src/prompt-context.ts` (design D5), and have the default session factory in `ws.ts` pass the accepted device. Add cases to `packages/core/test/prompt-context.test.ts` for the voice-session delta's device scenarios: with area and notes, without either, no device, and the snapshot staying fixed after an edit. Add a case to `packages/core/test/ws.test.ts` checking that the session created for a registered device receives the device. Verify the core tests and typecheck pass.
+- [x] 2.3 Add the `/api/devices` routes to `packages/core/src/app.ts` (design D7):
   - list, accept, ignore, update, replace-key, revoke and delete,
   - 404, 409 and 400 mapping,
   - 503 without a store,
@@ -34,7 +34,7 @@
   - `disconnect` on revoke, delete and replace-key.
 
   Wire one `DeviceStore` and `DeviceSessions` in `packages/core/src/server.ts` into both `createApp` and `attachAudioWs`. Add `packages/core/test/devices-api.test.ts` covering the API scenarios (listing without keys or hashes, accept of an unknown id answering 404, stale fingerprint answering 409, invalid input answering 400 with the field name), plus revoke closing a live socket through the app. Verify the core tests and typecheck pass.
-- [ ] 2.4 Document the change:
+- [x] 2.4 Document the change:
   - **`README.md`:** the protocol section (device auth, close codes), conversations (device labels), and a new "Voice devices" section (onboarding flow, fingerprint, replace key, revoke).
   - **`openspec/config.yaml` context:** the device registry, `/ws/audio` auth and the prompt's device block.
 
@@ -42,7 +42,7 @@
 
 ## 3. Portal
 
-- [ ] 3.1 Add `packages/portal/src/pages/settings/VoiceDevicesPage.vue` (design D7):
+- [x] 3.1 Add `packages/portal/src/pages/settings/VoiceDevicesPage.vue` (design D7):
   - pending table with `Accept` and `Ignore`,
   - accept drawer showing id and fingerprint, with label, area (with the HA area hint) and notes,
   - devices table with status dot, label, id, area, fingerprint, last connected and a replacement marker,
@@ -50,8 +50,8 @@
   - `Refresh` and the help text.
 
   Register `/settings/devices` in `router.ts` and add `Voice devices` to the System group in `shell/Shell.vue`, after `Configuration`. Verify `pnpm --filter @friday/portal typecheck` and `build` pass.
-- [ ] 3.2 Show device labels on the Conversations page: add a small `packages/portal/src/lib/devices.ts` (id-to-label map and a display helper falling back to the id), load `/api/devices` once in `ConversationsPage.vue`, and show the label with the id as a `title` in the table and the drawer. Add `packages/portal/test/devices.test.ts` for the registered and unregistered cases. Verify `pnpm --filter @friday/portal test` and `typecheck` pass.
-- [ ] 3.3 Start a dev server on free ports (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`), then:
+- [x] 3.2 Show device labels on the Conversations page: add a small `packages/portal/src/lib/devices.ts` (id-to-label map and a display helper falling back to the id), load `/api/devices` once in `ConversationsPage.vue`, and show the label with the id as a `title` in the table and the drawer. Add `packages/portal/test/devices.test.ts` for the registered and unregistered cases. Verify `pnpm --filter @friday/portal test` and `typecheck` pass.
+- [x] 3.3 Start a dev server on free ports (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`), then:
   1. Simulate a device with a `ws` client script that sends `?device=test-sat` and a random Bearer key.
   2. Confirm it is closed with `4403` and listed under pending with the fingerprint the script prints.
   3. Accept it with an area.
@@ -59,10 +59,19 @@
   5. Edit its notes, revoke it while connected (the socket closes with `4401`), and delete it.
 
   Stop the dev server.
+  - Done on 2026-10-02 on port 8081, with a Node `ws` script as the device and the API calls the page makes (`curl`).
+    - The first connect closed with `4403 pending approval`, and `test-sat` was listed with the fingerprint the script printed (`b097-8953`).
+    - Accepting with area `Kitchen` answered 201.
+    - The reconnect logged `ws: [test-sat] session open` (a real Gemini session) and the listing showed `connected: true`.
+    - Editing the notes saved them. Revoking during a session closed it with `4401 unauthorized`, and the next attempt was rejected with `4401` and not listed as pending. Delete answered 204.
+    - `/settings/devices` and `/api/devices` answered through the Vite dev server.
+    - The page was not clicked through in a browser.
+    - The dev server reads `.env` from `packages/core` (`dotenv/config` uses the cwd), so the Gemini key had to be copied there for the session to open. Without a key the session closed with 1005 right after it was accepted.
+    - The dev server was stopped afterwards.
 
 ## 4. Firmware and deployment
 
-- [ ] 4.1 In `esphome/components/friday_client/` (design D8):
+- [x] 4.1 In `esphome/components/friday_client/` (design D8):
   - generate and persist the key (preference, `esp_fill_random`, immediate `sync()`),
   - compute the fingerprint with mbedtls, log it in `setup()` and `dump_config()`, and expose `get_key_fingerprint()`,
   - send the `Authorization` header,
@@ -71,7 +80,10 @@
   - parse the close code, and add `State::PENDING` with `pending` in `state_name` and the idle return after `error_hold`.
 
   Update the component docstring. Verify `esphome compile esphome/friday-voice-pe.yaml` succeeds.
-- [ ] 4.2 Update `esphome/friday-voice-pe.yaml`:
+  - ESPHome only compiles the CA bundle when a component asks for it, so `to_code` calls `require_certificate_bundle()` for `wss://` urls, and the C++ references `esp_crt_bundle_attach` only under `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE`.
+  - A 4401 close is logged as `unauthorized`.
+  - Compiled with ESPHome 2026.9.0, with no warnings from the component. The build has `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y` (the common-CA bundle), and `friday.thewhite.nl` is issued by Let's Encrypt, which that bundle covers.
+- [x] 4.2 Update `esphome/friday-voice-pe.yaml`:
   - url `wss://${friday_host}/ws/audio` (drop `friday_port`),
   - remove `device_id`,
   - a "Pending" LED effect (slow amber pulse) in `control_leds`,
@@ -79,11 +91,17 @@
   - a diagnostic template text sensor "Friday key fingerprint".
 
   Update the README Voice PE section: setup, the pending LED, the fingerprint sensor, `wss://`, and the troubleshooting lines that mention `ws://` and port 8080. Verify `esphome compile esphome/friday-voice-pe.yaml` succeeds and `grep -n "ws://friday" README.md esphome/friday-voice-pe.yaml` finds nothing.
-- [ ] 4.3 Remove the `friday-ws-plain` IngressRoute from `deploy/k8s.yaml` and its mention in the comments. Add the one-off `kubectl -n friday delete ingressroute friday-ws-plain` and the rollout order (design Migration Plan) to `infra/README.md`. Verify with `grep -n "friday-ws-plain" deploy/k8s.yaml` (no match) and `kubectl apply --dry-run=client -f deploy/k8s.yaml` (or a YAML parse) succeeding.
+  - Instead of `wss://${friday_host}/ws/audio`, the YAML has one `friday_url` substitution (`wss://friday.thewhite.nl/ws/audio`), so a `pnpm dev` server (`ws://<LAN IP>:8080/ws/audio`) needs only that line changed.
+  - The wake word is gated by the existing idle-only check, which also covers pending.
+  - It compiled after these edits, and the grep finds nothing.
+- [x] 4.3 Remove the `friday-ws-plain` IngressRoute from `deploy/k8s.yaml` and its mention in the comments. Add the one-off `kubectl -n friday delete ingressroute friday-ws-plain` and the rollout order (design Migration Plan) to `infra/README.md`. Verify with `grep -n "friday-ws-plain" deploy/k8s.yaml` (no match) and `kubectl apply --dry-run=client -f deploy/k8s.yaml` (or a YAML parse) succeeding.
+  - The grep finds no match. The YAML parses into four documents: Deployment, PersistentVolumeClaim, Service and IngressRoute `friday`.
+  - `kubectl --dry-run=client` was not run, because the IngressRoute CRD needs the cluster.
+  - `infra/README.md` gained the endpoints update, the one-off delete, the rollout order and the rollback note.
 
 ## 5. Integration
 
-- [ ] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all green.
+- [x] 5.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all green.
 - [ ] 5.2 On the real Voice PE against a dev server or the deployed build (with the user's go-ahead for deploying):
   1. OTA-flash the new firmware and note the fingerprint sensor in Home Assistant.
   2. Say "hey friday" and confirm the pending LED, and that the portal lists `friday-voice` with the same fingerprint.
@@ -91,3 +109,30 @@
   4. Ask "turn on the lights" and confirm the HA MCP call carries that area (the Conversations drawer's tool entry).
   5. Power-cycle the device and confirm it still connects without re-approval.
   6. Measure wake-to-listening time over `wss://` and record it here.
+
+  Run on 2026-10-02 against a dev server (`pnpm --filter @friday/core dev` on port 8081, firmware built with `-s friday_url ws://192.168.1.191:8081/ws/audio`):
+  - Step 1 passed: flashed over USB (not OTA). The device logs and the *Friday key fingerprint* sensor show `0e9b-b90c`.
+  - Step 2 passed: amber pending pulse; `ws: ["friday-voice"] rejected: 4403 pending approval`; `/api/devices` listed pending `friday-voice` with `0e9b-b90c`.
+  - Step 3 passed: accepted with area `Bedroom`; the next wake opened a session, recorded with `device: friday-voice`.
+  - Step 4 partly done: "Which room are you in?" got "I'm in the bedroom.", so the device block reaches the prompt. The HA MCP call wasn't tested, because the dev `friday.db` has no HA MCP server.
+  - Step 5 passed: after a power cycle it connected without a new pending attempt, with the same fingerprint.
+  - Still open: step 4's HA call and step 6 (`wss://` timing) need the deployed build, then an OTA reflash with the default `friday_url`.
+  - Noted: the first session after accepting caught noise (`juste à스팅`), was answered in Korean, and the client closed after 3.5 s. Later sessions were normal.
+
+## 6. Review fixes
+
+- [x] 6.1 Fix the confirmed `/code-review` findings, with tests first:
+  - a different key for a pending id starts its count and first-seen time over;
+  - a connection with the stored key clears a pending replacement (spec updated for both);
+  - a device-store error in `serveWs` closes the socket with `1011 internal error` instead of becoming an unhandled rejection;
+  - the firmware's `device_id` (or the node name) is checked against Friday's id format, and `4400` gets its own error message;
+  - `GET /api/devices` uses `withConnected`.
+
+  Verified with `pnpm --filter @friday/core test` (322 passed, 3 live tests skipped) and `typecheck`, `esphome config` (the real YAML passes and `device_id: Kitchen_PE` is refused), and `esphome compile`.
+  - Not changed:
+    - the pending upsert taking a new key (the spec requires it; flooding is a DoS concern);
+    - the 32-bit fingerprint (the spec defines it, and the portal has no login);
+    - the brief LISTENING before PENDING (it needs a protocol signal);
+    - `get()` building the full listing (the tables are tiny);
+    - the duplicated LED effect (it follows the YAML's existing per-effect pattern).
+  - `/security-review` found nothing.

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { PageLayout, Button, DataTable, StatusDot, Badge, Chip, Drawer, Icon, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../composables/useApi.js";
 import type { Conversation, Summary } from "../lib/conversations.js";
+import { deviceDisplay, deviceLabels, type DevicesListing } from "../lib/devices.js";
 import TranscriptEntry from "../components/TranscriptEntry.vue";
 
 const route = useRoute();
@@ -46,6 +47,13 @@ function duration(c: Summary): string {
 }
 const tone = (c: Summary) => (c.state === "active" ? "success" : "neutral");
 
+// Registered devices are shown by label; when the listing fails, ids are shown as before.
+const labels = ref(new Map<string, string>());
+async function loadDevices() {
+  try { labels.value = deviceLabels((await api<DevicesListing>("/api/devices")).devices); } catch { /* ids only */ }
+}
+const device = (id: string | null) => deviceDisplay(labels.value, id);
+
 // ---- drawer ---------------------------------------------------------------
 const open = ref(false);
 const selected = ref<Conversation | null>(null);
@@ -69,6 +77,7 @@ watch(() => route.query.id, (id) => { if (typeof id === "string" && id !== selec
 watch(open, (v) => { if (!v && route.query.id) router.replace({ query: { ...route.query, id: undefined } }); });
 onMounted(() => {
   void load();
+  void loadDevices();
   if (typeof route.query.id === "string") void show(route.query.id);
 });
 
@@ -103,7 +112,10 @@ const subtitle = computed(() => (selected.value ? `${formatDateTime(selected.val
       <template #cell-state="{ row }"><StatusDot :tone="tone(row as Summary)" :title="(row as Summary).state" /></template>
       <template #cell-startedAt="{ value }"><span class="text-f-text-muted whitespace-nowrap">{{ formatDateTime(value as string) }}</span></template>
       <template #cell-channel="{ value }"><Badge>{{ value }}</Badge></template>
-      <template #cell-device="{ value }"><Chip v-if="value">{{ value }}</Chip><span v-else class="text-f-text-muted">–</span></template>
+      <template #cell-device="{ value }">
+        <Chip v-if="device(value as string | null)" :title="device(value as string | null)!.title">{{ device(value as string | null)!.text }}</Chip>
+        <span v-else class="text-f-text-muted">–</span>
+      </template>
       <template #cell-preview="{ value }"><span class="line-clamp-1 break-all text-f-text-bright">{{ value ?? "" }}</span></template>
       <template #cell-duration="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ duration(row as Summary) }}</span></template>
     </DataTable>
@@ -116,7 +128,7 @@ const subtitle = computed(() => (selected.value ? `${formatDateTime(selected.val
         <div class="flex flex-wrap items-center gap-2">
           <StatusDot :tone="tone(selected)" :label="selected.state" />
           <Badge>{{ selected.channel }}</Badge>
-          <Chip v-if="selected.device">{{ selected.device }}</Chip>
+          <Chip v-if="device(selected.device)" :title="device(selected.device)!.title">{{ device(selected.device)!.text }}</Chip>
         </div>
         <p v-if="selected.endReason" class="text-sm text-f-text-muted">Ended {{ formatDateTime(selected.endedAt) }}: <span class="font-mono text-f-text">{{ selected.endReason }}</span></p>
         <p v-if="drawerError" class="text-sm text-f-error">{{ drawerError }}</p>

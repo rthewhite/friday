@@ -7,6 +7,8 @@ import { McpSource } from "./tools/mcp.js";
 import { McpServerStore } from "./tools/mcp-store.js";
 import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "./remote/key-store.js";
 import { RemoteHost } from "./remote/host.js";
+import { DeviceStore } from "./devices/store.js";
+import { DeviceSessions } from "./devices/sessions.js";
 import { databasePath, openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
 import { ConversationStore } from "./conversations/store.js";
@@ -31,6 +33,9 @@ const mcpStore = new McpServerStore(db, masterKey);
 if (!configStore.secretsEnabled) console.warn("secrets disabled: FRIDAY_MASTER_KEY is not set; plain configuration still works, secrets come from the environment only");
 for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
 const keys = new SqliteKeyStore(db);
+// Voice devices: /ws/audio?device= authenticates against the store; the API closes a device's sessions on revoke.
+const devices = new DeviceStore(db);
+const deviceSessions = new DeviceSessions();
 // Core's own key: stored for core or globally in the portal, else the environment; read at each use.
 const coreKey = coreConfig(configStore, process.env);
 const geminiKey = () => coreKey("GEMINI_API_KEY");
@@ -95,8 +100,8 @@ const chat = new ChatEngine({
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 
-const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs) }));
-attachAudioWs(server, { registry, conversations, geminiKey, promptContext });
+const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs) }));
+attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions });
 remote.attach(server);
 
 server.listen(settings.port, settings.host, () =>

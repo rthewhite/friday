@@ -11,6 +11,8 @@ import { adaptRequest, adaptResponse, readBody, Router, sendJson } from "./route
 import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/config-store.js";
 import { statusOf } from "./secrets/resolver.js";
 import type { SqliteKeyStore } from "./remote/key-store.js";
+import { DeviceConflict, DeviceInputError, DeviceNotFound, type Device, type DeviceStore } from "./devices/store.js";
+import type { DeviceSessions } from "./devices/sessions.js";
 import type { Scheduler } from "./jobs/scheduler.js";
 import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore } from "./conversations/store.js";
 import type { Env } from "@friday/sdk";
@@ -45,6 +47,10 @@ export interface AppDeps {
   /** Platform services; optional so tests can build a minimal app. */
   configStore?: ConfigStore;
   keys?: SqliteKeyStore;
+  /** Voice devices; without it `/api/devices` answers 503. */
+  devices?: DeviceStore;
+  /** Open device connections, for `connected` and for closing them on revoke, delete and key replacement. */
+  deviceSessions?: DeviceSessions;
   env?: Env;
   jobs?: Scheduler;
   conversations?: ConversationStore;
@@ -195,6 +201,36 @@ async function mcpWrite(deps: AppDeps, req: IncomingMessage, res: ServerResponse
   }
 }
 
+const withConnected = (deps: AppDeps, d: Device) => ({ ...d, connected: deps.deviceSessions?.connected(d.id) ?? false });
+
+/** Run a voice device route: 503 without a store, the body parsed when `withBody`, store errors as 400/404/409. */
+async function deviceRoute(
+  deps: AppDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  withBody: boolean,
+  fn: (store: DeviceStore, body: Record<string, unknown>) => void,
+): Promise<void> {
+  if (!deps.devices) return sendJson(res, { error: "no device store" }, 503);
+  let body: Record<string, unknown> = {};
+  if (withBody) {
+    try {
+      body = JSON.parse((await readBody(req)) || "{}");
+    } catch {
+      return sendJson(res, { error: "invalid JSON" }, 400);
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return sendJson(res, { error: "body must be a JSON object" }, 400);
+  }
+  try {
+    fn(deps.devices, body);
+  } catch (e) {
+    if (e instanceof DeviceInputError) return sendJson(res, { error: e.message }, 400);
+    if (e instanceof DeviceNotFound) return sendJson(res, { error: e.message }, 404);
+    if (e instanceof DeviceConflict) return sendJson(res, { error: e.message }, 409);
+    throw e;
+  }
+}
+
 export function createApp(deps: AppDeps) {
   const webRoot = resolve(deps.webDir);
   const router = new Router()
@@ -318,6 +354,48 @@ export function createApp(deps: AppDeps) {
       res.statusCode = 204;
       res.end();
     })
+    .add("GET", "/api/devices", (req, res) =>
+      deviceRoute(deps, req, res, false, (store) => {
+        const { devices, pending } = store.list();
+        sendJson(res, { devices: devices.map((d) => withConnected(deps, d)), pending });
+      }),
+    )
+    .add("POST", "/api/devices/pending/:id/accept", (req, res, { id }) =>
+      deviceRoute(deps, req, res, true, (store, body) => sendJson(res, withConnected(deps, store.accept(id, body)), 201)),
+    )
+    .add("DELETE", "/api/devices/pending/:id", (req, res, { id }) =>
+      deviceRoute(deps, req, res, false, (store) => {
+        store.ignore(id);
+        res.statusCode = 204;
+        res.end();
+      }),
+    )
+    .add("PUT", "/api/devices/:id", (req, res, { id }) =>
+      deviceRoute(deps, req, res, true, (store, body) => sendJson(res, withConnected(deps, store.update(id, body)))),
+    )
+    // Replacing, revoking and deleting end the device's open sessions; replacing so the old key stops at once.
+    .add("POST", "/api/devices/:id/replace-key", (req, res, { id }) =>
+      deviceRoute(deps, req, res, true, (store, body) => {
+        const d = store.replaceKey(id, body);
+        deps.deviceSessions?.disconnect(id);
+        sendJson(res, withConnected(deps, d));
+      }),
+    )
+    .add("POST", "/api/devices/:id/revoke", (req, res, { id }) =>
+      deviceRoute(deps, req, res, false, (store) => {
+        const d = store.revoke(id);
+        deps.deviceSessions?.disconnect(id);
+        sendJson(res, withConnected(deps, d));
+      }),
+    )
+    .add("DELETE", "/api/devices/:id", (req, res, { id }) =>
+      deviceRoute(deps, req, res, false, (store) => {
+        store.remove(id);
+        deps.deviceSessions?.disconnect(id);
+        res.statusCode = 204;
+        res.end();
+      }),
+    )
     .add("GET", "/api/jobs", (_req, res) => sendJson(res, deps.jobs?.list() ?? []))
     .add("GET", "/api/jobs/:owner/:name/runs", (_req, res, { owner, name }) => {
       const runs = deps.jobs?.runs(`${owner}/${name}`);

@@ -33,7 +33,7 @@ Core SHALL NOT store a device key in plaintext.
 
 ### Requirement: Unknown connection attempts are recorded as pending
 
-When a connection presents a well-formed device id and key, and the id is not registered, core SHALL record a pending attempt for that id. The attempt holds the key's hash, its fingerprint, when the id was first and last seen, and how many attempts were made. Core SHALL keep at most one pending attempt per id: a later attempt with the same id SHALL update it, including its key when the key differs. A pending attempt SHALL be removed 24 hours after its last attempt. When more than 20 pending attempts exist, the ones last seen longest ago SHALL be removed until 20 remain. A connection with a malformed id or key, or without a key, SHALL NOT record an attempt.
+When a connection presents a well-formed device id and key, and the id is not registered, core SHALL record a pending attempt for that id. The attempt holds the key's hash, its fingerprint, when the id was first and last seen, and how many attempts were made. Core SHALL keep at most one pending attempt per id: a later attempt with the same id SHALL update it. When the key differs, the attempt SHALL take the new key and start over: its first-seen time becomes the time of that attempt and its count becomes 1. A pending attempt SHALL be removed 24 hours after its last attempt. When more than 20 pending attempts exist, the ones last seen longest ago SHALL be removed until 20 remain. A connection with a malformed id or key, or without a key, SHALL NOT record an attempt.
 
 #### Scenario: First connection of a new device
 - **WHEN** a device `friday-kitchen` that is not registered connects with a valid key
@@ -42,6 +42,10 @@ When a connection presents a well-formed device id and key, and the id is not re
 #### Scenario: Repeated attempts
 - **WHEN** the same unregistered device connects three times with the same key
 - **THEN** one pending attempt is listed, with an attempt count of 3 and the time of the last attempt
+
+#### Scenario: Another key for the same id
+- **WHEN** unregistered `friday-kitchen` made 3 attempts with one key, and then connects with a different key
+- **THEN** the pending attempt shows the new key's fingerprint, an attempt count of 1, and the time of that attempt as first seen
 
 #### Scenario: Stale attempt
 - **WHEN** a pending attempt's last attempt was more than 24 hours ago
@@ -53,7 +57,7 @@ When a connection presents a well-formed device id and key, and the id is not re
 
 ### Requirement: A known device presenting a different key is recorded as a replacement
 
-When a registered, non-revoked device id connects with a well-formed key that does not match its stored key, core SHALL record a pending attempt for that id under the same rules as an unknown device, and the device SHALL be listed with that pending replacement and its fingerprint. The stored key SHALL remain valid until it is replaced.
+When a registered, non-revoked device id connects with a well-formed key that does not match its stored key, core SHALL record a pending attempt for that id under the same rules as an unknown device, and the device SHALL be listed with that pending replacement and its fingerprint. The stored key SHALL remain valid until it is replaced. A successful connection with the stored key SHALL remove the pending replacement, because the device still holds its key.
 
 #### Scenario: Device came back after a factory reset
 - **WHEN** registered device `friday-voice` connects with a new key
@@ -61,7 +65,7 @@ When a registered, non-revoked device id connects with a well-formed key that do
 
 #### Scenario: Old key still works
 - **WHEN** a replacement is pending for `friday-voice` and a connection presents its stored key
-- **THEN** the connection is accepted
+- **THEN** the connection is accepted, and the pending replacement is removed
 
 ### Requirement: Pending devices are accepted or ignored
 

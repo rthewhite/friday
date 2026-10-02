@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { startHarness, StubSession, waitFor } from "./helpers.js";
+import { randomBytes } from "node:crypto";
+import { deviceFixture, sleep, startHarness, StubSession, waitFor } from "./helpers.js";
 import { setup } from "./conversation-fixtures.js";
 
 test("smoke: server starts and accepts a connection", async () => {
@@ -18,9 +19,11 @@ test("smoke: server starts and accepts a connection", async () => {
 });
 
 test("device query parameter is logged and unknown parameters are ignored", async () => {
-  const h = await startHarness();
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const h = await startHarness({ devices: devices.store });
   try {
-    const ws = await h.connect("?device=kitchen&x=1");
+    const ws = await h.connect("?device=kitchen&x=1", key);
     await waitFor(() => h.logs.some((l) => l.includes("[kitchen]") && l.includes("session open")));
     ws.close();
     await once(ws, "close");
@@ -45,9 +48,11 @@ test("connection without device parameter behaves as before", async () => {
 /** Say one exchange through the stub's recorder, as GeminiSession would, and return the stored conversation. */
 async function recordOne(query: string) {
   const { store } = setup();
-  const h = await startHarness({ conversations: store });
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const h = await startHarness({ conversations: store, devices: devices.store });
   try {
-    const ws = await h.connect(query);
+    const ws = await h.connect(query, query.includes("device=") ? key : undefined);
     await waitFor(() => StubSession.instances.length === 1);
     const r = StubSession.instances[0].recorder!;
     r.user(" Hi", "speech");
@@ -186,6 +191,166 @@ test("gemini unavailable closes with 1011", async () => {
     } finally {
       StubSession.prototype.open = orig;
     }
+  } finally {
+    await h.close();
+  }
+});
+
+// ---------------------------------------------------------------- device authentication
+
+const randomKey = () => randomBytes(32).toString("base64url");
+
+test("a registered device with its key gets a session that carries its device", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen", { label: "Kitchen satellite", area: "Kitchen" });
+  const h = await startHarness({ devices: devices.store, deviceSessions: devices.sessions });
+  try {
+    const ws = await h.connect("?device=kitchen", key);
+    await waitFor(() => StubSession.instances.length === 1);
+    assert.deepEqual(StubSession.instances[0].device, { id: "kitchen", label: "Kitchen satellite", area: "Kitchen", notes: null });
+    assert.equal(devices.sessions.connected("kitchen"), true);
+    assert.ok(devices.store.get("kitchen")!.lastSeenAt);
+    ws.close();
+    await once(ws, "close");
+    await waitFor(() => !devices.sessions.connected("kitchen"));
+  } finally {
+    await h.close();
+  }
+});
+
+test("a new device is closed with 4403, gets no session, and is recorded as pending", async () => {
+  const devices = deviceFixture();
+  const h = await startHarness({ devices: devices.store });
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen-2", randomKey()), { code: 4403, reason: "pending approval" });
+    assert.equal(StubSession.instances.length, 0);
+    assert.deepEqual(devices.store.list().pending.map((p) => p.id), ["kitchen-2"]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a known device presenting another key is closed with 4403", async () => {
+  const devices = deviceFixture();
+  devices.register("kitchen");
+  const h = await startHarness({ devices: devices.store });
+  try {
+    assert.equal((await h.rejected("?device=kitchen", randomKey())).code, 4403);
+    assert.equal(StubSession.instances.length, 0);
+    assert.ok(devices.store.get("kitchen")!.replacement);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a device connection without a key, or with the key only in the URL, is closed with 4401", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const h = await startHarness({ devices: devices.store });
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen"), { code: 4401, reason: "unauthorized" });
+    assert.deepEqual(await h.rejected(`?device=kitchen&key=${key}`), { code: 4401, reason: "unauthorized" });
+    assert.equal(StubSession.instances.length, 0);
+    assert.deepEqual(devices.store.list().pending, []);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a revoked device is closed with 4401 and not recorded as pending", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  devices.store.revoke("kitchen");
+  const h = await startHarness({ devices: devices.store });
+  try {
+    assert.equal((await h.rejected("?device=kitchen", key)).code, 4401);
+    assert.equal((await h.rejected("?device=kitchen", randomKey())).code, 4401);
+    assert.deepEqual(devices.store.list().pending, []);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a malformed device id is closed with 4400", async () => {
+  const devices = deviceFixture();
+  const h = await startHarness({ devices: devices.store });
+  try {
+    assert.deepEqual(await h.rejected("?device=Kitchen!", randomKey()), { code: 4400, reason: "bad device" });
+    assert.equal(StubSession.instances.length, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("without a device store every device connection is closed with 4401", async () => {
+  const h = await startHarness();
+  try {
+    assert.equal((await h.rejected("?device=kitchen", randomKey())).code, 4401);
+  } finally {
+    await h.close();
+  }
+});
+
+test("frames a rejected device sends before the close reach no session", async () => {
+  const devices = deviceFixture();
+  const h = await startHarness({ devices: devices.store });
+  try {
+    const WebSocket = (await import("ws")).default;
+    const ws = new WebSocket(`${h.url}?device=kitchen-2`, { headers: { authorization: `Bearer ${randomKey()}` } });
+    ws.on("open", () => ws.send(Buffer.alloc(3200)));
+    const [code] = await once(ws, "close");
+    assert.equal(code, 4403);
+    await sleep(20);
+    assert.equal(StubSession.instances.length, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("revoking a device closes its open connection with 4401 and ends its session", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const h = await startHarness({ devices: devices.store, deviceSessions: devices.sessions });
+  try {
+    const ws = await h.connect("?device=kitchen", key);
+    await waitFor(() => StubSession.instances.length === 1);
+    const closed = once(ws, "close");
+    devices.store.revoke("kitchen");
+    devices.sessions.disconnect("kitchen");
+    const [code, reason] = await closed;
+    assert.equal(code, 4401);
+    assert.equal(reason.toString(), "unauthorized");
+    await waitFor(() => StubSession.instances[0].closed === 1);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a connection without a device needs no key, even when a device store is wired", async () => {
+  const devices = deviceFixture();
+  const h = await startHarness({ devices: devices.store, deviceSessions: devices.sessions });
+  try {
+    const ws = await h.connect();
+    await waitFor(() => StubSession.instances.length === 1);
+    assert.equal(StubSession.instances[0].device, undefined);
+    ws.close();
+    await once(ws, "close");
+  } finally {
+    await h.close();
+  }
+});
+
+test("a device store error closes the connection with 1011 instead of escaping as an unhandled rejection", async () => {
+  const devices = {
+    authenticate(): never {
+      throw new Error("disk I/O error");
+    },
+  };
+  const h = await startHarness({ devices });
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen", randomKey()), { code: 1011, reason: "internal error" });
+    assert.equal(StubSession.instances.length, 0);
+    assert.ok(h.logs.some((l) => l.includes("disk I/O error")), "the error is logged");
   } finally {
     await h.close();
   }

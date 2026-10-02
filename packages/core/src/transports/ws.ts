@@ -2,9 +2,16 @@
  * Raw WebSocket transport, shared by the web UI and microcontrollers (ESP32 / Voice PE).
  *
  *   endpoint         : GET /ws/audio[?device=<id>]
- *                      `device` is an optional client identifier; it is logged and recorded
- *                      as the device of the connection's conversation. Unknown query parameters
- *                      are ignored.
+ *                      `device` identifies a registered voice device and needs its key in an
+ *                      `Authorization: Bearer <key>` header. It is checked before any Gemini
+ *                      session opens; a rejected connection is closed at once with
+ *                      4400 bad device (malformed id or key), 4401 unauthorized (no key, or the
+ *                      device is revoked) or 4403 pending approval (unknown id or a different key,
+ *                      recorded for the portal to accept); 1011 internal error when the device
+ *                      store fails. An accepted device is logged, recorded
+ *                      as the conversation's device and gets its device block in the prompt.
+ *                      Without `device` no key is needed (the portal's Talk page). Unknown query
+ *                      parameters are ignored.
  *   client -> server : binary = 16 kHz mono s16le PCM (any frame size up to maxPayload;
  *                      batching e.g. 100 ms per frame is fine)
  *                      text   = JSON {"type":"text","text":"..."}
@@ -14,7 +21,8 @@
  *   keep-alive       : the server pings every FRIDAY_WS_PING_MS (default 20000, 0 disables) and
  *                      terminates a connection that has not answered by the next ping. Client
  *                      pings are answered automatically.
- * On "interrupted" the client must drop its playback buffer.
+ * On "interrupted" the client must drop its playback buffer. Revoking a device, deleting it or
+ * replacing its key closes its open connections with 4401.
  */
 import type { IncomingMessage, Server } from "node:http";
 import type { WebSocketServer, WebSocket } from "ws";
@@ -24,6 +32,8 @@ import { systemPrompt } from "../prompt-context.js";
 import { GeminiSession, type Event } from "../session.js";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
+import type { AuthResult, DeviceSnapshot, DeviceStore } from "../devices/store.js";
+import type { DeviceSessions } from "../devices/sessions.js";
 import { keepAlive } from "./keep-alive.js";
 import { mountWs } from "./mount.js";
 
@@ -38,8 +48,8 @@ export interface AudioSession {
 export interface AudioWsOptions {
   /** Ping interval in ms. 0 disables keep-alive. Defaults to settings.wsPingMs. */
   pingMs?: number;
-  /** Receives the connection's recorder (when a conversation store is given) to drive or ignore. */
-  createSession?: (onEvent: (e: Event) => void, recorder?: ConversationRecorder) => AudioSession;
+  /** Receives the connection's recorder (when a conversation store is given) and its accepted device, if any. */
+  createSession?: (onEvent: (e: Event) => void, recorder?: ConversationRecorder, device?: DeviceSnapshot) => AudioSession;
   /** Registry new GeminiSessions snapshot their tools from. Required unless createSession is given. */
   registry?: ToolRegistry;
   /** Maximum inbound frame size in bytes. Defaults to the ws library default (100 MiB). */
@@ -50,6 +60,17 @@ export interface AudioWsOptions {
   geminiKey?: () => string | undefined;
   /** Module prompt context; new default sessions append its `voice` rendering to the voice prompt when they open. */
   promptContext?: Pick<PromptContext, "render">;
+  /** Authenticates `?device=` connections. Without it every such connection is closed with 4401. */
+  devices?: Pick<DeviceStore, "authenticate">;
+  /** Tracks accepted device connections so revoking a device can close them. */
+  deviceSessions?: DeviceSessions;
+}
+
+const UNAUTHORIZED: AuthResult = { ok: false, code: 4401, reason: "unauthorized" };
+
+/** The key from `Authorization: Bearer <key>`, or undefined. A key in the query string is never read. */
+function bearerKey(req: IncomingMessage | undefined): string | undefined {
+  return /^Bearer\s+(\S+)\s*$/i.exec(req?.headers.authorization ?? "")?.[1];
 }
 
 /** Mount the audio WebSocket on an HTTP server at /ws/audio. */
@@ -61,25 +82,54 @@ export function attachAudioWs(server: Server, opts: AudioWsOptions = {}): WebSoc
 }
 
 export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioWsOptions = {}): Promise<void> {
-  const device = new URL(req?.url ?? "/", "http://x").searchParams.get("device");
-  const tag = device ? `[${device}] ` : "";
+  const claimed = new URL(req?.url ?? "/", "http://x").searchParams.get("device");
+  let device: DeviceSnapshot | undefined;
+  if (claimed !== null) {
+    let auth: AuthResult;
+    try {
+      auth = opts.devices?.authenticate(claimed, bearerKey(req)) ?? UNAUTHORIZED;
+    } catch (e) {
+      // serveWs runs unawaited: a store error (a locked or full database) must close this socket, not the process.
+      console.error(`ws: [${JSON.stringify(claimed.slice(0, 64))}] could not check the device`, e);
+      ws.close(1011, "internal error");
+      return;
+    }
+    if (!auth.ok) {
+      // Frames sent before the close are dropped: no message handler is attached.
+      console.log(`ws: [${JSON.stringify(claimed.slice(0, 64))}] rejected: ${auth.code} ${auth.reason}`);
+      ws.close(auth.code, auth.reason);
+      return;
+    }
+    device = auth.device;
+  }
+  const tag = device ? `[${device.id}] ` : "";
   const create =
     opts.createSession ??
-    ((onEvent, recorder) => {
+    ((onEvent, recorder, device) => {
       if (!opts.registry) throw new Error("attachAudioWs needs a registry or createSession");
-      return new GeminiSession(onEvent, opts.registry, { recorder, geminiKey: opts.geminiKey, systemPrompt: systemPrompt(opts.promptContext, "voice") });
+      return new GeminiSession(onEvent, opts.registry, { recorder, geminiKey: opts.geminiKey, systemPrompt: systemPrompt(opts.promptContext, "voice", device) });
     });
-  const recorder = opts.conversations?.recorder({ channel: "voice", device });
+  const recorder = opts.conversations?.recorder({ channel: "voice", device: device?.id ?? null });
+  if (device && opts.deviceSessions) {
+    const { id } = device, sessions = opts.deviceSessions;
+    sessions.add(id, ws);
+    ws.once("close", () => sessions.remove(id, ws));
+  }
 
   const g = create((ev) => {
     if (ws.readyState !== ws.OPEN) return;
     if (ev.kind === "audio") ws.send(ev.data);
     else ws.send(JSON.stringify({ type: ev.kind, data: "data" in ev ? ev.data : undefined }));
     if (ev.kind === "closed") ws.close();
-  }, recorder);
+  }, recorder, device);
 
   try {
     await g.open();
+    // Closed while Gemini was connecting (the client left, or the device was revoked): nothing would close it later.
+    if (ws.readyState !== ws.OPEN) {
+      g.close();
+      return;
+    }
     console.log(`ws: ${tag}session open`);
   } catch (e) {
     console.error(`ws: ${tag}could not open gemini session`, e);
