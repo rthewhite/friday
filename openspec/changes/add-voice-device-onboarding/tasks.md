@@ -16,7 +16,7 @@
 
 ## 2. Core: transport, prompt and API
 
-- [ ] 2.1 In `packages/core/src/transports/ws.ts`, authenticate `?device=` connections before creating the recorder or session (design D2):
+- [x] 2.1 In `packages/core/src/transports/ws.ts`, authenticate `?device=` connections before creating the recorder or session (design D2):
   - read the key from `Authorization: Bearer`,
   - close with the store's code and reason, dropping any frames that arrive before the close,
   - close with `4401` when no store is wired,
@@ -25,8 +25,8 @@
   - update the protocol comment at the top of the file.
 
   Extend `startHarness` in `packages/core/test/helpers.ts` to take a store and request headers. Update the existing `?device=` tests in `packages/core/test/ws.test.ts` to connect with a registered key. Add cases for each audio-transport delta scenario: accepted device, new device (`4403`, no session, attempt recorded), missing key, revoked device, malformed id, key in the URL, and revoking while a session is open (`4401`, session closed). Also cover a connection without `device` that still needs no key. Verify the core tests and typecheck pass.
-- [ ] 2.2 Add the device block to `systemPrompt` in `packages/core/src/prompt-context.ts` (design D5), and have the default session factory in `ws.ts` pass the accepted device. Add cases to `packages/core/test/prompt-context.test.ts` for the voice-session delta's device scenarios: with area and notes, without either, no device, and the snapshot staying fixed after an edit. Add a case to `packages/core/test/ws.test.ts` checking that the session created for a registered device receives the device. Verify the core tests and typecheck pass.
-- [ ] 2.3 Add the `/api/devices` routes to `packages/core/src/app.ts` (design D7):
+- [x] 2.2 Add the device block to `systemPrompt` in `packages/core/src/prompt-context.ts` (design D5), and have the default session factory in `ws.ts` pass the accepted device. Add cases to `packages/core/test/prompt-context.test.ts` for the voice-session delta's device scenarios: with area and notes, without either, no device, and the snapshot staying fixed after an edit. Add a case to `packages/core/test/ws.test.ts` checking that the session created for a registered device receives the device. Verify the core tests and typecheck pass.
+- [x] 2.3 Add the `/api/devices` routes to `packages/core/src/app.ts` (design D7):
   - list, accept, ignore, update, replace-key, revoke and delete,
   - 404, 409 and 400 mapping,
   - 503 without a store,
@@ -34,7 +34,7 @@
   - `disconnect` on revoke, delete and replace-key.
 
   Wire one `DeviceStore` and `DeviceSessions` in `packages/core/src/server.ts` into both `createApp` and `attachAudioWs`. Add `packages/core/test/devices-api.test.ts` covering the API scenarios (listing without keys or hashes, accept of an unknown id answering 404, stale fingerprint answering 409, invalid input answering 400 with the field name), plus revoke closing a live socket through the app. Verify the core tests and typecheck pass.
-- [ ] 2.4 Document the change:
+- [x] 2.4 Document the change:
   - **`README.md`:** the protocol section (device auth, close codes), conversations (device labels), and a new "Voice devices" section (onboarding flow, fingerprint, replace key, revoke).
   - **`openspec/config.yaml` context:** the device registry, `/ws/audio` auth and the prompt's device block.
 

@@ -146,7 +146,7 @@ The portal's build step scans the workspace for `friday.ui` declarations and gen
 
 Friday keeps a text record of every conversation in `friday.db`, for the portal's history and for background work that reads what was said.
 
-- **What is stored.** Transcript text only, never audio. A conversation has a channel (`voice` or `chat`), the client's `?device=` when it sends one, its start and last-activity times, and how it ended (`ended: done`, `ended: no follow-up`, `ended: no follow-up (end after question)`, `client closed`). Its entries are the user's turns, marked `speech` (Gemini's transcription, noisy) or `text` (typed, exact); Friday's answers, marked interrupted on a barge-in; and each tool call with its arguments and result, cut at 4000 characters. A session in which nothing was said, such as a false wake, leaves nothing behind. Whoever speaks near a Voice PE ends up in the record.
+- **What is stored.** Transcript text only, never audio. A conversation has a channel (`voice` or `chat`), the voice device's id when it came from one (the portal shows the device's label), its start and last-activity times, and how it ended (`ended: done`, `ended: no follow-up`, `ended: no follow-up (end after question)`, `client closed`). Its entries are the user's turns, marked `speech` (Gemini's transcription, noisy) or `text` (typed, exact); Friday's answers, marked interrupted on a barge-in; and each tool call with its arguments and result, cut at 4000 characters. A session in which nothing was said, such as a false wake, leaves nothing behind. Whoever speaks near a Voice PE ends up in the record.
 - **Quiet.** A voice conversation goes quiet when its session closes; any conversation goes quiet after `FRIDAY_CONVERSATION_QUIET_MINUTES` (default 30) without activity. In-process modules read conversations and hear when one goes quiet through `ctx.conversations` (see `packages/sdk/README.md`).
 - **Search.** A full-text index covers what was said: user and assistant text, and each tool call's name and the values in its arguments (not their keys), never its result. It is kept in step with the record, including deletes and retention, and was built for older conversations on upgrade. Friday searches it with `brain_recall_conversations` (see [Memory](#memory)), and modules with `ctx.conversations.search`.
 - **Retention.** A nightly core job at 04:00 deletes conversations whose last activity is older than `FRIDAY_CONVERSATION_RETENTION_DAYS` (default 90). `0` keeps them forever.
@@ -328,6 +328,23 @@ The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 
 Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
 
+## Voice devices
+
+Voice satellites (the Voice PE below, and later others) are onboarded by trust on first use, under **Settings > Voice devices**:
+
+1. **Flash the device.** On its first start it generates its own key, keeps it in flash (it survives power cuts, OTA updates and reflashes) and logs its fingerprint, for example `3f9a-c21e`. The Voice PE also shows it as the *Friday key fingerprint* sensor in Home Assistant.
+2. **Wake it.** Friday doesn't know the device yet: it closes the connection with `4403 pending approval`, the LED ring shows the pending pattern, and the device appears under *Pending* with its id and fingerprint.
+3. **Accept it.** Check that the fingerprint matches, then give it a label, its Home Assistant area (the area name or one of its aliases) and optional notes for Friday. From the next wake on it works.
+
+What Friday does with it: a voice session from a device ends its system prompt with a short block naming the device and, when it has an area, telling Friday that requests naming no room, area or floor ("turn on the lights") apply to that area. The Home Assistant MCP server's tools take that area. Notes ("next to the TV", "the kids use this one") go in as written. Edits apply to the device's next session.
+
+- **Replace key.** A factory-reset device comes back with a new key. It is rejected as pending and its row is marked; *Replace key* (showing old and new fingerprints) keeps its label, area and notes. The old key stops working at once.
+- **Revoke and delete.** *Revoke* closes the device's open session and rejects it from then on, whatever key it presents, without listing it as pending. *Delete* forgets it; its next attempt shows up as pending again. Conversations keep the device id.
+- **Pending list.** One row per id, updated on each attempt; rows go after 24 hours without an attempt, and at most 20 are kept. *Ignore* removes one until the device tries again.
+- **API.** `GET /api/devices` (`{ devices, pending }`, never a key or hash), `POST /api/devices/pending/:id/accept` (`{ fingerprint, label?, area?, notes? }`), `DELETE /api/devices/pending/:id`, `PUT /api/devices/:id` (`{ label?, area?, notes? }`; label 1-80, area up to 80, notes up to 1000 characters), `POST /api/devices/:id/replace-key` (`{ fingerprint }`), `POST /api/devices/:id/revoke`, `DELETE /api/devices/:id`. Accept and replace answer 409 when the fingerprint no longer matches the key the device presents.
+
+Keys are stored as SHA-256 hashes; the fingerprint is the first 8 hex characters of that hash, computed the same way on the device. Like the rest of the portal there is no login, so this relies on Friday being reachable only from a trusted network.
+
 ## Voice Preview Edition (ESP32)
 
 `esphome/friday-voice-pe.yaml` turns a Home Assistant Voice Preview Edition into a press-to-talk Friday client. It is a thin fork of the official firmware: XMOS echo cancellation, I2S audio, DAC, LEDs, button, dial and mute switch stay as upstream; the Home Assistant voice pipeline, wake word and media player are removed and replaced by the `friday_client` component in `esphome/components/`, which speaks the `/ws/audio` protocol directly.
@@ -388,7 +405,7 @@ Keep the total tool count modest: Gemini reads every declaration and caps at 512
 
 `WS /ws/audio` carries raw PCM both ways; see the protocol in `packages/core/src/transports/ws.ts`. The web UI and the Voice PE client speak the same protocol. Transports wrap `GeminiSession` (`packages/core/src/session.ts`), so tools and prompt behaviour are shared. A WebRTC transport can be added alongside it later.
 
-- Clients may append `?device=<id>`; the id is logged with the session and recorded as the device of its conversation (see [Conversations](#conversations)). Unknown query parameters are ignored.
+- A voice device appends `?device=<id>` and sends its key as `Authorization: Bearer <key>` (never in the URL). Friday checks it before any Gemini session opens and closes a rejected connection at once: `4400 bad device` (malformed id or key), `4401 unauthorized` (no key, or the device is revoked), `4403 pending approval` (an unknown id or a different key, listed in the portal to accept; see [Voice devices](#voice-devices)). An accepted device is logged with the session, recorded as the device of its conversation (see [Conversations](#conversations)) and gets its room in the prompt. Without `?device=` no key is needed, as for the portal's Talk page. Unknown query parameters are ignored.
 - Binary frames may be any size; batching 100 ms (3200 bytes) per frame is fine for microcontrollers.
 - The server pings every `FRIDAY_WS_PING_MS` (default 20000) and drops connections that stop answering, which also closes the Gemini session. Set to `0` to disable.
 
