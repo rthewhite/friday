@@ -48,7 +48,11 @@ Every change to a page SHALL record a revision holding the full name, type, alia
 
 ### Requirement: brain_remember appends a dated note
 
-The module SHALL register a tool `brain_remember` with parameters `entity` (required), `fact` (required) and `type` (optional, one of the page types), offered in both channels. It SHALL:
+The module SHALL register a tool `brain_remember` with parameters `entity` (required), `fact` (required) and `type` (optional, one of the page types), offered in both channels. Its description SHALL tell the model:
+- to use the name of the person, place, project or organisation a fact is about as `entity`, also when the user says it in the first person ("my sister Anouk…"), and to include the relation to the user in the fact;
+- to use `profile` only for facts about the user themselves or the household as a whole.
+
+The tool SHALL:
 - clean `fact` to a single trimmed line, and refuse it when empty or longer than 500 characters;
 - resolve `entity` to the profile when it is `profile` (case-insensitive), otherwise to the live page whose name or alias matches it;
 - create a page named `entity` with the given type (default `other`) when nothing matches;
@@ -80,6 +84,10 @@ It SHALL NOT remove or change any existing text. When the fact repeats the page'
 #### Scenario: Profile fact
 - **WHEN** the model calls `brain_remember({ entity: "profile", fact: "Prefers Celsius" })`
 - **THEN** the note is appended to the profile
+
+#### Scenario: Description routes facts to entities
+- **WHEN** the brain module is loaded
+- **THEN** `brain_remember`'s description says that a fact about a named person, place, project or organisation goes on that entity, also when said in the first person, and that `profile` is for facts about the user or the household as a whole
 
 ### Requirement: Forgotten names stay forgotten
 
@@ -193,6 +201,7 @@ A body MAY reference other pages as `[[Name]]`. A link SHALL resolve through nam
 
 The module SHALL contribute prompt context for both channels containing:
 - instructions to treat memory as background, to prefer the newer of two contradicting dated notes, to call `brain_recall` for listed pages and anything that may have been noted before, and to call `brain_remember` when the user asks to remember something or shares a lasting fact;
+- a statement that the profile is a summary, and that the details about the people, places and projects it names are on their pages;
 - the profile body in full;
 - an index of up to 50 live pages other than the profile, most recently updated first, each with name, type, aliases and a hint from its first line of text, plus the number of further pages when there are more.
 
@@ -209,6 +218,10 @@ The context SHALL stay under 10000 characters: entries SHALL be dropped from the
 #### Scenario: Many pages
 - **WHEN** the brain holds 80 pages besides the profile
 - **THEN** the index lists the 50 most recently updated and says there are 30 more
+
+#### Scenario: Profile as a summary
+- **WHEN** a session opens
+- **THEN** the memory instructions say that the profile is a summary and that details are on the pages, found with `brain_recall`
 
 ### Requirement: The profile budget is a soft limit
 
