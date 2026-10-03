@@ -125,4 +125,4 @@
   - the agenda preview matches.
 
   Clean up the test events afterwards and record any iCloud quirk found in design.md.
-- [ ] 12.2 Run the quality gate in the worktree: `pnpm -r build && pnpm -r typecheck && pnpm -r test`, then `/opsx:verify icloud-calendar`, then `/code-review`, then `/security-review` (this change adds secrets, outbound auth and HTTP routes). Fix what they confirm and report the results.
+- [x] 12.2 Run the quality gate in the worktree: `pnpm -r build && pnpm -r typecheck && pnpm -r test`, then `/opsx:verify icloud-calendar`, then `/code-review`, then `/security-review` (this change adds secrets, outbound auth and HTTP routes). Fix what they confirm and report the results.
