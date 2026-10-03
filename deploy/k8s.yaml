@@ -43,7 +43,7 @@ spec:
             - name: FRIDAY_DATA_DIR
               value: /data
           # GEMINI_API_KEY and FRIDAY_MASTER_KEY are required here. Module config
-          # (JELLYFIN_*, HA_*, TOMTOM_API_KEY) and FRIDAY_MODULE_KEYS may also live here as a
+          # (JELLYFIN_*, HA_*, TOMTOM_API_KEY, ICLOUD_*) and FRIDAY_MODULE_KEYS may also live here as a
           # fallback, but the portal's Settings pages are the primary place now.
           envFrom:
             - secretRef:

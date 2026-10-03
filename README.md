@@ -11,6 +11,7 @@ portal Chat page       ── /api/chat (SSE) ────►├── Gemini te
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► modules/travel    driving time with traffic (TomTom)
+                                               ├─► modules/calendar  iCloud calendar (CalDAV)
                                                ├─► MCP servers       configured in the portal (HTTP)
                                                └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
@@ -27,6 +28,7 @@ The repo is a pnpm workspace:
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, `brain_recall_conversations`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
+| `@friday/module-calendar` | `modules/calendar` | The iCloud calendar over CalDAV: list, create, and confirmed edits/deletes with undo, today's agenda in the prompt, and the `/m/calendar` page (see [Calendar](#calendar-icloud)) |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
 
 ## Run
@@ -328,6 +330,18 @@ The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 - Place lookups are cached for 24 hours (a lookup that found nothing for 10 minutes); routes never are.
 
 Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
+
+## Calendar (iCloud)
+
+`modules/calendar` gives Friday your iCloud calendar over CalDAV. It discovers the account's calendars itself, so a calendar shared with you later just shows up.
+
+Setup:
+
+1. Your Apple ID needs two-factor authentication (it almost certainly has it).
+2. At [account.apple.com](https://account.apple.com), go to **Sign-In and Security > App-Specific Passwords**, add one called "Friday", and copy it (`abcd-efgh-ijkl-mnop`; it is shown once).
+3. In Settings > Configuration, set `ICLOUD_USERNAME` to your Apple ID email and `ICLOUD_APP_PASSWORD` to that password, then reload the `calendar` module once.
+
+Your normal Apple ID password does not work here; iCloud only accepts app-specific passwords for CalDAV. The password also opens mail and contacts over IMAP and CardDAV, so it is stored as a secret (encrypted, write-only), only ever sent to `*.icloud.com`, and never logged. Revoke it on its own by deleting "Friday" on the same page; changing your Apple ID password revokes every app-specific password at once. A rejected password makes the tools say so and point back here. A new one saved in the portal is used from the next request, without a reload. The module is `failed` until both keys are set; leave it out with `FRIDAY_MODULES` if you don't want it.
 
 ## Voice devices
 

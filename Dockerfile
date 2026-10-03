@@ -10,6 +10,7 @@ COPY packages/portal/package.json packages/portal/
 COPY packages/portal-ui/package.json packages/portal-ui/
 COPY modules/brain/package.json modules/brain/
 COPY modules/builtin/package.json modules/builtin/
+COPY modules/calendar/package.json modules/calendar/
 COPY modules/media/package.json modules/media/
 COPY modules/travel/package.json modules/travel/
 COPY remote/simracing/package.json remote/simracing/

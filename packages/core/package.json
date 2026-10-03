@@ -15,6 +15,7 @@
     "@friday/sdk": "workspace:*",
     "@friday/module-brain": "workspace:*",
     "@friday/module-builtin": "workspace:*",
+    "@friday/module-calendar": "workspace:*",
     "@friday/module-media": "workspace:*",
     "@friday/module-travel": "workspace:*",
     "@google/genai": "^2.24.0",
