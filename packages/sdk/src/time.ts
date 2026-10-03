@@ -14,16 +14,33 @@ export const DEFAULT_TIME_ZONE = "Europe/Amsterdam";
 export function resolveTimeZone(zone: string | undefined): { zone: string; valid: boolean } {
   const z = zone?.trim();
   if (!z) return { zone: DEFAULT_TIME_ZONE, valid: true };
-  try {
-    return { zone: new Intl.DateTimeFormat("en-US", { timeZone: z }).resolvedOptions().timeZone, valid: true };
-  } catch {
-    return { zone: DEFAULT_TIME_ZONE, valid: false };
+  return cached(resolved, z, () => {
+    try {
+      return { zone: new Intl.DateTimeFormat("en-US", { timeZone: z }).resolvedOptions().timeZone, valid: true };
+    } catch {
+      return { zone: DEFAULT_TIME_ZONE, valid: false };
+    }
+  });
+}
+
+// Intl.DateTimeFormat is costly to construct and these run per occurrence when calendars are expanded, so
+// formatters and resolutions are kept per zone (bounded, in case of many distinct names).
+const resolved = new Map<string, { zone: string; valid: boolean }>();
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+const offsetFormats = new Map<string, Intl.DateTimeFormat>();
+function cached<T>(map: Map<string, T>, key: string, make: () => T): T {
+  let v = map.get(key);
+  if (v === undefined) {
+    if (map.size >= 256) map.clear();
+    v = make();
+    map.set(key, v);
   }
+  return v;
 }
 
 /** `YYYY-MM-DD` of `at` in `zone`. */
 export function localDate(at: Date, zone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
+  const parts = cached(dateFormats, zone, () => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" })).formatToParts(at);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
@@ -106,7 +123,7 @@ export function formatOffset(minutes: number): string {
 
 /** Minutes east of UTC for `zone` at `instant`, e.g. 120 for Amsterdam in summer. */
 export function offsetMinutes(zone: string, instant: number): number {
-  const name = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longOffset" })
+  const name = cached(offsetFormats, zone, () => new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longOffset" }))
     .formatToParts(instant)
     .find((p) => p.type === "timeZoneName")?.value;
   // "GMT+02:00", or plain "GMT" for UTC itself.

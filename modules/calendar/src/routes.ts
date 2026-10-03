@@ -2,7 +2,7 @@
 import type { HttpMethod, ModuleContext, RouteRequest, RouteResponse } from "@friday/sdk";
 import type { Agenda } from "./agenda.js";
 import type { Change, ChangeLog } from "./changes.js";
-import { CredentialRejectedError, InputError, NotUndoableError, StaleEventError, UpstreamError } from "./errors.js";
+import { CredentialRejectedError, InputError, NotUndoableError, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
 import type { CalendarService } from "./service.js";
 import type { Settings } from "./settings.js";
 
@@ -24,7 +24,7 @@ const handle = (fn: Handler): Handler => async (req, res, params) => {
     await fn(req, res, params);
   } catch (e) {
     if (e instanceof InputError) res.status(400).json({ error: e.message });
-    else if (e instanceof NotUndoableError) res.status(409).json({ error: e.message });
+    else if (e instanceof NotUndoableError || e instanceof ReadOnlyError) res.status(409).json({ error: e.message });
     else if (e instanceof StaleEventError) res.status(409).json({ error: e.message, current: e.current ?? null });
     else if (e instanceof CredentialRejectedError || e instanceof UpstreamError) res.status(502).json({ error: e.message });
     else throw e;

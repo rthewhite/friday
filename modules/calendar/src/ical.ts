@@ -40,7 +40,7 @@ export interface ParsedObject {
 export type Repeat = "daily" | "weekly" | "monthly" | "yearly";
 
 const pad = (n: number) => String(n).padStart(2, "0");
-const dateOf = (t: Time) => `${t.year}-${pad(t.month)}-${pad(t.day)}`;
+const dateOf = (t: Time) => `${String(t.year).padStart(4, "0")}-${pad(t.month)}-${pad(t.day)}`;
 
 export function parseIcs(ics: string): ParsedObject {
   let vcal: Component;
@@ -142,11 +142,17 @@ export function expand(parsed: ParsedObject, from: number, to: number, zone: str
   }
   const startTzid = tzidOf(master.getFirstProperty("dtstart"));
   const seen = new Set<number>();
+  // Occurrences ending well before the range are skipped without working out their details, unless an override
+  // may have moved them into it. A day of slack covers DST and all-day spans.
+  const masterSpan = componentSpan(master, zone);
+  const reach = masterSpan.endMs - masterSpan.startMs + 86_400_000;
+  const overridden = new Set(overrides.map((o) => recurrenceMs(o, zone)));
   const it = event.iterator();
   for (let n = 0, next = it.next(); next && n < MAX_OCCURRENCES; n++, next = it.next()) {
     const originalMs = instantOf(next, startTzid, zone);
     if (originalMs >= to) break;
     seen.add(originalMs);
+    if (originalMs + reach < from && !overridden.has(originalMs)) continue;
     const occ = event.getOccurrenceDetails(next);
     const comp = occ.item.component;
     if (cancelled(comp)) continue;
@@ -369,13 +375,15 @@ export function applyEdit(parsed: ParsedObject, target: EditTarget, ch: EditChan
   const occ = target.occurrence;
   if (!master) throw new EditRefused("no master event");
 
+  // Sets a component's span in its edit zone, adding a VTIMEZONE when that zone has none in the object yet.
+  const respan = (comp: Component, span: Span, tz = editZone(comp, zone)) => {
+    setSpan(comp, span, tz);
+    if (tz && !span.allDay) ensureVTimezone(vcal, tz, Number(wallClock(span.startMs, zone).date.slice(0, 4)));
+  };
+
   if (!occ.recurring) {
     applyText(master, ch);
-    if (ch.span) {
-      const tz = editZone(master, zone);
-      setSpan(master, ch.span, tz);
-      if (tz && !ch.span.allDay) ensureVTimezone(vcal, tz, Number(wallClock(ch.span.startMs, zone).date.slice(0, 4)));
-    }
+    if (ch.span) respan(master, ch.span);
     stamp(master, now);
     return vcal.toString();
   }
@@ -387,11 +395,11 @@ export function applyEdit(parsed: ParsedObject, target: EditTarget, ch: EditChan
       override = new ICAL.Component(structuredClone(master.toJSON()) as any[]);
       for (const name of ["rrule", "rdate", "exdate", "recurrence-id"]) override.removeAllProperties(name);
       override.addProperty(recurrenceProp(parsed, "recurrence-id", occ.recurrenceKey!));
-      setSpan(override, occ, editZone(master, zone));
+      respan(override, occ, editZone(master, zone));
       vcal.addSubcomponent(override);
     }
     applyText(override, ch);
-    if (ch.span) setSpan(override, ch.span, editZone(override, zone));
+    if (ch.span) respan(override, ch.span);
     stamp(override, now);
     return vcal.toString();
   }
@@ -406,16 +414,22 @@ export function applyEdit(parsed: ParsedObject, target: EditTarget, ch: EditChan
   }
   if (ch.span) {
     if (occ.allDay || ch.span.allDay) throw new EditRefused("all-day series dates");
-    const before = wallClock(occ.startMs, zone), after = wallClock(ch.span.startMs, zone);
-    if (before.date !== after.date) throw new EditRefused("series date change");
+    const listed = wallClock(occ.startMs, zone), after = wallClock(ch.span.startMs, zone);
+    if (listed.date !== after.date) throw new EditRefused("series date change");
+    // The shift is measured from where the series puts this occurrence, which differs from where it was listed
+    // when this occurrence was moved on its own; that one is placed at the new time explicitly below.
+    const original = wallClock(recurrenceInstant(parsed, occ.recurrenceKey!, zone), zone);
     const minutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-    const shift = minutes(after.time) - minutes(before.time);
+    const shift = minutes(after.time) - minutes(original.time);
     const duration = Math.round((ch.span.endMs - ch.span.startMs) / 60_000);
+    const picked = findOverride(parsed, occ.recurrenceKey!, zone);
     const adjust = (prop: Property | null) => {
       if (!prop) return;
-      const values = prop.getValues().map((v: Time) => {
+      // RDATE may hold periods; only date-times move.
+      const values = prop.getValues().map((v: unknown) => {
+        if (!(v instanceof ICAL.Time) || v.isDate) return v;
         const t = v.clone();
-        if (!t.isDate) t.adjust(0, 0, shift, 0);
+        t.adjust(0, 0, shift, 0);
         return t;
       });
       if (prop.isMultiValue) prop.setValues(values);
@@ -433,11 +447,21 @@ export function applyEdit(parsed: ParsedObject, target: EditTarget, ch: EditChan
     if (tzid) endProp.setParameter("tzid", tzid);
     master.addProperty(endProp);
     for (const ex of master.getAllProperties("exdate")) adjust(ex);
+    for (const rd of master.getAllProperties("rdate")) adjust(rd);
+    // A date-time UNTIL moves too, or a later series would lose its last occurrence.
+    for (const rr of master.getAllProperties("rrule")) {
+      const recur = rr.getFirstValue() as InstanceType<typeof ICAL.Recur>;
+      if (recur.until && !recur.until.isDate) {
+        recur.until.adjust(0, 0, shift, 0);
+        rr.setValue(recur);
+      }
+    }
     for (const o of parsed.overrides) {
       const rid = o.getFirstProperty("recurrence-id")!;
       const unmoved = (o.getFirstPropertyValue("dtstart") as Time).toString() === (rid.getFirstValue() as Time).toString();
       adjust(rid);
-      if (unmoved) {
+      if (o === picked && !unmoved) respan(o, ch.span);
+      else if (unmoved) {
         adjust(o.getFirstProperty("dtstart"));
         adjust(o.getFirstProperty("dtend"));
       }

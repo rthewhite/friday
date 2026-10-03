@@ -4,7 +4,7 @@ import { UnknownEventError } from "../src/errors.js";
 import { EventHandles, HANDLE_TTL_MS, type EventRef } from "../src/handles.js";
 
 function ref(url: string, recurrenceKey?: string): EventRef {
-  return { calendarId: "home", objectUrl: url, etag: '"1"', occurrence: { uid: url, title: "x", allDay: false, startMs: 0, endMs: 0, recurring: !!recurrenceKey, ...(recurrenceKey ? { recurrenceKey } : {}) } };
+  return { calendarId: "home", objectUrl: url, occurrence: { uid: url, title: "x", allDay: false, startMs: 0, endMs: 0, recurring: !!recurrenceKey, ...(recurrenceKey ? { recurrenceKey } : {}) } };
 }
 
 function clock(start = 0) {
@@ -55,6 +55,6 @@ test("the oldest handle is dropped beyond the limit", () => {
 test("the latest ref wins, and ids are matched case-insensitively", () => {
   const h = new EventHandles(clock().now);
   const id = h.idFor(ref("a"));
-  h.idFor({ ...ref("a"), etag: '"2"' });
-  assert.equal(h.get(id.toUpperCase()).etag, '"2"');
+  h.idFor({ ...ref("a"), calendarId: "work" });
+  assert.equal(h.get(id.toUpperCase()).calendarId, "work");
 });

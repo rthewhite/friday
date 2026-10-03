@@ -233,3 +233,46 @@ test("deleting an occurrence of an all-day series writes a date EXDATE", () => {
   assert.match(out, /EXDATE;VALUE=DATE:20261012/);
   assert.equal(occurrences(out, "2026-10-01T00:00:00+02:00", "2026-11-01T00:00:00+01:00").length, 2);
 });
+
+// ---- Review regressions --------------------------------------------------------------------------------------
+
+test("a series shift picked on a moved occurrence puts that occurrence at the new time too", () => {
+  const parsed = parseIcs(vcalendar(
+    timed("w5", "Standup", "20261006T090000", "20261006T091500", ["RRULE:FREQ=WEEKLY;COUNT=3"]),
+    timed("w5", "Standup", "20261013T110000", "20261013T111500", ["RECURRENCE-ID;TZID=Europe/Amsterdam:20261013T090000"]),
+  ));
+  const [moved] = expand(parsed, ms("2026-10-13T00:00:00+02:00"), ms("2026-10-14T00:00:00+02:00"), ZONE);
+  assert.equal(localIso(moved.startMs, ZONE), "2026-10-13T11:00:00+02:00");
+  const span = { allDay: false, startMs: ms("2026-10-13T12:00:00+02:00"), endMs: ms("2026-10-13T12:15:00+02:00") };
+  const out = applyEdit(parsed, { occurrence: moved, scope: "series" }, { span }, ZONE, NOW);
+  const all = occurrences(out, "2026-10-05T00:00:00+02:00", "2026-10-28T00:00:00+01:00");
+  assert.deepEqual(all.map((o) => localIso(o.startMs, ZONE)), ["2026-10-06T12:00:00+02:00", "2026-10-13T12:00:00+02:00", "2026-10-20T12:00:00+02:00"]);
+});
+
+test("a series shift moves a date-time UNTIL, so a later series keeps its last occurrence", () => {
+  // UNTIL is exactly the last 09:00 start: 07:00Z on 20 October, in summer time.
+  const parsed = parseIcs(vcalendar(timed("w6", "Class", "20261006T090000", "20261006T100000", ["RRULE:FREQ=WEEKLY;UNTIL=20261020T070000Z"])));
+  const [occ] = expand(parsed, ms("2026-10-06T00:00:00+02:00"), ms("2026-10-07T00:00:00+02:00"), ZONE);
+  const span = { allDay: false, startMs: ms("2026-10-06T11:00:00+02:00"), endMs: ms("2026-10-06T12:00:00+02:00") };
+  const out = applyEdit(parsed, { occurrence: occ, scope: "series" }, { span }, ZONE, NOW);
+  assert.match(out, /UNTIL=20261020T090000Z/);
+  assert.equal(occurrences(out, "2026-10-01T00:00:00+02:00", "2026-11-01T00:00:00+01:00").length, 3);
+});
+
+test("an occurrence edit of a floating-time series adds the VTIMEZONE its new TZID needs", () => {
+  const parsed = parseIcs(["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:f2", "SUMMARY:Gym", "DTSTART:20261006T180000", "DTEND:20261006T190000", "RRULE:FREQ=WEEKLY;COUNT=3", "END:VEVENT", "END:VCALENDAR", ""].join("\r\n"));
+  const [occ] = expand(parsed, ms("2026-10-13T00:00:00+02:00"), ms("2026-10-14T00:00:00+02:00"), ZONE);
+  const span = { allDay: false, startMs: ms("2026-10-13T19:00:00+02:00"), endMs: ms("2026-10-13T20:00:00+02:00") };
+  const out = applyEdit(parsed, { occurrence: occ, scope: "occurrence" }, { span }, ZONE, NOW);
+  assert.match(out, /DTSTART;TZID=Europe\/Amsterdam:20261013T190000/);
+  assert.match(out, /BEGIN:VTIMEZONE\r\nTZID:Europe\/Amsterdam/);
+});
+
+test("an occurrence moved into the range from before it is still found, though earlier ones are skipped", () => {
+  const parsed = parseIcs(vcalendar(
+    timed("w7", "Swim", "20260105T070000", "20260105T080000", ["RRULE:FREQ=WEEKLY"]),
+    timed("w7", "Swim (moved)", "20261008T070000", "20261008T080000", ["RECURRENCE-ID;TZID=Europe/Amsterdam:20260105T070000"]),
+  ));
+  const got = expand(parsed, ms("2026-10-08T00:00:00+02:00"), ms("2026-10-09T00:00:00+02:00"), ZONE);
+  assert.deepEqual(got.map((o) => o.title), ["Swim (moved)"]);
+});

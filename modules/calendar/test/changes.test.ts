@@ -133,6 +133,15 @@ test("an event changed in iCloud since Friday's change is not undone, and the cu
   assert.equal(s.changes.list(1)[0].action, "update");
 });
 
+test("calendar_undo leaves calendars switched off alone; the portal may still undo there", async () => {
+  const s = await setup();
+  await s.service.create({ title: "Plumber", start: "2026-10-13T09:00" }, { channel: "voice" });
+  await s.settings.update({ calendars: { home: { use: false } } }, s.service.lastAccount!.calendars);
+  await assert.rejects(s.service.undoLast({ channel: "voice" }), (e: unknown) => e instanceof NotUndoableError && /no longer available to Friday/.test((e as Error).message));
+  const { say } = await s.service.undo(s.changes.list(1)[0], "portal");
+  assert.match(say, /Undid creating "Plumber"/);
+});
+
 test("a conversation id is recorded when the call has one", async () => {
   const s = await setup();
   await s.service.create({ title: "A", start: "2026-10-13T12:00" }, { channel: "voice" });

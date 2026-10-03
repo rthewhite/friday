@@ -61,7 +61,7 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
           // The module was disposed or reloaded; its job is gone.
         }
       };
-      const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens: new TokenStore(now), changes, zone, now, onWrite: refresh });
+      const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens: new TokenStore(now), changes, zone, now, onWrite: refresh, log: ctx.log });
       const agenda = new Agenda(service, settings, now);
       defineCalendarTools(ctx, service);
       ctx.jobs.schedule({

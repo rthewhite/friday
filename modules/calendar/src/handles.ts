@@ -10,7 +10,6 @@ import type { Occurrence } from "./ical.js";
 export interface EventRef {
   calendarId: string;
   objectUrl: string;
-  etag: string;
   /** The occurrence as last returned. */
   occurrence: Occurrence;
 }

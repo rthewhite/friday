@@ -1,18 +1,17 @@
 /** Times as tools return them: local ISO 8601 with the zone's offset, dates, and a short readable `when`. */
 import { formatOffset, localDate, offsetMinutes, startOfLocalDay } from "@friday/sdk";
 
+const formats = new Map<string, Intl.DateTimeFormat>();
+
 /** Wall-clock parts of `ms` in `zone`. */
 export function wallClock(ms: number, zone: string): { date: string; time: string; seconds: string } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: zone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(ms);
+  let f = formats.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+    if (formats.size >= 64) formats.clear();
+    formats.set(zone, f);
+  }
+  const parts = f.formatToParts(ms);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
   return { date: `${get("year")}-${get("month")}-${get("day")}`, time: `${get("hour")}:${get("minute")}`, seconds: get("second") };
 }

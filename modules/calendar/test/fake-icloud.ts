@@ -147,6 +147,8 @@ export class FakeICloud {
       return new Response(null, { status: existing ? 204 : 201, headers: this.opts.putWithoutEtag ? {} : { etag } });
     }
     if (method === "DELETE") {
+      const cal = this.calendars.find((c) => href.startsWith(CAL(c.id)));
+      if (cal?.privileges && !cal.privileges.some((p) => p === "write" || p === "write-content")) return new Response("", { status: 403 });
       const existing = this.objects.get(href);
       if (!existing) return new Response("", { status: 404 });
       if (headers["if-match"] && existing.etag !== headers["if-match"]) return new Response("", { status: 412 });

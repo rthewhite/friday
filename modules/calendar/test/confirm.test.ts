@@ -164,6 +164,16 @@ test("an occurrence edit changes only that occurrence", async () => {
   assert.deepEqual(events.filter((e) => e.title === "Standup").map((e) => e.when), ["Tue 6 Oct, 09:00-09:15", "Tue 13 Oct, 11:00-11:15", "Tue 20 Oct, 09:00-09:15"]);
 });
 
+test("a calendar switched off after listing is invisible to edits and confirmations", async () => {
+  const s = await setup();
+  const id = await s.id("Dentist", "2026-10-08");
+  const p = (await s.service.previewDelete({ id })) as Preview;
+  await s.settings.update({ calendars: { home: { use: false } } }, s.service.lastAccount!.calendars);
+  await assert.rejects(s.service.previewUpdate({ id, title: "x" }), /no longer available to Friday/);
+  await assert.rejects(s.service.confirm(p.token), /no longer available to Friday, so nothing changed/);
+  assert.equal(s.fake.writes().length, 0);
+});
+
 test("writes trigger the agenda refresh", async () => {
   const s = await setup();
   const p = (await s.service.previewDelete({ id: await s.id("Dentist", "2026-10-08") })) as Preview;

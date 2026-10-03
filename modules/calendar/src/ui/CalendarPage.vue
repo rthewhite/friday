@@ -107,7 +107,7 @@ const rows = () => (changes.value ?? []).map((c) => ({ ...c, detail: changeDetai
               <Badge v-if="!c.writable">read-only</Badge>
             </span>
             <label class="flex items-center gap-2">
-              <input type="checkbox" :checked="c.use" :disabled="busy || (c.default && c.use)" @change="save(c, { use: ($event.target as HTMLInputElement).checked })" />
+              <input type="checkbox" :checked="c.use" :disabled="busy" @change="save(c, { use: ($event.target as HTMLInputElement).checked })" />
               Friday uses it
             </label>
             <label class="flex items-center gap-2">

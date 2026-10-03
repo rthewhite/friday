@@ -34,7 +34,7 @@ test("settings are saved and survive a reload from storage", async () => {
   const { s: again } = await fresh(storage);
   assert.deepEqual(again.of("work"), { use: true, inAgenda: false });
   assert.equal(again.defaultCalendar(CALS)?.id, "work");
-  assert.deepEqual(again.inAgenda(CALS).map((c) => c.id), ["holidays", "home"]);
+  assert.equal(again.of("home").inAgenda, true);
 });
 
 test("a default that is no longer used falls back to the first used, writable calendar", async () => {
@@ -47,18 +47,25 @@ test("a default that is no longer used falls back to the first used, writable ca
   assert.deepEqual(s.used(CALS).map((c) => c.id), ["holidays", "home"]);
 });
 
-test("updates refuse unknown ids, bad flags, read-only defaults and turning off the default", async () => {
+test("updates refuse unknown ids, bad flags, read-only defaults and picking an unused calendar as the default", async () => {
   const { s } = await fresh();
   await assert.rejects(s.update({ calendars: { nope: { use: false } } }, CALS), (e: unknown) => e instanceof InputError && /unknown calendar id "nope"/.test(e.message));
   await assert.rejects(s.update({ calendars: { work: { use: "no" } } }, CALS), InputError);
   await assert.rejects(s.update({ defaultId: "holidays" }, CALS), (e: unknown) => e instanceof InputError && /read-only/.test(e.message));
   await assert.rejects(s.update({ defaultId: "missing" }, CALS), InputError);
-  await s.update({ defaultId: "work" }, CALS);
-  await assert.rejects(s.update({ calendars: { work: { use: false } } }, CALS), /has to use it/);
+  await assert.rejects(s.update({ calendars: { work: { use: false } }, defaultId: "work" }, CALS), /isn't used by Friday/);
   await assert.rejects(s.update([], CALS), InputError);
   // Nothing refused was stored.
   assert.deepEqual(s.of("work"), { use: true, inAgenda: true });
-  assert.equal(s.defaultId, "work");
+  assert.equal(s.defaultId, undefined);
+});
+
+test("turning off the default calendar is allowed, and new events fall back", async () => {
+  const { s } = await fresh();
+  await s.update({ defaultId: "work" }, CALS);
+  await s.update({ calendars: { work: { use: false } } }, CALS);
+  assert.equal(s.of("work").use, false);
+  assert.equal(s.defaultCalendar(CALS)?.id, "home");
 });
 
 test("the default can be cleared", async () => {

@@ -66,8 +66,21 @@ function observance(kind: "STANDARD" | "DAYLIGHT", dtstart: string, from: number
   return [`BEGIN:${kind}`, `TZOFFSETFROM:${offsetText(from)}`, `TZOFFSETTO:${offsetText(to)}`, `DTSTART:${dtstart}`, ...(rrule ? [`RRULE:${rrule}`] : []), `END:${kind}`];
 }
 
-/** VTIMEZONE lines for `zone`, valid for events from `year` on. */
+const built = new Map<string, string[]>();
+
+/** VTIMEZONE lines for `zone`, valid for events from `year` on. Memoized: probing a zone takes hundreds of Intl calls. */
 export function vtimezoneLines(zone: string, year: number): string[] {
+  const key = `${zone}|${year}`;
+  let lines = built.get(key);
+  if (!lines) {
+    lines = build(zone, year);
+    if (built.size >= 64) built.delete(built.keys().next().value!);
+    built.set(key, lines);
+  }
+  return lines;
+}
+
+function build(zone: string, year: number): string[] {
   const head = ["BEGIN:VTIMEZONE", `TZID:${zone}`];
   const thisYear = transitions(zone, year, year);
   const nextYear = transitions(zone, year + 1, year + 1);

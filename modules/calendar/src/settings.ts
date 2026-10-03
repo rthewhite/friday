@@ -42,10 +42,6 @@ export class Settings {
     return calendars.filter((c) => this.of(c.id).use);
   }
 
-  inAgenda(calendars: CalendarInfo[]): CalendarInfo[] {
-    return calendars.filter((c) => this.of(c.id).use && this.of(c.id).inAgenda);
-  }
-
   /** Where new events go: the default when it is used and writable, else the first used, writable calendar. */
   defaultCalendar(calendars: CalendarInfo[]): CalendarInfo | undefined {
     const usable = this.used(calendars).filter((c) => c.writable);
@@ -84,8 +80,10 @@ export class Settings {
         next.defaultId = cal.id;
       }
     }
-    if (next.defaultId && !{ ...DEFAULTS, ...next.calendars[next.defaultId] }.use) {
-      throw new InputError(`"${known.get(next.defaultId)?.name ?? next.defaultId}" is the default for new events, so Friday has to use it`);
+    // Picking an unused calendar as the default is refused; turning off the current default is not, and new
+    // events then fall back to the first used, writable calendar.
+    if (body.defaultId && next.defaultId && !{ ...DEFAULTS, ...next.calendars[next.defaultId] }.use) {
+      throw new InputError(`"${known.get(next.defaultId)?.name ?? next.defaultId}" isn't used by Friday, so it can't be the default for new events`);
     }
     await this.storage.set(KEY, next);
     this.data = next;

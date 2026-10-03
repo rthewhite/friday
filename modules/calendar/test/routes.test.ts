@@ -121,6 +121,17 @@ test("POST changes/:id/undo answers 409 with the current version when the event 
   await s.host.dispose();
 });
 
+test("POST changes/:id/undo answers 409 when iCloud refuses the write as read-only", async () => {
+  const s = await setup();
+  await s.call("calendar_create_event", { title: "Plumber", start: "2026-10-13T09:00", calendar: "Work" });
+  s.fake.calendars = s.fake.calendars.map((c) => (c.id === "work" ? { ...c, privileges: ["read"] } : c));
+  const [create] = (await s.req("GET", "changes")).body.changes;
+  const { status, body } = await s.req("POST", `changes/${create.id}/undo`);
+  assert.equal(status, 409);
+  assert.match(body.error, /read-only/);
+  await s.host.dispose();
+});
+
 test("POST refresh rediscovers and refreshes the agenda, answering with the status", async () => {
   const s = await setup();
   s.fake.calendars = [...s.fake.calendars, { id: "family", name: "Family", privileges: ["read", "write"] }];

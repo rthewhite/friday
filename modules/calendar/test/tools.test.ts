@@ -93,6 +93,14 @@ test("range validation: too long, reversed, and unparseable values", async () =>
   await service.list({ from: "2026-10-01", to: "2027-10-01" });
 });
 
+test("an unreadable event is skipped instead of failing the whole list", async () => {
+  const h = await seeded();
+  h.fake.seed("home", "broken", "BEGIN:VCALENDAR\r\nthis is not iCalendar");
+  h.fake.seed("home", "ancient", vcalendar(timed("ancient", "Ancient", "09991003T100000", "09991003T110000", ["RRULE:FREQ=YEARLY;COUNT=2"])));
+  const { events } = (await h.service.list({ from: "2026-10-03", to: "2026-10-03" })) as Listed;
+  assert.deepEqual(events.map((e) => e.title), ["Ma's birthday", "Swimming lesson"]);
+});
+
 test("results are capped at 50 with the total", async () => {
   const h = await harness();
   h.fake.seed("home", "daily", vcalendar(timed("daily", "Pill", "20261001T080000", "20261001T080500", ["RRULE:FREQ=DAILY"])));

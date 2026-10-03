@@ -4,7 +4,7 @@
  * portal shows.
  */
 import { randomUUID } from "node:crypto";
-import { localDate, startOfLocalDay, type ToolCallContext } from "@friday/sdk";
+import { localDate, startOfLocalDay, type ModuleLogger, type ToolCallContext } from "@friday/sdk";
 import type { Account, CalDavClient, CalendarInfo, CalendarObject } from "./caldav.js";
 import type { Change, ChangeLog, ChangeSource } from "./changes.js";
 import { InputError, NotUndoableError, PreconditionFailed, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
@@ -63,6 +63,7 @@ export interface ServiceDeps {
   now: () => Date;
   /** Called after every successful write, so the agenda refreshes. */
   onWrite?: () => void;
+  log?: ModuleLogger;
 }
 
 export interface ListArgs {
@@ -174,6 +175,11 @@ export class CalendarService {
     return [match];
   }
 
+  /** A calendar the tools may touch: discovered and used. Calendars switched off at /m/calendar are invisible to them. */
+  async usedCalendar(id: string): Promise<CalendarInfo | undefined> {
+    return this.d.settings.used((await this.account()).calendars).find((c) => c.id === id);
+  }
+
   /** Every occurrence in [from, to) in `calendars`, sorted by start. */
   async occurrences(calendars: CalendarInfo[], from: number, to: number, signal?: AbortSignal): Promise<Found[]> {
     const zone = this.zone;
@@ -181,7 +187,12 @@ export class CalendarService {
     const out: Found[] = [];
     for (const { calendar, objects } of perCalendar) {
       for (const object of objects) {
-        for (const occurrence of expand(parseIcs(object.ics), from, to, zone)) out.push({ calendar, object, occurrence });
+        // One unreadable event must not take the whole calendar, the agenda or an overlap check down with it.
+        try {
+          for (const occurrence of expand(parseIcs(object.ics), from, to, zone)) out.push({ calendar, object, occurrence });
+        } catch (e) {
+          this.d.log?.warn(`skipped an event in "${calendar.name}" that could not be read: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
     return out.sort((a, b) => a.occurrence.startMs - b.occurrence.startMs || a.occurrence.title.localeCompare(b.occurrence.title));
@@ -198,7 +209,7 @@ export class CalendarService {
   /** The tool view of an occurrence, with a fresh id. */
   view(f: Found): EventView {
     const o = f.occurrence;
-    const ref: EventRef = { calendarId: f.calendar.id, objectUrl: f.object.url, etag: f.object.etag, occurrence: o };
+    const ref: EventRef = { calendarId: f.calendar.id, objectUrl: f.object.url, occurrence: o };
     const reason = this.readOnlyReason(f);
     return {
       id: this.d.handles.idFor(ref),
@@ -381,8 +392,9 @@ export class CalendarService {
   async undo(change: Change, source: ChangeSource, conversationId?: string): Promise<{ undo: Change; say: string }> {
     if (change.action === "undo") throw new NotUndoableError("That entry is itself an undo; it can't be undone.");
     if (change.undoneBy !== undefined) throw new NotUndoableError(`The change to "${change.title}" was already undone.`);
-    const calendar = (await this.account()).calendars.find((c) => c.id === change.calendarId);
-    if (!calendar) throw new NotUndoableError(`The calendar of "${change.title}" is no longer available, so it can't be undone.`);
+    // Tools only touch used calendars; the portal may undo in any calendar iCloud still lists.
+    const calendar = source === "portal" ? (await this.account()).calendars.find((c) => c.id === change.calendarId) : await this.usedCalendar(change.calendarId);
+    if (!calendar) throw new NotUndoableError(`The calendar of "${change.title}" is no longer available${source === "portal" ? "" : " to Friday"}, so it can't be undone.`);
     const url = change.objectUrl;
     let etag: string | null = null;
     try {
@@ -417,8 +429,8 @@ export class CalendarService {
     const id = present(idArg);
     if (!id) throw new InputError("id is required: take it from calendar_list_events.");
     const ref = this.d.handles.get(id);
-    const calendar = (await this.account()).calendars.find((c) => c.id === ref.calendarId);
-    if (!calendar) throw new StaleEventError("That event's calendar is no longer available; list the events again.");
+    const calendar = await this.usedCalendar(ref.calendarId);
+    if (!calendar) throw new StaleEventError("That event's calendar is no longer available to Friday; list the events again.");
     const object = await this.icloud(() => this.d.client.get(ref.objectUrl));
     if (!object) throw new StaleEventError(`"${ref.occurrence.title}" no longer exists in iCloud; list the events again.`);
     const parsed = parseIcs(object.ics);
@@ -518,8 +530,8 @@ export class CalendarService {
 
   async confirm(tokenArg: string | undefined, call: ToolCallContext = {}): Promise<Record<string, unknown>> {
     const p = this.d.tokens.take(present(tokenArg));
-    const calendar = (await this.account()).calendars.find((c) => c.id === p.calendarId);
-    if (!calendar) throw new StaleEventError("That event's calendar is no longer available, so nothing changed.");
+    const calendar = await this.usedCalendar(p.calendarId);
+    if (!calendar) throw new StaleEventError("That event's calendar is no longer available to Friday, so nothing changed.");
     const url = p.before.url;
     let etag: string | null = null;
     try {
