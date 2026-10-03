@@ -48,6 +48,14 @@ export class TokenError extends Error {
   }
 }
 
+/** A logged change that can't be undone (already undone, an undo itself, or its calendar is gone). */
+export class NotUndoableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotUndoableError";
+  }
+}
+
 /** Bad tool or route input: the message names the parameter and what is wrong with it. */
 export class InputError extends Error {
   constructor(message: string) {

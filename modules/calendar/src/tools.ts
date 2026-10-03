@@ -107,4 +107,14 @@ export function defineCalendarTools(ctx: ModuleContext, service: CalendarService
     },
     handler: ({ token }, call) => service.confirm(token, call),
   });
+
+  ctx.defineTool({
+    name: "calendar_undo",
+    description:
+      "Undo Friday's most recent calendar change (a created, changed or deleted event) from the last 24 hours, for " +
+      '"undo that" or "no, put it back". Needs no confirmation. Calling it again undoes the change before that. It ' +
+      "refuses when the event was changed in the Calendar app since, and then says how it is now.",
+    parameters: { type: Type.OBJECT, properties: {} },
+    handler: (_args, call) => service.undoLast(call),
+  });
 }

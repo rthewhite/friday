@@ -6,7 +6,8 @@
 import { randomUUID } from "node:crypto";
 import { localDate, startOfLocalDay, type ToolCallContext } from "@friday/sdk";
 import type { Account, CalDavClient, CalendarInfo, CalendarObject } from "./caldav.js";
-import { InputError, PreconditionFailed, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
+import type { Change, ChangeLog, ChangeSource } from "./changes.js";
+import { InputError, NotUndoableError, PreconditionFailed, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
 import { addDays, endOfLocalDay, localIso, whenText, type Span } from "./format.js";
 import type { EventHandles, EventRef } from "./handles.js";
 import { applyEdit, buildEvent, deleteOccurrence, EditRefused, expand, findOccurrence, isInvitation, parseIcs, type EditChanges, type Occurrence, type ParsedObject, type Repeat } from "./ical.js";
@@ -57,6 +58,7 @@ export interface ServiceDeps {
   settings: Settings;
   handles: EventHandles;
   tokens: TokenStore;
+  changes: ChangeLog;
   zone: () => string;
   now: () => Date;
   /** Called after every successful write, so the agenda refreshes. */
@@ -354,9 +356,58 @@ export class CalendarService {
     }
   }
 
-  /** Bookkeeping after a successful write. */
-  afterWrite(_record: WriteRecord): void {
+  /** Logs a successful write and lets the agenda refresh. */
+  afterWrite(w: WriteRecord): void {
+    this.d.changes.record({
+      action: w.action, ...(w.scope ? { scope: w.scope } : {}), calendarId: w.calendar.id, objectUrl: w.url, uid: w.uid, title: w.title,
+      beforeSummary: w.before?.summary ?? null, afterSummary: w.after?.summary ?? null,
+      beforeIcs: w.before?.ics ?? null, afterIcs: w.after?.ics ?? null, afterEtag: w.after?.etag ?? null,
+      source: w.call.channel ?? "chat", ...(w.call.conversationId ? { conversationId: w.call.conversationId } : {}),
+    });
     this.d.onWrite?.();
+  }
+
+  // ---- Undo --------------------------------------------------------------------------------------------------
+
+  /** `calendar_undo`: reverts the newest tool change of the last 24 hours that wasn't undone. */
+  async undoLast(call: ToolCallContext = {}): Promise<Record<string, unknown>> {
+    const change = this.d.changes.lastToolChange();
+    if (!change) return { nothing: true, say: "There is nothing to undo: Friday made no calendar change in the last 24 hours that is still in place." };
+    const { say, undo } = await this.undo(change, call.channel ?? "chat", call.conversationId);
+    return { undone: true, action: change.action, ...(change.scope ? { scope: change.scope } : {}), title: change.title, change: undo.id, say };
+  }
+
+  /** Reverts one logged change, conditional on the event being as Friday left it. Logs the undo. */
+  async undo(change: Change, source: ChangeSource, conversationId?: string): Promise<{ undo: Change; say: string }> {
+    if (change.action === "undo") throw new NotUndoableError("That entry is itself an undo; it can't be undone.");
+    if (change.undoneBy !== undefined) throw new NotUndoableError(`The change to "${change.title}" was already undone.`);
+    const calendar = (await this.account()).calendars.find((c) => c.id === change.calendarId);
+    if (!calendar) throw new NotUndoableError(`The calendar of "${change.title}" is no longer available, so it can't be undone.`);
+    const url = change.objectUrl;
+    let etag: string | null = null;
+    try {
+      if (change.action === "create") await this.write(calendar, () => this.d.client.delete(url, change.afterEtag ?? "*"));
+      else if (change.afterIcs !== null) etag = await this.write(calendar, () => this.d.client.put(url, change.beforeIcs!, change.afterEtag ?? "*"));
+      else etag = await this.write(calendar, () => this.d.client.put(url, change.beforeIcs!, null));
+    } catch (e) {
+      if (e instanceof PreconditionFailed) {
+        const lead = change.afterIcs === null ? `"${change.title}" was created again in iCloud since Friday deleted it, so the deletion wasn't undone.` : `"${change.title}" changed in iCloud since Friday's change, so it wasn't undone.`;
+        throw await this.stale(url, lead);
+      }
+      throw e;
+    }
+    const undo = this.d.changes.record({
+      action: "undo", ...(change.scope ? { scope: change.scope } : {}), calendarId: change.calendarId, objectUrl: url, uid: change.uid, title: change.title,
+      beforeSummary: change.afterSummary, afterSummary: change.beforeSummary, beforeIcs: change.afterIcs, afterIcs: change.action === "create" ? null : change.beforeIcs,
+      afterEtag: etag, source, ...(conversationId ? { conversationId } : {}), undoOf: change.id,
+    });
+    this.d.onWrite?.();
+    const was = change.beforeSummary?.when;
+    const say =
+      change.action === "create" ? `Undid creating "${change.title}"${change.afterSummary ? ` on ${change.afterSummary.when}` : ""}; it is gone again.`
+      : change.action === "update" ? `Undid the change to "${change.title}"; it is back to ${was ? `"${change.beforeSummary!.title}" on ${was}` : "how it was"}.`
+      : `Undid deleting "${change.title}"${change.scope === "occurrence" ? " (that occurrence)" : change.scope === "series" ? " (the whole series)" : ""}; it is back${was ? ` on ${was}` : ""}.`;
+    return { undo, say };
   }
 
   // ---- Previews and confirmation -----------------------------------------------------------------------------
@@ -475,7 +526,7 @@ export class CalendarService {
       if (p.ics === null) await this.write(calendar, () => this.d.client.delete(url, p.before.etag));
       else etag = await this.write(calendar, () => this.d.client.put(url, p.ics!, p.before.etag));
     } catch (e) {
-      if (e instanceof PreconditionFailed) throw await this.stale(url, p.occurrence, `"${p.title}" changed in iCloud after the preview, so nothing was applied.`);
+      if (e instanceof PreconditionFailed) throw await this.stale(url, `"${p.title}" changed in iCloud after the preview, so nothing was applied.`, p.occurrence.recurrenceKey);
       throw e;
     }
     const source: ToolCallContext = { channel: call.channel ?? (p.channel as ToolCallContext["channel"]), conversationId: call.conversationId ?? p.conversationId };
@@ -501,13 +552,20 @@ export class CalendarService {
     };
   }
 
-  /** A StaleEventError whose message (and `current`) shows the event as iCloud has it now, if it still exists. */
-  async stale(url: string, occurrence: Occurrence, lead: string): Promise<StaleEventError> {
+  /**
+   * A StaleEventError whose message (and `current`) shows the event as iCloud has it now, if it still exists: the
+   * occurrence at `recurrenceKey`, or the event itself, or for a series its next occurrence within a year.
+   */
+  async stale(url: string, lead: string, recurrenceKey?: string): Promise<StaleEventError> {
     let current: EventSummary | undefined;
     try {
       const object = await this.icloud(() => this.d.client.get(url));
-      const found = object ? findOccurrence(parseIcs(object.ics), occurrence.recurrenceKey, this.zone) : undefined;
-      if (found) current = this.summary(found);
+      if (object) {
+        const parsed = parseIcs(object.ics);
+        const t = this.d.now().getTime();
+        const found = findOccurrence(parsed, recurrenceKey, this.zone) ?? (recurrenceKey === undefined ? expand(parsed, t, t + MAX_RANGE_DAYS * DAY_MS, this.zone)[0] : undefined);
+        if (found) current = this.summary(found);
+      }
     } catch {
       // The stale error is the answer; failing to describe the current version must not hide it.
     }

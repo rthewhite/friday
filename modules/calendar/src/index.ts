@@ -10,6 +10,8 @@
  */
 import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone } from "@friday/sdk";
 import { CalDavClient } from "./caldav.js";
+import { ChangeLog } from "./changes.js";
+import { migrations } from "./schema.js";
 import { EventHandles } from "./handles.js";
 import { CalendarService } from "./service.js";
 import { Settings } from "./settings.js";
@@ -37,6 +39,7 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
         { key: "FRIDAY_TIMEZONE", description: `IANA zone for event times (default ${DEFAULT_TIME_ZONE})` },
       ],
     },
+    migrations,
     async init(ctx) {
       const client = new CalDavClient({
         fetch: opts.fetch,
@@ -46,7 +49,8 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
       const settings = new Settings(ctx.storage);
       await settings.load();
       const zone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
-      const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens: new TokenStore(now), zone, now });
+      const changes = new ChangeLog(ctx.db, now);
+      const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens: new TokenStore(now), changes, zone, now });
       defineCalendarTools(ctx, service);
     },
   });

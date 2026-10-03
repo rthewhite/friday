@@ -84,7 +84,7 @@ Module migration 1 creates:
 calendar__changes(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL,
-  action TEXT NOT NULL,          -- create | update | delete
+  action TEXT NOT NULL,          -- create | update | delete | undo
   scope TEXT,                    -- occurrence | series | NULL (non-recurring)
   calendar_id TEXT NOT NULL,
   object_url TEXT NOT NULL,
@@ -97,8 +97,8 @@ calendar__changes(
   after_etag TEXT,               -- ETag after the write; NULL for delete
   source TEXT NOT NULL,          -- voice | chat | portal
   conversation_id TEXT,
-  undo_of INTEGER REFERENCES calendar__changes(id),
-  undone_by INTEGER REFERENCES calendar__changes(id)
+  undo_of INTEGER,               -- plain ids, no foreign keys: pruning may drop the other row
+  undone_by INTEGER
 )
 ```
 
@@ -107,7 +107,7 @@ Whole-object ICS makes undo uniform:
 - *update* or *occurrence delete*: `PUT before_ics` with `If-Match: after_etag`;
 - *series delete*: `PUT before_ics` with `If-None-Match: *`.
 
-When iCloud's `PUT` response carries no `ETag`, the client reads it back with a `HEAD` or `PROPFIND` before logging. Undo rows set `undo_of` and the original row's `undone_by` in one transaction, and undo rows are never picked by `calendar_undo`. After each insert, rows beyond the newest 500 are deleted.
+When iCloud's `PUT` response carries no `ETag`, the client reads it back with a `HEAD` or `PROPFIND` before logging. Undo rows (action `undo`) set `undo_of` and the original row's `undone_by` in one transaction, and undo rows are never picked by `calendar_undo`. A tool call without a channel is logged as `chat`. After each insert, rows beyond the newest 500 are deleted.
 
 ### D7. Agenda cache and job
 

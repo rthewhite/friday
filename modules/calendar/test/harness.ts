@@ -1,6 +1,9 @@
 /** A CalendarService wired to the fake iCloud, a fixed clock and in-memory settings. */
 import { MemoryStorage } from "@friday/sdk";
+import { lazyDb, openModuleDb } from "@friday/sdk/db";
 import { CalDavClient } from "../src/caldav.js";
+import { ChangeLog } from "../src/changes.js";
+import { migrations } from "../src/schema.js";
 import { EventHandles } from "../src/handles.js";
 import { CalendarService } from "../src/service.js";
 import { Settings } from "../src/settings.js";
@@ -19,8 +22,12 @@ export async function harness(fake = new FakeICloud()) {
   const client = new CalDavClient({ fetch: fake.fetch, credentials: () => ({ username: USERNAME, password: PASSWORD }) });
   let writes = 0;
   const tokens = new TokenStore(now);
-  const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens, zone: () => ZONE, now, onWrite: () => writes++ });
-  return { fake, service, settings, tokens, clock, now, writes: () => writes };
+  const database = openModuleDb(":memory:", "calendar");
+  database.migrate(migrations, { log() {}, warn() {}, error() {} });
+  const db = lazyDb(() => database);
+  const changes = new ChangeLog(db, now);
+  const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens, changes, zone: () => ZONE, now, onWrite: () => writes++ });
+  return { fake, service, settings, tokens, changes, db, clock, now, writes: () => writes };
 }
 
 /** Rejects with the error a call threw; fails when it resolved. */

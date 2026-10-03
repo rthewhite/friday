@@ -356,6 +356,8 @@ Changing and deleting go through a confirmation step that the model can't skip:
 
 For a recurring event Friday has to say whether it means only this occurrence (`scope: "occurrence"`) or the whole series (`"series"`), and asks you when that isn't clear. A whole series can only move to another time of day ("move the standup to 10"); changing its days is left to the Calendar app. Invitations organised by someone else and read-only calendars (subscriptions, some shared calendars) are refused before a preview, with the reason.
 
+Every change Friday makes is logged with the event's before and after state and where it came from (voice or chat, and the conversation). `calendar_undo` ("undo that", "no, put it back") reverts Friday's most recent change from the last 24 hours without asking; saying it again goes one change further back. Undo is conditional too: when the event was changed on your phone since, it refuses and says how the event is now. The log keeps the newest 500 changes.
+
 Times without an offset are household time, and every time Friday gets back is too. Travel time combines on its own: "when do I need to leave for the dentist?" is a list call plus `get_travel_time` to the event's location.
 
 ## Voice devices
