@@ -55,14 +55,14 @@
 
 ## 5. Settings, discovery state and handles
 
-- [ ] 5.1 Implement `src/settings.ts` (design D8):
+- [x] 5.1 Implement `src/settings.ts` (design D8):
   - load from `ctx.storage` key `settings` in `init` and mirror it in memory;
   - defaults on/on for unknown calendars;
   - resolve the default calendar, falling back to the first used, writable one in iCloud's order;
   - validate an update against the current discovery.
 
   Verify with `test/settings.test.ts`: the defaults; that settings survive a re-init of the test host; the fallback when the default is unused; that an unknown id or a read-only default is rejected.
-- [ ] 5.2 Implement `src/handles.ts` (design D3): short ids, an LRU with up to 1000 entries, a 2-hour TTL refreshed whenever an event is returned again, and an injectable clock. Verify with `test/handles.test.ts`: the same event gets the same id while it's live, an id expires after 2 hours without being returned, and an unknown id raises `UnknownEventError` asking to list again.
+- [x] 5.2 Implement `src/handles.ts` (design D3): short ids, an LRU with up to 1000 entries, a 2-hour TTL refreshed whenever an event is returned again, and an injectable clock. Verify with `test/handles.test.ts`: the same event gets the same id while it's live, an id expires after 2 hours without being returned, and an unknown id raises `UnknownEventError` asking to list again.
 
 ## 6. Read and create tools
 
