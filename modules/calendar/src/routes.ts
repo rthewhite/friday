@@ -14,8 +14,6 @@ export interface RouteDeps {
   settings: Settings;
   agenda: Agenda;
   changes: ChangeLog;
-  /** Starts the refresh job (after settings change). */
-  refresh: () => void;
 }
 
 type Handler = (req: RouteRequest, res: RouteResponse, params: Record<string, string>) => Promise<void> | void;
@@ -82,7 +80,8 @@ export function registerCalendarRoutes(ctx: ModuleContext, d: RouteDeps): void {
   route("PUT", "settings", async (req, res) => {
     const account = await d.service.account();
     await d.settings.update(await body(req), account.calendars);
-    d.refresh();
+    // A calendar turned on needs fetching before the agenda can show it; a failure shows in the status.
+    await d.agenda.refresh().catch(() => undefined);
     res.json(await status());
   });
 

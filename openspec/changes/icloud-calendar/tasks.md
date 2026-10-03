@@ -108,13 +108,13 @@
 
 ## 11. Portal page
 
-- [ ] 11.1 Add a `calendar` icon to `packages/portal-ui/src/components/Icon.vue`, and `src/ui/index.ts` with `defineModuleUi` (nav "Calendar", order 30, one route). Verify that `pnpm --filter @friday/portal build` includes the module (`scripts/gen-modules.mjs` picks it up).
+- [x] 11.1 Add a `calendar` icon to `packages/portal-ui/src/components/Icon.vue`, and `src/ui/index.ts` with `defineModuleUi` (nav "Calendar", order 30, one route). Verify that `pnpm --filter @friday/portal build` includes the module (`scripts/gen-modules.mjs` picks it up).
 - [ ] 11.2 Build `src/ui/CalendarPage.vue` with the tabs (design D11):
   - **Overview:** status with a refresh button; the calendars with colour, a read-only badge, `use`/`inAgenda` toggles and a default radio button; the agenda preview.
   - **Changes:** the log, with Undo where possible and errors shown inline.
 
   Put any pure helpers in `src/ui/lib` and test them in `test/ui-lib.test.ts`, like brain does. Verify with the portal build, and in a browser against a dev server on free ports (`FRIDAY_PORT=8081`), using the fake or real account: toggling a setting saves and changes the agenda preview after a refresh, and Undo marks the entry as undone. Stop the dev server afterwards.
-- [ ] 11.3 Document `/m/calendar` in the README and extend the `openspec/config.yaml` context with the calendar module: id, tools, confirmation and undo, agenda job, settings, and routes. Verify by reading both back.
+- [x] 11.3 Document `/m/calendar` in the README and extend the `openspec/config.yaml` context with the calendar module: id, tools, confirmation and undo, agenda job, settings, and routes. Verify by reading both back.
 
 ## 12. Integration
 

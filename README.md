@@ -360,6 +360,13 @@ Friday also knows today's and tomorrow's agenda without asking: every voice and 
 
 Every change Friday makes is logged with the event's before and after state and where it came from (voice or chat, and the conversation). `calendar_undo` ("undo that", "no, put it back") reverts Friday's most recent change from the last 24 hours without asking; saying it again goes one change further back. Undo is conditional too: when the event was changed on your phone since, it refuses and says how the event is now. The log keeps the newest 500 changes.
 
+The portal page `/m/calendar` shows what Friday sees and what it did. It is not a calendar app: there's no event grid and no editing.
+
+- **Overview**: the connection (account, connected or the last error, when it was checked, and a Refresh button that rediscovers calendars and refetches the agenda); the calendars iCloud lists, each with its colour, a read-only badge where Friday can't write, and three settings: *Friday uses it* (off makes it invisible to every tool and the agenda), *In the agenda*, and *New events go here* (the default; without one, the first used, writable calendar); and the agenda text exactly as it goes into Friday's prompt.
+- **Changes**: the change log, newest first, with where each change came from and before -> after, and an Undo button on every change that can still be undone (from the portal there is no 24-hour limit; it still refuses when the event changed since).
+
+Routes, under `/api/modules/calendar/`: `GET status`, `PUT settings` (`{ calendars: { <id>: { use?, inAgenda? } }, defaultId? }`; 400 for unknown ids or a read-only or unused default), `GET agenda`, `GET changes?limit=` (default 50, max 200), `POST changes/:id/undo` (409 with the reason, and the current version when the event changed), `POST refresh`. None of them returns the password.
+
 Times without an offset are household time, and every time Friday gets back is too. Travel time combines on its own: "when do I need to leave for the dentist?" is a list call plus `get_travel_time` to the event's location.
 
 ## Voice devices

@@ -81,7 +81,7 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
         },
       });
       ctx.prompt.addContext(() => agenda.render());
-      registerCalendarRoutes(ctx, { service, settings, agenda, changes, refresh });
+      registerCalendarRoutes(ctx, { service, settings, agenda, changes });
       // No iCloud request during init: a down iCloud must not fail the module. The first refresh runs right away.
       refresh();
     },
