@@ -15,7 +15,7 @@
 
 ## 3. CalDAV client
 
-- [ ] 3.1 Implement `src/caldav.ts` over an injectable `fetch` (design D1):
+- [x] 3.1 Implement `src/caldav.ts` over an injectable `fetch` (design D1):
   - discovery: the principal, the calendar home, the calendar list with name, colour, components and privileges, and the own addresses, following redirects manually;
   - `queryRange(calendar, from, to)` (`REPORT calendar-query` with `time-range`);
   - `get`, `put` (with `If-Match` or `If-None-Match`), `delete`, and an ETag read-back.
@@ -25,7 +25,7 @@
   - writability comes from privileges, and is assumed when they're missing;
   - a range query returns ICS and ETags;
   - a `PUT` without an `ETag` header triggers a read-back.
-- [ ] 3.2 Add typed errors in `src/errors.ts`: `CredentialRejectedError` (names the username, explains app-specific passwords and where to create them), `ReadOnlyError`, `StaleEventError` (with `current`), `UnknownEventError`, `TokenError` and `UpstreamError`. Basic auth is sent only to `*.icloud.com` hosts. Verify in `caldav.test.ts`:
+- [x] 3.2 Add typed errors in `src/errors.ts`: `CredentialRejectedError` (names the username, explains app-specific passwords and where to create them), `ReadOnlyError`, `StaleEventError` (with `current`), `UnknownEventError`, `TokenError` and `UpstreamError`. Basic auth is sent only to `*.icloud.com` hosts. Verify in `caldav.test.ts`:
   - a 401 produces the credential message;
   - a 412 or 404 on a conditional write becomes `StaleEventError`;
   - a redirect to a non-iCloud host gets no `Authorization` header;
