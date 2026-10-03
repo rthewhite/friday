@@ -9,6 +9,7 @@
  *   FRIDAY_TIMEZONE      household zone for times without an offset and for every time returned
  */
 import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone } from "@friday/sdk";
+import { Agenda, REFRESH_EVERY_MS } from "./agenda.js";
 import { CalDavClient } from "./caldav.js";
 import { ChangeLog } from "./changes.js";
 import { migrations } from "./schema.js";
@@ -50,8 +51,37 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
       await settings.load();
       const zone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
       const changes = new ChangeLog(ctx.db, now);
-      const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens: new TokenStore(now), changes, zone, now });
+      // A write during a running refresh may not be in what that run fetched: run once more after it.
+      let again = false;
+      const refresh = () => {
+        try {
+          if (!ctx.jobs.trigger("refresh").started) again = true;
+        } catch {
+          // The module was disposed or reloaded; its job is gone.
+        }
+      };
+      const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens: new TokenStore(now), changes, zone, now, onWrite: refresh });
+      const agenda = new Agenda(service, settings, now);
       defineCalendarTools(ctx, service);
+      ctx.jobs.schedule({
+        name: "refresh",
+        description: "Rediscovers the iCloud calendars and fetches today's and tomorrow's agenda for the prompt.",
+        everyMs: REFRESH_EVERY_MS,
+        timeoutMs: 60_000,
+        run: async ({ signal }) => {
+          again = false;
+          try {
+            const r = await agenda.refresh(signal);
+            return { summary: `${r.events} event${r.events === 1 ? "" : "s"} in ${r.calendars} calendar${r.calendars === 1 ? "" : "s"}` };
+          } finally {
+            // After the scheduler has marked this run finished.
+            if (again) setTimeout(refresh, 0).unref();
+          }
+        },
+      });
+      ctx.prompt.addContext(() => agenda.render());
+      // No iCloud request during init: a down iCloud must not fail the module. The first refresh runs right away.
+      refresh();
     },
   });
 }

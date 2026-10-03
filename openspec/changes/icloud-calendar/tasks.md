@@ -98,9 +98,9 @@
 
 ## 9. Agenda in the prompt
 
-- [ ] 9.1 Implement the `calendar/refresh` job (design D7: `everyMs` 300000, `timeoutMs` 60000). It rediscovers calendars, fetches three local days for used calendars, keeps the previous cache and records the error on failure, is triggered from `init` and after each successful write, and makes no network call in `init` itself. Verify with `test/agenda.test.ts` via the test host's `runJob`: a success fills the cache, a failure keeps it and sets the status error, and a module whose fetch always fails still loads.
-- [ ] 9.2 Implement the prompt provider (spec "Agenda in the prompt"): today and tomorrow worked out at render time; only `inAgenda` calendars; all-day events first; "nothing planned"; the fetch time stated when the cache is older than 15 minutes; "unavailable" before the first success; cut to 2000 characters with the number left out. Verify with the test host's rendered prompt context: the spec scenarios (present, midnight rollover, unreachable after an earlier success, never fetched), the cut-off, and an `inAgenda: false` calendar left out.
-- [ ] 9.3 Add the agenda behaviour and its privacy note (it's in every prompt; limit it with "in agenda") to the README. Verify by reading it back.
+- [x] 9.1 Implement the `calendar/refresh` job (design D7: `everyMs` 300000, `timeoutMs` 60000). It rediscovers calendars, fetches three local days for used calendars, keeps the previous cache and records the error on failure, is triggered from `init` and after each successful write, and makes no network call in `init` itself. Verify with `test/agenda.test.ts` via the test host's `runJob`: a success fills the cache, a failure keeps it and sets the status error, and a module whose fetch always fails still loads.
+- [x] 9.2 Implement the prompt provider (spec "Agenda in the prompt"): today and tomorrow worked out at render time; only `inAgenda` calendars; all-day events first; "nothing planned"; the fetch time stated when the cache is older than 15 minutes; "unavailable" before the first success; cut to 2000 characters with the number left out. Verify with the test host's rendered prompt context: the spec scenarios (present, midnight rollover, unreachable after an earlier success, never fetched), the cut-off, and an `inAgenda: false` calendar left out.
+- [x] 9.3 Add the agenda behaviour and its privacy note (it's in every prompt; limit it with "in agenda") to the README. Verify by reading it back.
 
 ## 10. Portal routes
 
