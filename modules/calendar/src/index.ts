@@ -12,6 +12,7 @@ import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone } from "@friday/sdk"
 import { Agenda, REFRESH_EVERY_MS } from "./agenda.js";
 import { CalDavClient } from "./caldav.js";
 import { ChangeLog } from "./changes.js";
+import { registerCalendarRoutes } from "./routes.js";
 import { migrations } from "./schema.js";
 import { EventHandles } from "./handles.js";
 import { CalendarService } from "./service.js";
@@ -80,6 +81,7 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
         },
       });
       ctx.prompt.addContext(() => agenda.render());
+      registerCalendarRoutes(ctx, { service, settings, agenda, changes, refresh });
       // No iCloud request during init: a down iCloud must not fail the module. The first refresh runs right away.
       refresh();
     },

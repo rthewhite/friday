@@ -104,7 +104,7 @@
 
 ## 10. Portal routes
 
-- [ ] 10.1 Implement `src/routes.ts` (spec "Portal routes"): `GET status`, `PUT settings`, `GET agenda`, `GET changes` (`limit` default 50, max 200), `POST changes/:id/undo` (409 with the reason and the current version), and `POST refresh`. Verify with `test/routes.test.ts` through `host.request`: every route; the 400s for an unknown id and a read-only default; the portal undo logged with source `portal`; and that no response body contains the password.
+- [x] 10.1 Implement `src/routes.ts` (spec "Portal routes"): `GET status`, `PUT settings`, `GET agenda`, `GET changes` (`limit` default 50, max 200), `POST changes/:id/undo` (409 with the reason and the current version), and `POST refresh`. Verify with `test/routes.test.ts` through `host.request`: every route; the 400s for an unknown id and a read-only default; the portal undo logged with source `portal`; and that no response body contains the password.
 
 ## 11. Portal page
 
