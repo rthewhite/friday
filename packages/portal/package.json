@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@friday/module-brain": "workspace:*",
+    "@friday/module-calendar": "workspace:*",
     "@friday/module-media": "workspace:*",
     "@friday/portal-ui": "workspace:*",
     "markdown-it": "^15.0.2",

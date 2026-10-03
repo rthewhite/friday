@@ -11,6 +11,7 @@ portal Chat page       ── /api/chat (SSE) ────►├── Gemini te
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► modules/travel    driving time with traffic (TomTom)
+                                               ├─► modules/calendar  iCloud calendar (CalDAV)
                                                ├─► MCP servers       configured in the portal (HTTP)
                                                └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
@@ -27,6 +28,7 @@ The repo is a pnpm workspace:
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, `brain_recall_conversations`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
+| `@friday/module-calendar` | `modules/calendar` | The iCloud calendar over CalDAV: list, create, and confirmed edits/deletes with undo, today's agenda in the prompt, and the `/m/calendar` page (see [Calendar](#calendar-icloud)) |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
 
 ## Run
@@ -328,6 +330,44 @@ The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 - Place lookups are cached for 24 hours (a lookup that found nothing for 10 minutes); routes never are.
 
 Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
+
+## Calendar (iCloud)
+
+`modules/calendar` gives Friday your iCloud calendar over CalDAV. It discovers the account's calendars itself, so a calendar shared with you later just shows up.
+
+Setup:
+
+1. Your Apple ID needs two-factor authentication (it almost certainly has it).
+2. At [account.apple.com](https://account.apple.com), go to **Sign-In and Security > App-Specific Passwords**, add one called "Friday", and copy it (`abcd-efgh-ijkl-mnop`; it is shown once).
+3. In Settings > Configuration, set `ICLOUD_USERNAME` to your Apple ID email and `ICLOUD_APP_PASSWORD` to that password, then reload the `calendar` module once.
+
+Your normal Apple ID password does not work here; iCloud only accepts app-specific passwords for CalDAV. The password also opens mail and contacts over IMAP and CardDAV, so it is stored as a secret (encrypted, write-only), only ever sent to `*.icloud.com`, and never logged. Revoke it on its own by deleting "Friday" on the same page; changing your Apple ID password revokes every app-specific password at once. A rejected password makes the tools say so and point back here. A new one saved in the portal is used from the next request, without a reload. The module is `failed` until both keys are set; leave it out with `FRIDAY_MODULES` if you don't want it.
+
+Reading and adding, on voice and chat:
+
+- `calendar_list_events`: "What's on Thursday?", "When is the dentist?". Takes `from`/`to` (dates or date-times; a `to` date includes that whole day), an optional `query` (every word must appear in the title, location or notes) and `calendar` (by name). Without `from` it starts today; without `to` it covers 7 days, or 365 with a query. At most 366 days and 50 events per call. Recurring events are expanded, moved and cancelled occurrences included. Each event has a short `id` (like `e7k2`, valid for two hours after it was last listed), `start`/`end` in `FRIDAY_TIMEZONE` (dates with an inclusive end for all-day events), a readable `when`, and `readOnly` with a reason for read-only calendars and invitations.
+- `calendar_create_event`: "Put the plumber in for Tuesday at nine". Takes `title`, `start`, and optionally `end` (an hour later by default; for all-day events the last day), `allDay` (implied by a date), `location`, `notes`, `calendar` (else the default), `repeat` (`daily`/`weekly`/`monthly`/`yearly`) and `repeatUntil`. It is created at once; the result has a `say` read-back and lists overlapping timed events, so Friday can mention a clash.
+
+Changing and deleting go through a confirmation step that the model can't skip:
+
+1. `calendar_update_event` (title, start, end, location, notes; an empty location or notes clears it; a new start keeps the duration) or `calendar_delete_event` take an `id` from a list result. They change nothing: they return a `before`/`after` preview, overlaps at the new time, and a `token`.
+2. Friday reads the change back ("Move the dentist from 2 to 3 on Thursday?").
+3. Only after a yes does it call `calendar_confirm` with the token. A token works once and for 5 minutes, and the write is conditional on the version that was previewed: if the event was changed on your phone in between, nothing is applied and Friday gets the current version instead.
+
+For a recurring event Friday has to say whether it means only this occurrence (`scope: "occurrence"`) or the whole series (`"series"`), and asks you when that isn't clear. A whole series can only move to another time of day ("move the standup to 10"); changing its days is left to the Calendar app. Invitations organised by someone else and read-only calendars (subscriptions, some shared calendars) are refused before a preview, with the reason.
+
+Friday also knows today's and tomorrow's agenda without asking: every voice and chat prompt gets a short `## Calendar` section (all-day events first, then times, titles and locations, "nothing planned" for an empty day). It comes from a cache that the `calendar/refresh` job (Settings > Jobs) fills every 5 minutes and right after each change Friday makes, so opening a session never waits on iCloud. "Today" is worked out when the prompt is built, so it rolls over at midnight. When iCloud is unreachable the section keeps the last events and says when they were fetched; before the first successful fetch it says the calendar is unavailable, so Friday doesn't claim you're free. It is cut at 2000 characters. Privacy: this puts your schedule in every conversation, including Talk-page sessions, which need no device key; turn "in agenda" off for calendars that shouldn't be there (see the portal page below).
+
+Every change Friday makes is logged with the event's before and after state and where it came from (voice or chat, and the conversation). `calendar_undo` ("undo that", "no, put it back") reverts Friday's most recent change from the last 24 hours without asking; saying it again goes one change further back. Undo is conditional too: when the event was changed on your phone since, it refuses and says how the event is now. The log keeps the newest 500 changes.
+
+The portal page `/m/calendar` shows what Friday sees and what it did. It is not a calendar app: there's no event grid and no editing.
+
+- **Overview**: the connection (account, connected or the last error, when it was checked, and a Refresh button that rediscovers calendars and refetches the agenda); the calendars iCloud lists, each with its colour, a read-only badge where Friday can't write, and three settings: *Friday uses it* (off makes it invisible to every tool and the agenda), *In the agenda*, and *New events go here* (the default; without one, the first used, writable calendar); and the agenda text exactly as it goes into Friday's prompt.
+- **Changes**: the change log, newest first, with where each change came from and before -> after, and an Undo button on every change that can still be undone (from the portal there is no 24-hour limit; it still refuses when the event changed since).
+
+Routes, under `/api/modules/calendar/`: `GET status`, `PUT settings` (`{ calendars: { <id>: { use?, inAgenda? } }, defaultId? }`; 400 for unknown ids or a read-only or unused default), `GET agenda`, `GET changes?limit=` (default 50, max 200), `POST changes/:id/undo` (409 with the reason, and the current version when the event changed), `POST refresh`. None of them returns the password.
+
+Times without an offset are household time, and every time Friday gets back is too. Travel time combines on its own: "when do I need to leave for the dentist?" is a list call plus `get_travel_time` to the event's location.
 
 ## Voice devices
 

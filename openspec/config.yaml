@@ -30,6 +30,20 @@ context: |
   Routing v2; TOMTOM_API_KEY required secret, sent as a query parameter so URLs are never logged; geocodes
   cached in memory (LRU, hits 24h, misses 10 min), routes never; client rebuilt when the key changes, no
   reload needed; offset-less departAt/arriveAt read in FRIDAY_TIMEZONE, past times refused).
+  Calendar: modules/calendar (id calendar) talks CalDAV to one iCloud account (src/caldav.ts, own client over
+  injectable fetch + fast-xml-parser; Basic auth only to https *.icloud.com, redirects followed by hand; required
+  ICLOUD_USERNAME and secret ICLOUD_APP_PASSWORD, an app-specific password, read per request) and ical.js
+  (src/ical.ts: expansion with EXDATE/overrides, IANA TZIDs via Intl, edits keep unknown properties, generated
+  VTIMEZONE in src/vtimezone.ts). Tools on voice and chat: calendar_list_events (short in-memory ids, 2h, src/handles.ts),
+  calendar_create_event (immediate), calendar_update_event / calendar_delete_event (preview + single-use 5-minute
+  token holding the exact conditional request, src/tokens.ts; scope occurrence|series; series only shift time of day;
+  invitations and read-only calendars refused), calendar_confirm (If-Match; 412 -> StaleEventError with the current
+  version), calendar_undo (newest tool change of the last 24h). Every write is logged in calendar__changes (whole
+  before/after ICS, source, conversation id; 500 kept; undo rows action "undo"). Job calendar/refresh (5 min, also
+  after writes) caches three local days; the prompt provider (src/agenda.ts) renders today and tomorrow at build time,
+  2000 chars. Per-calendar use/inAgenda and the default in ctx.storage "settings". Portal /m/calendar (Overview,
+  Changes); routes status, settings, agenda, changes, changes/:id/undo, refresh. Fake iCloud for tests in
+  test/fake-icloud.ts.
   Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
   tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
   extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall
@@ -69,7 +83,9 @@ context: |
   (packages/sdk/src/prompt.ts, packages/core/src/prompt-context.ts). Remote hosts reject ctx.db and ctx.prompt.
   Household zone: FRIDAY_TIMEZONE, default and invalid-value fallback Europe/Amsterdam everywhere, resolved by
   @friday/sdk's time helper (packages/sdk/src/time.ts: DEFAULT_TIME_ZONE, resolveTimeZone, localDate,
-  householdTimeZone(ctx.config, warn) reading per call and warning once). Core declares it too; the scheduler
+  householdTimeZone(ctx.config, warn) reading per call and warning once, startOfLocalDay, and parseDateTime(value, zone):
+  strict ISO 8601 with optional RFC 3339 offset, offset-less read in the zone, used by travel and calendar;
+  offsetMinutes/formatOffset). Core declares it too; the scheduler
   resolves it like core's keys (core scope, global, env) and refreshTimezone() re-plans cron jobs when the config
   API saves or clears it (AppDeps.onConfigChange → followTimezone). The portal drawer preselects the stored
   scope, else the sole requester, else global (packages/portal/src/lib/config-scope.ts). Never hard-code the zone.

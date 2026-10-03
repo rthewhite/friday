@@ -1,0 +1,35 @@
+{
+  "name": "@friday/module-calendar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Friday calendar module: the user's iCloud calendar over CalDAV, with confirmed edits, undo and today's agenda in the prompt.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ui": "./src/ui/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@friday/sdk": "workspace:*",
+    "fast-xml-parser": "^5.11.2",
+    "ical.js": "^2.2.1"
+  },
+  "friday": {
+    "ui": "./src/ui/index.ts"
+  },
+  "devDependencies": {
+    "@friday/portal-ui": "workspace:*",
+    "vue": "^3.5.29",
+    "vue-router": "^4.5.1"
+  }
+}

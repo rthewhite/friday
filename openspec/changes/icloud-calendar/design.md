@@ -50,7 +50,7 @@ New events get a UUID `UID`, `DTSTAMP`, `TZID=<FRIDAY_TIMEZONE>` with a matching
 
 ### D3. Short in-memory event handles
 
-Tools never expose CalDAV URLs. `calendar_list_events` (and create/confirm results) register each returned event in an `EventHandles` map: a handle like `e7k2` maps to `{ calendarId, objectUrl, etag, uid, recurrenceId?, snapshot }`. The map is an LRU with up to 1000 entries and a 2-hour TTL that is refreshed whenever the event is returned again. Short ids are easier for the model to copy correctly by voice, can't be guessed into another calendar, and make "list first, then edit" structural.
+Tools never expose CalDAV URLs. `calendar_list_events` (and create/confirm results) register each returned event in an `EventHandles` map: a handle like `e7k2` maps to `{ calendarId, objectUrl, occurrence }` (the occurrence as last returned, with its recurrence key). No ETag: previews always re-fetch the object, and the fresh ETag is the write's condition. The map is an LRU with up to 1000 entries and a 2-hour TTL that is refreshed whenever the event is returned again. Short ids are easier for the model to copy correctly by voice, can't be guessed into another calendar, and make "list first, then edit" structural.
 
 A restart drops the map, and the error tells the model to list again. This is cheap, and correct because the model rebuilds its view.
 
@@ -68,7 +68,7 @@ Tokens are not bound to a conversation, because the first voice exchange has no 
 
 *Alternative:* rely on prompt wording alone to make the model ask first. That was rejected during exploration (option B), because the model can skip the question, but it can't skip the tool.
 
-Series edits apply the identified occurrence's time-of-day shift to the master's `DTSTART`/`DTEND` and leave overrides alone. A change of date is refused (the spec explains why: `BYDAY` rules would quietly fight the new start). Occurrence edits add or replace the override `VEVENT` with `RECURRENCE-ID` set to the occurrence's original start.
+Series edits measure the time-of-day shift from where the series puts the identified occurrence (its recurrence id), and apply it to the master's `DTSTART`/`DTEND`, its `EXDATE`s, `RDATE`s and a date-time `UNTIL`, and to every override's `RECURRENCE-ID`. Overrides that weren't moved move along. When the identified occurrence was itself moved, it is placed at the new time explicitly. A change of date is refused (the spec explains why: `BYDAY` rules would quietly fight the new start). Occurrence edits add or replace the override `VEVENT` with `RECURRENCE-ID` set to the occurrence's original start.
 
 ### D5. Ownership and writability
 
@@ -84,7 +84,7 @@ Module migration 1 creates:
 calendar__changes(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL,
-  action TEXT NOT NULL,          -- create | update | delete
+  action TEXT NOT NULL,          -- create | update | delete | undo
   scope TEXT,                    -- occurrence | series | NULL (non-recurring)
   calendar_id TEXT NOT NULL,
   object_url TEXT NOT NULL,
@@ -97,8 +97,8 @@ calendar__changes(
   after_etag TEXT,               -- ETag after the write; NULL for delete
   source TEXT NOT NULL,          -- voice | chat | portal
   conversation_id TEXT,
-  undo_of INTEGER REFERENCES calendar__changes(id),
-  undone_by INTEGER REFERENCES calendar__changes(id)
+  undo_of INTEGER,               -- plain ids, no foreign keys: pruning may drop the other row
+  undone_by INTEGER
 )
 ```
 
@@ -107,7 +107,7 @@ Whole-object ICS makes undo uniform:
 - *update* or *occurrence delete*: `PUT before_ics` with `If-Match: after_etag`;
 - *series delete*: `PUT before_ics` with `If-None-Match: *`.
 
-When iCloud's `PUT` response carries no `ETag`, the client reads it back with a `HEAD` or `PROPFIND` before logging. Undo rows set `undo_of` and the original row's `undone_by` in one transaction, and undo rows are never picked by `calendar_undo`. After each insert, rows beyond the newest 500 are deleted.
+When iCloud's `PUT` response carries no `ETag`, the client reads it back with a `GET` before logging. Undo rows (action `undo`) set `undo_of` and the original row's `undone_by` in one transaction, and undo rows are never picked by `calendar_undo`. A tool call without a channel is logged as `chat`. After each insert, rows beyond the newest 500 are deleted.
 
 ### D7. Agenda cache and job
 
@@ -122,11 +122,11 @@ The fetched events are stored as `{ fetchedAt, events }`. The prompt provider fi
 
 ### D8. Settings in `ctx.storage`, mirrored in memory
 
-The key `settings` holds `{ calendars: { [id]: { use, inAgenda } }, defaultId? }`, and the calendar id is the last path segment of its CalDAV URL. Calendars with no entry use the defaults (on, on). The in-memory copy serves the synchronous prompt provider and the tools. `PUT settings` validates against the current discovery, writes storage, then updates memory and triggers a refresh.
+The key `settings` holds `{ calendars: { [id]: { use, inAgenda } }, defaultId? }`, and the calendar id is the last path segment of its CalDAV URL. Calendars with no entry use the defaults (on, on). The in-memory copy serves the synchronous prompt provider and the tools. `PUT settings` validates against the current discovery, writes storage, updates memory, and refreshes the agenda before it answers, so the page shows the result at once. Turning off the current default is allowed (new events fall back); picking an unused or read-only calendar as the default is refused. Tools, confirmations and `calendar_undo` resolve calendars among the used ones only, so a calendar switched off after listing can't be changed with an old id or token; the portal's undo may still act in any discovered calendar.
 
 ### D9. Shared date-time parser in the SDK
 
-Travel's `toRfc3339`, `zoneOffsetMinutes`, `parseOffset` and `formatOffset` move to `packages/sdk/src/time.ts` and are exported as `parseDateTime(value, zone)`, which returns `{ value, instant } | null`. Travel imports it, and its tests for the format rules move to the SDK. Calendar also uses `startOfLocalDay` and `localDate` for date-only inputs and day windows. This keeps "2026-10-08T15:00" meaning the same in both modules, and avoids a second copy of the DST-correct offset logic.
+Travel's `toRfc3339`, `zoneOffsetMinutes`, `parseOffset` and `formatOffset` move to `packages/sdk/src/time.ts` and are exported as `parseDateTime(value, zone)`, which returns `{ value, instant } | null`. `offsetMinutes` and `formatOffset` are exported too, for the calendar's output times and generated `VTIMEZONE`s. Travel imports it, and its tests for the format rules move to the SDK. Calendar also uses `startOfLocalDay` and `localDate` for date-only inputs and day windows. This keeps "2026-10-08T15:00" meaning the same in both modules, and avoids a second copy of the DST-correct offset logic.
 
 ### D10. Tool results built for speech
 
@@ -144,7 +144,8 @@ Results put `when` first and keep `notes` short. Write results include a `say` h
 - **The model confirms without asking** → The model could still call `calendar_confirm` right after the preview without asking the user. Tool descriptions and the preview's `instruction` say not to, and undo plus the change log cover the remaining risk. That trade-off was chosen over a hard human-in-the-loop UI.
 - **Handles and tokens are lost on restart** → The error messages say to list or preview again. Nothing is half-applied, because a token holds a single conditional request.
 - **Recurrence edge cases** (moved occurrences, `EXDATE` in other zones, DST) → `ical.js` does the expansion. There are dedicated tests for moved and deleted occurrences and a weekly event across the late-October DST change.
-- **Large calendars** → Range queries are bounded (366 days, 50 results), and the agenda only fetches three days.
+- **Large calendars** → Range queries are bounded (366 days, 50 results), and the agenda only fetches three days. Long-running series are walked from their start, so occurrences ending well before the range skip the detail work, Intl formatters are cached per zone (in the SDK's time helper and `format.ts`), and generated VTIMEZONEs are memoized.
+- **One malformed event** → An object that fails to parse or expand is skipped with a warning, so it can't take a whole listing, the agenda or an overlap check down.
 
 ## Migration Plan
 

@@ -1,6 +1,37 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_TIME_ZONE, householdTimeZone, localDate, resolveTimeZone, startOfLocalDay } from "../src/index.js";
+import { DEFAULT_TIME_ZONE, formatOffset, householdTimeZone, localDate, offsetMinutes, parseDateTime, resolveTimeZone, startOfLocalDay } from "../src/index.js";
+
+test("parseDateTime reads an offset-less date-time as wall-clock time in the zone", () => {
+  const r = parseDateTime("2026-10-08T15:00", "Europe/Amsterdam");
+  assert.equal(r?.value, "2026-10-08T15:00:00+02:00");
+  assert.equal(new Date(r!.instant).toISOString(), "2026-10-08T13:00:00.000Z");
+});
+
+test("parseDateTime keeps the value's own offset", () => {
+  assert.equal(parseDateTime("2026-10-08T15:00:00-05:00", "Europe/Amsterdam")?.value, "2026-10-08T15:00:00-05:00");
+  assert.equal(parseDateTime("2026-10-08T15:00:00z", "Europe/Amsterdam")?.value, "2026-10-08T15:00:00Z");
+});
+
+test("parseDateTime uses the offset on the far side of a DST change and accepts a space and fractions", () => {
+  // Amsterdam leaves summer time on 25 October 2026 at 03:00.
+  assert.equal(parseDateTime("2026-10-24 09:00", "Europe/Amsterdam")?.value, "2026-10-24T09:00:00+02:00");
+  assert.equal(parseDateTime("2026-10-26 09:00:30.250", "Europe/Amsterdam")?.value, "2026-10-26T09:00:30+01:00");
+  assert.equal(parseDateTime("2026-01-05T09:00", "UTC")?.value, "2026-01-05T09:00:00Z");
+});
+
+test("parseDateTime rejects anything that is not a real ISO 8601 date-time", () => {
+  for (const v of ["2026-02-30T10:00", "Thu, 08 Oct 2026 15:00:00 +0200", "2026-10-08T15:00+0200", "2026-10-08", "2026-10-08T25:00", "tomorrow", "2026-10-08T15:00+24:00"]) {
+    assert.equal(parseDateTime(v, "Europe/Amsterdam"), null, v);
+  }
+});
+
+test("offsetMinutes and formatOffset agree on summer, winter and negative zones", () => {
+  assert.equal(offsetMinutes("Europe/Amsterdam", Date.UTC(2026, 6, 1)), 120);
+  assert.equal(offsetMinutes("Europe/Amsterdam", Date.UTC(2026, 0, 1)), 60);
+  assert.equal(formatOffset(offsetMinutes("America/New_York", Date.UTC(2026, 0, 1))), "-05:00");
+  assert.equal(formatOffset(0), "Z");
+});
 
 /** A reader over a mutable config, recording its warnings. */
 function reader(env: Record<string, string | undefined>) {
