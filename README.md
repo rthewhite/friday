@@ -348,6 +348,14 @@ Reading and adding, on voice and chat:
 - `calendar_list_events`: "What's on Thursday?", "When is the dentist?". Takes `from`/`to` (dates or date-times; a `to` date includes that whole day), an optional `query` (every word must appear in the title, location or notes) and `calendar` (by name). Without `from` it starts today; without `to` it covers 7 days, or 365 with a query. At most 366 days and 50 events per call. Recurring events are expanded, moved and cancelled occurrences included. Each event has a short `id` (like `e7k2`, valid for two hours after it was last listed), `start`/`end` in `FRIDAY_TIMEZONE` (dates with an inclusive end for all-day events), a readable `when`, and `readOnly` with a reason for read-only calendars and invitations.
 - `calendar_create_event`: "Put the plumber in for Tuesday at nine". Takes `title`, `start`, and optionally `end` (an hour later by default; for all-day events the last day), `allDay` (implied by a date), `location`, `notes`, `calendar` (else the default), `repeat` (`daily`/`weekly`/`monthly`/`yearly`) and `repeatUntil`. It is created at once; the result has a `say` read-back and lists overlapping timed events, so Friday can mention a clash.
 
+Changing and deleting go through a confirmation step that the model can't skip:
+
+1. `calendar_update_event` (title, start, end, location, notes; an empty location or notes clears it; a new start keeps the duration) or `calendar_delete_event` take an `id` from a list result. They change nothing: they return a `before`/`after` preview, overlaps at the new time, and a `token`.
+2. Friday reads the change back ("Move the dentist from 2 to 3 on Thursday?").
+3. Only after a yes does it call `calendar_confirm` with the token. A token works once and for 5 minutes, and the write is conditional on the version that was previewed: if the event was changed on your phone in between, nothing is applied and Friday gets the current version instead.
+
+For a recurring event Friday has to say whether it means only this occurrence (`scope: "occurrence"`) or the whole series (`"series"`), and asks you when that isn't clear. A whole series can only move to another time of day ("move the standup to 10"); changing its days is left to the Calendar app. Invitations organised by someone else and read-only calendars (subscriptions, some shared calendars) are refused before a preview, with the reason.
+
 Times without an offset are household time, and every time Friday gets back is too. Travel time combines on its own: "when do I need to leave for the dentist?" is a list call plus `get_travel_time` to the event's location.
 
 ## Voice devices

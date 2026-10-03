@@ -6,12 +6,13 @@
 import { randomUUID } from "node:crypto";
 import { localDate, startOfLocalDay, type ToolCallContext } from "@friday/sdk";
 import type { Account, CalDavClient, CalendarInfo, CalendarObject } from "./caldav.js";
-import { InputError, ReadOnlyError, UpstreamError } from "./errors.js";
+import { InputError, PreconditionFailed, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
 import { addDays, endOfLocalDay, localIso, whenText, type Span } from "./format.js";
 import type { EventHandles, EventRef } from "./handles.js";
-import { buildEvent, expand, isInvitation, parseIcs, type Occurrence, type Repeat } from "./ical.js";
+import { applyEdit, buildEvent, deleteOccurrence, EditRefused, expand, findOccurrence, isInvitation, parseIcs, type EditChanges, type Occurrence, type ParsedObject, type Repeat } from "./ical.js";
 import type { Settings } from "./settings.js";
 import { parseTime, present } from "./times.js";
+import type { PendingChange, TokenStore } from "./tokens.js";
 
 export const MAX_RESULTS = 50;
 export const MAX_RANGE_DAYS = 366;
@@ -55,6 +56,7 @@ export interface ServiceDeps {
   client: CalDavClient;
   settings: Settings;
   handles: EventHandles;
+  tokens: TokenStore;
   zone: () => string;
   now: () => Date;
   /** Called after every successful write, so the agenda refreshes. */
@@ -79,6 +81,37 @@ export interface CreateArgs {
   repeat?: string;
   repeatUntil?: string;
 }
+
+export interface UpdateArgs {
+  id?: string;
+  scope?: string;
+  title?: string;
+  start?: string;
+  end?: string;
+  location?: string | null;
+  notes?: string | null;
+}
+
+export interface DeleteArgs {
+  id?: string;
+  scope?: string;
+}
+
+/** What a write leaves behind for the change log. */
+export interface WriteRecord {
+  action: "create" | "update" | "delete";
+  scope?: "occurrence" | "series";
+  calendar: CalendarInfo;
+  url: string;
+  uid: string;
+  title: string;
+  before: { ics: string; summary: EventSummary } | null;
+  after: { ics: string; etag: string; summary: EventSummary } | null;
+  call: ToolCallContext;
+}
+
+export const CONFIRM_INSTRUCTION = "Nothing has changed yet. Read this change back to the user and call calendar_confirm with the token only after they agree.";
+const SERIES_DATE = "Friday can only move a whole series to another time of day; change the days of a series in the Calendar app, or change just this occurrence.";
 
 /** An occurrence found in a calendar, with where it lives. */
 export interface Found {
@@ -253,7 +286,7 @@ export class CalendarService {
     const object: CalendarObject = { url, etag, ics };
     const [occurrence] = expand(parseIcs(ics), span.startMs, Math.max(span.endMs, span.startMs + 1), zone);
     const created = this.view({ calendar, object, occurrence });
-    this.afterWrite({ action: "create", calendar, object, before: null, title, summary: this.summary(occurrence, calendar), call });
+    this.afterWrite({ action: "create", calendar, url, uid, title, before: null, after: { ics, etag, summary: this.summary(occurrence, calendar) }, call });
     const overlaps = await this.overlaps(span, url);
     return {
       created,
@@ -322,7 +355,163 @@ export class CalendarService {
   }
 
   /** Bookkeeping after a successful write. */
-  afterWrite(_change: { action: "create" | "update" | "delete"; calendar: CalendarInfo; object: CalendarObject; before: CalendarObject | null; title: string; summary: EventSummary; call: ToolCallContext }): void {
+  afterWrite(_record: WriteRecord): void {
     this.d.onWrite?.();
+  }
+
+  // ---- Previews and confirmation -----------------------------------------------------------------------------
+
+  /** The event behind an id as iCloud has it now, refusing read-only calendars and invitations. */
+  async current(idArg: string | undefined): Promise<Found & { parsed: ParsedObject }> {
+    const id = present(idArg);
+    if (!id) throw new InputError("id is required: take it from calendar_list_events.");
+    const ref = this.d.handles.get(id);
+    const calendar = (await this.account()).calendars.find((c) => c.id === ref.calendarId);
+    if (!calendar) throw new StaleEventError("That event's calendar is no longer available; list the events again.");
+    const object = await this.icloud(() => this.d.client.get(ref.objectUrl));
+    if (!object) throw new StaleEventError(`"${ref.occurrence.title}" no longer exists in iCloud; list the events again.`);
+    const parsed = parseIcs(object.ics);
+    const occurrence = findOccurrence(parsed, ref.occurrence.recurrenceKey, this.zone);
+    if (!occurrence) throw new StaleEventError(`"${ref.occurrence.title}" (${whenText(ref.occurrence, this.zone, this.d.now())}) no longer exists in iCloud; list the events again.`);
+    const found = { calendar, object, occurrence, parsed };
+    const reason = this.readOnlyReason(found);
+    if (reason) throw new ReadOnlyError(`Friday can't change "${occurrence.title}": ${reason}`);
+    return found;
+  }
+
+  private scopeFor(o: Occurrence, scopeArg: string | undefined, verb: string): "occurrence" | "series" | undefined {
+    if (!o.recurring) return undefined;
+    const scope = present(scopeArg)?.toLowerCase();
+    if (scope === "occurrence" || scope === "series") return scope;
+    if (scope) throw new InputError('scope must be "occurrence" or "series".');
+    throw new InputError(`"${o.title}" is a recurring event: ask whether to ${verb} only this occurrence (scope "occurrence") or the whole series (scope "series").`);
+  }
+
+  private source(call: ToolCallContext): Pick<PendingChange, "channel" | "conversationId"> {
+    return { ...(call.channel ? { channel: call.channel } : {}), ...(call.conversationId ? { conversationId: call.conversationId } : {}) };
+  }
+
+  async previewUpdate(args: UpdateArgs, call: ToolCallContext = {}): Promise<Record<string, unknown>> {
+    const zone = this.zone;
+    const cur = await this.current(args.id);
+    const occ = cur.occurrence;
+    const scope = this.scopeFor(occ, args.scope, "change");
+    const title = present(args.title);
+    const location = typeof args.location === "string" ? args.location.trim() : undefined;
+    const notes = typeof args.notes === "string" ? args.notes.trim() : undefined;
+    const startArg = present(args.start), endArg = present(args.end);
+    if (title === undefined && location === undefined && notes === undefined && !startArg && !endArg) {
+      throw new InputError("Nothing to change: give at least one of title, start, end, location or notes.");
+    }
+
+    let span: Span | undefined;
+    if (startArg || endArg) {
+      if (occ.allDay) {
+        const start = startArg ? parseTime(startArg, "start", zone, "date") : undefined;
+        const end = endArg ? parseTime(endArg, "end", zone, "date") : undefined;
+        const startDate = start?.kind === "date" ? start.date : occ.startDate!;
+        const days = Math.round((startOfLocalDay(occ.endDate!, "UTC")!.getTime() - startOfLocalDay(occ.startDate!, "UTC")!.getTime()) / DAY_MS);
+        const endDate = end?.kind === "date" ? addDays(end.date, 1) : addDays(startDate, days);
+        if (endDate <= startDate) throw new InputError("end can't be before start.");
+        span = { allDay: true, startDate, endDate, startMs: startOfLocalDay(startDate, zone)!.getTime(), endMs: startOfLocalDay(endDate, zone)!.getTime() };
+      } else {
+        const start = startArg ? parseTime(startArg, "start", zone, "instant") : undefined;
+        const end = endArg ? parseTime(endArg, "end", zone, "instant") : undefined;
+        const startMs = start?.kind === "instant" ? start.ms : occ.startMs;
+        const endMs = end?.kind === "instant" ? end.ms : startMs + (occ.endMs - occ.startMs);
+        if (endMs < startMs) throw new InputError("end can't be before start.");
+        span = { allDay: false, startMs, endMs };
+      }
+      if (scope === "series" && (occ.allDay || localDate(new Date(span.startMs), zone) !== localDate(new Date(occ.startMs), zone))) {
+        throw new InputError(SERIES_DATE);
+      }
+    }
+
+    const changes: EditChanges = { ...(title !== undefined ? { title } : {}), ...(location !== undefined ? { location } : {}), ...(notes !== undefined ? { notes } : {}), ...(span ? { span } : {}) };
+    let ics: string;
+    try {
+      ics = applyEdit(cur.parsed, { occurrence: occ, scope }, changes, zone, this.d.now());
+    } catch (e) {
+      if (e instanceof EditRefused) throw new InputError(SERIES_DATE);
+      throw e;
+    }
+    const before = this.summary(occ, cur.calendar);
+    const after = this.summary({ ...occ, ...(span ?? {}), title: title ?? occ.title, location: location === undefined ? occ.location : location || undefined }, cur.calendar);
+    const overlaps = span ? await this.overlaps(span, cur.object.url) : [];
+    const pending: PendingChange = {
+      action: "update", ...(scope ? { scope } : {}), calendarId: cur.calendar.id, before: cur.object, ics, occurrence: occ, title: occ.title,
+      beforeSummary: before, afterSummary: after, ...this.source(call),
+    };
+    return {
+      ...this.d.tokens.issue(pending), action: "update", ...this.appliesTo(scope),
+      before, after, overlaps, instruction: CONFIRM_INSTRUCTION,
+    };
+  }
+
+  async previewDelete(args: DeleteArgs, call: ToolCallContext = {}): Promise<Record<string, unknown>> {
+    const cur = await this.current(args.id);
+    const occ = cur.occurrence;
+    const scope = this.scopeFor(occ, args.scope, "delete");
+    const ics = scope === "occurrence" ? deleteOccurrence(cur.parsed, occ.recurrenceKey!, this.zone, this.d.now()) : null;
+    const before = this.summary(occ, cur.calendar);
+    const pending: PendingChange = {
+      action: "delete", ...(scope ? { scope } : {}), calendarId: cur.calendar.id, before: cur.object, ics, occurrence: occ, title: occ.title,
+      beforeSummary: before, ...this.source(call),
+    };
+    return { ...this.d.tokens.issue(pending), action: "delete", ...this.appliesTo(scope), before, instruction: CONFIRM_INSTRUCTION };
+  }
+
+  private appliesTo(scope: "occurrence" | "series" | undefined) {
+    return scope ? { scope, appliesTo: scope === "series" ? "every occurrence of the series" : "only this occurrence" } : {};
+  }
+
+  async confirm(tokenArg: string | undefined, call: ToolCallContext = {}): Promise<Record<string, unknown>> {
+    const p = this.d.tokens.take(present(tokenArg));
+    const calendar = (await this.account()).calendars.find((c) => c.id === p.calendarId);
+    if (!calendar) throw new StaleEventError("That event's calendar is no longer available, so nothing changed.");
+    const url = p.before.url;
+    let etag: string | null = null;
+    try {
+      if (p.ics === null) await this.write(calendar, () => this.d.client.delete(url, p.before.etag));
+      else etag = await this.write(calendar, () => this.d.client.put(url, p.ics!, p.before.etag));
+    } catch (e) {
+      if (e instanceof PreconditionFailed) throw await this.stale(url, p.occurrence, `"${p.title}" changed in iCloud after the preview, so nothing was applied.`);
+      throw e;
+    }
+    const source: ToolCallContext = { channel: call.channel ?? (p.channel as ToolCallContext["channel"]), conversationId: call.conversationId ?? p.conversationId };
+    this.afterWrite({
+      action: p.action, ...(p.scope ? { scope: p.scope } : {}), calendar, url, uid: p.occurrence.uid, title: p.title,
+      before: { ics: p.before.ics, summary: p.beforeSummary },
+      after: p.ics !== null && etag !== null ? { ics: p.ics, etag, summary: p.afterSummary ?? p.beforeSummary } : null,
+      call: source,
+    });
+    if (p.action === "delete") {
+      const which = p.scope === "occurrence" ? " (only this occurrence)" : p.scope === "series" ? " and every other occurrence of the series" : "";
+      return { done: true, action: "delete", ...(p.scope ? { scope: p.scope } : {}), deleted: p.beforeSummary, say: `Deleted "${p.title}" on ${p.beforeSummary.when}${which}.` };
+    }
+    const after = p.afterSummary!;
+    let event: EventView | EventSummary = after;
+    if (p.scope !== "series" && p.ics !== null && etag !== null) {
+      const occurrence = findOccurrence(parseIcs(p.ics), p.occurrence.recurrenceKey, this.zone);
+      if (occurrence) event = this.view({ calendar, object: { url, etag, ics: p.ics }, occurrence });
+    }
+    return {
+      done: true, action: "update", ...(p.scope ? { scope: p.scope } : {}), event,
+      say: `Changed "${p.title}"${p.scope === "series" ? " (the whole series)" : ""}: now "${after.title}" on ${after.when}.`,
+    };
+  }
+
+  /** A StaleEventError whose message (and `current`) shows the event as iCloud has it now, if it still exists. */
+  async stale(url: string, occurrence: Occurrence, lead: string): Promise<StaleEventError> {
+    let current: EventSummary | undefined;
+    try {
+      const object = await this.icloud(() => this.d.client.get(url));
+      const found = object ? findOccurrence(parseIcs(object.ics), occurrence.recurrenceKey, this.zone) : undefined;
+      if (found) current = this.summary(found);
+    } catch {
+      // The stale error is the answer; failing to describe the current version must not hide it.
+    }
+    const tail = current ? ` It is now: "${current.title}", ${current.when}${current.location ? `, at ${current.location}` : ""}.` : " It no longer exists.";
+    return new StaleEventError(`${lead}${tail} List the events again before changing it.`, current ?? null);
   }
 }

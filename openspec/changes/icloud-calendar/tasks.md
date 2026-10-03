@@ -79,16 +79,16 @@
 
 ## 7. Previews, confirmation and invitations
 
-- [ ] 7.1 Implement `src/tokens.ts` (design D4): random 6-character tokens, single use, expiring after 5 minutes (injectable clock), each holding the exact request, the ETag, the before/after summaries, the channel and the conversation id. Verify with `test/tokens.test.ts`: a token is used up after one use, an expired token is rejected, and an unknown token is rejected.
-- [ ] 7.2 Implement `calendar_update_event` and `calendar_delete_event` (spec "Previewing edits and deletions"):
+- [x] 7.1 Implement `src/tokens.ts` (design D4): random 6-character tokens, single use, expiring after 5 minutes (injectable clock), each holding the exact request, the ETag, the before/after summaries, the channel and the conversation id. Verify with `test/tokens.test.ts`: a token is used up after one use, an expired token is rejected, and an unknown token is rejected.
+- [x] 7.2 Implement `calendar_update_event` and `calendar_delete_event` (spec "Previewing edits and deletions"):
   - at least one field for an edit; an empty `location`/`notes` clears it; a new start keeps the duration;
   - `scope` required for recurring events; series date changes refused;
   - read-only events and invitations refused before a token is issued;
   - the preview contains `token`, `expiresInSeconds`, `before`, `after`, `overlaps` and the `instruction`.
 
   Verify in `tools.test.ts`: no write request is sent during a preview, plus one case per spec scenario.
-- [ ] 7.3 Implement `calendar_confirm` (spec "Confirming a change"): replay the stored request with `If-Match`; on a 412 or 404, fetch the current version and fail with it; refresh the handle and trigger the agenda refresh on success. Verify in `tools.test.ts`: a confirmed edit, a reused token, a change made on the phone in the meantime (412 with the current version in the error), an occurrence delete, and a series delete.
-- [ ] 7.4 Document the confirmation flow in the README (preview, read-back, confirm; invitations are read-only). Verify by reading it back against the spec.
+- [x] 7.3 Implement `calendar_confirm` (spec "Confirming a change"): replay the stored request with `If-Match`; on a 412 or 404, fetch the current version and fail with it; refresh the handle and trigger the agenda refresh on success. Verify in `tools.test.ts`: a confirmed edit, a reused token, a change made on the phone in the meantime (412 with the current version in the error), an occurrence delete, and a series delete.
+- [x] 7.4 Document the confirmation flow in the README (preview, read-back, confirm; invitations are read-only). Verify by reading it back against the spec.
 
 ## 8. Change log and undo
 

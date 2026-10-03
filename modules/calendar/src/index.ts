@@ -13,6 +13,7 @@ import { CalDavClient } from "./caldav.js";
 import { EventHandles } from "./handles.js";
 import { CalendarService } from "./service.js";
 import { Settings } from "./settings.js";
+import { TokenStore } from "./tokens.js";
 import { defineCalendarTools } from "./tools.js";
 
 export interface CalendarOptions {
@@ -45,7 +46,7 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
       const settings = new Settings(ctx.storage);
       await settings.load();
       const zone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
-      const service = new CalendarService({ client, settings, handles: new EventHandles(now), zone, now });
+      const service = new CalendarService({ client, settings, handles: new EventHandles(now), tokens: new TokenStore(now), zone, now });
       defineCalendarTools(ctx, service);
     },
   });

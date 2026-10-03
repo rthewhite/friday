@@ -164,6 +164,27 @@ export function expand(parsed: ParsedObject, from: number, to: number, zone: str
   return out;
 }
 
+/**
+ * The occurrence a handle points at, in a freshly fetched object: the event itself for a non-recurring one, or the
+ * occurrence originally at `recurrenceKey`. Undefined when it no longer exists (deleted, cancelled, or the event
+ * became recurring or stopped being so).
+ */
+export function findOccurrence(parsed: ParsedObject, recurrenceKey: string | undefined, zone: string): Occurrence | undefined {
+  const { master } = parsed;
+  if (recurrenceKey === undefined) {
+    if (!master || new ICAL.Event(master, { exceptions: [] }).isRecurring() || cancelled(master)) return undefined;
+    return { ...details(master, text(master, "uid") ?? ""), ...componentSpan(master, zone), recurring: false };
+  }
+  if (!master) {
+    const o = parsed.overrides.find((c) => (c.getFirstPropertyValue("recurrence-id") as Time).toString() === recurrenceKey);
+    return o && !cancelled(o) ? { ...details(o, text(o, "uid") ?? ""), ...componentSpan(o, zone), recurring: true, recurrenceKey } : undefined;
+  }
+  const override = findOverride(parsed, recurrenceKey, zone);
+  if (override) return cancelled(override) ? undefined : { ...details(override, text(master, "uid") ?? ""), ...componentSpan(override, zone), recurring: true, recurrenceKey };
+  const at = recurrenceInstant(parsed, recurrenceKey, zone);
+  return expand(parsed, at, at + 1, zone).find((o) => o.recurrenceKey === recurrenceKey);
+}
+
 /** True when the event's organizer is someone other than the account. */
 export function isInvitation(o: Pick<Occurrence, "organizer">, ownAddresses: string[]): boolean {
   return !!o.organizer && !ownAddresses.includes(o.organizer);
