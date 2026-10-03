@@ -2,9 +2,9 @@
 
 ## 1. SDK: shared date-time parser
 
-- [ ] 1.1 Move travel's `toRfc3339`, `parseOffset`, `zoneOffsetMinutes` and `formatOffset` into `packages/sdk/src/time.ts` and export them as `parseDateTime(value, zone)`, returning `{ value, instant } | null` (design D9). Verify with `packages/sdk/test` cases for the new `module-system` scenarios: offset-less in the zone, own offset kept, 30 February and RFC 2822 rejected, and a time across the October DST change. Run `pnpm --filter @friday/sdk test` and `typecheck`.
-- [ ] 1.2 Make `modules/travel/src/helpers.ts` use `parseDateTime` and delete its private copies. Verify that `pnpm --filter @friday/module-travel test` and `typecheck` pass with the existing `validateTimeArgs` tests unchanged.
-- [ ] 1.3 Update the `module-system` mention of the time helper in `openspec/config.yaml` context to name the parser. Verify by reading it back.
+- [x] 1.1 Move travel's `toRfc3339`, `parseOffset`, `zoneOffsetMinutes` and `formatOffset` into `packages/sdk/src/time.ts` and export them as `parseDateTime(value, zone)`, returning `{ value, instant } | null` (design D9). Verify with `packages/sdk/test` cases for the new `module-system` scenarios: offset-less in the zone, own offset kept, 30 February and RFC 2822 rejected, and a time across the October DST change. Run `pnpm --filter @friday/sdk test` and `typecheck`.
+- [x] 1.2 Make `modules/travel/src/helpers.ts` use `parseDateTime` and delete its private copies. Verify that `pnpm --filter @friday/module-travel test` and `typecheck` pass with the existing `validateTimeArgs` tests unchanged.
+- [x] 1.3 Update the `module-system` mention of the time helper in `openspec/config.yaml` context to name the parser. Verify by reading it back.
 
 ## 2. Module scaffold, credentials and registration
 

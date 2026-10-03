@@ -1,4 +1,4 @@
-import { DEFAULT_TIME_ZONE } from "@friday/sdk";
+import { DEFAULT_TIME_ZONE, parseDateTime } from "@friday/sdk";
 import type { ResolvedPlace } from "./types.js";
 
 /** Matches "52.379, 4.899" — a bare coordinate pair, with or without spaces. */
@@ -53,7 +53,7 @@ export function validateTimeArgs(
   }
 
   if (departAt) {
-    const parsed = toRfc3339(departAt, timeZone);
+    const parsed = parseDateTime(departAt, timeZone);
     if (!parsed) {
       return { ok: false, message: `departAt is not a valid timestamp: "${departAt}".` };
     }
@@ -67,7 +67,7 @@ export function validateTimeArgs(
   }
 
   if (arriveAt) {
-    const parsed = toRfc3339(arriveAt, timeZone);
+    const parsed = parseDateTime(arriveAt, timeZone);
     if (!parsed) {
       return { ok: false, message: `arriveAt is not a valid timestamp: "${arriveAt}".` };
     }
@@ -82,74 +82,6 @@ export function validateTimeArgs(
 
 function present(value: string | null | undefined): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-/**
- * "2026-10-01T08:00", "2026-10-01 08:00:00.000", "2026-10-01T08:00:00+02:00", "…Z":
- * an ISO 8601 date-time with an optional RFC 3339 offset.
- */
-const DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/i;
-
-/**
- * TomTom wants RFC 3339, written as `YYYY-MM-DDTHH:mm:ss` plus an offset. A value
- * that carries an offset keeps it, so the caller's intended zone survives; a local
- * date-time is given `timeZone`'s offset at that moment. Anything else, including
- * a date that does not exist, is not a timestamp. (Date.parse is not used: V8
- * accepts RFC 2822, "+0200" and 30 February.)
- */
-function toRfc3339(value: string, timeZone: string): { value: string; instant: number } | null {
-  const m = DATE_TIME.exec(value);
-  if (!m) return null;
-  const [y, mo, d, h, mi, s] = [m[1], m[2], m[3], m[4], m[5], m[6] ?? "00"].map(Number);
-  const wallClock = Date.UTC(y, mo - 1, d, h, mi, s);
-  // Date.UTC rolls 2026-02-30 over into March; a date that does not round-trip is not a date.
-  const check = new Date(wallClock);
-  if (check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d || check.getUTCHours() !== h || check.getUTCMinutes() !== mi || check.getUTCSeconds() !== s) {
-    return null;
-  }
-
-  let offset: number;
-  let suffix: string;
-  if (m[7]) {
-    offset = parseOffset(m[7]);
-    if (Number.isNaN(offset)) return null;
-    suffix = m[7].toUpperCase();
-  } else {
-    // The offset depends on the instant, which depends on the offset: guess with the
-    // wall-clock time read as UTC, then correct once in case that crossed a DST change.
-    offset = zoneOffsetMinutes(timeZone, wallClock - zoneOffsetMinutes(timeZone, wallClock) * 60_000);
-    suffix = formatOffset(offset);
-  }
-
-  const date = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] ?? "00"}`;
-  return { value: date + suffix, instant: wallClock - offset * 60_000 };
-}
-
-/** "Z" or "±HH:MM" as minutes east of UTC; NaN when out of range. */
-function parseOffset(offset: string): number {
-  if (offset.toUpperCase() === "Z") return 0;
-  const hours = Number(offset.slice(1, 3));
-  const minutes = Number(offset.slice(4, 6));
-  if (hours > 23 || minutes > 59) return NaN;
-  return (offset[0] === "-" ? -1 : 1) * (hours * 60 + minutes);
-}
-
-/** Minutes east of UTC for `timeZone` at `instant`, e.g. 120 for Amsterdam in summer. */
-function zoneOffsetMinutes(timeZone: string, instant: number): number {
-  const name = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" })
-    .formatToParts(instant)
-    .find((p) => p.type === "timeZoneName")?.value;
-  // "GMT+02:00", or plain "GMT" for UTC itself.
-  const m = /GMT([+-])(\d{2}):?(\d{2})?/.exec(name ?? "");
-  if (!m) return 0;
-  return (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0));
-}
-
-function formatOffset(minutes: number): string {
-  if (minutes === 0) return "Z";
-  const sign = minutes < 0 ? "-" : "+";
-  const abs = Math.abs(minutes);
-  return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
 
 /**

@@ -126,7 +126,7 @@ The key `settings` holds `{ calendars: { [id]: { use, inAgenda } }, defaultId? }
 
 ### D9. Shared date-time parser in the SDK
 
-Travel's `toRfc3339`, `zoneOffsetMinutes`, `parseOffset` and `formatOffset` move to `packages/sdk/src/time.ts` and are exported as `parseDateTime(value, zone)`, which returns `{ value, instant } | null`. Travel imports it, and its tests for the format rules move to the SDK. Calendar also uses `startOfLocalDay` and `localDate` for date-only inputs and day windows. This keeps "2026-10-08T15:00" meaning the same in both modules, and avoids a second copy of the DST-correct offset logic.
+Travel's `toRfc3339`, `zoneOffsetMinutes`, `parseOffset` and `formatOffset` move to `packages/sdk/src/time.ts` and are exported as `parseDateTime(value, zone)`, which returns `{ value, instant } | null`. `offsetMinutes` and `formatOffset` are exported too, for the calendar's output times and generated `VTIMEZONE`s. Travel imports it, and its tests for the format rules move to the SDK. Calendar also uses `startOfLocalDay` and `localDate` for date-only inputs and day windows. This keeps "2026-10-08T15:00" meaning the same in both modules, and avoids a second copy of the DST-correct offset logic.
 
 ### D10. Tool results built for speech
 
