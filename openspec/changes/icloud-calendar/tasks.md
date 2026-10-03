@@ -34,7 +34,7 @@
 
 ## 4. iCalendar layer
 
-- [ ] 4.1 Implement `src/ical.ts` on `ical.js` (design D2):
+- [x] 4.1 Implement `src/ical.ts` on `ical.js` (design D2):
   - parse objects and register their `VTIMEZONE`s;
   - expand occurrences inside a range, honouring `EXDATE` and `RECURRENCE-ID` overrides;
   - map them to the event shape (title, start/end in `FRIDAY_TIMEZONE`, all-day dates with an inclusive end, `when` text, notes cut to 500 characters, `recurring`).
@@ -45,8 +45,8 @@
   - a weekly event with one moved and one deleted occurrence;
   - a weekly event across the late-October DST change (stays at 09:00 local time);
   - the `when` formats.
-- [ ] 4.2 Implement invitation detection (design D5): `ORGANIZER` not in the own addresses or `ICLOUD_USERNAME`, compared case-insensitively. Verify with tests: an invitation gets `readOnly` with an "invitation" reason, and an event without an organizer, or organized by the user, does not.
-- [ ] 4.3 Implement the builders:
+- [x] 4.2 Implement invitation detection (design D5): `ORGANIZER` not in the own addresses or `ICLOUD_USERNAME`, compared case-insensitively. Verify with tests: an invitation gets `readOnly` with an "invitation" reason, and an event without an organizer, or organized by the user, does not.
+- [x] 4.3 Implement the builders:
   - `buildEvent` (UID, DTSTAMP, TZID plus a generated `VTIMEZONE`, `VALUE=DATE` all-day with an exclusive end, `RRULE` from `repeat`/`repeatUntil`);
   - `applyEdit` (non-recurring; occurrence override with `RECURRENCE-ID`; series time-of-day shift, refusing a date change);
   - `deleteOccurrence` (`EXDATE`, removing an existing override).
