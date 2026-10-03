@@ -8,7 +8,12 @@
  *   ICLOUD_APP_PASSWORD  an app-specific password (account.apple.com > Sign-In and Security)
  *   FRIDAY_TIMEZONE      household zone for times without an offset and for every time returned
  */
-import { DEFAULT_TIME_ZONE, defineModule } from "@friday/sdk";
+import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone } from "@friday/sdk";
+import { CalDavClient } from "./caldav.js";
+import { EventHandles } from "./handles.js";
+import { CalendarService } from "./service.js";
+import { Settings } from "./settings.js";
+import { defineCalendarTools } from "./tools.js";
 
 export interface CalendarOptions {
   /** Injectable for tests. */
@@ -17,7 +22,8 @@ export interface CalendarOptions {
   now?: () => Date;
 }
 
-export function createCalendarModule(_opts: CalendarOptions = {}) {
+export function createCalendarModule(opts: CalendarOptions = {}) {
+  const now = opts.now ?? (() => new Date());
   return defineModule({
     manifest: {
       id: "calendar",
@@ -30,7 +36,18 @@ export function createCalendarModule(_opts: CalendarOptions = {}) {
         { key: "FRIDAY_TIMEZONE", description: `IANA zone for event times (default ${DEFAULT_TIME_ZONE})` },
       ],
     },
-    init() {},
+    async init(ctx) {
+      const client = new CalDavClient({
+        fetch: opts.fetch,
+        credentials: () => ({ username: ctx.config.require("ICLOUD_USERNAME").trim(), password: ctx.config.require("ICLOUD_APP_PASSWORD").trim() }),
+        log: ctx.log,
+      });
+      const settings = new Settings(ctx.storage);
+      await settings.load();
+      const zone = householdTimeZone(ctx.config, (m) => ctx.log.warn(m));
+      const service = new CalendarService({ client, settings, handles: new EventHandles(now), zone, now });
+      defineCalendarTools(ctx, service);
+    },
   });
 }
 

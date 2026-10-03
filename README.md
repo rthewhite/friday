@@ -343,6 +343,13 @@ Setup:
 
 Your normal Apple ID password does not work here; iCloud only accepts app-specific passwords for CalDAV. The password also opens mail and contacts over IMAP and CardDAV, so it is stored as a secret (encrypted, write-only), only ever sent to `*.icloud.com`, and never logged. Revoke it on its own by deleting "Friday" on the same page; changing your Apple ID password revokes every app-specific password at once. A rejected password makes the tools say so and point back here. A new one saved in the portal is used from the next request, without a reload. The module is `failed` until both keys are set; leave it out with `FRIDAY_MODULES` if you don't want it.
 
+Reading and adding, on voice and chat:
+
+- `calendar_list_events`: "What's on Thursday?", "When is the dentist?". Takes `from`/`to` (dates or date-times; a `to` date includes that whole day), an optional `query` (every word must appear in the title, location or notes) and `calendar` (by name). Without `from` it starts today; without `to` it covers 7 days, or 365 with a query. At most 366 days and 50 events per call. Recurring events are expanded, moved and cancelled occurrences included. Each event has a short `id` (like `e7k2`, valid for two hours after it was last listed), `start`/`end` in `FRIDAY_TIMEZONE` (dates with an inclusive end for all-day events), a readable `when`, and `readOnly` with a reason for read-only calendars and invitations.
+- `calendar_create_event`: "Put the plumber in for Tuesday at nine". Takes `title`, `start`, and optionally `end` (an hour later by default; for all-day events the last day), `allDay` (implied by a date), `location`, `notes`, `calendar` (else the default), `repeat` (`daily`/`weekly`/`monthly`/`yearly`) and `repeatUntil`. It is created at once; the result has a `say` read-back and lists overlapping timed events, so Friday can mention a clash.
+
+Times without an offset are household time, and every time Friday gets back is too. Travel time combines on its own: "when do I need to leave for the dentist?" is a list call plus `get_travel_time` to the event's location.
+
 ## Voice devices
 
 Voice satellites (the Voice PE below, and later others) are onboarded by trust on first use, under **Settings > Voice devices**:

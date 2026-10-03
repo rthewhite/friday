@@ -179,8 +179,9 @@ export class CalDavClient {
     } catch {
       throw new UpstreamError(`iCloud's ${op} response could not be read (not XML).`);
     }
-    const responses = doc?.multistatus?.response;
-    if (!Array.isArray(responses)) throw new UpstreamError(`iCloud's ${op} response could not be read (no multistatus).`);
+    if (!doc || !("multistatus" in doc)) throw new UpstreamError(`iCloud's ${op} response could not be read (no multistatus).`);
+    // An empty calendar answers with an empty <multistatus/>.
+    const responses = doc.multistatus?.response ?? [];
     return { url: res.url || url, responses: responses as any[] };
   }
 

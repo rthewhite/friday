@@ -63,6 +63,11 @@ test("a range query sends a UTC time-range and returns each object's ICS and ETa
   assert.equal(utcStamp(from), "20261007T220000Z");
 });
 
+test("an empty calendar answers an empty multistatus and returns no objects", async () => {
+  const { client } = setup();
+  assert.deepEqual(await client.query(CAL("work"), new Date(0), new Date(1)), []);
+});
+
 test("put creates with If-None-Match, updates with If-Match, and returns the new ETag", async () => {
   const { client, fake } = setup();
   const url = `${CAL("home")}new.ics`;

@@ -30,7 +30,7 @@
   - a 412 or 404 on a conditional write becomes `StaleEventError`;
   - a redirect to a non-iCloud host gets no `Authorization` header;
   - no error message or captured log line contains the password.
-- [ ] 3.3 Read credentials per request and key the discovery cache by username. Verify with a test: after a 401, saving a new password in the test host's config makes the next call succeed without a reload.
+- [x] 3.3 Read credentials per request and key the discovery cache by username. Verify with a test: after a 401, saving a new password in the test host's config makes the next call succeed without a reload.
 
 ## 4. iCalendar layer
 
@@ -66,7 +66,7 @@
 
 ## 6. Read and create tools
 
-- [ ] 6.1 Implement `calendar_list_events` (spec "Listing events"):
+- [x] 6.1 Implement `calendar_list_events` (spec "Listing events"):
   - the `from`/`to` defaults (7 days, or 365 with a query), dates in `to` covering the whole day, the 366-day limit, `to` after `from`;
   - the `query` word match on title, location and notes;
   - the `calendar` name filter, with an error listing the used calendars;
@@ -74,8 +74,8 @@
   - sorted by start, capped at 50 with `truncated` and the total.
 
   Verify with `test/tools.test.ts` against the fake fetch, one case per spec scenario plus each validation error.
-- [ ] 6.2 Implement `calendar_create_event` (spec "Creating events"): the default durations, the target calendar rules, `If-None-Match: *`, the `overlaps` from used calendars, the `say` text, and the handle for the new event. Verify in `tools.test.ts`: a simple create in the default calendar; an overlap reported while the event is still created; a weekly event with an end date; a read-only or unknown calendar creating nothing; an all-day event with an inclusive end.
-- [ ] 6.3 Extend the README's calendar section with example requests and the list/create behaviour. Verify that the examples match the tool parameters.
+- [x] 6.2 Implement `calendar_create_event` (spec "Creating events"): the default durations, the target calendar rules, `If-None-Match: *`, the `overlaps` from used calendars, the `say` text, and the handle for the new event. Verify in `tools.test.ts`: a simple create in the default calendar; an overlap reported while the event is still created; a weekly event with an end date; a read-only or unknown calendar creating nothing; an all-day event with an inclusive end.
+- [x] 6.3 Extend the README's calendar section with example requests and the list/create behaviour. Verify that the examples match the tool parameters.
 
 ## 7. Previews, confirmation and invitations
 
