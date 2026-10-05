@@ -109,7 +109,7 @@
 ## 11. Portal page
 
 - [x] 11.1 Add a `calendar` icon to `packages/portal-ui/src/components/Icon.vue`, and `src/ui/index.ts` with `defineModuleUi` (nav "Calendar", order 30, one route). Verify that `pnpm --filter @friday/portal build` includes the module (`scripts/gen-modules.mjs` picks it up).
-- [ ] 11.2 Build `src/ui/CalendarPage.vue` with the tabs (design D11):
+- [x] 11.2 Build `src/ui/CalendarPage.vue` with the tabs (design D11):
   - **Overview:** status with a refresh button; the calendars with colour, a read-only badge, `use`/`inAgenda` toggles and a default radio button; the agenda preview.
   - **Changes:** the log, with Undo where possible and errors shown inline.
 
@@ -118,7 +118,7 @@
 
 ## 12. Integration
 
-- [ ] 12.1 Do a manual end-to-end check against the user's real iCloud account with an app-specific password, in a dev server on free ports:
+- [x] 12.1 Do a manual end-to-end check against the user's real iCloud account with an app-specific password, in a dev server on free ports:
   - the calendars are discovered;
   - "what's on tomorrow" in chat matches the Calendar app;
   - create, then a previewed and confirmed move, then delete one occurrence of a test recurring event, then undo; each shows up on the phone;
