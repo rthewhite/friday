@@ -10,7 +10,7 @@
   Verify: `dfu-util -l` lists the device before the flash, and the flash completes without errors.
 
   Done 2026-10-05 by the user: the image's md5 matched (`b62766ccf8fbbaf924d0d13beace495b`), the flash completed, and the board no longer appears in DFU mode afterwards.
-- [ ] 1.2 Bring up the board with a throwaway YAML in the scratchpad, not committed. It checks:
+- [x] 1.2 Bring up the board with a throwaway YAML in the scratchpad, not committed. It checks:
   - an I2C scan answers at `0x2C` and `0x18`,
   - a lambda reads `VERSION` (48, 0) and gets 1.0.9,
   - raw I2S mic peak levels for left and right at 48 kHz, while speaking and while silent,
@@ -19,6 +19,8 @@
   - one `LED_RING_COLOR` write lights the ring, which settles the byte order and where LED 0 sits.
 
   Record the results in `design.md`. Specifically: whether the codec needs host init (decision 6), whether native mute drives GPO 30 (decision 5), and the LED byte order. Update the decisions if any finding contradicts them. Verify: every check has a recorded result.
+
+  Done 2026-10-05: results are in design.md (Context, "Bring-up results"). Everything passed except the speaker tone, which couldn't be checked because no speaker was attached; the user chose to continue and leave that check to task 6.1. Native mute drives GPO 30, so no fallback is needed. The LED byte order is 0x00RRGGBB, and LED 0 is at the top centre.
 
 ## 2. XVF3800 protocol (host)
 
