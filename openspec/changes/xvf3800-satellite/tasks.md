@@ -40,7 +40,7 @@
 
 ## 3. Decimating microphone
 
-- [ ] 3.1 Write `esphome/components/decimating/decimator.h` (header-only, no ESPHome includes) as described in design decision 3:
+- [x] 3.1 Write `esphome/components/decimating/decimator.h` (header-only, no ESPHome includes) as described in design decision 3:
   - Kaiser-windowed-sinc design from tap count, cutoff and β,
   - per-channel state,
   - decimation by 3 over interleaved 32-bit samples, computing only the kept outputs.
@@ -53,7 +53,9 @@
   - channels kept separate.
 
   Verify: `esphome/test/run.sh` passes.
-- [ ] 3.2 Add the ESPHome platform `microphone: - platform: decimating` in `esphome/components/decimating/` (`__init__.py`, `microphone.py`, `decimating_microphone.h/.cpp`). It:
+
+  Done: with 175 taps, cutoff 7.5 kHz and β 5.65, the measured passband is -0.008 to +0.006 dB, the worst stopband tone -61 dB, and a 12 kHz tone -80 dB.
+- [x] 3.2 Add the ESPHome platform `microphone: - platform: decimating` in `esphome/components/decimating/` (`__init__.py`, `microphone.py`, `decimating_microphone.h/.cpp`). It:
   - wraps a source microphone given by id and requires a 48 kHz, 32-bit source;
   - declares output stream limits of 16 kHz, the source's channels and 32 bits, so `microphone_source` final validation passes;
   - reference-counts `start()` / `stop()` to the source;
@@ -61,6 +63,8 @@
   - filters in the source's data callback.
 
   Verify with a minimal scratch YAML (i2s mic → decimating mic → `micro_wake_word` on channel 1 and a 16 kHz `microphone_source`): `esphome config` passes, `esphome compile` succeeds, and a config feeding a 16 kHz source into `decimating` is rejected with a clear message.
+
+  Done: the scratch config (decimating feeding `friday_client` on channel 0 and `micro_wake_word` on channel 1) validates and compiles. A 16 kHz source is refused with "Invalid configuration for the specified microphone. The decimating component requires a 48000 sample rate." start()/stop() pass straight through to the source, which already counts its listeners; the platform keeps its own count only to know when to filter and when to reset.
 
 ## 4. XVF3800 hub and LED ring
 
