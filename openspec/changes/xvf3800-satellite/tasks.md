@@ -2,12 +2,14 @@
 
 ## 1. Hardware bring-up
 
-- [ ] 1.1 With the user, flash the XVF3800 once. Steps:
+- [x] 1.1 With the user, flash the XVF3800 once. Steps:
   - Download `respeaker_xvf3800_i2s_master_v1.0.9_48k.bin` from `respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY` and check its md5 against the repo.
   - Put the board in safe mode: hold Mute while plugging in the XVF USB port.
   - Run `dfu-util -R -e -a 1 -D <file>`.
 
   Verify: `dfu-util -l` lists the device before the flash, and the flash completes without errors.
+
+  Done 2026-10-05 by the user: the image's md5 matched (`b62766ccf8fbbaf924d0d13beace495b`), the flash completed, and the board no longer appears in DFU mode afterwards.
 - [ ] 1.2 Bring up the board with a throwaway YAML in the scratchpad, not committed. It checks:
   - an I2C scan answers at `0x2C` and `0x18`,
   - a lambda reads `VERSION` (48, 0) and gets 1.0.9,
@@ -20,7 +22,7 @@
 
 ## 2. XVF3800 protocol (host)
 
-- [ ] 2.1 Read `python_control/xvf_host.py` at the 1.0.9 tag. Write `esphome/components/xvf3800/xvf3800_protocol.h` (header-only, no ESPHome includes) containing:
+- [x] 2.1 Read `python_control/xvf_host.py` at the 1.0.9 tag. Write `esphome/components/xvf3800/xvf3800_protocol.h` (header-only, no ESPHome includes) containing:
   - the 1.0.9 command ids used here: `VERSION`, `GPO_READ_VALUES`, `GPO_WRITE_VALUE`, `LED_EFFECT`, `LED_RING_COLOR`, AUDIO_MGR `OP_L` / `OP_R`, `AEC_ASROUTONOFF` and PP `AGCONOFF`, plus the routing category values for decision 4;
   - write and read frame builders;
   - status classification (done, retry, error);
@@ -33,6 +35,8 @@
   - a frame over 60 bytes refused.
 
   Verify: `esphome/test/run.sh` passes.
+
+  Done: ids from `xvf_host.py` at master `4b49bfd19977` (the repo has no tags; its I2S readme marks 1.0.9 current), routing categories from the XMOS user guide (6 processed, 7 AEC residual / ASR, source 3 auto-select). Reads follow Seeed's I2C example: request with a stop, then a separate read.
 
 ## 3. Decimating microphone
 
