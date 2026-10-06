@@ -53,7 +53,7 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 
 `esphome/components/xvf3800/` holds an `I2CDevice` hub at `0x2C` and a `light` platform.
 
-- **Setup (after I2C).** The hub reads `VERSION` (48, 0). If the chip doesn't answer, or reports anything other than `1.0.9`, it marks itself not ready with a reason. Otherwise it applies the boot settings:
+- **Setup (after I2C).** The hub reads `VERSION` (48, 0), every 250 ms for up to 10 s from `loop()`, because the XVF3800 boots alongside the ESP32. Meanwhile the ring keeps its pending colours and writes them once the hub is ready. If the chip doesn't answer in time, or reports anything other than `1.0.9`, it marks itself not ready with a reason. Otherwise it applies the boot settings:
   - output routing for I2S left and right (decision 4),
   - AGC (on in the satellite YAML, decision 4),
   - GPO 31 low (amp on), GPO 33 high (LED power),
