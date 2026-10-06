@@ -435,7 +435,7 @@ The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_ch
 
 ## reSpeaker XVF3800 (ESP32)
 
-`esphome/friday-respeaker.yaml` turns a Seeed reSpeaker XVF3800 4-mic array with its XIAO ESP32-S3 into a wake-word Friday satellite, with the same `friday_client`, wake word, onboarding and LED patterns as the Voice PE. The XVF3800 does the echo cancellation, noise suppression, the Mute button and the speaker codec. The ESP32 controls it over I2C (`esphome/components/xvf3800/`) and low-pass filters its 48 kHz audio down to the 16 kHz Friday and the wake word need (`esphome/components/decimating/`). Both components have host tests: `esphome/test/run.sh` (plain C++17, not part of `pnpm test`).
+`esphome/friday-respeaker.yaml` turns a Seeed reSpeaker XVF3800 4-mic array with its XIAO ESP32-S3 into a wake-word Friday satellite, with the same `friday_client`, onboarding and LED patterns as the Voice PE. The XVF3800 does the echo cancellation, noise suppression, the Mute button and the speaker codec. The ESP32 controls it over I2C (`esphome/components/xvf3800/`) and low-pass filters its 48 kHz audio down to the 16 kHz Friday and the wake word need (`esphome/components/decimating/`). Both components have host tests: `esphome/test/run.sh` (plain C++17, not part of `pnpm test`).
 
 The board has two USB-C ports. The **XIAO's** (on the ESP32 module) powers the whole board and is the one for flashing the ESP32 and reading logs. The **XVF3800's** is only needed for the one-time XVF3800 flash below.
 
@@ -465,7 +465,7 @@ Onboarding is as for the Voice PE (see [Voice devices](#voice-devices)). The dev
 
 Usage:
 
-- **Talking.** Say **"hey friday"**. A chime confirms it, and Friday ends the session itself as on the Voice PE. Sessions start by wake word only; no button starts or stops one.
+- **Talking.** Say **"hey jarvis"**. A chime confirms it, and Friday ends the session itself as on the Voice PE. The board uses ESPHome's official `hey_jarvis` model because the community "hey friday" model missed most attempts on it; to change the phrase, swap the `model:` line under `micro_wake_word` (for example `okay_nabu`). Sessions start by wake word only; no button starts or stops one.
 - **Mute.** The **Mute** button cuts the microphones in hardware and lights the red LED, and pressing it again unmutes. The **Mute** switch in Home Assistant does the same. While muted, the wake word does nothing. Mute survives restarts and power cuts.
 - **Volume.** The **Volume** number in Home Assistant (0 to 100 %, default 60 %) sets the speaker volume and survives restarts.
 
@@ -474,7 +474,7 @@ The LED ring shows the same patterns as the Voice PE table above, except the mut
 Troubleshooting:
 
 - **Wake word does nothing and the ring stays dark**: look at the XVF3800 status sensor or the log (above).
-- **Friday hears you too quietly**: raise `gain_factor` under `friday_client`'s `microphone` (I2S left, the XVF3800's processed beam, AGC off). For the wake word, tune `probability_cutoff` or `gain_factor` under `micro_wake_word` (I2S right, the ASR beam).
+- **Friday hears you too quietly**: raise `gain_factor` under `friday_client`'s `microphone` (I2S left, the XVF3800's processed beam, AGC off). Leave the wake word's `gain_factor` at 1: the XVF3800's audio is already loud, and more gain clips it. If the wake word misses or triggers on its own, tune `probability_cutoff` under its model.
 - **Friday interrupts itself**: as on the Voice PE, keep all playback on `friday_speaker` (the XVF3800 uses it as its echo reference) and raise `barge_in_delay` if needed.
 
 ## MCP servers

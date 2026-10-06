@@ -34,8 +34,8 @@ esphome:
       - speaker.volume_set:
           id: i2s_audio_speaker
           volume: !lambda return id(speaker_volume);
-      # Wake word: listen for "hey friday" while idle.
-      - micro_wake_word.enable_model: hey_friday
+      # Wake word: listen for "hey jarvis" while idle.
+      - micro_wake_word.enable_model: wake_word
       - micro_wake_word.start:
 
 esp32:
@@ -154,24 +154,28 @@ friday_client:
         condition:
           lambda: return id(friday).get_state() == friday_client::State::IDLE;
         then:
-          - micro_wake_word.enable_model: hey_friday
+          - micro_wake_word.enable_model: wake_word
         else:
-          - micro_wake_word.disable_model: hey_friday
+          - micro_wake_word.disable_model: wake_word
 
 # On-device wake word detection. Nothing is sent to the server until it fires.
-# Same pinned "hey friday" model as friday-voice-pe.yaml (see the notes there).
-# It listens on I2S right, the XVF3800's ASR beam.
+# "hey jarvis" is one of ESPHome's official models. The community "hey friday"
+# model used on the Voice PE scored too close to its cutoff on this board and
+# missed most attempts, while the official "okay nabu" was detected reliably from
+# several metres on the same audio. To change the phrase, swap the model line
+# (e.g. `model: okay_nabu`).
+# It listens on I2S right, the XVF3800's ASR beam, without extra gain: speech
+# already peaks around -10 to -3 dBFS there, so any gain_factor above 1 clips.
 micro_wake_word:
   id: mww
   microphone:
     microphone: mics_16k
     channels: 1
-    gain_factor: 4
   stop_after_detection: false
   vad:
   models:
-    - model: github://JohnnyPrimus/Custom_V2_MicroWakeWords/models/hey_friday/hey_friday.json@2987c5ae4e4c8e7ac277bdede0904d99b4ed477a
-      id: hey_friday
+    - model: hey_jarvis
+      id: wake_word
   on_wake_word_detected:
     # No session while muted or while the XVF3800 isn't running the supported firmware.
     - if:

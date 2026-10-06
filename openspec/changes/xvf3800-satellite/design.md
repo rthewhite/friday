@@ -114,6 +114,12 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 
 *Why AGC off:* on the Voice PE, AGC amplified the residual echo of Friday's own voice until Gemini took it for barge-in. If the level is low without AGC, `friday_client`'s microphone source takes a `gain_factor`, which is a YAML-only tuning knob.
 
+*Measured in task 6:* the XVF3800's output is hot. With speech from about a metre, the left channel peaks at −4 to 0 dBFS and the right at −10 to −3 dBFS (RMS around −20 and −25 dBFS), with a −57 to −66 dBFS RMS noise floor. Both microphone sources therefore use `gain_factor` 1. The Voice PE's wake word gain of 4 clipped almost every utterance here.
+
+### 4a. Wake word: an official model
+
+The reSpeaker uses ESPHome's official `hey_jarvis` model, not the Voice PE's community "hey friday" model. On this board "hey friday" scored at the edge of its 0.66 cutoff (detections at 0.67–0.73) and missed most attempts even at gain 1. The official `okay_nabu` on the same audio was detected reliably from several metres (8 of 8 in the counted run), which puts the problem in the model and not the audio path. The user chose `hey_jarvis`. The phrase stays a one-line YAML change, and the Voice PE keeps its model in this change.
+
 ### 5. Mute: the XVF3800 is the source of truth
 
 - **Button.** The firmware's native Mute-button handling toggles GPO 30, which mutes the mics in hardware and lights the red LED.
@@ -150,7 +156,7 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 - `board: esp32-s3-devkitc-1` with `flash_size: 8MB`, octal PSRAM at 80 MHz, the same cache and mbedTLS `sdkconfig_options`,
 - `wifi`, `api` with `reboot_timeout: 0s`, `ota`, `logger`,
 - `friday_client` on the decimated mic channel 0 and `friday_speaker`,
-- the same pinned `micro_wake_word` model on channel 1 and `on_wake_word_detected` guarded by mute and `xvf3800` ready,
+- `micro_wake_word` with the official `hey_jarvis` model (decision 4a) on channel 1 and `on_wake_word_detected` guarded by mute and `xvf3800` ready,
 - the `xvf3800` hub, the light platforms, the mute switch, the volume number, the fingerprint and XVF3800 status text sensors, and factory reset and restart buttons.
 
 `secrets.yaml` is shared with the Voice PE, with the same keys.
@@ -183,4 +189,4 @@ They are not part of `pnpm -r test`: the CI runner has no C++ toolchain guarante
 ## Open Questions
 
 - Whether the ring partitions need remapping so animations start at the front. LED 0 sits at the top centre of the board; which side is "front" depends on how the board is mounted. Cosmetic, settled in 5.1 or on the board.
-- Final defaults for `barge_in_delay` and the Friday mic `gain_factor`. They are YAML values and are set after listening tests.
+- The final `barge_in_delay`. Both `gain_factor`s are settled at 1 (decision 4).

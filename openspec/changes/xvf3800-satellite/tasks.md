@@ -95,7 +95,7 @@
   - the board, PSRAM, Wi-Fi, API (`reboot_timeout: 0s`), OTA and logger;
   - both I2S buses on shared pins, the I2S mic, the `decimating` mic, the speaker chain and software volume;
   - `friday_client` on decimated channel 0 with `friday_speaker`;
-  - `micro_wake_word` with the pinned "hey friday" model on channel 1, gated by `xvf3800` ready and mute;
+  - `micro_wake_word` on channel 1, gated by `xvf3800` ready and mute (the official `hey_jarvis` model since task 6, design decision 4a);
   - the `xvf3800` hub;
   - the ring light, its partitions and the copied effects, plus Twinkle for no Wi-Fi, all driven by `control_leds`;
   - the Mute template switch and `on_mute` mirroring into the decimating mic's mute flag (the hub itself keeps the state in flash and applies it at boot, design decision 5);
@@ -109,7 +109,7 @@
   - `esphome compile esphome/friday-voice-pe.yaml` still succeeds.
   - `git diff main -- esphome/components/friday_client esphome/friday-voice-pe.yaml` is empty.
 
-  Done 2026-10-06: `esphome config` and `esphome compile` pass for both YAML files, and the diff is empty. Left for the board in 6.x: the ring keeps the Voice PE's 66 % default and 20 % floor for state effects (check they're visible), and the segment order is LED 0 first (top centre). The mic `gain_factor` stays as on the Voice PE (1 for Friday, 4 for the wake word) until the listening tests.
+  Done 2026-10-06: `esphome config` and `esphome compile` pass for both YAML files, and the diff is empty. Left for the board in 6.x: the ring keeps the Voice PE's 66 % default and 20 % floor for state effects (check they're visible), and the segment order is LED 0 first (top centre). The mic `gain_factor` started as on the Voice PE (1 for Friday, 4 for the wake word); task 6 set the wake word's to 1.
 - [x] 5.2 Document the satellite. In `README.md`, add a "reSpeaker XVF3800" section next to the Voice PE's covering:
   - the one-time XVF3800 firmware flash (download, md5, safe mode, `dfu-util`, rollback to the USB firmware),
   - which USB port powers the board and which flashes the ESP32,
