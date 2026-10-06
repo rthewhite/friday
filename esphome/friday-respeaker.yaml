@@ -27,7 +27,8 @@ esphome:
   friendly_name: ${friendly_name}
   min_version: 2026.9.0
   on_boot:
-    priority: 375
+    # After every component's setup: micro_wake_word refuses to start before its own setup has run.
+    priority: -100
     then:
       - script.execute: control_leds
       - speaker.volume_set:
@@ -189,6 +190,8 @@ switch:
     icon: "mdi:microphone-off"
     name: Mute
     entity_category: config
+    # Never restored: a restored "off" would unmute the device at boot. The hub restores the XVF3800's state.
+    restore_mode: DISABLED
     lambda: return id(xvf).is_muted();
     turn_on_action:
       - xvf3800.mute: xvf

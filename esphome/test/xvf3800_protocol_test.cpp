@@ -40,6 +40,16 @@ TEST(led_ring_frame) {
   CHECK(out[50] == 0x00);
 }
 
+TEST(led_settings_frames) {
+  uint8_t value = LED_EFFECT_RING;
+  uint8_t out[4];
+  CHECK(build_write(LED_EFFECT, &value, 1, out, sizeof(out)) == 4);
+  CHECK(out[0] == 20 && out[1] == 12 && out[2] == 1 && out[3] == 5);
+  value = 0;
+  CHECK(build_write(LED_GAMMIFY, &value, 1, out, sizeof(out)) == 4);
+  CHECK(out[0] == 20 && out[1] == 14 && out[2] == 1 && out[3] == 0);
+}
+
 TEST(int32_payload) {
   uint8_t v[4];
   put_i32(1, v);
@@ -92,6 +102,7 @@ int main() {
   RUN(write_frame);
   RUN(read_request);
   RUN(led_ring_frame);
+  RUN(led_settings_frames);
   RUN(int32_payload);
   RUN(status_codes);
   RUN(version_parsing);

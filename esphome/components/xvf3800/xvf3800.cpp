@@ -92,6 +92,9 @@ bool XVF3800::configure_() {
   if (this->ring_used_) {
     uint8_t effect = LED_EFFECT_RING;
     ok &= this->write_cmd_(LED_EFFECT, &effect, 1);
+    // The light already applies ESPHome's gamma; a second correction on the chip turns dim colours off.
+    uint8_t gammify = 0;
+    ok &= this->write_cmd_(LED_GAMMIFY, &gammify, 1);
   }
   ok &= this->write_gpo_(GPO_MUTE, this->muted_ ? 1 : 0);
   if (ok)

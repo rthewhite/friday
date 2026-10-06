@@ -131,6 +131,12 @@
   - talking over Friday interrupts it.
 
   Verify: each of these is observed and noted in the task, with the `barge_in_delay` and `gain_factor` values used.
+
+  Progress 2026-10-06 (`barge_in_delay` 1500ms, `gain_factor` 1 for Friday and 4 for the wake word):
+  - Fixed on the board: `on_boot` ran at priority 375, before `micro_wake_word`'s setup, so the wake word never started. It now runs at -100.
+  - Speaker: with no network the chime is lost, because `fail_()` flushes playback 20 ms after the wake word. A test build chiming every 3 s without connecting played clearly through the JST speaker, so the codec needs no host init (decision 6 holds).
+  - Passed: the first wake word gave three `4403 pending` attempts with fingerprint `0a04-2977` (the same as the log). After accepting, a wake word opened a session. The reply played clearly through the speaker, Friday understood the question, and Friday ending the session ("user said goodbye") returned the device to idle with the ring off.
+  - Open: the long-reply and talk-over checks. The user found wake word detection weak (see below).
 - [ ] 6.2 On the board, check mute, LEDs, volume and restarts:
   - the Mute button and the HA switch both mute (red LED on, wake word ignored) and unmute;
   - muting mid-session sends silence while playback continues;
@@ -139,3 +145,10 @@
   - volume set to 40 % applies to the chime and reply and survives a restart.
 
   Verify: each spec scenario in `respeaker-client` is ticked off in this task's notes, and anything that didn't pass is fixed or recorded as a follow-up.
+
+  Progress 2026-10-06:
+  - Fixed on the board: the Mute template switch restored "off" at boot and called `xvf3800.unmute`, which would unmute a muted device whenever the hub was already ready. It is now `restore_mode: DISABLED`.
+  - Fixed on the board: the ring was dark at normal brightness because the XVF3800's `LED_GAMMIFY` added a second gamma correction. The hub now turns it off (design decision 1). Afterwards the 66 % no-Wi-Fi twinkle was clearly visible.
+  - Passed: the Mute button mutes and unmutes (red LED). The wake word is ignored while muted and detected after unmuting. After an ESP32-only restart and after a power cut the device came back muted (log `Muted: YES` / unmuted only by the button press).
+  - Passed: the ring showed the session patterns and was off when idle.
+  - Open: the HA Mute switch, muting mid-session, the OTA restart, the HA ring colour and volume.

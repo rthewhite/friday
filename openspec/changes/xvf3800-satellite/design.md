@@ -58,7 +58,7 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
   - AGC off,
   - GPO 31 low (amp on), GPO 33 high (LED power),
   - the mute state (decision 5),
-  - LED effect "ring", so the colours written by the light platform are shown.
+  - LED effect "ring", so the colours written by the light platform are shown, and `LED_GAMMIFY` (20, 14) off: the light already applies ESPHome's gamma, and the chip's own correction on top turned every dim colour off (found in task 6: the 66 % twinkle peaked at 11/255 and was invisible).
 - **Status.** It exposes `is_ready()` and a status string (`1.0.9`, `unsupported firmware 1.0.7 (needs 1.0.9)`, `not responding on I2C`). The YAML shows the string as a diagnostic `text_sensor`.
 - **Mute.** It exposes `set_mute(bool)` / `is_muted()` and an `on_mute` trigger.
 - **Retries.** Reads retry on status 1 or 0x40 up to 10 times, 2 ms apart, then fail.

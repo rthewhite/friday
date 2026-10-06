@@ -28,6 +28,7 @@ static constexpr Command VERSION{48, 0, 3};
 static constexpr Command GPO_READ_VALUES{20, 0, 5};  // X0D11, X0D30, X0D31, X0D33, X0D39
 static constexpr Command GPO_WRITE_VALUE{20, 1, 2};  // [pin, level]
 static constexpr Command LED_EFFECT{20, 12, 1};
+static constexpr Command LED_GAMMIFY{20, 14, 1};  // 1: the XVF3800 gamma-corrects the colours itself
 static constexpr Command LED_RING_COLOR{20, 19, 48};  // 12 x uint32 little-endian, 0x00RRGGBB
 static constexpr Command GPI_VALUE_ALL{36, 6, 4};
 static constexpr Command GPI_EVENT_PENDING_ALL{36, 7, 4};
