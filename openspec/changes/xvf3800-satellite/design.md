@@ -117,9 +117,9 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 ### 5. Mute: the XVF3800 is the source of truth
 
 - **Button.** The firmware's native Mute-button handling toggles GPO 30, which mutes the mics in hardware and lights the red LED.
-- **Polling.** The hub polls the GPO state every 100 ms. On a change it fires `on_mute`; the YAML mirrors the state into the decimating microphone's mute flag (so `friday_client` refuses `start()` and every consumer gets zeros) and into a restored global.
+- **Polling.** The hub polls the GPO state every 100 ms. On a change it saves the state to flash (synced at once, so it survives a power cut right after the press) and fires `on_mute`; the YAML mirrors the state into the decimating microphone's mute flag, so `friday_client` refuses `start()` and every consumer gets zeros.
 - **Home Assistant.** The Mute switch is a template switch that calls `set_mute` and reads `is_muted()`.
-- **Boot.** The hub applies the restored state at boot, which covers the spec's "comes back muted".
+- **Boot.** The hub loads the saved state, applies it to GPO 30 and fires `on_mute` once configured, which covers the spec's "comes back muted". The YAML keeps no copy of it.
 
 *Why poll and not events:* it needs no change to the XVF's button mode, which isn't persisted anyway.
 

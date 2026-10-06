@@ -91,14 +91,14 @@
 
 ## 5. Satellite configuration and docs
 
-- [ ] 5.1 Write `esphome/friday-respeaker.yaml` (design decisions 6 to 8). It contains:
+- [x] 5.1 Write `esphome/friday-respeaker.yaml` (design decisions 6 to 8). It contains:
   - the board, PSRAM, Wi-Fi, API (`reboot_timeout: 0s`), OTA and logger;
   - both I2S buses on shared pins, the I2S mic, the `decimating` mic, the speaker chain and software volume;
   - `friday_client` on decimated channel 0 with `friday_speaker`;
   - `micro_wake_word` with the pinned "hey friday" model on channel 1, gated by `xvf3800` ready and mute;
   - the `xvf3800` hub;
   - the ring light, its partitions and the copied effects, plus Twinkle for no Wi-Fi, all driven by `control_leds`;
-  - the Mute template switch and `on_mute` mirroring into the decimating mic's mute flag and a restored global, applied at boot;
+  - the Mute template switch and `on_mute` mirroring into the decimating mic's mute flag (the hub itself keeps the state in flash and applies it at boot, design decision 5);
   - the volume number (0 to 100 %, step 5, default 60 %, restored);
   - text sensors for the key fingerprint and the XVF3800 status;
   - factory reset and restart buttons;
@@ -108,13 +108,17 @@
   - `esphome config esphome/friday-respeaker.yaml` and `esphome compile esphome/friday-respeaker.yaml` succeed.
   - `esphome compile esphome/friday-voice-pe.yaml` still succeeds.
   - `git diff main -- esphome/components/friday_client esphome/friday-voice-pe.yaml` is empty.
-- [ ] 5.2 Document the satellite. In `README.md`, add a "reSpeaker XVF3800" section next to the Voice PE's covering:
+
+  Done 2026-10-06: `esphome config` and `esphome compile` pass for both YAML files, and the diff is empty. Left for the board in 6.x: the ring keeps the Voice PE's 66 % default and 20 % floor for state effects (check they're visible), and the segment order is LED 0 first (top centre). The mic `gain_factor` stays as on the Voice PE (1 for Friday, 4 for the wake word) until the listening tests.
+- [x] 5.2 Document the satellite. In `README.md`, add a "reSpeaker XVF3800" section next to the Voice PE's covering:
   - the one-time XVF3800 firmware flash (download, md5, safe mode, `dfu-util`, rollback to the USB firmware),
   - which USB port powers the board and which flashes the ESP32,
   - `esphome run friday-respeaker.yaml`, onboarding, the status and fingerprint sensors,
   - mute and volume.
 
   In the `openspec/config.yaml` context, add the satellite, the `xvf3800` and `decimating` components, and the host tests in `esphome/test/run.sh`. Verify: the README commands match the YAML file name and the test script path, and `openspec validate xvf3800-satellite --strict` passes.
+
+  Done 2026-10-06: the README paths exist, the download URL resolves and the image's md5 matches the README. `config.yaml` parses, and `openspec validate --strict` passes. The README says the XIAO's USB-C powers the whole board, as it did through bring-up and the 4.x tests. The XVF3800 port is only for its flash.
 
 ## 6. On-device verification
 

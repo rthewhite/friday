@@ -1,0 +1,553 @@
+# Friday on the Seeed reSpeaker XVF3800 4-mic array with a XIAO ESP32-S3.
+#
+# The XVF3800 runs its I2S master firmware 1.0.9 (48 kHz, flashed once, see the
+# README) and does echo cancellation, noise suppression, the Mute button and the
+# codec. The ESP32 talks to it over I2C through the xvf3800 component
+# (components/xvf3800), decimates its 48 kHz output to the 16 kHz Friday and the
+# wake word need (components/decimating), and speaks Friday's /ws/audio protocol
+# with the same friday_client as the Voice PE. LED effects are copied from
+# friday-voice-pe.yaml on purpose; the two boards share nothing below them.
+#
+# Setup: cp secrets.yaml.example secrets.yaml (shared with the Voice PE), check
+# friday_url below, then flash over the XIAO's USB-C port:
+#   esphome run friday-respeaker.yaml
+# On first boot the device generates its key; wake it once and accept it in the
+# portal under Settings > Voice devices (compare the fingerprint sensor).
+
+substitutions:
+  name: friday-respeaker
+  friendly_name: Friday reSpeaker
+  # Friday's audio endpoint over TLS (the cluster ingress). For `pnpm dev` on your machine use
+  # ws://<LAN IP>:8080/ws/audio; plain ws:// sends the device key unencrypted, so only on a trusted network.
+  friday_url: "wss://friday.thewhite.nl/ws/audio"
+  hidden_ssid: "false"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.9.0
+  on_boot:
+    priority: 375
+    then:
+      - script.execute: control_leds
+      - speaker.volume_set:
+          id: i2s_audio_speaker
+          volume: !lambda return id(speaker_volume);
+      # Wake word: listen for "hey friday" while idle.
+      - micro_wake_word.enable_model: hey_friday
+      - micro_wake_word.start:
+
+esp32:
+  board: esp32-s3-devkitc-1
+  cpu_frequency: 240MHz
+  variant: esp32s3
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+
+wifi:
+  id: wifi_id
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: ${hidden_ssid}
+  on_connect:
+    - script.execute: control_leds
+  on_disconnect:
+    - script.execute: control_leds
+
+logger:
+  level: DEBUG
+  logs:
+    sensor: WARN
+
+api:
+  id: api_id
+  encryption:
+    key: !secret api_encryption_key
+  # Friday talks to the device over its own WebSocket, not this API, so nothing may be connected here (no Home
+  # Assistant). ESPHome's default would then restart the device every 15 minutes.
+  reboot_timeout: 0s
+  on_client_connected:
+    - script.execute: control_leds
+  on_client_disconnected:
+    - script.execute: control_leds
+
+ota:
+  - platform: esphome
+    id: ota_esphome
+    password: !secret ota_password
+
+i2c:
+  - id: internal_i2c
+    sda: GPIO5
+    scl: GPIO6
+    frequency: 400kHz
+
+psram:
+  mode: octal
+  speed: 80MHz
+  ignore_not_found: false
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+globals:
+  - id: global_led_animation_index
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: speaker_volume
+    type: float
+    restore_value: yes
+    initial_value: '0.6'
+
+# ---------------------------------------------------------------- XVF3800
+
+# The XVF3800 at 0x2C. At boot it checks for firmware 1.0.9 and applies the settings the chip forgets on reset:
+# I2S left = processed beam (echo cancelled, noise suppressed) for Friday, I2S right = ASR beam for the wake
+# word, AGC off, amplifier and ring power on, and the mute state it keeps in flash.
+xvf3800:
+  id: xvf
+  i2c_id: internal_i2c
+  # The Mute button is handled by the XVF3800 itself (mics cut, red LED on). Mirror it into the 16 kHz
+  # microphone so friday_client refuses to start and every consumer sees mute.
+  on_mute:
+    - lambda: id(mics_16k).set_mute_state(muted);
+
+# ---------------------------------------------------------------- Friday
+
+friday_client:
+  id: friday
+  # The device id defaults to the node name (friday-respeaker); the key is generated on first boot.
+  url: ${friday_url}
+  microphone:
+    microphone: mics_16k
+    # I2S left: the XVF3800's processed beam (echo cancellation + noise suppression, no AGC). AGC amplifies
+    # residual echo of Friday's own voice until Gemini hears it as a barge-in. Raise gain_factor if Friday
+    # hears you too quietly.
+    channels: 0
+    bits_per_sample: 16
+  speaker: friday_speaker
+  # Send silence for the first moment of each reply while the echo canceller converges.
+  barge_in_delay: 1500ms
+  on_state:
+    - logger.log:
+        format: "friday state: %s"
+        args: [state.c_str()]
+    - script.execute: control_leds
+    # Only listen for the wake word while idle (see openspec design for wake-word).
+    - if:
+        condition:
+          lambda: return id(friday).get_state() == friday_client::State::IDLE;
+        then:
+          - micro_wake_word.enable_model: hey_friday
+        else:
+          - micro_wake_word.disable_model: hey_friday
+
+# On-device wake word detection. Nothing is sent to the server until it fires.
+# Same pinned "hey friday" model as friday-voice-pe.yaml (see the notes there).
+# It listens on I2S right, the XVF3800's ASR beam.
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: mics_16k
+    channels: 1
+    gain_factor: 4
+  stop_after_detection: false
+  vad:
+  models:
+    - model: github://JohnnyPrimus/Custom_V2_MicroWakeWords/models/hey_friday/hey_friday.json@2987c5ae4e4c8e7ac277bdede0904d99b4ed477a
+      id: hey_friday
+  on_wake_word_detected:
+    # No session while muted or while the XVF3800 isn't running the supported firmware.
+    - if:
+        condition:
+          lambda: return id(xvf).is_ready() && !id(xvf).is_muted();
+        then:
+          - friday_client.chime: friday
+          - friday_client.start: friday
+
+# ---------------------------------------------------------------- Controls
+
+switch:
+  # Mute, exposed to HA. The XVF3800 owns the state: the Mute button and this switch both toggle it.
+  - platform: template
+    id: master_mute_switch
+    icon: "mdi:microphone-off"
+    name: Mute
+    entity_category: config
+    lambda: return id(xvf).is_muted();
+    turn_on_action:
+      - xvf3800.mute: xvf
+    turn_off_action:
+      - xvf3800.unmute: xvf
+
+number:
+  # Software volume: there is no audio_dac, so the I2S speaker scales the samples. The XVF3800 gets the
+  # scaled signal as its echo reference, so the speaker and echo cancellation stay in step.
+  - platform: template
+    id: volume
+    name: Volume
+    icon: "mdi:volume-high"
+    entity_category: config
+    unit_of_measurement: "%"
+    mode: slider
+    min_value: 0
+    max_value: 100
+    step: 5
+    lambda: return id(speaker_volume) * 100.0f;
+    set_action:
+      - lambda: id(speaker_volume) = x / 100.0f;
+      - speaker.volume_set:
+          id: i2s_audio_speaker
+          volume: !lambda return id(speaker_volume);
+      - component.update: volume
+
+text_sensor:
+  # Compare with the fingerprint Friday lists under Settings > Voice devices before accepting this device.
+  - platform: template
+    id: friday_key_fingerprint
+    name: Friday key fingerprint
+    icon: "mdi:key-variant"
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: return id(friday).get_key_fingerprint();
+  # "1.0.9" when the XVF3800 is ready, otherwise why not (unsupported firmware, not responding on I2C).
+  - platform: template
+    id: xvf3800_status
+    name: XVF3800 status
+    icon: "mdi:chip"
+    entity_category: diagnostic
+    update_interval: 10s
+    lambda: return id(xvf).get_status();
+
+button:
+  - platform: factory_reset
+    id: factory_reset_button
+    name: "Factory Reset"
+    entity_category: diagnostic
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: config
+    icon: "mdi:restart"
+
+# ---------------------------------------------------------------- Audio
+
+# The XVF3800 is the I2S master. Microphone and speaker each claim a bus, so both buses are secondaries on the
+# same clock pins.
+i2s_audio:
+  - id: i2s_input
+    i2s_lrclk_pin:
+      number: GPIO7
+      allow_other_uses: true
+    i2s_bclk_pin:
+      number: GPIO8
+      allow_other_uses: true
+  - id: i2s_output
+    i2s_lrclk_pin:
+      number: GPIO7
+      allow_other_uses: true
+    i2s_bclk_pin:
+      number: GPIO8
+      allow_other_uses: true
+
+microphone:
+  # 48 kHz, 32-bit stereo from the XVF3800: left = processed beam, right = ASR beam.
+  - platform: i2s_audio
+    id: i2s_mics
+    i2s_din_pin: GPIO43
+    adc_type: external
+    pdm: false
+    sample_rate: 48000
+    bits_per_sample: 32bit
+    i2s_mode: secondary
+    i2s_audio_id: i2s_input
+    channel: stereo
+
+  # Low-pass filtered and decimated to 16 kHz, both channels kept.
+  - platform: decimating
+    id: mics_16k
+    microphone: i2s_mics
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_audio_speaker
+    sample_rate: 48000
+    i2s_mode: secondary
+    i2s_dout_pin: GPIO44
+    bits_per_sample: 32bit
+    i2s_audio_id: i2s_output
+    dac_type: external
+    channel: stereo
+    timeout: never
+    buffer_duration: 100ms
+
+  # Mixer upmixes mono sources to the stereo output. It needs two sources;
+  # the second is reserved for notification sounds and unused today.
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: i2s_audio_speaker
+    num_channels: 2
+    task_stack_in_psram: true
+    source_speakers:
+      - id: friday_mixing_input
+        timeout: never
+      - id: aux_mixing_input
+        timeout: never
+
+  # Friday sends 24 kHz mono 16-bit; the resampler brings it to 48 kHz.
+  - platform: resampler
+    id: friday_speaker
+    output_speaker: friday_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+    buffer_duration: 2000ms
+
+# ---------------------------------------------------------------- LEDs
+
+light:
+  # The 12 LEDs the XVF3800 drives, written over I2C. LED 0 is at the top centre of the board.
+  - platform: xvf3800
+    id: leds_internal
+    xvf3800_id: xvf
+    default_transition_length: 0ms
+
+  # Device-controlled ring. To start the animations elsewhere, split the segment as in friday-voice-pe.yaml.
+  - platform: partition
+    id: voice_assistant_leds
+    internal: true
+    default_transition_length: 0ms
+    segments:
+      - id: leds_internal
+        from: 0
+        to: 11
+    effects:
+      - addressable_lambda:
+          name: "Connecting"
+          update_interval: 100ms
+          lambda: |-
+            auto light_color = id(led_ring).current_values;
+            Color color(light_color.get_red() * 255, light_color.get_green() * 255,
+                  light_color.get_blue() * 255);
+            for (uint8_t i = 0; i < 12; i++) {
+              if (i == id(global_led_animation_index) % 12) {
+                it[i] = color;
+              } else if (i == (id(global_led_animation_index) + 11) % 12) {
+                it[i] = color * 192;
+              } else if (i == (id(global_led_animation_index) + 10) % 12) {
+                it[i] = color * 128;
+              } else if (i == (id(global_led_animation_index) + 6) % 12) {
+                it[i] = color;
+              } else if (i == (id(global_led_animation_index) + 5) % 12) {
+                it[i] = color * 192;
+              } else if (i == (id(global_led_animation_index) + 4) % 12) {
+                it[i] = color * 128;
+              } else {
+                it[i] = Color::BLACK;
+              }
+            }
+            id(global_led_animation_index) = (id(global_led_animation_index) + 1) % 12;
+      - addressable_lambda:
+          name: "Listening"
+          update_interval: 50ms
+          lambda: |-
+            auto light_color = id(led_ring).current_values;
+            Color color(light_color.get_red() * 255, light_color.get_green() * 255,
+                  light_color.get_blue() * 255);
+            for (uint8_t i = 0; i < 12; i++) {
+              if (i == id(global_led_animation_index) % 12) {
+                it[i] = color;
+              } else if (i == (id(global_led_animation_index) + 11) % 12) {
+                it[i] = color * 192;
+              } else if (i == (id(global_led_animation_index) + 10) % 12) {
+                it[i] = color * 128;
+              } else if (i == (id(global_led_animation_index) + 6) % 12) {
+                it[i] = color;
+              } else if (i == (id(global_led_animation_index) + 5) % 12) {
+                it[i] = color * 192;
+              } else if (i == (id(global_led_animation_index) + 4) % 12) {
+                it[i] = color * 128;
+              } else {
+                it[i] = Color::BLACK;
+              }
+            }
+            id(global_led_animation_index) = (id(global_led_animation_index) + 1) % 12;
+      - addressable_lambda:
+          name: "Speaking"
+          update_interval: 50ms
+          lambda: |-
+            id(global_led_animation_index) = (12 + id(global_led_animation_index) - 1) % 12;
+            auto light_color = id(led_ring).current_values;
+            Color color(light_color.get_red() * 255, light_color.get_green() * 255,
+                  light_color.get_blue() * 255);
+            for (uint8_t i = 0; i < 12; i++) {
+              if (i == (id(global_led_animation_index)) % 12) {
+                it[i] = color;
+              } else if (i == ( id(global_led_animation_index) + 1) % 12) {
+                it[i] = color * 192;
+              } else if (i == ( id(global_led_animation_index) + 2) % 12) {
+                it[i] = color * 128;
+              } else if (i == ( id(global_led_animation_index) + 6) % 12) {
+                it[i] = color;
+              } else if (i == ( id(global_led_animation_index) + 7) % 12) {
+                it[i] = color * 192;
+              } else if (i == ( id(global_led_animation_index) + 8) % 12) {
+                it[i] = color * 128;
+              } else {
+                it[i] = Color::BLACK;
+              }
+            }
+      - addressable_lambda:
+          name: "Error"
+          update_interval: 10ms
+          lambda: |-
+            static uint8_t brightness_step = 0;
+            static bool brightness_decreasing = true;
+            static uint8_t brightness_step_number = 10;
+            if (initial_run) {
+              brightness_step = 0;
+              brightness_decreasing = true;
+            }
+            Color error_color(255, 0, 0);
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = error_color * uint8_t(255/brightness_step_number*(brightness_step_number-brightness_step));
+            }
+            if (brightness_decreasing) {
+              brightness_step++;
+            } else {
+              brightness_step--;
+            }
+            if (brightness_step == 0 || brightness_step == brightness_step_number) {
+              brightness_decreasing = !brightness_decreasing;
+            }
+      # Friday has not accepted this device yet (4403): a slow amber pulse, so it reads as "waiting", not "broken".
+      - addressable_lambda:
+          name: "Pending"
+          update_interval: 40ms
+          lambda: |-
+            static uint8_t brightness_step = 0;
+            static bool brightness_decreasing = true;
+            static uint8_t brightness_step_number = 10;
+            if (initial_run) {
+              brightness_step = 0;
+              brightness_decreasing = true;
+            }
+            Color pending_color(255, 140, 0);
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = pending_color * uint8_t(255/brightness_step_number*(brightness_step_number-brightness_step));
+            }
+            if (brightness_decreasing) {
+              brightness_step++;
+            } else {
+              brightness_step--;
+            }
+            if (brightness_step == 0 || brightness_step == brightness_step_number) {
+              brightness_decreasing = !brightness_decreasing;
+            }
+      - addressable_twinkle:
+          name: "Twinkle"
+          twinkle_probability: 50%
+
+  # User-facing ring, exposed to HA for colour and brightness.
+  - platform: partition
+    id: led_ring
+    name: LED Ring
+    entity_category: config
+    icon: "mdi:circle-outline"
+    default_transition_length: 0ms
+    restore_mode: RESTORE_DEFAULT_OFF
+    initial_state:
+      color_mode: rgb
+      brightness: 66%
+      red: 9.4%
+      green: 73.3%
+      blue: 94.9%
+    segments:
+      - id: leds_internal
+        from: 0
+        to: 11
+
+script:
+  # Picks the LED pattern from device state. Called on every state change. Mute has no ring pattern: the
+  # board's red mute LED shows it.
+  - id: control_leds
+    then:
+      - lambda: |
+          if (!id(wifi_id).is_connected()) {
+            id(control_leds_no_wifi).execute();
+            return;
+          }
+          switch (id(friday).get_state()) {
+            case friday_client::State::CONNECTING: id(control_leds_connecting).execute(); return;
+            case friday_client::State::LISTENING:  id(control_leds_listening).execute();  return;
+            case friday_client::State::SPEAKING:   id(control_leds_speaking).execute();   return;
+            case friday_client::State::ERROR:      id(control_leds_error).execute();      return;
+            case friday_client::State::PENDING:    id(control_leds_pending).execute();    return;
+            default: break;
+          }
+          id(control_leds_idle).execute();
+
+  - id: control_leds_no_wifi
+    then:
+      - light.turn_on:
+          brightness: 66%
+          red: 100%
+          green: 89%
+          blue: 71%
+          id: voice_assistant_leds
+          effect: "Twinkle"
+  - id: control_leds_idle
+    then:
+      - light.turn_off: voice_assistant_leds
+      - if:
+          condition:
+            light.is_on: led_ring
+          then:
+            light.turn_on: led_ring
+  - id: control_leds_connecting
+    then:
+      - light.turn_on:
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
+          id: voice_assistant_leds
+          effect: "Connecting"
+  - id: control_leds_listening
+    then:
+      - light.turn_on:
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
+          id: voice_assistant_leds
+          effect: "Listening"
+  - id: control_leds_speaking
+    then:
+      - light.turn_on:
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
+          id: voice_assistant_leds
+          effect: "Speaking"
+  - id: control_leds_error
+    then:
+      - light.turn_on:
+          brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
+          red: 1
+          green: 0
+          blue: 0
+          id: voice_assistant_leds
+          effect: "Error"
+  - id: control_leds_pending
+    then:
+      - light.turn_on:
+          brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
+          id: voice_assistant_leds
+          effect: "Pending"
