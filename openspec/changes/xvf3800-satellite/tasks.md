@@ -122,7 +122,7 @@
 
 ## 6. On-device verification
 
-- [ ] 6.1 Flash `friday-respeaker.yaml` to the board and onboard it against Friday:
+- [x] 6.1 Flash `friday-respeaker.yaml` to the board and onboard it against Friday:
   - the first wake word gives a pending attempt with the fingerprint shown in Home Assistant;
   - after accepting, a wake word opens a session;
   - a question gets a spoken answer through the JST speaker;
@@ -132,12 +132,13 @@
 
   Verify: each of these is observed and noted in the task, with the `barge_in_delay` and `gain_factor` values used.
 
-  Progress 2026-10-06 (`barge_in_delay` 1500ms, `gain_factor` 1 for Friday and 4 for the wake word):
+  Done 2026-10-06 (`barge_in_delay` 1500ms; `gain_factor` 1 for Friday and, after the fix below, 1 for the wake word):
   - Fixed on the board: `on_boot` ran at priority 375, before `micro_wake_word`'s setup, so the wake word never started. It now runs at -100.
   - Speaker: with no network the chime is lost, because `fail_()` flushes playback 20 ms after the wake word. A test build chiming every 3 s without connecting played clearly through the JST speaker, so the codec needs no host init (decision 6 holds).
   - Passed: the first wake word gave three `4403 pending` attempts with fingerprint `0a04-2977` (the same as the log). After accepting, a wake word opened a session. The reply played clearly through the speaker, Friday understood the question, and Friday ending the session ("user said goodbye") returned the device to idle with the ring off.
-  - Open: the long-reply and talk-over checks. The user found wake word detection weak (see below).
-- [ ] 6.2 On the board, check mute, LEDs, volume and restarts:
+  - Wake word, fixed on the board: with the Voice PE's gain 4 the wake channel clipped on nearly every utterance (speech peaks at -10 to -3 dBFS before gain). At gain 1 the community "hey friday" model still missed most attempts, while the official `okay_nabu` on the same audio caught 8 of 8 from several metres. So the model was the weak link, not the audio path, and the board now uses the official `hey_jarvis` at gain 1 (design decisions 4 and 4a). The user found `hey_jarvis` reliable.
+  - Passed with `hey_jarvis`: a long reply played to the end without a false interruption, and talking over Friday interrupted it.
+- [x] 6.2 On the board, check mute, LEDs, volume and restarts:
   - the Mute button and the HA switch both mute (red LED on, wake word ignored) and unmute;
   - muting mid-session sends silence while playback continues;
   - the device comes back muted after an OTA restart and after a power cut;
@@ -146,9 +147,24 @@
 
   Verify: each spec scenario in `respeaker-client` is ticked off in this task's notes, and anything that didn't pass is fixed or recorded as a follow-up.
 
-  Progress 2026-10-06:
+  Done 2026-10-06. The Home Assistant side was driven over the ESPHome native API with `aioesphomeapi` (the user runs no HA for this device), exactly as HA would.
   - Fixed on the board: the Mute template switch restored "off" at boot and called `xvf3800.unmute`, which would unmute a muted device whenever the hub was already ready. It is now `restore_mode: DISABLED`.
   - Fixed on the board: the ring was dark at normal brightness because the XVF3800's `LED_GAMMIFY` added a second gamma correction. The hub now turns it off (design decision 1). Afterwards the 66 % no-Wi-Fi twinkle was clearly visible.
   - Passed: the Mute button mutes and unmutes (red LED). The wake word is ignored while muted and detected after unmuting. After an ESP32-only restart and after a power cut the device came back muted (log `Muted: YES` / unmuted only by the button press).
   - Passed: the ring showed the session patterns and was off when idle.
-  - Open: the HA Mute switch, muting mid-session, the OTA restart, the HA ring colour and volume.
+  - Passed over the API: the Mute switch muted (red LED on, "hey jarvis" ignored) and unmuted. Volume 40 % made the chime and reply noticeably quieter. With the LED Ring set to green, the idle ring and the listening/speaking spins were green. Muting with the button mid-reply kept playback going, and Friday didn't react to speech while muted. After an OTA update while muted the device came back with Mute on and Volume 40.
+
+  `respeaker-client` scenarios:
+  - Session, audio and identity: Onboarding, Conversation ✓ (6.1). Same server ✓ in part: the reSpeaker joined the homelab Friday with its own id and key and no server change, alongside the configured Voice PE; the two weren't used at the same moment.
+  - Sessions start by wake word only: Mute button while idle ✓, Friday ends the session ✓.
+  - Mute silences the microphones: Mute while idle ✓, Unmute ✓, Mute from Home Assistant ✓, Mute during a session ✓, Restart while muted ✓ (ESP32 restart, power cut, OTA). Start requested while muted: not exercised on the board, since the YAML has no start automation and the wake word path is guarded. It relies on `friday_client.start()` refusing on the mirrored mute flag, which is unchanged Voice PE code.
+  - Firmware check: Supported firmware ✓, XVF3800 not answering ✓ (wrong-address build in 4.1). Wrong firmware: not exercised, since it would mean reflashing the XVF3800 with another image; the version comparison is covered by the protocol host tests and the code path logs and refuses like the not-answering case.
+  - Configured at every boot: Power-on ✓ (speaker, ring and mics after the power cut), ESP32-only restart ✓ (OTA).
+  - Capture: Sample rate ✓ (Friday understood normal speech), Out-of-band content ✓ (decimator host test: 12 kHz at -80 dB), Barge-in ✓ (6.1).
+  - Playback: Change volume ✓, Restart ✓.
+  - LED ring: Session patterns ✓, Colour from Home Assistant ✓, no-Wi-Fi twinkle ✓. Pending approval: the device went `connecting → listening → pending` on the first wake (log), but the amber pulse wasn't explicitly confirmed by eye.
+
+  Follow-ups (outside this change):
+  - The Voice PE uses the same community "hey friday" model, which scored at the edge of its cutoff here too; consider an official model or a retrained one there.
+  - The Voice PE YAML has the same `on_boot` priority 375 before `micro_wake_word.start` that never started the wake word on this board; check whether the Voice PE logs "Wake word detection can't start".
+  - When the connection fails within milliseconds (no network), `fail_()` flushes the just-queued chime, so there is no audible feedback that the wake word was heard.
