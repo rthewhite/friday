@@ -119,10 +119,14 @@ globals:
 
 # The XVF3800 at 0x2C. At boot it checks for firmware 1.0.9 and applies the settings the chip forgets on reset:
 # I2S left = processed beam (echo cancelled, noise suppressed) for Friday, I2S right = ASR beam for the wake
-# word, AGC off, amplifier and ring power on, and the mute state it keeps in flash.
+# word, AGC, amplifier and ring power on, and the mute state it keeps in flash.
 xvf3800:
   id: xvf
   i2c_id: internal_i2c
+  # AGC on the processed beam brings far speech up to the near-field level. Unlike on the Voice PE, it didn't
+  # make Friday interrupt itself here (tested with long replies at 80 % volume). If it ever does, set it to
+  # false and raise barge_in_delay instead.
+  agc: true
   # The Mute button is handled by the XVF3800 itself (mics cut, red LED on). Mirror it into the 16 kHz
   # microphone so friday_client refuses to start and every consumer sees mute.
   on_mute:
@@ -136,9 +140,8 @@ friday_client:
   url: ${friday_url}
   microphone:
     microphone: mics_16k
-    # I2S left: the XVF3800's processed beam (echo cancellation + noise suppression, no AGC). AGC amplifies
-    # residual echo of Friday's own voice until Gemini hears it as a barge-in. Raise gain_factor if Friday
-    # hears you too quietly.
+    # I2S left: the XVF3800's processed beam (echo cancellation, noise suppression and AGC). No gain_factor:
+    # the level is already high, and more gain clips near-field speech.
     channels: 0
     bits_per_sample: 16
   speaker: friday_speaker

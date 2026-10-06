@@ -474,8 +474,8 @@ The LED ring shows the same patterns as the Voice PE table above, except the mut
 Troubleshooting:
 
 - **Wake word does nothing and the ring stays dark**: look at the XVF3800 status sensor or the log (above).
-- **Friday hears you too quietly**: raise `gain_factor` under `friday_client`'s `microphone` (I2S left, the XVF3800's processed beam, AGC off). Leave the wake word's `gain_factor` at 1: the XVF3800's audio is already loud, and more gain clips it. If the wake word misses or triggers on its own, tune `probability_cutoff` under its model.
-- **Friday interrupts itself**: as on the Voice PE, keep all playback on `friday_speaker` (the XVF3800 uses it as its echo reference) and raise `barge_in_delay` if needed.
+- **Friday mishears you from a distance**: the XVF3800's AGC (`agc: true` under `xvf3800`) is what lifts far speech; keep it on. Don't add `gain_factor`, because near speech already reaches full scale. Leave the wake word's `gain_factor` at 1 too: the XVF3800's audio is already loud, and more gain clips it. If the wake word misses or triggers on its own, tune `probability_cutoff` under its model.
+- **Friday interrupts itself**: keep all playback on `friday_speaker` (the XVF3800 uses it as its echo reference) and raise `barge_in_delay`. If that isn't enough, try `agc: false` at the cost of far-field understanding.
 
 ## MCP servers
 

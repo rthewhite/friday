@@ -138,6 +138,7 @@
   - Passed: the first wake word gave three `4403 pending` attempts with fingerprint `0a04-2977` (the same as the log). After accepting, a wake word opened a session. The reply played clearly through the speaker, Friday understood the question, and Friday ending the session ("user said goodbye") returned the device to idle with the ring off.
   - Wake word, fixed on the board: with the Voice PE's gain 4 the wake channel clipped on nearly every utterance (speech peaks at -10 to -3 dBFS before gain). At gain 1 the community "hey friday" model still missed most attempts, while the official `okay_nabu` on the same audio caught 8 of 8 from several metres. So the model was the weak link, not the audio path, and the board now uses the official `hey_jarvis` at gain 1 (design decisions 4 and 4a). The user found `hey_jarvis` reliable.
   - Passed with `hey_jarvis`: a long reply played to the end without a false interruption, and talking over Friday interrupted it.
+  - Far field, fixed on the board: with AGC off (the plan, copied from the Voice PE) Friday had trouble with short commands like "on" and "off" from a few metres. With `agc: true` it understood them much better, and at 80 % volume long replies still played without self-interruption and talk-over still worked. The satellite YAML now sets `agc: true` (design decision 4).
 - [x] 6.2 On the board, check mute, LEDs, volume and restarts:
   - the Mute button and the HA switch both mute (red LED on, wake word ignored) and unmute;
   - muting mid-session sends silence while playback continues;

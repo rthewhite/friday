@@ -55,7 +55,7 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 
 - **Setup (after I2C).** The hub reads `VERSION` (48, 0). If the chip doesn't answer, or reports anything other than `1.0.9`, it marks itself not ready with a reason. Otherwise it applies the boot settings:
   - output routing for I2S left and right (decision 4),
-  - AGC off,
+  - AGC (on in the satellite YAML, decision 4),
   - GPO 31 low (amp on), GPO 33 high (LED power),
   - the mute state (decision 5),
   - LED effect "ring", so the colours written by the light platform are shown, and `LED_GAMMIFY` (20, 14) off: the light already applies ESPHome's gamma, and the chip's own correction on top turned every dim colour off (found in task 6: the 66 % twinkle peaked at 11/255 and was invisible).
@@ -108,11 +108,11 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 
 ### 4. Channel routing and gain
 
-- **I2S left → Friday.** It carries the XVF3800's processed, echo-cancelled, noise-suppressed auto-select beam, with AGC off. `friday_client` uses `channels: 0`.
+- **I2S left → Friday.** It carries the XVF3800's processed, echo-cancelled, noise-suppressed auto-select beam, with AGC on. `friday_client` uses `channels: 0`.
 - **I2S right → `micro_wake_word`.** It carries the ASR auto-select beam (fixed gain; needs `AEC_ASROUTONOFF = 1`). `micro_wake_word` uses `channels: 1`.
 - **Configuration.** The component takes `left` / `right` as `[category, source]` pairs and `agc` as a boolean. The defaults are the categories above from the 1.0.9 command reference, confirmed against `xvf_host.py` in task 2.
 
-*Why AGC off:* on the Voice PE, AGC amplified the residual echo of Friday's own voice until Gemini took it for barge-in. If the level is low without AGC, `friday_client`'s microphone source takes a `gain_factor`, which is a YAML-only tuning knob.
+*Why AGC on:* the plan was AGC off, because on the Voice PE AGC amplified the residual echo of Friday's own voice until Gemini took it for barge-in. On this board, with AGC off, Friday had trouble with short commands ("on", "off") from a few metres. With AGC on it understood them much better, and long replies at 80 % volume played without self-interruption, so the satellite YAML sets `agc: true`. The component's default stays off, and `barge_in_delay` remains the knob if echo ever causes interruptions.
 
 *Measured in task 6:* the XVF3800's output is hot. With speech from about a metre, the left channel peaks at −4 to 0 dBFS and the right at −10 to −3 dBFS (RMS around −20 and −25 dBFS), with a −57 to −66 dBFS RMS noise floor. Both microphone sources therefore use `gain_factor` 1. The Voice PE's wake word gain of 4 clipped almost every utterance here.
 
