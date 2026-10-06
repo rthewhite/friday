@@ -55,7 +55,7 @@ TEST(int32_payload) {
   put_i32(1, v);
   CHECK(v[0] == 1 && v[1] == 0 && v[2] == 0 && v[3] == 0);
   put_i32(-30, v);
-  CHECK(get_u32(v) == 0xFFFFFFE2u);
+  CHECK(v[0] == 0xE2 && v[1] == 0xFF && v[2] == 0xFF && v[3] == 0xFF);
   uint8_t out[8];
   CHECK(build_write(PP_AGCONOFF, v, 4, out, sizeof(out)) == 7);
   CHECK(out[0] == 17 && out[1] == 10 && out[2] == 4);
@@ -70,19 +70,14 @@ TEST(status_codes) {
 }
 
 TEST(version_parsing) {
-  uint8_t ok[4] = {0, 1, 0, 9};
-  Version v;
-  CHECK(parse_version(ok, 4, v));
-  CHECK(v == SUPPORTED_VERSION);
+  // The VERSION payload, after read_cmd_ has checked and stripped the status byte.
+  uint8_t ok[3] = {1, 0, 9};
+  CHECK(parse_version(ok) == SUPPORTED_VERSION);
 
-  uint8_t old[4] = {0, 1, 0, 7};
-  CHECK(parse_version(old, 4, v));
+  uint8_t old[3] = {1, 0, 7};
+  Version v = parse_version(old);
   CHECK(v != SUPPORTED_VERSION);
-  CHECK(v.patch == 7);
-
-  uint8_t busy[4] = {0x40, 1, 0, 9};
-  CHECK(!parse_version(busy, 4, v));
-  CHECK(!parse_version(ok, 3, v));
+  CHECK(v.major == 1 && v.minor == 0 && v.patch == 7);
 }
 
 TEST(refuses_bad_frames) {

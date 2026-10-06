@@ -34,14 +34,14 @@ MuteTrigger = xvf3800_ns.class_("MuteTrigger", automation.Trigger.template(cg.bo
 MuteAction = xvf3800_ns.class_("MuteAction", automation.Action, cg.Parented.template(XVF3800))
 UnmuteAction = xvf3800_ns.class_("UnmuteAction", automation.Action, cg.Parented.template(XVF3800))
 
-# AUDIO_MGR_OP categories 0-12, sources 0-5 (XMOS XVF3800 user guide).
-ROUTE = cv.All(cv.ensure_list(cv.int_range(0, 12)), cv.Length(min=2, max=2), lambda v: _route(v))
-
-
 def _route(value):
     if value[1] > 5:
         raise cv.Invalid("source must be 0-5")
     return value
+
+
+# AUDIO_MGR_OP categories 0-12, sources 0-5 (XMOS XVF3800 user guide).
+ROUTE = cv.All(cv.ensure_list(cv.int_range(0, 12)), cv.Length(min=2, max=2), _route)
 
 
 CONFIG_SCHEMA = (

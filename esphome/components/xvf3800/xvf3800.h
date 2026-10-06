@@ -18,7 +18,8 @@ namespace esphome::xvf3800 {
  * At boot it waits for the XVF3800 to answer (it boots alongside the ESP32), checks the firmware version and
  * applies the runtime settings the chip doesn't persist: output routing, AGC, amplifier, ring power, mute.
  * Anything other than 1.0.9, or no answer, leaves it not ready with a reason in get_status(); the device
- * configuration then refuses sessions.
+ * configuration then refuses sessions. If the XVF3800 stops answering later (it reset), the hub probes and
+ * configures it again.
  *
  * Mute is the XVF3800's: its Mute button toggles GPO 30 (mics cut, red LED on) natively. The hub polls GPO 30,
  * reports changes through on_mute, and keeps the last state in flash so it is restored after a restart.
@@ -36,8 +37,6 @@ class XVF3800 : public Component, public i2c::I2CDevice {
   void set_ring_used(bool used) { this->ring_used_ = used; }
 
   bool is_ready() const { return this->state_ == State::READY; }
-  /// Still waiting for the XVF3800 to answer at boot.
-  bool is_starting() const { return this->state_ == State::PROBING; }
   /// "1.0.9" when ready, otherwise why not (shown as a diagnostic sensor).
   const std::string &get_status() const { return this->status_; }
 
@@ -48,6 +47,8 @@ class XVF3800 : public Component, public i2c::I2CDevice {
   bool write_ring(const uint32_t colors[protocol::RING_LEDS]);
 
   void add_on_mute_callback(std::function<void(bool)> &&cb) { this->mute_cb_.add(std::move(cb)); }
+  /// Called each time the XVF3800 has been configured: at boot and after it reset.
+  void add_on_ready_callback(std::function<void()> &&cb) { this->ready_cb_.add(std::move(cb)); }
 
  protected:
   enum class State : uint8_t { PROBING, READY, FAILED };
@@ -70,6 +71,8 @@ class XVF3800 : public Component, public i2c::I2CDevice {
   std::string status_{"starting"};
   protocol::Version version_{};
   uint32_t probe_started_{0};
+  bool answered_{false};
+  uint8_t poll_failures_{0};
   uint32_t last_probe_{0};
   uint32_t last_poll_{0};
 
@@ -81,6 +84,7 @@ class XVF3800 : public Component, public i2c::I2CDevice {
   bool muted_{false};
   ESPPreferenceObject mute_pref_;
   CallbackManager<void(bool)> mute_cb_;
+  CallbackManager<void()> ready_cb_;
 };
 
 class MuteTrigger : public Trigger<bool> {

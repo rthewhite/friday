@@ -35,8 +35,7 @@ void DecimatingMicrophone::stop() {
 void DecimatingMicrophone::loop() {
   // Follow the source while anyone listens through us; stop once the last listener has gone.
   if (this->listeners_.load() > 0) {
-    if (this->source_->is_running())
-      this->state_ = microphone::STATE_RUNNING;
+    this->state_ = this->source_->is_running() ? microphone::STATE_RUNNING : microphone::STATE_STARTING;
   } else if (this->state_ != microphone::STATE_STOPPED) {
     this->state_ = microphone::STATE_STOPPED;
   }

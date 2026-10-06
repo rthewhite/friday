@@ -11,6 +11,8 @@ static const char *const TAG = "xvf3800";
 static constexpr uint32_t PROBE_INTERVAL_MS = 250;
 static constexpr uint32_t PROBE_TIMEOUT_MS = 10000;
 static constexpr uint32_t MUTE_POLL_MS = 100;
+// This many failed polls in a row means the XVF3800 has reset (or gone): probe and configure it again.
+static constexpr uint8_t MAX_POLL_FAILURES = 3;
 static constexpr int READ_ATTEMPTS = 10;
 static constexpr uint32_t READ_RETRY_MS = 2;
 
@@ -33,22 +35,30 @@ void XVF3800::loop() {
     if (this->probe_()) {
       if (this->configure_()) {
         this->state_ = State::READY;
+        this->poll_failures_ = 0;
         this->status_ = str_sprintf("%u.%u.%u", this->version_.major, this->version_.minor, this->version_.patch);
+        this->status_clear_warning();
         ESP_LOGI(TAG, "XVF3800 firmware %s ready", this->status_.c_str());
-      } else {
-        this->state_ = State::FAILED;
+        this->ready_cb_.call();
+        return;
+      }
+      // Its servicer may still be starting; try again until the probe window ends.
+      ESP_LOGW(TAG, "XVF3800 answered but could not be configured yet");
+    }
+    if (this->state_ == State::PROBING && now - this->probe_started_ > PROBE_TIMEOUT_MS) {
+      this->state_ = State::FAILED;
+      if (this->answered_) {
         this->status_ = "configuration failed";
         ESP_LOGE(TAG, "XVF3800 answered but could not be configured");
         this->status_set_error(LOG_STR("configuration failed"));
+      } else {
+        this->status_ = "not responding on I2C";
+        ESP_LOGE(TAG,
+                 "XVF3800 not responding at 0x%02X. It may still run its USB firmware: flash "
+                 "respeaker_xvf3800_i2s_master_v1.0.9_48k.bin as described in the README",
+                 this->address_);
+        this->status_set_error(LOG_STR("not responding on I2C"));
       }
-    } else if (this->state_ == State::PROBING && now - this->probe_started_ > PROBE_TIMEOUT_MS) {
-      this->state_ = State::FAILED;
-      this->status_ = "not responding on I2C";
-      ESP_LOGE(TAG,
-               "XVF3800 not responding at 0x%02X. It may still run its USB firmware: flash "
-               "respeaker_xvf3800_i2s_master_v1.0.9_48k.bin as described in the README",
-               this->address_);
-      this->status_set_error(LOG_STR("not responding on I2C"));
     }
     return;
   }
@@ -62,7 +72,8 @@ bool XVF3800::probe_() {
   uint8_t payload[VERSION.bytes];
   if (!this->read_cmd_(VERSION, payload))
     return false;
-  this->version_ = Version{payload[0], payload[1], payload[2]};
+  this->answered_ = true;
+  this->version_ = parse_version(payload);
   if (this->version_ != SUPPORTED_VERSION) {
     this->state_ = State::FAILED;
     this->status_ = str_sprintf("unsupported firmware %u.%u.%u (needs %u.%u.%u)", this->version_.major,
@@ -96,9 +107,15 @@ bool XVF3800::configure_() {
     uint8_t gammify = 0;
     ok &= this->write_cmd_(LED_GAMMIFY, &gammify, 1);
   }
+  // Mute wins: a press made while only the ESP32 restarted is still on GPO 30, and after a power-on, when the
+  // chip starts unmuted, the saved state applies.
+  uint8_t gpo[GPO_READ_VALUES.bytes];
+  bool pressed = this->read_cmd_(GPO_READ_VALUES, gpo) && gpo[GPO_INDEX_MUTE] != 0 && !this->muted_;
+  if (pressed)
+    this->muted_ = true;
   ok &= this->write_gpo_(GPO_MUTE, this->muted_ ? 1 : 0);
   if (ok)
-    this->mute_changed_(this->muted_, false);
+    this->mute_changed_(this->muted_, pressed);
   return ok;
 }
 
@@ -106,8 +123,17 @@ void XVF3800::poll_mute_() {
   uint8_t gpo[GPO_READ_VALUES.bytes];
   if (!this->read_cmd_(GPO_READ_VALUES, gpo)) {
     this->status_set_warning(LOG_STR("cannot read the mute state"));
+    if (++this->poll_failures_ >= MAX_POLL_FAILURES) {
+      // It forgets every setting on reset, so treat it as a fresh boot.
+      ESP_LOGW(TAG, "XVF3800 stopped answering; probing and configuring it again");
+      this->state_ = State::PROBING;
+      this->status_ = "starting";
+      this->answered_ = false;
+      this->probe_started_ = millis();
+    }
     return;
   }
+  this->poll_failures_ = 0;
   this->status_clear_warning();
   bool muted = gpo[GPO_INDEX_MUTE] != 0;
   if (muted != this->muted_)

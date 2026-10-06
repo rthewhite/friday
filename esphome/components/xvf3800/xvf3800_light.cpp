@@ -6,18 +6,23 @@
 
 namespace esphome::xvf3800 {
 
+void XVF3800Light::setup() {
+  // The XVF3800 starts dark and forgets the colours when it resets: send the whole ring each time it is ready.
+  this->hub_->add_on_ready_callback([this]() {
+    this->sent_valid_ = false;
+    this->write_failed_ = false;
+    this->schedule_show();
+  });
+}
+
 void XVF3800Light::write_state(light::LightState *state) {
   uint32_t now = millis();
   if (!this->hub_->is_ready()) {
-    // Keep the change until the XVF3800 answers; drop it if it never will.
-    if (this->hub_->is_starting()) {
-      this->schedule_show();
-    } else {
-      this->mark_shown_();
-    }
+    // The colours stay in the buffer; the ready callback sends them.
+    this->mark_shown_();
     return;
   }
-  if (now - this->last_write_ < MIN_INTERVAL_MS) {
+  if (now - this->last_write_ < (this->write_failed_ ? RETRY_INTERVAL_MS : MIN_INTERVAL_MS)) {
     // Try again on the next loop so the last change is never lost.
     this->schedule_show();
     return;
@@ -31,11 +36,12 @@ void XVF3800Light::write_state(light::LightState *state) {
   if (this->sent_valid_ && memcmp(colors, this->sent_, sizeof(colors)) == 0)
     return;
   this->last_write_ = now;
-  if (this->hub_->write_ring(colors)) {
+  this->write_failed_ = !this->hub_->write_ring(colors);
+  if (this->write_failed_) {
+    this->schedule_show();
+  } else {
     memcpy(this->sent_, colors, sizeof(colors));
     this->sent_valid_ = true;
-  } else {
-    this->schedule_show();
   }
 }
 

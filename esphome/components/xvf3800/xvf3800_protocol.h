@@ -13,7 +13,6 @@
 
 namespace esphome::xvf3800::protocol {
 
-static constexpr uint8_t I2C_ADDRESS = 0x2C;
 /// The XVF3800 accepts I2C transfers of at most 60 bytes.
 static constexpr size_t MAX_FRAME = 60;
 static constexpr uint8_t READ_FLAG = 0x80;
@@ -30,9 +29,6 @@ static constexpr Command GPO_WRITE_VALUE{20, 1, 2};  // [pin, level]
 static constexpr Command LED_EFFECT{20, 12, 1};
 static constexpr Command LED_GAMMIFY{20, 14, 1};  // 1: the XVF3800 gamma-corrects the colours itself
 static constexpr Command LED_RING_COLOR{20, 19, 48};  // 12 x uint32 little-endian, 0x00RRGGBB
-static constexpr Command GPI_VALUE_ALL{36, 6, 4};
-static constexpr Command GPI_EVENT_PENDING_ALL{36, 7, 4};
-static constexpr Command MUTE_FUNCTION_ENABLE{36, 8, 1};
 static constexpr Command AUDIO_MGR_OP_L{35, 15, 2};  // [category, source]
 static constexpr Command AUDIO_MGR_OP_R{35, 19, 2};
 static constexpr Command AEC_ASROUTONOFF{33, 35, 4};  // int32
@@ -43,15 +39,11 @@ static constexpr uint8_t GPO_MUTE = 30;       // high: mics muted, red LED on
 static constexpr uint8_t GPO_AMP = 31;        // low: amplifier on
 static constexpr uint8_t GPO_LED_POWER = 33;  // high: WS2812 ring powered
 static constexpr size_t GPO_INDEX_MUTE = 1;
-static constexpr size_t GPO_INDEX_AMP = 2;
-static constexpr size_t GPO_INDEX_LED_POWER = 3;
 
-static constexpr uint8_t LED_EFFECT_OFF = 0;
 static constexpr uint8_t LED_EFFECT_RING = 5;
 static constexpr size_t RING_LEDS = 12;
 
 // AUDIO_MGR_OP categories (XMOS XVF3800 user guide) and the auto-select beam's source index.
-static constexpr uint8_t CATEGORY_SILENCE = 0;
 static constexpr uint8_t CATEGORY_PROCESSED = 6;  // post-processed beam: AEC, noise suppression, AGC
 static constexpr uint8_t CATEGORY_ASR = 7;        // ASR beam when AEC_ASROUTONOFF is 1
 static constexpr uint8_t SOURCE_AUTO_SELECT = 3;
@@ -96,10 +88,6 @@ inline void put_i32(int32_t v, uint8_t out[4]) {
     out[i] = static_cast<uint8_t>(u >> (8 * i));
 }
 
-inline uint32_t get_u32(const uint8_t in[4]) {
-  return uint32_t(in[0]) | (uint32_t(in[1]) << 8) | (uint32_t(in[2]) << 16) | (uint32_t(in[3]) << 24);
-}
-
 /// 12 colours as 0x00RRGGBB into the 48-byte LED_RING_COLOR payload.
 inline void pack_ring(const uint32_t colors[RING_LEDS], uint8_t out[RING_LEDS * 4]) {
   for (size_t i = 0; i < RING_LEDS; i++) {
@@ -117,12 +105,7 @@ struct Version {
 
 static constexpr Version SUPPORTED_VERSION{1, 0, 9};
 
-/// Parses a VERSION response ([status, major, minor, patch]). False unless the status is done.
-inline bool parse_version(const uint8_t *resp, size_t len, Version &out) {
-  if (len < read_size(VERSION) || classify_status(resp[0]) != Status::DONE)
-    return false;
-  out = Version{resp[1], resp[2], resp[3]};
-  return true;
-}
+/// Parses the VERSION payload ([major, minor, patch]), read without its status byte.
+inline Version parse_version(const uint8_t payload[3]) { return Version{payload[0], payload[1], payload[2]}; }
 
 }  // namespace esphome::xvf3800::protocol
