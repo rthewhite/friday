@@ -70,7 +70,7 @@
 
 ## 4. XVF3800 hub and LED ring
 
-- [ ] 4.1 Add the `xvf3800` hub component (`esphome/components/xvf3800/__init__.py`, `xvf3800.h/.cpp`, an `I2CDevice`, design decisions 1, 4 and 5). It needs:
+- [x] 4.1 Add the `xvf3800` hub component (`esphome/components/xvf3800/__init__.py`, `xvf3800.h/.cpp`, an `I2CDevice`, design decisions 1, 4 and 5). It needs:
   - **Boot:** the version check with a status string and `is_ready()`.
   - **Settings:** the boot settings, with `left`, `right` and `agc` options.
   - **I/O:** reads with retry, `set_mute` / `is_muted`, the 100 ms GPO poll and the `on_mute` trigger (with the event-mode fallback only if task 1.2 found it necessary).
@@ -83,7 +83,11 @@
   - On the board, the log shows `1.0.9` and the routing.
   - A build with a wrong address shows "not responding on I2C" and `is_ready()` false.
   - Pressing Mute fires `on_mute` both ways.
-- [ ] 4.2 Add the `light: - platform: xvf3800` addressable light in `esphome/components/xvf3800/light.py`, `xvf3800_light.h/.cpp` (design decision 2): 12 LEDs, written only on change and at most every 50 ms, in the byte order task 1.2 found. Verify: it compiles, and on the board a `light.turn_on` with an `addressable_rainbow` effect shows a smooth rainbow with no I2C errors in the log for 5 minutes.
+
+  Done 2026-10-06: the scratch config (I2S mic, decimating, hub, ring) compiles. On the board, `dump_config` shows status 1.0.9, left 6/3, right 7/3 and AGC off. With address `0x2D` the hub logs "not responding at 0x2D" after the 10 s probe, sets the error flag, and `is_ready()` stays false. Both the Mute button and the `xvf3800.mute` / `xvf3800.unmute` actions fire `on_mute` both ways. No codec init and no event-mode fallback (per the bring-up).
+- [x] 4.2 Add the `light: - platform: xvf3800` addressable light in `esphome/components/xvf3800/light.py`, `xvf3800_light.h/.cpp` (design decision 2): 12 LEDs, written only on change and at most every 50 ms, in the byte order task 1.2 found. Verify: it compiles, and on the board a `light.turn_on` with an `addressable_rainbow` effect shows a smooth rainbow with no I2C errors in the log for 5 minutes.
+
+  Done 2026-10-06: it compiles. On the board the user saw a smooth rainbow. The ring was written about every 57 ms, and 5 minutes of the effect logged no warnings or errors. Note for 5.1: at 40 % brightness with the default 2.8 gamma, most rainbow channels drop to single digits and the ring looks off in daylight. At 100 % it is clearly visible, so pick the ring's default brightness with that in mind.
 
 ## 5. Satellite configuration and docs
 
