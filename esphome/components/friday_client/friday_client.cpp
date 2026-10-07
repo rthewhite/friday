@@ -32,6 +32,8 @@ struct PlayItem {
   uint8_t data[];
 };
 static constexpr uint8_t WS_OP_TEXT = 0x1, WS_OP_BINARY = 0x2, WS_OP_CLOSE = 0x8;
+// The control events the device acts on (turn_complete, interrupted, closed) are a few dozen bytes.
+static constexpr int MAX_TEXT_BYTES = 4096;
 // Friday's close code for a device whose key is waiting to be accepted in the portal.
 static constexpr uint16_t CLOSE_PENDING_APPROVAL = 4403;
 
@@ -320,6 +322,13 @@ void FridayClient::on_ws_event_(int32_t event_id, esp_websocket_event_data_t *d)
       if (op == WS_OP_BINARY) {
         if (d->data_len > 0) this->on_audio_frame_(reinterpret_cast<const uint8_t *>(d->data_ptr), d->data_len);
       } else if (op == WS_OP_TEXT) {
+        // Only the small control events matter here. Larger messages (tool results, transcripts) are skipped
+        // without buffering: they would need one contiguous block of internal RAM, and a failed allocation aborts.
+        if (d->payload_len > MAX_TEXT_BYTES) {
+          if (d->payload_offset == 0) ESP_LOGD(TAG, "ignoring a %d-byte text message", d->payload_len);
+          this->text_acc_.clear();
+          break;
+        }
         if (d->payload_offset == 0) this->text_acc_.clear();
         this->text_acc_.append(d->data_ptr, d->data_len);
         if (d->payload_offset + d->data_len >= d->payload_len) {

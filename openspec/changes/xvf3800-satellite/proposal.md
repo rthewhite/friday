@@ -8,7 +8,7 @@ Friday has one satellite, the Voice PE. The second, a Seeed reSpeaker XVF3800 4-
 
 - **New ESPHome configuration** `esphome/friday-respeaker.yaml` for the reSpeaker XVF3800 with XIAO ESP32-S3. The ESP32 is the I2S secondary of the XVF3800 at 48 kHz / 32-bit stereo in both directions. Wi-Fi, Home Assistant API (no voice pipeline, `reboot_timeout: 0s`), OTA and logging are set up as on the Voice PE.
 - **Reuses `friday_client` unchanged.** The session lifecycle, device key and fingerprint, `wss://`, pending state, barge-in delay, chime and the protocol handling are the Voice PE's. The satellite onboards under Settings > Voice devices like any other device.
-- **Wake word only.** "Hey friday" (the Voice PE's pinned `micro_wake_word` model) starts a session, and Friday ends it (`closed`). The board has no button the ESP32 can read except Mute, so there is no press-to-talk.
+- **Wake word only.** "Hey jarvis" (ESPHome's official `micro_wake_word` model; the Voice PE's community "hey friday" model proved unreliable on this board, see design decision 4a) starts a session, and Friday ends it (`closed`). The board has no button the ESP32 can read except Mute, so there is no press-to-talk.
 - **Mute.** The board's Mute button mutes the microphones in the XVF3800 and lights the red mute LED, as the XVF firmware does natively. The firmware reads the mute state over I2C, refuses to start a session while muted, and exposes a Mute switch in Home Assistant that drives the same XVF mute.
 - **New `xvf3800` ESPHome component** (own, minimal, I2C at `0x2C`) with these parts:
   - It checks the XVF3800 firmware version at boot.

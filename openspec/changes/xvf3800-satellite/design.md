@@ -17,16 +17,23 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
   - Runtime settings (routing, GPIO outputs, LED state) are lost when the XVF3800 resets. Some command ids differ between firmware versions; for example `LED_RING_COLOR` is 18 up to 1.0.7 and 19 from 1.0.8.
 - **Control protocol.**
   - Write: `[resid, cmd, len, payload…]`.
-  - Read: write `[resid, cmd | 0x80, len + 1]`, then read `len + 1` bytes `[status, payload…]` with a repeated start.
+  - Read: write `[resid, cmd | 0x80, len + 1]`, then read `len + 1` bytes `[status, payload…]`. On the board this works both with a stop in between (as in Seeed's I2C example, which the component follows) and with a repeated start.
   - Status 0 means done, 1 and 0x40 mean retry, anything else is an error.
   - Transfers are at most 60 bytes.
-  - Reference: `python_control/xvf_host.py` in `respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY` at the 1.0.9 tag.
+  - Reference: `python_control/xvf_host.py` in `respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY`. The repo has no tags; ids were taken at master `4b49bfd19977`, whose I2S readme marks 1.0.9 current.
 - **ESPHome 2026.9.**
   - `microphone::Microphone` is a small base: `start`, `stop`, data callbacks, `audio_stream_info_`, and a mute flag that zeroes data for every callback.
   - `microphone_source` selects channels and converts bit depth, and its final validation checks the source microphone's sample rate. A wrapping microphone therefore has to declare its stream limits (16 kHz) for `friday_client` and `micro_wake_word` to validate.
   - The I2S speaker applies software volume when no `audio_dac` is configured.
   - There is no resampling microphone in 2026.9.
 - **`friday_client`** needs a 16 kHz `microphone_source` (one channel, 16-bit) and a `Speaker`. It refuses `start()` when its microphone reports mute. It never touches hardware.
+- **Bring-up results (task 1.2, 2026-10-05, on the board, over USB).**
+  - I2C answers at `0x2C` and `0x18`; `VERSION` reads `1.0.9`.
+  - After boot the amplifier is already enabled (X0D31 = 0), the ring powered (X0D33 = 1), the built-in mute function on (`MUTE_FUNCTION_ENABLE` = 1).
+  - The I2S mic at 48 kHz / 32-bit stereo delivers live audio (about −30 to 0 dBFS in an office). Left and right are identical by default, which matches the readme's "both I2S channels routed to ASR beam 0" since 1.0.7. Mic and speaker run at the same time on the shared clock pins without errors.
+  - The Mute button toggles X0D30, and while it is high the mic stream is exact digital silence; each press also sets bit 0 in `GPI_EVENT_PENDING_ALL`.
+  - `LED_RING_COLOR` takes 0x00RRGGBB per LED, little-endian, as packed by the protocol header. LED 0 sits at the top centre of the board.
+  - **Not verified:** speaker output, because no speaker was attached. The I2S readme says the firmware sets the AIC3104 output gain itself, so no host codec init is expected; task 6.1 confirms it with a speaker. Wi-Fi was not tested either (the configured network wasn't in range).
 
 ## Goals / Non-Goals
 
@@ -46,12 +53,12 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 
 `esphome/components/xvf3800/` holds an `I2CDevice` hub at `0x2C` and a `light` platform.
 
-- **Setup (after I2C).** The hub reads `VERSION` (48, 0). If the chip doesn't answer, or reports anything other than `1.0.9`, it marks itself not ready with a reason. Otherwise it applies the boot settings:
+- **Setup (after I2C).** The hub reads `VERSION` (48, 0), every 250 ms for up to 10 s from `loop()`, because the XVF3800 boots alongside the ESP32. Meanwhile the ring keeps its pending colours and writes them once the hub is ready. If the chip doesn't answer in time, or reports anything other than `1.0.9`, it marks itself not ready with a reason. Otherwise it applies the boot settings:
   - output routing for I2S left and right (decision 4),
-  - AGC off,
+  - AGC (on in the satellite YAML, decision 4),
   - GPO 31 low (amp on), GPO 33 high (LED power),
   - the mute state (decision 5),
-  - LED effect "ring", so the colours written by the light platform are shown.
+  - LED effect "ring", so the colours written by the light platform are shown, and `LED_GAMMIFY` (20, 14) off: the light already applies ESPHome's gamma, and the chip's own correction on top turned every dim colour off (found in task 6: the 66 % twinkle peaked at 11/255 and was invisible).
 - **Status.** It exposes `is_ready()` and a status string (`1.0.9`, `unsupported firmware 1.0.7 (needs 1.0.9)`, `not responding on I2C`). The YAML shows the string as a diagnostic `text_sensor`.
 - **Mute.** It exposes `set_mute(bool)` / `is_muted()` and an `on_mute` trigger.
 - **Retries.** Reads retry on status 1 or 0x40 up to 10 times, 2 ms apart, then fail.
@@ -101,22 +108,28 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 
 ### 4. Channel routing and gain
 
-- **I2S left → Friday.** It carries the XVF3800's processed, echo-cancelled, noise-suppressed auto-select beam, with AGC off. `friday_client` uses `channels: 0`.
+- **I2S left → Friday.** It carries the XVF3800's processed, echo-cancelled, noise-suppressed auto-select beam, with AGC on. `friday_client` uses `channels: 0`.
 - **I2S right → `micro_wake_word`.** It carries the ASR auto-select beam (fixed gain; needs `AEC_ASROUTONOFF = 1`). `micro_wake_word` uses `channels: 1`.
 - **Configuration.** The component takes `left` / `right` as `[category, source]` pairs and `agc` as a boolean. The defaults are the categories above from the 1.0.9 command reference, confirmed against `xvf_host.py` in task 2.
 
-*Why AGC off:* on the Voice PE, AGC amplified the residual echo of Friday's own voice until Gemini took it for barge-in. If the level is low without AGC, `friday_client`'s microphone source takes a `gain_factor`, which is a YAML-only tuning knob.
+*Why AGC on:* the plan was AGC off, because on the Voice PE AGC amplified the residual echo of Friday's own voice until Gemini took it for barge-in. On this board, with AGC off, Friday had trouble with short commands ("on", "off") from a few metres. With AGC on it understood them much better, and long replies at 80 % volume played without self-interruption, so the satellite YAML sets `agc: true`. The component's default stays off, and `barge_in_delay` remains the knob if echo ever causes interruptions.
+
+*Measured in task 6:* the XVF3800's output is hot. With speech from about a metre, the left channel peaks at −4 to 0 dBFS and the right at −10 to −3 dBFS (RMS around −20 and −25 dBFS), with a −57 to −66 dBFS RMS noise floor. Both microphone sources therefore use `gain_factor` 1. The Voice PE's wake word gain of 4 clipped almost every utterance here.
+
+### 4a. Wake word: an official model
+
+The reSpeaker uses ESPHome's official `hey_jarvis` model, not the Voice PE's community "hey friday" model. On this board "hey friday" scored at the edge of its 0.66 cutoff (detections at 0.67–0.73) and missed most attempts even at gain 1. The official `okay_nabu` on the same audio was detected reliably from several metres (8 of 8 in the counted run), which puts the problem in the model and not the audio path. The user chose `hey_jarvis`. The phrase stays a one-line YAML change, and the Voice PE keeps its model in this change.
 
 ### 5. Mute: the XVF3800 is the source of truth
 
 - **Button.** The firmware's native Mute-button handling toggles GPO 30, which mutes the mics in hardware and lights the red LED.
-- **Polling.** The hub polls the GPO state every 100 ms. On a change it fires `on_mute`; the YAML mirrors the state into the decimating microphone's mute flag (so `friday_client` refuses `start()` and every consumer gets zeros) and into a restored global.
+- **Polling.** The hub polls the GPO state every 100 ms. On a change it saves the state to flash (synced at once, so it survives a power cut right after the press) and fires `on_mute`; the YAML mirrors the state into the decimating microphone's mute flag, so `friday_client` refuses `start()` and every consumer gets zeros.
 - **Home Assistant.** The Mute switch is a template switch that calls `set_mute` and reads `is_muted()`.
-- **Boot.** The hub applies the restored state at boot, which covers the spec's "comes back muted".
+- **Boot.** The hub loads the saved state, applies it to GPO 30 and fires `on_mute` once configured, which covers the spec's "comes back muted". The YAML keeps no copy of it.
 
 *Why poll and not events:* it needs no change to the XVF's button mode, which isn't persisted anyway.
 
-*Fallback if native handling turns out not to toggle GPO 30 on 1.0.9:* set `MUTE_FUNCTION_ENABLE` to event mode at boot, read `GPI_EVENT_PENDING_ALL` in the same poll and toggle `set_mute` ourselves. This is internal to the component; the behaviour and the YAML stay the same.
+*Verified at bring-up:* native handling toggles GPO 30 on 1.0.9 and zeroes the audio, so the event-mode fallback (`MUTE_FUNCTION_ENABLE` = 0 and toggling from `GPI_EVENT_PENDING_ALL`) is not needed.
 
 ### 6. Playback and volume
 
@@ -127,7 +140,7 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 - There is no `audio_dac`, so the I2S speaker applies software volume.
 - Volume is a template `number` 0–100 % (step 5, default 60 %) backed by a restored global and applied with `speaker.volume_set` at boot and on change.
 
-*Why not drive the AIC3104 volume:* the XVF3800 owns the codec, and software volume keeps the AEC reference and the speaker in step. If the bring-up (task 1) shows the codec needs host initialization to produce sound, the init goes into the hub's setup, still on `0x18` and still without an `audio_dac`.
+*Why not drive the AIC3104 volume:* the XVF3800 owns the codec, and software volume keeps the AEC reference and the speaker in step. The bring-up had no speaker, so this is unverified; the XVF3800 readme says its firmware sets the codec's output gain itself. If task 6.1 finds the speaker silent, the codec init goes into the hub's setup, still on `0x18` and still without an `audio_dac`, and this design is updated first.
 
 ### 7. Two I2S buses on shared clock pins
 
@@ -143,7 +156,7 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 - `board: esp32-s3-devkitc-1` with `flash_size: 8MB`, octal PSRAM at 80 MHz, the same cache and mbedTLS `sdkconfig_options`,
 - `wifi`, `api` with `reboot_timeout: 0s`, `ota`, `logger`,
 - `friday_client` on the decimated mic channel 0 and `friday_speaker`,
-- the same pinned `micro_wake_word` model on channel 1 and `on_wake_word_detected` guarded by mute and `xvf3800` ready,
+- `micro_wake_word` with the official `hey_jarvis` model (decision 4a) on channel 1 and `on_wake_word_detected` guarded by mute and `xvf3800` ready,
 - the `xvf3800` hub, the light platforms, the mute switch, the volume number, the fingerprint and XVF3800 status text sensors, and factory reset and restart buttons.
 
 `secrets.yaml` is shared with the Voice PE, with the same keys.
@@ -157,12 +170,17 @@ See proposal.md for motivation and specs/respeaker-client/spec.md for behaviour.
 
 They are not part of `pnpm -r test`: the CI runner has no C++ toolchain guarantee, and the firmware isn't built in CI either. The quality gate runs them explicitly.
 
+### 10. `friday_client` skips large text messages
+
+The one deliberate change to the shared `friday_client`: text messages over 4 KB are skipped without buffering. The server forwards every session event to every client, including `tool_result` with the tool's full output (a Home Assistant `list_entities` result is tens of KB). The client collected each message in a `std::string`, and with `CONFIG_SPIRAM_USE_CAPS_ALLOC` that string lives in internal RAM and needs one contiguous block. On the reSpeaker a failed allocation aborted the firmware (decoded crash on 2026-10-06: `on_ws_event_` → `std::string::append` → `operator new` → abort). The device only acts on `turn_complete`, `interrupted` and `closed`, which are a few dozen bytes. The Voice PE gets the same guard, since it runs the same client.
+
+*Follow-up (server, separate branch):* stop sending tool and transcript events to device connections; only the browser's Talk page shows them.
+
 ## Risks / Trade-offs
 
 - [The board ships with the USB firmware or an older I2S image] → the boot check refuses to run and the status sensor and log say why. The README documents the one-time `dfu-util` flash in safe mode (hold Mute while plugging in the XVF port) and how to verify the md5.
 - [The routing categories or GPO numbers differ in 1.0.9 from the research notes] → task 2 reads them from `xvf_host.py` at the 1.0.9 tag before coding. The bring-up spike (task 1) reads raw values on the real board.
-- [The codec stays silent without host initialization] → the bring-up checks speaker output first. If it is silent, the AIC3104 init goes into the hub (decision 6) and the design is updated before the YAML depends on it.
-- [Native Mute handling doesn't drive GPO 30 on 1.0.9] → use the event-mode fallback in decision 5, verified during bring-up.
+- [The codec stays silent without host initialization] → not checked at bring-up (no speaker); the readme suggests the firmware owns the codec. Task 6.1 checks it, and decision 6 says where the init would go.
 - [Echo cancellation is weaker than on the Voice PE and Friday interrupts itself] → `barge_in_delay`, the mic `gain_factor` and the left-channel category are YAML knobs. AEC parameter tuning (`SYS_DELAY`, `FAR_EXTGAIN`) would follow in a later change.
 - [I2C traffic from the LEDs delays the mute poll or vice versa] → both run in the ESPHome loop, serialized, with tiny transfers; the ring writes only on change and at most 20 Hz.
 - [Some units capture all zeros (reported for the cased version)] → the bring-up logs the raw I2S levels. If the board is affected, that is hardware or upstream, outside this change.
@@ -176,5 +194,5 @@ They are not part of `pnpm -r test`: the CI runner has no C++ toolchain guarante
 
 ## Open Questions
 
-- LED index 0's position on the ring, and whether the partitions need remapping so animations start at the front. This is cosmetic, settled on the board.
-- Final defaults for `barge_in_delay` and the Friday mic `gain_factor`. They are YAML values and are set after listening tests.
+- Whether the ring partitions need remapping so animations start at the front. LED 0 sits at the top centre of the board; which side is "front" depends on how the board is mounted. Cosmetic, settled in 5.1 or on the board.
+- The final `barge_in_delay`. Both `gain_factor`s are settled at 1 (decision 4).

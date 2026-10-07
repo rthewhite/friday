@@ -107,7 +107,12 @@ context: |
   with 4401 on revoke/delete/replace. A device session's voice prompt ends with a "## Where you are" block
   (label, its Home Assistant area as the default for requests naming no room, notes), from the snapshot taken at
   accept, via systemPrompt(context, "voice", device). Connections without ?device= (the Talk page) need no key.
-  Clients: browser and ESP32 / Voice PE (esphome/) on the same WebSocket protocol. One container image
+  Clients: browser and ESP32 satellites (esphome/) on the same WebSocket protocol: the Voice PE
+  (friday-voice-pe.yaml) and the reSpeaker XVF3800 (friday-respeaker.yaml), both on the friday_client
+  component. The reSpeaker adds two components: xvf3800 (I2C hub for XVF3800 firmware 1.0.9 only: version check,
+  routing, mute polled from GPO 30 and kept in flash, LED ring light platform) and decimating (48 -> 16 kHz FIR
+  microphone). Their pure headers (xvf3800_protocol.h, decimator.h) have plain C++17 host tests run by
+  esphome/test/run.sh, outside pnpm test and CI. The firmware isn't built in CI. One container image
   built with pnpm deploy; tests use node:test via `pnpm test`.
 
 # Per-artifact rules (optional)
