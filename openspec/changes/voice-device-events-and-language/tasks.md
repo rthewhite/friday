@@ -11,5 +11,5 @@
 
 ## 3. Docs and check on the devices
 
-- [ ] 3.1 README: in the Voice devices or Transport section, note that device connections receive only audio and the control events, and mention the Dutch/English rule where the prompt is described (if it is). Verify the `openspec/config.yaml` context still reads correctly (the protocol line there mentions the event kinds).
+- [x] 3.1 README: in the Voice devices or Transport section, note that device connections receive only audio and the control events, and mention the Dutch/English rule where the prompt is described (if it is). Verify the `openspec/config.yaml` context still reads correctly (the protocol line there mentions the event kinds).
 - [ ] 3.2 After deploy (merge to `main`), on the reSpeaker at home: ask something that makes Friday list all Home Assistant entities ("which lights are in the house?"). The reply plays normally, the device doesn't reboot, and its log shows no `ignoring a N-byte text message` (the server no longer sends it). Ask a question in Dutch and one in English and check the answers come back in the same language.

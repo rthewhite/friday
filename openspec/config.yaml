@@ -19,7 +19,8 @@ context: |
   LlmService.streamCall, replaying the thread's whole stored history (tool entries as function
   call/response pairs), a tool loop over declarations("chat") (FRIDAY_CHAT_TOOL_TIMEOUT_MS, 10 rounds),
   recorded as a `chat` conversation, streamed as server-sent events. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
-  transport-agnostic GeminiSession. MCP servers (streamable HTTP only, no stdio) are stored in friday.db (mcp_servers; secret header
+  transport-agnostic GeminiSession; a ?device= connection gets only audio and interrupted/turn_complete/closed, the
+  browser also gets transcripts and tool events. MCP servers (streamable HTTP only, no stdio) are stored in friday.db (mcp_servers; secret header
   values encrypted like config secrets), managed via /api/mcp/servers and Settings > Configuration > MCP servers, and
   connected per server by packages/core/src/tools/mcp.ts (store: mcp-store.ts). Remote modules (remote/*,
   e.g. simracing on the gaming PC) run the same module via runRemote from @friday/sdk/remote: they dial
