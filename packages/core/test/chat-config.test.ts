@@ -12,6 +12,14 @@ test("voice and chat prompts share the base; only voice mentions end_conversatio
   assert.match(prompts.chat, /Markdown/);
 });
 
+test("both prompts expect Dutch or English and treat other-sounding speech as misheard Dutch", () => {
+  for (const prompt of [settings.systemPrompt, settings.chatPrompt]) {
+    assert.match(prompt, /speaks Dutch or English/);
+    assert.match(prompt, /answer in the language they speak/i);
+    assert.match(prompt, /any other\s+language[\s\S]*misheard[\s\S]*treat it as Dutch/);
+  }
+});
+
 test("the voice prompt forbids ending after a question or an invitation to talk", () => {
   assert.match(prompts.voice, /Never call end_conversation in a turn whose reply ends with a question\s+or invites the user to talk/);
   assert.match(prompts.voice, /invites you to chat[\s\S]*open conversation/);

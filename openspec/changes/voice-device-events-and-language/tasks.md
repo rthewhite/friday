@@ -7,7 +7,7 @@
 
 ## 2. Dutch or English
 
-- [ ] 2.1 Change `prompts.base` in `packages/core/src/config.ts`: the user speaks Dutch or English; answer in the language they speak; speech that seems to be in any other language was almost certainly misheard Dutch, so treat it as Dutch and answer in Dutch. Keep the rest of the base unchanged. Add or adjust a prompt test (e.g. in `packages/core/test/session.test.ts` or `chat-config.test.ts`, wherever the base text is asserted) that checks the voice and chat prompts both contain the Dutch/English rule. Verify: core tests and typecheck pass.
+- [x] 2.1 Change `prompts.base` in `packages/core/src/config.ts`: the user speaks Dutch or English; answer in the language they speak; speech that seems to be in any other language was almost certainly misheard Dutch, so treat it as Dutch and answer in Dutch. Keep the rest of the base unchanged. Add or adjust a prompt test (e.g. in `packages/core/test/session.test.ts` or `chat-config.test.ts`, wherever the base text is asserted) that checks the voice and chat prompts both contain the Dutch/English rule. Verify: core tests and typecheck pass.
 
 ## 3. Docs and check on the devices
 
