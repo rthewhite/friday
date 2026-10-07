@@ -170,6 +170,12 @@ The reSpeaker uses ESPHome's official `hey_jarvis` model, not the Voice PE's com
 
 They are not part of `pnpm -r test`: the CI runner has no C++ toolchain guarantee, and the firmware isn't built in CI either. The quality gate runs them explicitly.
 
+### 10. `friday_client` skips large text messages
+
+The one deliberate change to the shared `friday_client`: text messages over 4 KB are skipped without buffering. The server forwards every session event to every client, including `tool_result` with the tool's full output (a Home Assistant `list_entities` result is tens of KB). The client collected each message in a `std::string`, and with `CONFIG_SPIRAM_USE_CAPS_ALLOC` that string lives in internal RAM and needs one contiguous block. On the reSpeaker a failed allocation aborted the firmware (decoded crash on 2026-10-06: `on_ws_event_` → `std::string::append` → `operator new` → abort). The device only acts on `turn_complete`, `interrupted` and `closed`, which are a few dozen bytes. The Voice PE gets the same guard, since it runs the same client.
+
+*Follow-up (server, separate branch):* stop sending tool and transcript events to device connections; only the browser's Talk page shows them.
+
 ## Risks / Trade-offs
 
 - [The board ships with the USB firmware or an older I2S image] → the boot check refuses to run and the status sensor and log say why. The README documents the one-time `dfu-util` flash in safe mode (hold Mute while plugging in the XVF port) and how to verify the md5.
