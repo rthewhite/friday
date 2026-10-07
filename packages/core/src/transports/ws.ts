@@ -147,8 +147,15 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
   ws.on("message", (raw, isBinary) => {
     if (isBinary) void g.sendAudio(raw as Buffer);
     else {
-      const msg = JSON.parse(raw.toString());
-      if (msg.type === "text") g.sendText(msg.text);
+      // Anyone may send text without a key: a malformed frame is dropped, never thrown out of the listener.
+      let msg: unknown;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (msg !== null && typeof msg === "object" && "type" in msg && msg.type === "text" && "text" in msg && typeof msg.text === "string")
+        g.sendText(msg.text);
     }
   });
   const end = () => {

@@ -178,6 +178,21 @@ test("session events are relayed and closed event closes the socket", async () =
   }
 });
 
+test("a malformed text frame is ignored and the connection keeps working", async () => {
+  const h = await startHarness();
+  try {
+    const ws = await h.connect();
+    await waitFor(() => StubSession.instances.length === 1);
+    for (const bad of ["{", "null", "42", '"text"', '{"type":"text","text":7}']) ws.send(bad);
+    ws.send(JSON.stringify({ type: "text", text: "still here" }));
+    await waitFor(() => StubSession.instances[0].texts.length === 1);
+    assert.deepEqual(StubSession.instances[0].texts, ["still here"]);
+    assert.equal(ws.readyState, ws.OPEN);
+  } finally {
+    await h.close();
+  }
+});
+
 /** Emit one event of every kind on the connection's session and collect what the client receives until the close. */
 async function relayEveryKind(ws: import("ws").WebSocket) {
   await waitFor(() => StubSession.instances.length === 1);
