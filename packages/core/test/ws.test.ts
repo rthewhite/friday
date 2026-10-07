@@ -178,6 +178,61 @@ test("session events are relayed and closed event closes the socket", async () =
   }
 });
 
+test("a malformed text frame is ignored and the connection keeps working", async () => {
+  const h = await startHarness();
+  try {
+    const ws = await h.connect();
+    await waitFor(() => StubSession.instances.length === 1);
+    for (const bad of ["{", "null", "42", '"text"', '{"type":"text","text":7}']) ws.send(bad);
+    ws.send(JSON.stringify({ type: "text", text: "still here" }));
+    await waitFor(() => StubSession.instances[0].texts.length === 1);
+    assert.deepEqual(StubSession.instances[0].texts, ["still here"]);
+    assert.equal(ws.readyState, ws.OPEN);
+  } finally {
+    await h.close();
+  }
+});
+
+/** Emit one event of every kind on the connection's session and collect what the client receives until the close. */
+async function relayEveryKind(ws: import("ws").WebSocket) {
+  await waitFor(() => StubSession.instances.length === 1);
+  const s = StubSession.instances[0];
+  const got: unknown[] = [];
+  ws.on("message", (d, bin) => got.push(bin ? (d as Buffer).length : JSON.parse(d.toString()).type));
+  s.emit({ kind: "audio", data: Buffer.alloc(480) });
+  s.emit({ kind: "user_text", data: "turn on the lights" });
+  s.emit({ kind: "tool_call", data: { name: "HomeAssistant__list_entities", args: {} } });
+  s.emit({ kind: "tool_result", data: { name: "HomeAssistant__list_entities", result: "x".repeat(64 * 1024) } });
+  s.emit({ kind: "bot_text", data: "Done." });
+  s.emit({ kind: "interrupted" });
+  s.emit({ kind: "turn_complete" });
+  s.emit({ kind: "closed", data: "ended: done" });
+  await once(ws, "close");
+  return got;
+}
+
+test("a device connection receives audio and control events only", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const h = await startHarness({ devices: devices.store });
+  try {
+    const got = await relayEveryKind(await h.connect("?device=kitchen", key));
+    assert.deepEqual(got, [480, "interrupted", "turn_complete", "closed"]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a connection without device receives every event kind", async () => {
+  const h = await startHarness();
+  try {
+    const got = await relayEveryKind(await h.connect());
+    assert.deepEqual(got, [480, "user_text", "tool_call", "tool_result", "bot_text", "interrupted", "turn_complete", "closed"]);
+  } finally {
+    await h.close();
+  }
+});
+
 test("gemini unavailable closes with 1011", async () => {
   const h = await startHarness();
   try {

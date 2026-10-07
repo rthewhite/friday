@@ -2,7 +2,7 @@
 
 ### Requirement: WebSocket protocol at /ws/audio
 
-Each WebSocket connection SHALL own one `GeminiSession`. Client-to-server binary frames SHALL be 16 kHz mono s16le PCM; client-to-server text frames SHALL be JSON `{"type":"text","text":"..."}`. Server-to-client binary frames SHALL be 24 kHz mono s16le PCM; server-to-client text frames SHALL be JSON `{"type":<event kind>,"data":<payload>}`.
+Each WebSocket connection SHALL own one `GeminiSession`. Client-to-server binary frames SHALL be 16 kHz mono s16le PCM; client-to-server text frames SHALL be JSON `{"type":"text","text":"..."}`, and any other text frame (not JSON, not an object, or without a string `text`) SHALL be ignored without closing the connection or affecting the server. Server-to-client binary frames SHALL be 24 kHz mono s16le PCM; server-to-client text frames SHALL be JSON `{"type":<event kind>,"data":<payload>}`.
 
 Which event kinds a connection receives as text frames SHALL depend on the connection:
 - a connection without a device identifier (the browser) SHALL receive `interrupted`, `user_text`, `bot_text`, `tool_call`, `tool_result`, `turn_complete` and `closed`;
@@ -25,6 +25,10 @@ What the session records in the conversation store SHALL NOT depend on which eve
 #### Scenario: Text frame from client
 - **WHEN** the client sends `{"type":"text","text":"hello"}`
 - **THEN** the text is sent to the session as a user turn
+
+#### Scenario: Malformed text frame from client
+- **WHEN** a client, with or without a device key, sends a text frame such as `{`, `null` or `{"type":"text","text":7}`
+- **THEN** the frame is ignored, the connection stays open, and a valid text frame sent afterwards still reaches the session
 
 #### Scenario: Audio event
 - **WHEN** the session emits an `audio` event
