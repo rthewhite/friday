@@ -10,7 +10,9 @@ The voice system prompt SHALL consist of, in order:
 
 The module context and the device block SHALL be rendered when the session opens and SHALL stay fixed for the session's lifetime.
 
-The base SHALL instruct the model to prefer tools over guessing and answer in the user's language. It SHALL state that the user speaks Dutch or English, and that speech which seems to be in any other language was almost certainly Dutch misheard, so the model treats it as Dutch and answers in Dutch. It SHALL NOT force one language: English is answered in English.
+The base SHALL instruct the model to prefer tools over guessing and answer in the user's language. It SHALL state that the user speaks Dutch or English, and that the model answers in the language they speak unless they ask for another one. It SHALL NOT force one language: English is answered in English.
+
+The voice part SHALL say that speech recognition sometimes takes Dutch for another language: when a whole utterance seems to be in a language other than Dutch or English, the model treats it as misheard Dutch and answers in Dutch. Names, titles and quoted words in another language SHALL NOT count. This rule SHALL NOT be part of the base, because typed chat cannot be misheard.
 
 The voice part SHALL instruct the model to keep spoken answers short, call `end_conversation` in the same turn as its final confirmation or goodbye, and NOT end while awaiting user input or a pending tool result. It SHALL also state that the model must never call `end_conversation` in a turn whose reply ends with a question or invites the user to talk, and that an invitation to chat, tell something or share information starts an open conversation rather than completing a request.
 
@@ -40,8 +42,16 @@ The device block SHALL:
 - **THEN** the model is instructed to answer in English, and when the user speaks Dutch, in Dutch
 
 #### Scenario: Misheard language
-- **WHEN** the input transcription looks like another language, such as Spanish
+- **WHEN** the input transcription of a whole utterance in a voice session looks like another language, such as Spanish
 - **THEN** the model is instructed to treat it as Dutch and answer in Dutch
+
+#### Scenario: Foreign names and explicit requests
+- **WHEN** the user says "play Despacito" or asks for an answer in German
+- **THEN** the foreign name doesn't count as another language, and the answer is in German because the user asked for it
+
+#### Scenario: Typed chat in another language
+- **WHEN** the user types a chat message in German
+- **THEN** the chat prompt has no misheard-language rule, and the model answers in German
 
 #### Scenario: Shared base
 - **WHEN** the voice and chat system prompts are compared

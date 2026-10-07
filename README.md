@@ -234,7 +234,7 @@ Core keeps a SQLite database (`friday.db` in `FRIDAY_DATA_DIR`, a PVC in k8s) fo
 - **Module storage.** Modules get `ctx.storage` (`get`, `set`, `delete`, `list`), a JSON key-value namespace per module. The test host provides an in-memory one.
 - **Module tables.** Modules that declare `migrations` own tables named `<id>__*` (`-` in the id becomes `_`) and reach them through `ctx.db`, each on its own connection, which is refused everything outside that prefix. `module_schema` records each module's schema version, so a restart or reload runs only new migrations. Tables and versions stay when a module is disabled or removed. A module whose recorded version is newer than its code (after rolling back an image) fails to load instead of touching its data.
 
-The fixed prompt (`prompts` in `packages/core/src/config.ts`) tells Friday that you speak Dutch or English, to answer in the language you speak, and to treat speech that seems to be in any other language as misheard Dutch.
+The fixed prompt (`prompts` in `packages/core/src/config.ts`) tells Friday that you speak Dutch or English and to answer in the language you speak, unless you ask for another one. In voice sessions it also treats a whole utterance that seems to be in another language as misheard Dutch (names and titles don't count); typed chat is answered in whatever language you type.
 
 Modules can also add context to Friday's system prompts (`ctx.prompt.addContext`). The voice prompt is built when a session opens and kept for that session; the chat prompt is built when each turn starts. Module context follows the fixed prompt in module load order, and each module's contribution is cut to `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` (default `12000`) characters.
 

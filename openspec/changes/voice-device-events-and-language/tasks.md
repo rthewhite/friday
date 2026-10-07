@@ -10,6 +10,8 @@
 
 - [x] 2.1 Change `prompts.base` in `packages/core/src/config.ts`: the user speaks Dutch or English; answer in the language they speak; speech that seems to be in any other language was almost certainly misheard Dutch, so treat it as Dutch and answer in Dutch. Keep the rest of the base unchanged. Add or adjust a prompt test (e.g. in `packages/core/test/session.test.ts` or `chat-config.test.ts`, wherever the base text is asserted) that checks the voice and chat prompts both contain the Dutch/English rule. Verify: core tests and typecheck pass.
 
+  Changed after the code review: the misheard-Dutch rule moved from the base to the voice part (typed chat can't be misheard), it applies to whole utterances only, names, titles and quoted words don't count, and an explicit request for another language wins.
+
 ## 3. Docs and check on the devices
 
 - [x] 3.1 README: in the Voice devices or Transport section, note that device connections receive only audio and the control events, and mention the Dutch/English rule where the prompt is described (if it is). Verify the `openspec/config.yaml` context still reads correctly (the protocol line there mentions the event kinds).
