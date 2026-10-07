@@ -17,7 +17,8 @@
  *                      text   = JSON {"type":"text","text":"..."}
  *   server -> client : binary = 24 kHz mono s16le PCM
  *                      text   = JSON events: interrupted, user_text, bot_text,
- *                               tool_call, tool_result, turn_complete, closed
+ *                               tool_call, tool_result, turn_complete, closed; a device
+ *                               connection gets interrupted, turn_complete and closed only
  *   keep-alive       : the server pings every FRIDAY_WS_PING_MS (default 20000, 0 disables) and
  *                      terminates a connection that has not answered by the next ping. Client
  *                      pings are answered automatically.
@@ -67,6 +68,9 @@ export interface AudioWsOptions {
 }
 
 const UNAUTHORIZED: AuthResult = { ok: false, code: 4401, reason: "unauthorized" };
+
+/** The session events a voice-device connection receives. */
+const DEVICE_EVENTS: ReadonlySet<Event["kind"]> = new Set(["audio", "interrupted", "turn_complete", "closed"]);
 
 /** The key from `Authorization: Bearer <key>`, or undefined. A key in the query string is never read. */
 function bearerKey(req: IncomingMessage | undefined): string | undefined {
@@ -118,6 +122,9 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
 
   const g = create((ev) => {
     if (ws.readyState !== ws.OPEN) return;
+    // Devices act on audio and the control events only. Transcripts and tool activity are for the browser, and a
+    // tool result can be larger than a device can buffer. The recorder gets them from the session either way.
+    if (device && !DEVICE_EVENTS.has(ev.kind)) return;
     if (ev.kind === "audio") ws.send(ev.data);
     else ws.send(JSON.stringify({ type: ev.kind, data: "data" in ev ? ev.data : undefined }));
     if (ev.kind === "closed") ws.close();
