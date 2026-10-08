@@ -422,11 +422,13 @@ esphome run friday-voice-pe.yaml          # first time over USB; afterwards it o
 esphome logs friday-voice-pe.yaml         # tail the device log
 ```
 
-Then onboard it (see [Voice devices](#voice-devices)): on first boot the device generates its key and logs `device friday-voice, key fingerprint xxxx-xxxx`, also shown as the **Friday key fingerprint** sensor in Home Assistant. Say "hey friday" once: the ring pulses amber (pending) and the device appears under Settings > Voice devices > Pending. Accept it with the same fingerprint, its Home Assistant area and any notes, and wake it again. The key stays in flash across power cuts, OTA updates and reflashes; only **Factory Reset** makes a new one, after which you *Replace key* in the portal.
+Then onboard it (see [Voice devices](#voice-devices)): on first boot the device generates its key and logs `device friday-voice, key fingerprint xxxx-xxxx`, also shown as the **Friday key fingerprint** sensor in Home Assistant. Once on Wi-Fi it opens its control connection, so it appears under Settings > Voice devices > Pending right away (saying "hey friday" does the same, and the ring then pulses amber). Accept it with the same fingerprint, its Home Assistant area and any notes, and wake it again. The key stays in flash across power cuts, OTA updates and reflashes; only **Factory Reset** makes a new one, after which you *Replace key* in the portal.
 
 The device id is the node name (`friday-voice`); set `device_id:` on `friday_client` to override it. Either way it must be 1 to 63 lowercase letters, digits and hyphens, the format Friday accepts; `esphome config` refuses any other. It connects over `wss://` and checks the server certificate against the bundled public CAs (Let's Encrypt included). For a local `pnpm dev` server set `friday_url` to `ws://<LAN IP>:8080/ws/audio`; that sends the key unencrypted, so only do it on a trusted network.
 
 Usage: say **"hey friday"** (or press the top button) to start talking. A short chime confirms the wake word was heard. Friday ends the session itself after handling a request or when you say goodbye; the LEDs go off once its last words have played. While Friday is talking you can talk over it, or say "stop" and Friday ends the session; the button also stops it. The dial sets the speaker volume.
+
+Timers (see [Timers and alerts](#timers-and-alerts)): while on Wi-Fi the device keeps a control connection to Friday, shown as the **Friday online** sensor in Home Assistant. When a timer set on it is due, Friday rings it: the device starts a session by itself, plays a tone and Friday's announcement, and listens for your answer; pressing the button during it also counts as an answer. When that session can't open (Friday or Gemini unreachable) or the microphone is muted (side switch or Mute in Home Assistant), the device rings with its own chime and the whole ring blinks warm white; press the button to stop it. It gives up after `ring_limit` (default 5 minutes). The control connection's url is `friday_url` with `/ws/audio` replaced by `/ws/device`; set `control_url:` on `friday_client` when your setup differs.
 
 Wake word detection runs on the device with ESPHome's `micro_wake_word`; the microphone is always on for that purpose, but no audio leaves the device until the wake word fires. The "hey friday" model is a community model from [Custom_V2_MicroWakeWords](https://github.com/JohnnyPrimus/Custom_V2_MicroWakeWords) (Apache-2.0), pinned to a commit in the YAML. To use another phrase, change the `model:` line under `micro_wake_word` to an official name such as `hey_jarvis` or `okay_nabu`, or to another model URL, and reflash.
 
@@ -438,6 +440,7 @@ Wake word detection runs on the device with ESPHome's `micro_wake_word`; the mic
 | Fast spin | Listening |
 | Reverse spin | Friday is speaking |
 | Amber pulse | Friday has not accepted this device yet (pending); clears after 2 s |
+| Warm white blinking | A timer rings on the device's own chime; the button stops it |
 | Red pulse | Error (server unreachable, connection lost, device revoked, or pressed while muted); clears after 2 s |
 | Two red dots | Microphone muted |
 | Red every third LED | XMOS voice kit failed to start |
@@ -452,8 +455,9 @@ Troubleshooting:
 - **Wake word misses or false triggers**: adjust `probability_cutoff` for `hey_friday` under `micro_wake_word` (lower is more sensitive), or try `channels: 0` for the engine's microphone. If the community model is not good enough, switch to `hey_jarvis`.
 - **Friday interrupts itself during long replies**: it is hearing its own echo. Keep the client on microphone `channels: 1` (no automatic gain control) and leave `barge_in_delay` at 1500ms or raise it; on the server, `FRIDAY_VAD_START_SENSITIVITY=LOW` and `FRIDAY_VAD_PREFIX_MS=200` are the defaults. Set `FRIDAY_LOG_TRANSCRIPTS=1` to see what Gemini hears.
 - **Session drops after Wi-Fi hiccups**: expected for now. The device shows the error pattern and returns to idle; the server cleans up via its ping timeout.
+- **Friday online stays off, or the portal shows the device offline**: the control connection can't reach Friday. The log says why (`control connection lost, reconnecting in N s`, or a close code); it retries from 1 s up to once a minute. Timers can't be set on the device meanwhile.
 
-The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_chunk` (20ms to 1s, default 100ms) and `barge_in_delay` (default 1500ms) if you want to tune it. The device stays a normal ESPHome device in Home Assistant for OTA, logs, the Mute switch and the LED Ring light.
+The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_chunk` (20ms to 1s, default 100ms), `barge_in_delay` (default 1500ms), `control_url` and `ring_limit` (10s to 60min, default 5min) if you want to tune it. The device stays a normal ESPHome device in Home Assistant for OTA, logs, the Mute switch and the LED Ring light.
 
 ## reSpeaker XVF3800 (ESP32)
 
@@ -490,8 +494,9 @@ Usage:
 - **Talking.** Say **"hey jarvis"**. A chime confirms it, and Friday ends the session itself as on the Voice PE. The board uses ESPHome's official `hey_jarvis` model because the community "hey friday" model missed most attempts on it; to change the phrase, swap the `model:` line under `micro_wake_word` (for example `okay_nabu`). Sessions start by wake word only; no button starts or stops one.
 - **Mute.** The **Mute** button cuts the microphones in hardware and lights the red LED, and pressing it again unmutes. The **Mute** switch in Home Assistant does the same. While muted, the wake word does nothing. Mute survives restarts and power cuts.
 - **Volume.** The **Volume** number in Home Assistant (0 to 100 %, default 60 %) sets the speaker volume and survives restarts.
+- **Timers.** As on the Voice PE: Friday rings the device over its control connection (the **Friday online** sensor), and you answer by voice. When it rings on its own chime (Friday unreachable, or muted), press the **Mute** button to stop it; the press doesn't change mute, so a muted device stays muted.
 
-The LED ring shows the same patterns as the Voice PE table above, except the muted and voice-kit rows: the red LED shows mute, and when the XVF3800 isn't ready the ring stays dark.
+The LED ring shows the same patterns as the Voice PE table above, warm white blinking for a timer ringing on the chime included, except the muted and voice-kit rows: the red LED shows mute, and when the XVF3800 isn't ready the ring stays dark.
 
 Troubleshooting:
 

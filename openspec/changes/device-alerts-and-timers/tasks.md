@@ -60,7 +60,7 @@
 - [ ] 9.2 Add `State::RINGING`, `start_alert_(id)` (`&alert=`, no chime), the `4410` → idle and other-failure → local ring rules, and `acknowledged` when the button ends an alert session. Verify by compiling both configs and, on the Voice PE, a 30-second timer that rings with tone and announcement
 - [ ] 9.3 Add the local ring (chime loop through the player, `ringing_locally`, stop on button, `stop` or `ring_limit` default 5 min, with `acknowledged`/`unanswered`) and ringing on `ring` while muted. Verify on the Voice PE with the hardware mute on (local tone, button stops it, the portal shows `acknowledged`) and with an invalid Gemini key (local tone after `1011`)
 - [ ] 9.4 Wire the YAMLs: the `ringing` LED pattern for both, an online binary sensor, and the reSpeaker `on_mute` handler that stops ringing and restores the previous mute state. Verify on the reSpeaker: a timer while muted rings locally, the Mute button stops it, and the device stays muted
-- [ ] 9.5 Document the control connection, ringing behaviour, `control_url` and `ring_limit` in the firmware sections of the README, and verify the documented options match `friday_client/__init__.py`
+- [x] 9.5 Document the control connection, ringing behaviour, `control_url` and `ring_limit` in the firmware sections of the README, and verify the documented options match `friday_client/__init__.py`
 
 ## 10. Integration checks
 
