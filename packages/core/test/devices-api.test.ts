@@ -9,6 +9,8 @@ import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
 import { attachAudioWs } from "../src/transports/ws.js";
+import { attachDeviceWs } from "../src/transports/device-ws.js";
+import { DeviceLinks } from "../src/devices/links.js";
 import { fingerprint } from "../src/devices/store.js";
 import { hashKey } from "../src/remote/key-store.js";
 import { deviceFixture, StubSession, waitFor } from "./helpers.js";
@@ -22,17 +24,19 @@ async function start(opts: { withStore?: boolean } = {}) {
   const fixture = deviceFixture();
   const registry = new ToolRegistry(quiet);
   const withStore = opts.withStore ?? true;
+  const links = new DeviceLinks();
   const server = createServer(
     createApp({
       registry,
       host: new ModuleHost(registry, { env: {}, log: quiet }),
       mcp: new McpSource(registry, undefined, { log: quiet }),
       webDir: "/nonexistent",
-      ...(withStore ? { devices: fixture.store, deviceSessions: fixture.sessions } : {}),
+      ...(withStore ? { devices: fixture.store, deviceSessions: fixture.sessions, deviceLinks: links } : {}),
     }),
   );
   StubSession.instances = [];
   attachAudioWs(server, { pingMs: 0, devices: fixture.store, deviceSessions: fixture.sessions, createSession: (e, r, d) => new StubSession(e, r, d) });
+  attachDeviceWs(server, { pingMs: 0, devices: fixture.store, links });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
@@ -44,12 +48,21 @@ async function start(opts: { withStore?: boolean } = {}) {
   };
   /** A device dialling /ws/audio with its key. */
   const dial = (id: string, key: string) => new WebSocket(`ws://127.0.0.1:${port}/ws/audio?device=${id}`, { headers: { authorization: `Bearer ${key}` } });
+  /** A device opening its control connection at /ws/device with its key. */
+  const linked: WebSocket[] = [];
+  const link = (id: string, key: string) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/device?device=${id}`, { headers: { authorization: `Bearer ${key}` } });
+    linked.push(ws);
+    return ws;
+  };
   const close = async () => {
+    // Upgraded sockets aren't HTTP connections: closeAllConnections() leaves them open.
+    for (const ws of linked) ws.terminate();
     server.closeAllConnections();
     server.close();
     await once(server, "close");
   };
-  return { ...fixture, call, dial, close };
+  return { ...fixture, links, call, dial, link, close };
 }
 
 test("listing shows devices with status and pending attempts, never a key or hash", async () => {
@@ -62,8 +75,8 @@ test("listing shows devices with status and pending attempts, never a key or has
     assert.equal(status, 200);
     assert.equal(body.devices.length, 1);
     assert.deepEqual(
-      { id: body.devices[0].id, label: body.devices[0].label, area: body.devices[0].area, fingerprint: body.devices[0].fingerprint, connected: body.devices[0].connected, revoked: body.devices[0].revoked },
-      { id: "friday-kitchen", label: "Kitchen satellite", area: "Kitchen", fingerprint: fp(key), connected: false, revoked: false },
+      { id: body.devices[0].id, label: body.devices[0].label, area: body.devices[0].area, fingerprint: body.devices[0].fingerprint, online: body.devices[0].online, connected: body.devices[0].connected, revoked: body.devices[0].revoked },
+      { id: "friday-kitchen", label: "Kitchen satellite", area: "Kitchen", fingerprint: fp(key), online: false, connected: false, revoked: false },
     );
     assert.deepEqual(body.pending.map((p: { id: string; fingerprint: string; attempts: number }) => [p.id, p.fingerprint, p.attempts]), [["friday-hall", fp(other), 1]]);
     const json = JSON.stringify(body);
@@ -182,6 +195,57 @@ test("without a device store the API answers 503", async () => {
   try {
     assert.equal((await s.call("GET", "/api/devices")).status, 503);
     assert.equal((await s.call("POST", "/api/devices/x/revoke")).status, 503);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a device with its control connection open and no session is online and not connected", async () => {
+  const s = await start();
+  try {
+    const key = s.register("friday-kitchen");
+    const ws = s.link("friday-kitchen", key);
+    await once(ws, "open");
+    await waitFor(() => s.links.online("friday-kitchen"));
+    const d = (await s.call("GET", "/api/devices")).body.devices[0];
+    assert.deepEqual({ online: d.online, connected: d.connected }, { online: true, connected: false });
+    ws.close();
+    await once(ws, "close");
+    await waitFor(() => !s.links.online("friday-kitchen"));
+    assert.equal((await s.call("GET", "/api/devices")).body.devices[0].online, false);
+  } finally {
+    await s.close();
+  }
+});
+
+test("revoking, replacing the key and deleting each close the control connection with 4401", async () => {
+  const s = await start();
+  try {
+    const expectClosed = async (id: string, key: string, action: () => Promise<{ status: number }>, before = () => {}) => {
+      const ws = s.link(id, key);
+      await once(ws, "open");
+      await waitFor(() => s.links.online(id));
+      // A connection with the stored key clears a pending replacement, so a replacement is recorded after it.
+      before();
+      const closed = once(ws, "close");
+      assert.ok([200, 204].includes((await action()).status));
+      const [code, reason] = (await closed) as [number, Buffer];
+      assert.deepEqual([code, reason.toString()], [4401, "unauthorized"]);
+      assert.equal(s.links.online(id), false);
+    };
+    const revoked = s.register("friday-hall");
+    await expectClosed("friday-hall", revoked, () => s.call("POST", "/api/devices/friday-hall/revoke"));
+
+    const oldKey = s.register("friday-kitchen");
+    const newer = newKey();
+    await expectClosed(
+      "friday-kitchen",
+      oldKey,
+      () => s.call("POST", "/api/devices/friday-kitchen/replace-key", { fingerprint: fp(newer) }),
+      () => s.store.authenticate("friday-kitchen", newer),
+    );
+
+    await expectClosed("friday-kitchen", newer, () => s.call("DELETE", "/api/devices/friday-kitchen"));
   } finally {
     await s.close();
   }

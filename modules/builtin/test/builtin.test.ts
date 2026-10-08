@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { createTestHost } from "@friday/sdk/test";
 import builtin from "../src/index.js";
 
-test("module exposes the three builtin tools", async () => {
+test("module exposes the two builtin tools; timers are core's alerts now", async () => {
   const h = await createTestHost(builtin);
-  assert.deepEqual(h.tools, ["get_current_time", "set_timer", "end_conversation"]);
+  assert.deepEqual(h.tools, ["get_current_time", "end_conversation"]);
   assert.equal(builtin.manifest.id, "builtin");
 });
 
-test("set_timer and end_conversation are voice-only; get_current_time is offered in both", async () => {
+test("end_conversation is voice-only; get_current_time is offered in both", async () => {
   const h = await createTestHost(builtin);
-  assert.deepEqual(h.toolsIn("voice"), ["get_current_time", "set_timer", "end_conversation"]);
+  assert.deepEqual(h.toolsIn("voice"), ["get_current_time", "end_conversation"]);
   assert.deepEqual(h.toolsIn("chat"), ["get_current_time"]);
 });
 
@@ -59,16 +59,6 @@ test("get_current_time: an invalid explicit zone is an error naming it", async (
   const h = await createTestHost(builtin);
   const r = await h.call("get_current_time", { timezone: "Mars/Olympus" });
   assert.match(String(r.result.error), /Mars\/Olympus/);
-});
-
-test("set_timer waits and reports WHEN_IDLE", async () => {
-  const h = await createTestHost(builtin);
-  const t0 = Date.now();
-  const r = await h.call("set_timer", { seconds: 0.05, label: "eggs" });
-  assert.ok(Date.now() - t0 >= 45);
-  assert.deepEqual(r, { result: { done: true, label: "eggs", message: "eggs finished after 0.05 seconds" }, scheduling: "WHEN_IDLE" });
-  const d = await h.call("set_timer", { seconds: 0 });
-  assert.equal(d.result.label, "timer");
 });
 
 test("end_conversation returns ending + reason to the model and endConversation to the session", async () => {

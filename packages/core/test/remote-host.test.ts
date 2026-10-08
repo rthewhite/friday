@@ -200,8 +200,8 @@ test("integration: the builtin module run through runRemote matches in-process r
   const remoteHandle = runRemote(builtin, { url: c.url, key: "k", env: { FRIDAY_TIMEZONE: "Asia/Tokyo" }, log: quiet });
   try {
     await remoteHandle.connected();
-    await waitFor(() => c.registry.names().length === 3);
-    assert.deepEqual(c.registry.names(), ["builtin__get_current_time", "builtin__set_timer", "builtin__end_conversation"]);
+    await waitFor(() => c.registry.names().length === 2);
+    assert.deepEqual(c.registry.names(), ["builtin__get_current_time", "builtin__end_conversation"]);
 
     const local = await createTestHost(builtin, { env: { FRIDAY_TIMEZONE: "Asia/Tokyo" } });
     const viaRemote = await c.registry.callTool("builtin__get_current_time", {});
@@ -209,13 +209,12 @@ test("integration: the builtin module run through runRemote matches in-process r
     assert.equal(viaRemote.result.timezone, inProcess.result.timezone);
     assert.equal(viaRemote.scheduling, inProcess.scheduling);
 
-    const timer = await c.registry.callTool("builtin__set_timer", { seconds: 0 });
-    assert.equal(timer.scheduling, "WHEN_IDLE");
+    // The tool's default scheduling (SILENT) and the reserved endConversation key survive the remote hop.
     const end = await c.registry.callTool("builtin__end_conversation", { reason: "bye" });
     assert.deepEqual(end, { result: { ending: true, reason: "bye" }, scheduling: "SILENT", endConversation: "bye" });
 
-    const decl = c.registry.declarations().find((d) => d.name === "builtin__set_timer")!;
-    assert.deepEqual((decl.parametersJsonSchema as any).required, ["seconds"]);
+    const decl = c.registry.declarations().find((d) => d.name === "builtin__end_conversation")!;
+    assert.equal((decl.parametersJsonSchema as any).properties.reason.type, "string");
   } finally {
     await remoteHandle.stop();
     await waitFor(() => c.registry.names().length === 0);

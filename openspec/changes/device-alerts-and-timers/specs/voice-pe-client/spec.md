@@ -55,13 +55,13 @@ When the alert session is closed with `4410` before any audio arrived, the devic
 ### Requirement: The device rings locally when Friday can't be heard
 
 When it rings alerts with its local tone, the device SHALL:
-- enter the `ringing` state and send `ringing_locally` for each alert over the control connection, when it is open;
+- enter the `ringing` state and send `ringing_locally` for each alert, and again whenever Friday rings an alert it already rings;
 - repeat a tone built from its chime, at the current device volume, through the same output path as other device audio;
 - on a single click of the top button: stop, send `acknowledged` for each alert, and return to idle;
 - on `stop` from the control connection: stop ringing that alert, and return to idle when no alert is left;
 - after a configurable limit (default 5 minutes) without a button click: stop, send `unanswered` for each alert, and return to idle.
 
-The wake word SHALL NOT start a session while the device rings.
+The wake word SHALL NOT start a session while the device rings. A report made while the control connection is down SHALL be kept (the latest few) and sent, in order, as soon as it is open again, before the device acts on messages from Friday.
 
 #### Scenario: Stopped by the button
 - **WHEN** the device rings locally and the button is single-clicked

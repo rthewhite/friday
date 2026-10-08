@@ -128,9 +128,20 @@ xvf3800:
   # false and raise barge_in_delay instead.
   agc: true
   # The Mute button is handled by the XVF3800 itself (mics cut, red LED on). Mirror it into the 16 kHz
-  # microphone so friday_client refuses to start and every consumer sees mute.
+  # microphone so friday_client refuses to start (and rings timers on its own chime) and every consumer sees mute.
+  # While a timer rings on the chime the Mute button stops it instead: the toggle is undone (restore_mute), which
+  # comes back here with the original state and mirrors that.
   on_mute:
-    - lambda: id(mics_16k).set_mute_state(muted);
+    - if:
+        condition:
+          friday_client.is_ringing: friday
+        then:
+          - friday_client.stop_ringing: friday
+          - script.execute:
+              id: restore_mute
+              muted: !lambda return !muted;
+        else:
+          - lambda: id(mics_16k).set_mute_state(muted);
 
 # ---------------------------------------------------------------- Friday
 
@@ -225,6 +236,14 @@ number:
           id: i2s_audio_speaker
           volume: !lambda return id(speaker_volume);
       - component.update: volume
+
+binary_sensor:
+  # Whether Friday can reach the device (its control connection is open), so timers can ring here.
+  - platform: template
+    name: Friday online
+    entity_category: diagnostic
+    device_class: connectivity
+    lambda: return id(friday).is_online();
 
 text_sensor:
   # Compare with the fingerprint Friday lists under Settings > Voice devices before accepting this device.
@@ -468,6 +487,18 @@ light:
             if (brightness_step == 0 || brightness_step == brightness_step_number) {
               brightness_decreasing = !brightness_decreasing;
             }
+      # A timer ringing on the device's own chime: the whole ring blinks warm white until the Mute button stops it.
+      - addressable_lambda:
+          name: "Ringing"
+          update_interval: 250ms
+          lambda: |-
+            static bool on = false;
+            if (initial_run) on = false;
+            on = !on;
+            Color ring_color(255, 170, 60);
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = on ? ring_color : Color::BLACK;
+            }
       - addressable_twinkle:
           name: "Twinkle"
           twinkle_probability: 50%
@@ -492,6 +523,16 @@ light:
         to: 11
 
 script:
+  # Undo a Mute button press that stopped a ringing timer. set_mute() calls on_mute right away, so this runs
+  # apart from the on_mute automation, a moment later, instead of from inside it.
+  - id: restore_mute
+    mode: restart
+    parameters:
+      muted: bool
+    then:
+      - delay: 50ms
+      - lambda: id(xvf).set_mute(muted);
+
   # Picks the LED pattern from device state. Called on every state change. Mute has no ring pattern: the
   # board's red mute LED shows it.
   - id: control_leds
@@ -507,6 +548,7 @@ script:
             case friday_client::State::SPEAKING:   id(control_leds_speaking).execute();   return;
             case friday_client::State::ERROR:      id(control_leds_error).execute();      return;
             case friday_client::State::PENDING:    id(control_leds_pending).execute();    return;
+            case friday_client::State::RINGING:    id(control_leds_ringing).execute();    return;
             default: break;
           }
           id(control_leds_idle).execute();
@@ -561,3 +603,9 @@ script:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
           effect: "Pending"
+  - id: control_leds_ringing
+    then:
+      - light.turn_on:
+          brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.4f ) + 0.2f , 1.0f );
+          id: voice_assistant_leds
+          effect: "Ringing"

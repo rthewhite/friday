@@ -50,9 +50,9 @@ The `alerts` table (migration 8) has these columns:
 - `due_at`, `next_ring_at`;
 - `target_kind`, `target_id`;
 - `state`, `rings` (unanswered count), `local` (0/1, ringing on the device's own tone);
-- `created_at`, `conversation_id`, `finished_at`.
+- `created_at`, `conversation_id`, `snoozed_at` (so a snoozed timer is announced as snoozed, not with a wrong length), `finished_at`.
 
-Indexes: `(state, next_ring_at)` and `(target_kind, target_id, state)`.
+Index: `(target_kind, target_id, state)`. A tick reads all active alerts anyway (it needs them for the grace limits), so there is no index on `next_ring_at`.
 
 `next_ring_at` is when the service should next try. It's set to `due_at` on create and snooze, and to `now + interval` after an unanswered ring. Storing it means a restart resumes the ring cycle instead of starting over.
 
@@ -83,6 +83,8 @@ Indexes: `(state, next_ring_at)` and `(target_kind, target_id, state)`.
 **Re-check triggers.** `DeviceLinks` (decision 6) and `DeviceSessions` raise "online" and "idle" (last audio socket closed). On either, the service ticks for that device right away. This covers "rings when the conversation ends" and "rings right after it connects".
 
 **At startup:** the service resets `local` to 0, because the device will re-report it. It treats `ringing` rows as due now and runs a first tick. Rows past grace become `missed`, which gives "short restart rings, long outage is missed".
+
+**Local rings need a live device.** The same reset happens per device when its control connection opens again: a report may have been lost while it was down. The firmware re-sends `ringing_locally` every time it is rung for an alert it already rings, and keeps reports made while offline until it is back. A local ring nobody reports on is `missed` after 60 minutes (the firmware's `ring_limit` maximum); `next_ring_at` holds when the local ring was reported. The service's database work runs inside a guard that logs a failure and retries 30 s later, because it runs from timers and socket events where an exception would end the process.
 
 ### 4. Grace limits when a ring may start, not one already in progress
 
@@ -167,7 +169,7 @@ In `friday_client` (both devices share it):
 
 **Button.** `toggle()` in `RINGING` calls `stop_ringing_(true)`. Ending an alert session with the button (`stop()` while an alert id is set) sends `acknowledged` first. The wake word is already only enabled in idle (the YAML `on_state` handler), so it's off while ringing.
 
-**reSpeaker Mute button.** Because the XVF3800 toggles mute itself, the YAML `on_mute` handler does this while `friday_client` is ringing: it calls `stop_ringing(true)`, then restores the previous mute state with `xvf3800.mute`/`unmute`. To the user, the Mute button stops the ringing and mute is unchanged. Restoring mute takes one GPO poll, during which the mics may flip. That's harmless, because no session is open while ringing locally.
+**reSpeaker Mute button.** Because the XVF3800 toggles mute itself, the YAML `on_mute` handler does this while `friday_client` is ringing: it calls `stop_ringing(true)`, then runs a `restore_mute` script that calls `set_mute()` with the previous state 50 ms later. To the user, the Mute button stops the ringing and mute is unchanged. The restore runs from a script after a short delay, not inside the handler, because `set_mute()` calls `on_mute` right away and would otherwise re-enter the running automation. During those 50 ms the mics are flipped. That's harmless, because no session is open while ringing locally.
 
 **Online sensor.** `is_online()` is exposed and the YAML adds a template `binary_sensor`. The LED `on_state` handlers in both YAMLs get a `ringing` pattern.
 

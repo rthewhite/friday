@@ -20,6 +20,33 @@ const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE($
 
 export const migrations: Migration[] = [
   {
+    version: 8,
+    name: "alerts",
+    // Timers (and later alarms) that ring a target. next_ring_at is when the service next tries (or, while the device
+    // rings it with its own tone, since when), so a restart resumes the ring cycle; rings counts unanswered rings;
+    // local is set while the device rings it itself; snoozed_at is the last snooze.
+    sql: `
+      CREATE TABLE alerts (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        language TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        next_ring_at TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        state TEXT NOT NULL,
+        rings INTEGER NOT NULL DEFAULT 0,
+        local INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        conversation_id TEXT,
+        snoozed_at TEXT,
+        finished_at TEXT
+      );
+      CREATE INDEX alerts_target_state ON alerts (target_kind, target_id, state);
+    `,
+  },
+  {
     version: 7,
     name: "voice-devices",
     // Registered voice devices (key as a SHA-256 hash only) and pending connection attempts, one per claimed id.

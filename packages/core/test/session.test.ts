@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ToolRegistry } from "@friday/sdk";
 import type { LiveConnectParameters, LiveServerMessage } from "@google/genai";
-import { GeminiSession, endsWithQuestion, type Event, type LiveConnect } from "../src/session.js";
+import { AWAIT_USER_IDLE_MS, GeminiSession, endsWithQuestion, type Event, type LiveConnect } from "../src/session.js";
 import { waitFor } from "./helpers.js";
 import { setup } from "./conversation-fixtures.js";
 import { prompts, settings } from "../src/config.js";
@@ -14,18 +14,19 @@ function fakeLive() {
   const params: LiveConnectParameters[] = [];
   const keys: string[] = [];
   const responses: unknown[] = [];
+  const contents: unknown[] = [];
   let closed = 0;
   const connect: LiveConnect = async (p, apiKey) => {
     params.push(p);
     keys.push(apiKey);
     return {
       sendRealtimeInput() {},
-      sendClientContent() {},
+      sendClientContent: (c) => void contents.push(c),
       sendToolResponse: (r) => void responses.push(r),
       close: () => void closed++,
     };
   };
-  return { connect, params, keys, responses, get closed() { return closed; } };
+  return { connect, params, keys, responses, contents, get closed() { return closed; } };
 }
 
 function toolNames(p: LiveConnectParameters): string[] {
@@ -406,4 +407,181 @@ test("without module context the instruction is the base and voice parts only", 
   assert.equal(live.params[1].config!.systemInstruction, settings.systemPrompt);
   s.close();
   plain.close();
+});
+
+test("a device session's tool calls carry the device, a session without a device's don't", async () => {
+  const r = new ToolRegistry(quiet);
+  const seen: unknown[] = [];
+  r.add("core", { name: "t", description: "", handler: (_args, call) => (seen.push(call), {}) });
+  const live = fakeLive();
+  const kitchen = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, device: "friday-kitchen" });
+  const talk = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet });
+  await kitchen.open();
+  await talk.open();
+  kitchen.handle({ toolCall: { functionCalls: [{ id: "1", name: "t", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 1);
+  talk.handle({ toolCall: { functionCalls: [{ id: "2", name: "t", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 2);
+  assert.deepEqual(seen, [{ channel: "voice", device: "friday-kitchen" }, { channel: "voice" }]);
+  kitchen.close();
+  talk.close();
+});
+
+/** 250 ms of 24 kHz s16le with varied bytes, so chunks can be told apart. */
+const tone = () => Buffer.from(Array.from({ length: 12_000 }, (_, i) => i % 251));
+
+test("the opening audio is emitted in 100 ms chunks before Gemini's audio, then the opening text goes to Gemini", async () => {
+  const live = fakeLive();
+  const events: Event[] = [];
+  const audio = tone();
+  const s = new GeminiSession((e) => events.push(e), new ToolRegistry(quiet), { connect: live.connect, log: quiet, opening: { audio, text: "Alert: the eggs timer is done." } });
+  await s.open();
+  assert.deepEqual(live.contents, [{ turns: [{ role: "user", parts: [{ text: "Alert: the eggs timer is done." }] }] }]);
+  s.handle(msg({ modelTurn: { parts: [{ inlineData: { data: Buffer.from([9, 9]).toString("base64"), mimeType: "audio/pcm" } }] } }));
+  const chunks = events.filter((e) => e.kind === "audio").map((e) => (e as { data: Buffer }).data);
+  assert.deepEqual(chunks.map((c) => c.length), [4800, 4800, 2400, 2]);
+  assert.deepEqual(Buffer.concat(chunks.slice(0, 3)), audio, "the tone arrives intact and in order");
+  assert.deepEqual(chunks[3], Buffer.from([9, 9]), "Gemini's audio comes after the tone");
+  s.close();
+});
+
+test("the opening is not recorded: the conversation starts with Friday's announcement", async () => {
+  const { store } = setup();
+  const recorder = store.recorder({ channel: "voice" });
+  const live = fakeLive();
+  const s = new GeminiSession(() => {}, new ToolRegistry(quiet), { connect: live.connect, log: quiet, recorder, opening: { audio: tone(), text: "Alert: eggs." } });
+  await s.open();
+  s.handle(msg({ outputTranscription: { text: "Je eieren zijn klaar." }, turnComplete: true }));
+  s.handle(msg({ inputTranscription: { text: " Dank je." } }));
+  s.close();
+  const c = store.get(recorder.conversationId!)!;
+  assert.deepEqual(c.entries.map(({ seq, at, ...e }) => e), [
+    { kind: "assistant", text: "Je eieren zijn klaar.", interrupted: false },
+    { kind: "user", input: "speech", text: "Dank je." },
+  ]);
+});
+
+/** A session waiting for the user, with an end_conversation tool and a short idle timeout. */
+async function alertSession(idleTimeoutMs = 20) {
+  const r = new ToolRegistry(quiet);
+  r.add("builtin", { name: "end_conversation", description: "", scheduling: "SILENT", handler: ({ reason }: { reason?: string }) => ({ ending: true, endConversation: reason ?? "done" }) });
+  const live = fakeLive();
+  const events: Event[] = [];
+  const logs: string[] = [];
+  const firstInputs: number[] = [];
+  const s = new GeminiSession((e) => events.push(e), r, {
+    connect: live.connect,
+    log: { log: (m: string) => void logs.push(m), error() {} },
+    opening: { audio: tone(), text: "Alert: eggs." },
+    awaitUser: { onFirstInput: () => void firstInputs.push(1) },
+  });
+  await s.open();
+  const previous = settings.idleTimeoutMs;
+  settings.idleTimeoutMs = idleTimeoutMs;
+  const turn = async (text: string, end?: string) => {
+    s.handle(msg({ outputTranscription: { text } }));
+    if (end !== undefined) {
+      const n = live.responses.length;
+      s.handle({ toolCall: { functionCalls: [{ id: String(n), name: "end_conversation", args: { reason: end } }] } } as LiveServerMessage);
+      await waitFor(() => live.responses.length === n + 1);
+    }
+    s.handle(msg({ turnComplete: true }));
+  };
+  const restore = () => {
+    settings.idleTimeoutMs = previous;
+    s.close();
+  };
+  return { s, events, logs, firstInputs, turn, restore };
+}
+
+test("the opening does not count as the user reacting", async () => {
+  const a = await alertSession(60_000);
+  try {
+    assert.deepEqual(a.firstInputs, []);
+  } finally {
+    a.restore();
+  }
+});
+
+test("an end requested before the user answered is dropped, and silence then closes with ended: no answer", async () => {
+  const a = await alertSession();
+  try {
+    await a.turn("Your eggs timer is done.", "request done");
+    assert.deepEqual(closedWith(a.events), [], "the model cannot end before the user reacted");
+    assert.ok(a.logs.some((l) => l.includes("before the user answered")));
+    a.s.handle(msg({ interrupted: true }));
+    assert.ok(!a.events.some((e) => e.kind === "interrupted"), "a late interrupted flag for the dropped end is withheld");
+    await waitFor(() => closedWith(a.events).length === 1);
+    assert.deepEqual(closedWith(a.events), ["ended: no answer"]);
+    assert.deepEqual(a.firstInputs, []);
+  } finally {
+    a.restore();
+  }
+});
+
+test("nobody answering an alert closes it with ended: no answer", async () => {
+  const a = await alertSession();
+  try {
+    await a.turn("Je eieren zijn klaar.");
+    await waitFor(() => closedWith(a.events).length === 1);
+    assert.deepEqual(closedWith(a.events), ["ended: no answer"]);
+  } finally {
+    a.restore();
+  }
+});
+
+test("once the user answers, onFirstInput runs once and the session ends like any other", async () => {
+  const a = await alertSession(60_000);
+  try {
+    await a.turn("Your eggs timer is done.");
+    a.s.handle(msg({ inputTranscription: { text: " Thanks," } }));
+    a.s.handle(msg({ inputTranscription: { text: " done." } }));
+    assert.deepEqual(a.firstInputs, [1]);
+    await a.turn("Enjoy!", "request done");
+    assert.deepEqual(closedWith(a.events), ["ended: request done"]);
+  } finally {
+    a.restore();
+  }
+});
+
+test("the user barging in on the tone interrupts playback and acknowledges the alert", async () => {
+  const a = await alertSession(60_000);
+  try {
+    a.s.handle(msg({ interrupted: true }));
+    a.s.handle(msg({ inputTranscription: { text: "stop" } }));
+    assert.ok(a.events.some((e) => e.kind === "interrupted"), "the client drops the tone and anything queued");
+    assert.deepEqual(a.firstInputs, [1]);
+  } finally {
+    a.restore();
+  }
+});
+
+test("typed text also counts as the user answering", async () => {
+  const a = await alertSession(60_000);
+  try {
+    a.s.sendText("stop");
+    assert.deepEqual(a.firstInputs, [1]);
+  } finally {
+    a.restore();
+  }
+});
+
+test("with the idle timeout disabled, an unanswered alert still closes after 8 seconds, and an answered one never does", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const unanswered = await alertSession(0);
+  const answered = await alertSession(0);
+  try {
+    await unanswered.turn("Your eggs timer is done.");
+    answered.s.handle(msg({ inputTranscription: { text: " ok" } }));
+    await answered.turn("Fine.");
+    t.mock.timers.tick(AWAIT_USER_IDLE_MS - 1);
+    assert.deepEqual(closedWith(unanswered.events), []);
+    t.mock.timers.tick(1);
+    assert.deepEqual(closedWith(unanswered.events), ["ended: no answer"]);
+    t.mock.timers.tick(60_000);
+    assert.deepEqual(closedWith(answered.events), []);
+  } finally {
+    unanswered.restore();
+    answered.restore();
+  }
 });

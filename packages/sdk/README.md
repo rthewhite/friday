@@ -104,7 +104,7 @@ handler: async ({ query }, { conversationId }) => ({
 
 ### Channels
 
-A tool is offered in voice sessions and in portal chat unless it sets `channels`, a non-empty list of `"voice"` and `"chat"`. Chat waits for every tool result before it answers (up to `FRIDAY_CHAT_TOOL_TIMEOUT_MS`), so a tool that deliberately takes long, like `set_timer`, or that only makes sense with a microphone, like `end_conversation`, should be `channels: ["voice"]`. Outside its channels a tool is not declared, and a call to it answers `{ error: "unknown tool <name>" }` without running the handler. Remote module tools carry no channels and are offered in both.
+A tool is offered in voice sessions and in portal chat unless it sets `channels`, a non-empty list of `"voice"` and `"chat"`. Chat waits for every tool result before it answers (up to `FRIDAY_CHAT_TOOL_TIMEOUT_MS`), so a tool that deliberately takes long, or that only makes sense with a microphone, like `end_conversation`, should be `channels: ["voice"]`. A voice session of a registered device also passes `device` (its id) in the call context; chat and the Talk page never do. Outside its channels a tool is not declared, and a call to it answers `{ error: "unknown tool <name>" }` without running the handler. Remote module tools carry no channels and are offered in both.
 
 ### Conversations
 

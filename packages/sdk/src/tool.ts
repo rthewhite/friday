@@ -43,6 +43,8 @@ export interface ToolCallContext {
   channel?: ConversationChannel;
   /** The conversation the call is recorded in, once that conversation is stored. */
   conversationId?: string;
+  /** The registered voice device whose session the call comes from; absent in chat and the Talk page. */
+  device?: string;
 }
 
 export interface Tool<A = any> {

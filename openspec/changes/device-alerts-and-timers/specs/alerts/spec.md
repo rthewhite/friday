@@ -55,7 +55,7 @@ When an alert is due, core SHALL ring its target device: it SHALL set the alert 
 
 ### Requirement: An alert rings again until someone reacts
 
-An alert SHALL be `acknowledged` when the user speaks or sends text in an alert session that announces it, or presses the device's button while it rings (reported over the control connection). A ring SHALL count as unanswered when the device does not open an alert session within 15 seconds, or when the alert session closes without the alert being acknowledged or snoozed. After an unanswered ring, core SHALL ring again after `FRIDAY_ALERT_RING_INTERVAL_MS` (default 60000). After `FRIDAY_ALERT_RINGS` unanswered rings (default 5), the alert SHALL be `missed` and SHALL NOT ring again. When a device reports that it rings an alert with its local tone, core SHALL NOT ring that alert again: the device's report of a button press SHALL make it `acknowledged`, and its report that the tone ran out SHALL make it `missed`.
+An alert SHALL be `acknowledged` when the user speaks or sends text in an alert session that announces it, or presses the device's button while it rings (reported over the control connection). A ring SHALL count as unanswered when the device does not open an alert session within 15 seconds, or when the alert session closes without the alert being acknowledged or snoozed. After an unanswered ring, core SHALL ring again after `FRIDAY_ALERT_RING_INTERVAL_MS` (default 60000). After `FRIDAY_ALERT_RINGS` unanswered rings (default 5), the alert SHALL be `missed` and SHALL NOT ring again. When a device reports that it rings an alert with its local tone, core SHALL NOT ring that alert again while that device's control connection stays open: the device's report of a button press SHALL make it `acknowledged`, and its report that the tone ran out SHALL make it `missed`. When the device's control connection opens again, core SHALL ring its locally rung alerts again at once, so a device still ringing reports it afresh and a device that stopped (a report lost, or a restart) announces it. A local ring nobody reports on SHALL be `missed` 60 minutes after it was reported, the longest a device rings. A button press reported during an alert session SHALL acknowledge every alert that session announces.
 
 #### Scenario: Answered at once
 - **WHEN** the `eggs` timer rings, Friday announces it and the user says "thanks"
@@ -76,6 +76,14 @@ An alert SHALL be `acknowledged` when the user speaks or sends text in an alert 
 #### Scenario: Local tone ran out
 - **WHEN** the device reports that its local tone for an alert ran out without a button press
 - **THEN** the alert is `missed`
+
+#### Scenario: Control connection back while ringing locally
+- **WHEN** a device rings an alert locally, its control connection drops and comes back
+- **THEN** core rings that alert again at once, and the device, still ringing, reports `ringing_locally` again
+
+#### Scenario: Button with two timers announced
+- **WHEN** an alert session announces timers `eggs` and `pasta` and the user presses the button
+- **THEN** both are `acknowledged` and neither rings again
 
 ### Requirement: Late alerts are missed
 

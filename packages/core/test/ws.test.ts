@@ -410,3 +410,126 @@ test("a device store error closes the connection with 1011 instead of escaping a
     await h.close();
   }
 });
+
+// ---------------------------------------------------------------- alert sessions
+
+/** A claim source that only knows alert `k3f9` ringing on `kitchen`, and records what happens to its claims. */
+function fakeAlerts() {
+  const calls: string[] = [];
+  const alerts = {
+    claim(deviceId: string, alertId: string) {
+      calls.push(`claim ${deviceId} ${alertId}`);
+      if (deviceId !== "kitchen" || alertId !== "k3f9") return undefined;
+      return {
+        alerts: [{ id: "k3f9" }] as never,
+        text: "Alert: eggs.",
+        acknowledge: () => void calls.push("acknowledge"),
+        closed: () => void calls.push("closed"),
+      };
+    },
+  };
+  return { alerts, calls };
+}
+
+test("a device answering a ring gets an alert session that opens with the tone and the alert's text", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const { alerts, calls } = fakeAlerts();
+  const h = await startHarness({ devices: devices.store, alerts });
+  try {
+    const ws = await h.connect("?device=kitchen&alert=k3f9", key);
+    await waitFor(() => StubSession.instances.length === 1);
+    const s = StubSession.instances[0];
+    assert.ok(s.alert, "the session is an alert session");
+    assert.equal(s.alert.opening.text, "Alert: eggs.");
+    assert.ok(s.alert.opening.audio.length > 24_000 * 2, "the opening carries the alert tone");
+    s.alert.awaitUser.onFirstInput();
+    assert.deepEqual(calls, ["claim kitchen k3f9", "acknowledge"]);
+    s.emit({ kind: "closed", data: "ended: done" });
+    await once(ws, "close");
+    assert.deepEqual(calls, ["claim kitchen k3f9", "acknowledge", "closed"]);
+    assert.ok(h.logs.some((l) => l.includes("[kitchen] alert session open (k3f9)")));
+  } finally {
+    await h.close();
+  }
+});
+
+test("an alert that is no longer ringing closes the socket with 4410 before any session", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const { alerts } = fakeAlerts();
+  const h = await startHarness({ devices: devices.store, alerts });
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen&alert=gone", key), { code: 4410, reason: "alert gone" });
+    assert.equal(StubSession.instances.length, 0);
+  } finally {
+    await h.close();
+  }
+  const bare = await startHarness({ devices: devices.store });
+  try {
+    assert.deepEqual(await bare.rejected("?device=kitchen&alert=k3f9", key), { code: 4410, reason: "alert gone" }, "no alert service: nothing rings");
+  } finally {
+    await bare.close();
+  }
+});
+
+test("an alert session whose Gemini session can't open closes with 1011 and ends its claim", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const { alerts, calls } = fakeAlerts();
+  const h = await startHarness({ devices: devices.store, alerts });
+  const orig = StubSession.prototype.open;
+  StubSession.prototype.open = async function () { throw new Error("down"); };
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen&alert=k3f9", key), { code: 1011, reason: "gemini unavailable" });
+    assert.deepEqual(calls, ["claim kitchen k3f9", "closed"]);
+  } finally {
+    StubSession.prototype.open = orig;
+    await h.close();
+  }
+});
+
+test("the client leaving an alert session ends its claim", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const { alerts, calls } = fakeAlerts();
+  const h = await startHarness({ devices: devices.store, alerts });
+  try {
+    const ws = await h.connect("?device=kitchen&alert=k3f9", key);
+    await waitFor(() => StubSession.instances.length === 1);
+    const s = StubSession.instances[0];
+    // The stub doesn't emit closed on close(); GeminiSession does. Emit it as the real session would.
+    s.close = () => s.emit({ kind: "closed", data: "client closed" });
+    ws.close();
+    await waitFor(() => calls.includes("closed"));
+  } finally {
+    await h.close();
+  }
+});
+
+test("an alert check that throws closes the socket with 1011 instead of escaping as an unhandled rejection", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const alerts = { claim(): never { throw new Error("database is locked"); } };
+  const h = await startHarness({ devices: devices.store, alerts });
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen&alert=k3f9", key), { code: 1011, reason: "internal error" });
+    assert.equal(StubSession.instances.length, 0);
+    assert.ok(h.logs.some((l) => l.includes("database is locked")));
+  } finally {
+    await h.close();
+  }
+});
+
+test("alert without a device is ignored: the Talk page gets a normal session", async () => {
+  const { alerts, calls } = fakeAlerts();
+  const h = await startHarness({ alerts });
+  try {
+    await h.connect("?alert=k3f9");
+    await waitFor(() => StubSession.instances.length === 1);
+    assert.equal(StubSession.instances[0].alert, undefined);
+    assert.deepEqual(calls, []);
+  } finally {
+    await h.close();
+  }
+});

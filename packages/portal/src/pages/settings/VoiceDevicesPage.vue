@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { PageLayout, Button, Input, DataTable, StatusDot, Chip, Badge, Drawer, Icon, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
-import type { DeviceRecord, DevicesListing, PendingRecord } from "../../lib/devices.js";
+import { deviceStatus, type DeviceRecord, type DevicesListing, type PendingRecord } from "../../lib/devices.js";
 
 const listing = ref<DevicesListing>({ devices: [], pending: [] });
 const error = ref<string | null>(null);
@@ -31,8 +31,8 @@ async function load() {
 onMounted(load);
 
 const when = (s: string | null) => formatDateTime(s, "never");
-const tone = (d: DeviceRecord) => (d.revoked ? "error" : d.connected ? "success" : "neutral");
-const state = (d: DeviceRecord) => (d.revoked ? "revoked" : d.connected ? "connected" : "idle");
+const tone = (d: DeviceRecord) => deviceStatus(d).tone;
+const state = (d: DeviceRecord) => deviceStatus(d).state;
 
 /** Run an API call with the busy flag; errors land in `target` (the page or the open drawer). */
 async function run(target: typeof error, fn: () => Promise<unknown>): Promise<boolean> {
@@ -88,7 +88,7 @@ async function remove() {
 </script>
 
 <template>
-  <PageLayout eyebrow="System" title="Voice devices" subtitle="Satellites that may talk to Friday, and the room each one is in. A newly flashed device appears under Pending after its first attempt to connect.">
+  <PageLayout eyebrow="System" title="Voice devices" subtitle="Satellites that may talk to Friday, and the room each one is in. A newly flashed device appears under Pending after its first attempt to connect. A device shown as offline while it is idle can't ring timers; it may need a firmware update.">
     <template #actions>
       <Button variant="ghost" :disabled="busy" @click="load"><Icon name="refresh" />Refresh</Button>
     </template>

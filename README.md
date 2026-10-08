@@ -6,8 +6,9 @@ Voice assistant on **Gemini 3.8 Live** (TypeScript / Node) built as a small core
 browser portal (Vue)   ── WebSocket PCM ──┐
                                           ├─► core ── Gemini Live (PCM 16k in / 24k out)
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
+ESP32 / Voice PE       ◄─ /ws/device (ring) ───┤   alerts: timers that ring their device
 portal Chat page       ── /api/chat (SSE) ────►├── Gemini text model (chat turns, streamed, with tools)
-                                               ├─► modules/builtin   time, timers, end_conversation
+                                               ├─► modules/builtin   time, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► modules/travel    driving time with traffic (TomTom)
@@ -21,10 +22,10 @@ The repo is a pnpm workspace:
 | Package | Path | What |
 |---|---|---|
 | `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
-| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `/ws/device`, `GeminiSession`, alerts and the timer tools, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
 | `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Chat, Conversations, Modules, and module pages |
 | `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
-| `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
+| `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, `brain_recall_conversations`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
@@ -50,7 +51,7 @@ Browsers only allow the microphone on `localhost` or HTTPS.
 The session closes itself in two ways:
 
 - Friday calls the `end_conversation` tool once a request is fully handled and it has no follow-up question, or when you say "goodbye", "thanks", "that's all", etc. The session closes after its final words. If those words end with a question (`?`, `？`, `؟` or Greek `;`, also when followed by `!`, `.` or `…`), the session ignores the request and keeps listening so you can answer. If you don't answer, the idle timeout below closes it with `ended: no follow-up (end after question)`.
-- If you stay silent for `FRIDAY_IDLE_TIMEOUT_MS` (default 8000) after Friday finishes a turn, the session closes. Set to `0` to disable. The timer is paused while a tool (e.g. a timer) is still running.
+- If you stay silent for `FRIDAY_IDLE_TIMEOUT_MS` (default 8000) after Friday finishes a turn, the session closes. Set to `0` to disable. The timer is paused while a tool is still running. A session Friday opened to announce an alert (a timer going off) can't be ended by the model before you've said something: silence closes it with `ended: no answer`, after 8 seconds even when the timeout is disabled, and the alert rings again.
 
 Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturing but finish playing queued audio.
 
@@ -91,7 +92,7 @@ const h = await createTestHost(weather, { env: { WEATHER_API_KEY: "x" } });
 await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
 ```
 
-`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `set_timer` and `end_conversation` are voice-only, because a chat turn waits for every result and has no microphone to close. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
+`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `end_conversation` and the timer tools are voice-only, because a chat turn has no microphone to close and no device to ring. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
 
 A module that keeps relational data declares `migrations` and uses `ctx.db`, a synchronous handle on its own tables in `friday.db`. It can also add what it knows to Friday's system prompts with `ctx.prompt.addContext`:
 
@@ -376,17 +377,36 @@ Times without an offset are household time, and every time Friday gets back is t
 Voice satellites (the Voice PE and the reSpeaker XVF3800 below) are onboarded by trust on first use, under **Settings > Voice devices**:
 
 1. **Flash the device.** On its first start it generates its own key, keeps it in flash (it survives power cuts, OTA updates and reflashes) and logs its fingerprint, for example `3f9a-c21e`. The Voice PE also shows it as the *Friday key fingerprint* sensor in Home Assistant.
-2. **Wake it.** Friday doesn't know the device yet: it closes the connection with `4403 pending approval`, the LED ring shows the pending pattern, and the device appears under *Pending* with its id and fingerprint.
-3. **Accept it.** Check that the fingerprint matches, then give it a label, its Home Assistant area (the area name or one of its aliases) and optional notes for Friday. From the next wake on it works.
+2. **Let it connect.** Right after joining Wi-Fi the device opens its control connection (`/ws/device`, see [Timers and alerts](#timers-and-alerts)); waking it does the same for a session. Friday doesn't know the device yet: it closes the connection with `4403 pending approval` (after a wake word the LED ring shows the pending pattern), and the device appears under *Pending* with its id and fingerprint.
+3. **Accept it.** Check that the fingerprint matches, then give it a label, its Home Assistant area (the area name or one of its aliases) and optional notes for Friday. From the next wake on it works, and within a minute it shows as online.
 
 What Friday does with it: a voice session from a device ends its system prompt with a short block naming the device and, when it has an area, telling Friday that requests naming no room, area or floor ("turn on the lights") apply to that area. The Home Assistant MCP server's tools take that area. Notes ("next to the TV", "the kids use this one") go in as written. Edits apply to the device's next session.
 
 - **Replace key.** A factory-reset device comes back with a new key. It is rejected as pending and its row is marked; *Replace key* (showing old and new fingerprints) keeps its label, area and notes. The old key stops working at once. If the device connects with its old key in the meantime, it still has that key, so the replacement is dropped.
-- **Revoke and delete.** *Revoke* closes the device's open session and rejects it from then on, whatever key it presents, without listing it as pending. *Delete* forgets it; its next attempt shows up as pending again. Conversations keep the device id.
+- **Status.** The dot shows *in a session* (a conversation is open), *online* (its control connection is open, so Friday can ring it), *offline*, or *revoked*. A device that stays offline while idle runs firmware without the control connection and can't ring timers.
+- **Revoke and delete.** *Revoke* closes the device's open session and control connection, and rejects it from then on, whatever key it presents, without listing it as pending. *Delete* forgets it and cancels its timers; its next attempt shows up as pending again. Conversations keep the device id.
 - **Pending list.** One row per id, updated on each attempt (a different key starts the row's count and first-seen time over); rows go after 24 hours without an attempt, and at most 20 are kept. *Ignore* removes one until the device tries again.
-- **API.** `GET /api/devices` (`{ devices, pending }`, never a key or hash), `POST /api/devices/pending/:id/accept` (`{ fingerprint, label?, area?, notes? }`), `DELETE /api/devices/pending/:id`, `PUT /api/devices/:id` (`{ label?, area?, notes? }`; label 1-80, area up to 80, notes up to 1000 characters), `POST /api/devices/:id/replace-key` (`{ fingerprint }`), `POST /api/devices/:id/revoke`, `DELETE /api/devices/:id`. Accept and replace answer 409 when the fingerprint no longer matches the key the device presents.
+- **API.** `GET /api/devices` (`{ devices, pending }`, each device with `online` and `connected`, never a key or hash), `POST /api/devices/pending/:id/accept` (`{ fingerprint, label?, area?, notes? }`), `DELETE /api/devices/pending/:id`, `PUT /api/devices/:id` (`{ label?, area?, notes? }`; label 1-80, area up to 80, notes up to 1000 characters), `POST /api/devices/:id/replace-key` (`{ fingerprint }`), `POST /api/devices/:id/revoke`, `DELETE /api/devices/:id`. Accept and replace answer 409 when the fingerprint no longer matches the key the device presents.
 
 Keys are stored as SHA-256 hashes; the fingerprint is the first 8 hex characters of that hash, computed the same way on the device. Like the rest of the portal there is no login, so this relies on Friday being reachable only from a trusted network.
+
+## Timers and alerts
+
+"Set a timer for five minutes for the eggs" on a voice device sets a timer and the conversation ends as usual; no Gemini session stays open while it counts down. When the timer is due, Friday starts talking on its own:
+
+1. **Ring.** Friday sends `ring` over the device's control connection (`/ws/device`). The device opens an alert session (`/ws/audio?device=<id>&alert=<id>`), as if its wake word had been spoken.
+2. **Announce.** The session opens with a short tone, then Friday says what went off ("your eggs timer is done"), in the language you set it in, and listens. Answer anything ("thanks", "stop") and the timer is done; "give me five more minutes" snoozes it. Friday can't end the session before you've reacted.
+3. **Ring again.** If nobody answers, the session closes with `ended: no answer` and Friday rings again after `FRIDAY_ALERT_RING_INTERVAL_MS` (default 60000), up to `FRIDAY_ALERT_RINGS` times (default 5). After that the timer counts as *missed*.
+4. **Fallback tone.** When the alert session can't open (Gemini unreachable, a bad key) or the device is muted, the device rings with its own tone until you press its button (the Mute button on the reSpeaker, which then leaves mute as it was), and gives up after five minutes.
+
+A timer rings on the device it was set on. Several timers due at once are announced together. If the device is in a conversation, the ring waits until it ends; if it is offline (or Friday was down), it rings as soon as it can, but no ring starts later than `FRIDAY_ALERT_GRACE_MS` (default 600000) after the due time, and a timer that couldn't ring by then is *missed*. Timers are stored in `friday.db`, so they survive a restart.
+
+- **Tools** (voice only, owned by core): `set_timer` (`seconds` 1-86400, `label`, `language` `nl`/`en`), `list_timers` (every device's timers with the seconds left), `cancel_timer` (by id or label; when it can't tell which, it cancels nothing and lists them) and `snooze_alert` (1-60 minutes, only in the session that announces it). A timer needs a voice device with current firmware: on the Talk page, in chat or on a device without a control connection `set_timer` explains why it can't.
+- **Settings > Alerts** lists running timers with the time left and a *Cancel* action, and finished ones with their outcome; missed timers stand out.
+- **API.** `GET /api/alerts` (`{ alerts }`: active first, then finished newest first, each with `id`, `kind`, `label`, `dueAt`, `target` `{ kind, id, label }`, `state`, `createdAt`, `finishedAt`, `rings`), `DELETE /api/alerts/:id` (cancel: 204, 404 unknown, 409 already finished).
+- **Firmware.** Ringing needs the current `friday_client` on the device (see the device sections below). Older firmware keeps working for conversations; the device just shows as offline and can't have timers.
+
+Recurring alarms (a weekday wake-up with a morning briefing) and phone notifications for timers set without a device are planned, not built.
 
 ## Voice Preview Edition (ESP32)
 
@@ -402,11 +422,13 @@ esphome run friday-voice-pe.yaml          # first time over USB; afterwards it o
 esphome logs friday-voice-pe.yaml         # tail the device log
 ```
 
-Then onboard it (see [Voice devices](#voice-devices)): on first boot the device generates its key and logs `device friday-voice, key fingerprint xxxx-xxxx`, also shown as the **Friday key fingerprint** sensor in Home Assistant. Say "hey friday" once: the ring pulses amber (pending) and the device appears under Settings > Voice devices > Pending. Accept it with the same fingerprint, its Home Assistant area and any notes, and wake it again. The key stays in flash across power cuts, OTA updates and reflashes; only **Factory Reset** makes a new one, after which you *Replace key* in the portal.
+Then onboard it (see [Voice devices](#voice-devices)): on first boot the device generates its key and logs `device friday-voice, key fingerprint xxxx-xxxx`, also shown as the **Friday key fingerprint** sensor in Home Assistant. Once on Wi-Fi it opens its control connection, so it appears under Settings > Voice devices > Pending right away (saying "hey friday" does the same, and the ring then pulses amber). Accept it with the same fingerprint, its Home Assistant area and any notes, and wake it again. The key stays in flash across power cuts, OTA updates and reflashes; only **Factory Reset** makes a new one, after which you *Replace key* in the portal.
 
 The device id is the node name (`friday-voice`); set `device_id:` on `friday_client` to override it. Either way it must be 1 to 63 lowercase letters, digits and hyphens, the format Friday accepts; `esphome config` refuses any other. It connects over `wss://` and checks the server certificate against the bundled public CAs (Let's Encrypt included). For a local `pnpm dev` server set `friday_url` to `ws://<LAN IP>:8080/ws/audio`; that sends the key unencrypted, so only do it on a trusted network.
 
 Usage: say **"hey friday"** (or press the top button) to start talking. A short chime confirms the wake word was heard. Friday ends the session itself after handling a request or when you say goodbye; the LEDs go off once its last words have played. While Friday is talking you can talk over it, or say "stop" and Friday ends the session; the button also stops it. The dial sets the speaker volume.
+
+Timers (see [Timers and alerts](#timers-and-alerts)): while on Wi-Fi the device keeps a control connection to Friday, shown as the **Friday online** sensor in Home Assistant. When a timer set on it is due, Friday rings it: the device starts a session by itself, plays a tone and Friday's announcement, and listens for your answer; pressing the button during it also counts as an answer. When that session can't open (Friday or Gemini unreachable) or the microphone is muted (side switch or Mute in Home Assistant), the device rings with its own chime and the whole ring blinks warm white; press the button to stop it. It gives up after `ring_limit` (default 5 minutes). The control connection's url is `friday_url` with `/ws/audio` replaced by `/ws/device`; set `control_url:` on `friday_client` when your setup differs.
 
 Wake word detection runs on the device with ESPHome's `micro_wake_word`; the microphone is always on for that purpose, but no audio leaves the device until the wake word fires. The "hey friday" model is a community model from [Custom_V2_MicroWakeWords](https://github.com/JohnnyPrimus/Custom_V2_MicroWakeWords) (Apache-2.0), pinned to a commit in the YAML. To use another phrase, change the `model:` line under `micro_wake_word` to an official name such as `hey_jarvis` or `okay_nabu`, or to another model URL, and reflash.
 
@@ -418,6 +440,7 @@ Wake word detection runs on the device with ESPHome's `micro_wake_word`; the mic
 | Fast spin | Listening |
 | Reverse spin | Friday is speaking |
 | Amber pulse | Friday has not accepted this device yet (pending); clears after 2 s |
+| Warm white blinking | A timer rings on the device's own chime; the button stops it |
 | Red pulse | Error (server unreachable, connection lost, device revoked, or pressed while muted); clears after 2 s |
 | Two red dots | Microphone muted |
 | Red every third LED | XMOS voice kit failed to start |
@@ -432,8 +455,9 @@ Troubleshooting:
 - **Wake word misses or false triggers**: adjust `probability_cutoff` for `hey_friday` under `micro_wake_word` (lower is more sensitive), or try `channels: 0` for the engine's microphone. If the community model is not good enough, switch to `hey_jarvis`.
 - **Friday interrupts itself during long replies**: it is hearing its own echo. Keep the client on microphone `channels: 1` (no automatic gain control) and leave `barge_in_delay` at 1500ms or raise it; on the server, `FRIDAY_VAD_START_SENSITIVITY=LOW` and `FRIDAY_VAD_PREFIX_MS=200` are the defaults. Set `FRIDAY_LOG_TRANSCRIPTS=1` to see what Gemini hears.
 - **Session drops after Wi-Fi hiccups**: expected for now. The device shows the error pattern and returns to idle; the server cleans up via its ping timeout.
+- **Friday online stays off, or the portal shows the device offline**: the control connection can't reach Friday. The log says why (`control connection lost, reconnecting in N s`, or a close code); it retries from 1 s up to once a minute. Timers can't be set on the device meanwhile.
 
-The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_chunk` (20ms to 1s, default 100ms) and `barge_in_delay` (default 1500ms) if you want to tune it. The device stays a normal ESPHome device in Home Assistant for OTA, logs, the Mute switch and the LED Ring light.
+The component accepts `connect_timeout`, `drain_timeout`, `error_hold`, `send_chunk` (20ms to 1s, default 100ms), `barge_in_delay` (default 1500ms), `control_url` and `ring_limit` (10s to 60min, default 5min) if you want to tune it. The device stays a normal ESPHome device in Home Assistant for OTA, logs, the Mute switch and the LED Ring light.
 
 ## reSpeaker XVF3800 (ESP32)
 
@@ -470,8 +494,9 @@ Usage:
 - **Talking.** Say **"hey jarvis"**. A chime confirms it, and Friday ends the session itself as on the Voice PE. The board uses ESPHome's official `hey_jarvis` model because the community "hey friday" model missed most attempts on it; to change the phrase, swap the `model:` line under `micro_wake_word` (for example `okay_nabu`). Sessions start by wake word only; no button starts or stops one.
 - **Mute.** The **Mute** button cuts the microphones in hardware and lights the red LED, and pressing it again unmutes. The **Mute** switch in Home Assistant does the same. While muted, the wake word does nothing. Mute survives restarts and power cuts.
 - **Volume.** The **Volume** number in Home Assistant (0 to 100 %, default 60 %) sets the speaker volume and survives restarts.
+- **Timers.** As on the Voice PE: Friday rings the device over its control connection (the **Friday online** sensor), and you answer by voice. When it rings on its own chime (Friday unreachable, or muted), press the **Mute** button to stop it; the press doesn't change mute, so a muted device stays muted.
 
-The LED ring shows the same patterns as the Voice PE table above, except the muted and voice-kit rows: the red LED shows mute, and when the XVF3800 isn't ready the ring stays dark.
+The LED ring shows the same patterns as the Voice PE table above, warm white blinking for a timer ringing on the chime included, except the muted and voice-kit rows: the red LED shows mute, and when the XVF3800 isn't ready the ring stays dark.
 
 Troubleshooting:
 
@@ -500,6 +525,8 @@ Keep the total tool count modest: Gemini reads every declaration and caps at 512
 
 - A voice device appends `?device=<id>` and sends its key as `Authorization: Bearer <key>` (never in the URL). Friday checks it before any Gemini session opens and closes a rejected connection at once: `4400 bad device` (malformed id or key), `4401 unauthorized` (no key, or the device is revoked), `4403 pending approval` (an unknown id or a different key, listed in the portal to accept; see [Voice devices](#voice-devices)), or `1011 internal error` when the device check itself fails. An accepted device is logged with the session, recorded as the device of its conversation (see [Conversations](#conversations)) and gets its room in the prompt. Without `?device=` no key is needed, as for the portal's Talk page. Unknown query parameters are ignored.
 - A device connection receives only audio and the control events `interrupted`, `turn_complete` and `closed`. The transcripts and tool activity (`user_text`, `bot_text`, `tool_call`, `tool_result`) go only to the browser, which shows them; a large tool result could otherwise exhaust a device's memory. The conversation record is the same either way.
+- A device answering a ring adds `&alert=<id>`; when that alert isn't ringing on the device anymore, the socket is closed with `4410 alert gone` before any Gemini session.
+- `WS /ws/device?device=<id>` is a device's control connection, authenticated exactly like a device's `/ws/audio` connection: JSON only, no audio and no Gemini session. Friday sends `{"type":"ring","data":{"alert":"<id>"}}` and `{"type":"stop","data":{"alert":"<id>"}}`; the device reports `{"type":"ringing_locally"|"acknowledged"|"unanswered","alert":"<id>"}`. A newer connection of the same device closes the older one with `4409 replaced`. See `packages/core/src/transports/device-ws.ts`.
 - Binary frames may be any size; batching 100 ms (3200 bytes) per frame is fine for microcontrollers.
 - The server pings every `FRIDAY_WS_PING_MS` (default 20000) and drops connections that stop answering, which also closes the Gemini session. Set to `0` to disable.
 

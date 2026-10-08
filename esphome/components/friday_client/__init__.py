@@ -10,6 +10,13 @@ key it generates on first boot and keeps in flash, sent as an
 it is accepted under Settings > Voice devices; the device then shows the
 `pending` state. Use `wss://` (verified against the bundled public CAs) in
 production; `ws://` sends the key unencrypted and is for development only.
+
+While Wi-Fi is up the device also keeps a control connection to Friday's
+/ws/device (`control_url`, by default `url` with /ws/audio replaced by
+/ws/device). When a timer is due Friday sends `ring` and the device opens a
+session with `&alert=<id>`. When that session can't open, or the microphone is
+muted, it rings with its own chime (state `ringing`) until `stop_ringing` (the
+button) or `ring_limit`.
 """
 
 import esphome.codegen as cg
@@ -33,6 +40,8 @@ CONF_DRAIN_TIMEOUT = "drain_timeout"
 CONF_ERROR_HOLD = "error_hold"
 CONF_SEND_CHUNK = "send_chunk"
 CONF_BARGE_IN_DELAY = "barge_in_delay"
+CONF_CONTROL_URL = "control_url"
+CONF_RING_LIMIT = "ring_limit"
 
 friday_ns = cg.esphome_ns.namespace("friday_client")
 FridayClient = friday_ns.class_("FridayClient", cg.Component)
@@ -42,6 +51,8 @@ StopAction = friday_ns.class_("StopAction", automation.Action, cg.Parented.templ
 ToggleAction = friday_ns.class_("ToggleAction", automation.Action, cg.Parented.template(FridayClient))
 ErrorAction = friday_ns.class_("ErrorAction", automation.Action, cg.Parented.template(FridayClient))
 ChimeAction = friday_ns.class_("ChimeAction", automation.Action, cg.Parented.template(FridayClient))
+StopRingingAction = friday_ns.class_("StopRingingAction", automation.Action, cg.Parented.template(FridayClient))
+IsRingingCondition = friday_ns.class_("IsRingingCondition", automation.Condition, cg.Parented.template(FridayClient))
 
 
 # Friday's device id format (packages/core/src/devices/store.ts); any other id is closed with 4400 on every wake.
@@ -93,6 +104,13 @@ CONFIG_SCHEMA = cv.All(
                 cv.Range(min=cv.TimePeriod(milliseconds=20), max=cv.TimePeriod(milliseconds=1000)),
             ),
             cv.Optional(CONF_BARGE_IN_DELAY, default="1500ms"): cv.positive_time_period_milliseconds,
+            # Where Friday rings this device; derived from `url` when it ends in /ws/audio.
+            cv.Optional(CONF_CONTROL_URL): _ws_url,
+            # How long the device's own chime rings an alert nobody stops before giving up.
+            cv.Optional(CONF_RING_LIMIT, default="5min"): cv.All(
+                cv.positive_time_period_milliseconds,
+                cv.Range(min=cv.TimePeriod(seconds=10), max=cv.TimePeriod(minutes=60)),
+            ),
             cv.Optional(CONF_ON_STATE): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(StateTrigger)}
             ),
@@ -132,6 +150,9 @@ async def to_code(config):
     cg.add(var.set_error_hold(config[CONF_ERROR_HOLD]))
     cg.add(var.set_send_chunk_ms(config[CONF_SEND_CHUNK]))
     cg.add(var.set_barge_in_delay(config[CONF_BARGE_IN_DELAY]))
+    if CONF_CONTROL_URL in config:
+        cg.add(var.set_control_url(config[CONF_CONTROL_URL]))
+    cg.add(var.set_ring_limit(config[CONF_RING_LIMIT]))
 
     for conf in config.get(CONF_ON_STATE, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
@@ -143,7 +164,7 @@ async def to_code(config):
     include_builtin_idf_component("esp-tls")
     include_builtin_idf_component("tcp_transport")
     # wss:// verifies the server certificate against the public CA bundle, which ESPHome only compiles on request.
-    if config[CONF_URL].startswith("wss://"):
+    if config[CONF_URL].startswith("wss://") or config.get(CONF_CONTROL_URL, "").startswith("wss://"):
         require_certificate_bundle()
 
 
@@ -161,3 +182,5 @@ automation.register_action("friday_client.stop", StopAction, ACTION_SCHEMA, sync
 automation.register_action("friday_client.toggle", ToggleAction, ACTION_SCHEMA, synchronous=True)(_simple_action)
 automation.register_action("friday_client.error", ErrorAction, ACTION_SCHEMA, synchronous=True)(_simple_action)
 automation.register_action("friday_client.chime", ChimeAction, ACTION_SCHEMA, synchronous=True)(_simple_action)
+automation.register_action("friday_client.stop_ringing", StopRingingAction, ACTION_SCHEMA, synchronous=True)(_simple_action)
+automation.register_condition("friday_client.is_ringing", IsRingingCondition, ACTION_SCHEMA)(_simple_action)
