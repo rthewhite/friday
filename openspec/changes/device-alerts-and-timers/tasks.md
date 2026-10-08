@@ -2,8 +2,8 @@
 
 ## 1. Alert storage
 
-- [ ] 1.1 Add core migration 8 `alerts` in `packages/core/src/storage/db.ts` (columns and indexes as in design decision 2) and verify `pnpm --filter @friday/core test` passes `storage.test.ts`, including a new case that the migration creates the table on a version-7 database
-- [ ] 1.2 Implement `AlertStore` in `packages/core/src/alerts/store.ts`: create (short base32 id unique among non-final alerts), get, list (non-final first, then final newest first), due rows by `next_ring_at`, state transitions with `finished_at`, rings/local updates, cancel-by-device, and pruning to the 200 newest final alerts. Verify with `packages/core/test/alert-store.test.ts` covering each, including that ids aren't reused among scheduled alerts and that pruning keeps non-final rows
+- [x] 1.1 Add core migration 8 `alerts` in `packages/core/src/storage/db.ts` (columns and indexes as in design decision 2) and verify `pnpm --filter @friday/core test` passes `storage.test.ts`, including a new case that the migration creates the table on a version-7 database
+- [x] 1.2 Implement `AlertStore` in `packages/core/src/alerts/store.ts`: create (short base32 id unique among non-final alerts), get, list (non-final first, then final newest first), due rows by `next_ring_at`, state transitions with `finished_at`, rings/local updates, cancel-by-device, and pruning to the 200 newest final alerts. Verify with `packages/core/test/alert-store.test.ts` covering each, including that ids aren't reused among scheduled alerts and that pruning keeps non-final rows
 
 ## 2. Device control connection
 
