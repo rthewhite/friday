@@ -38,9 +38,9 @@
 
 ## 6. Timer tools
 
-- [ ] 6.1 Implement `registerAlertTools(registry, alerts)` in `alerts/tools.ts` with `set_timer` (seconds 1–86400, label up to 60, `language` `nl`/`en`, errors for no device, device offline, 20 timers), `list_timers`, `cancel_timer` (id, label, the only one, ambiguous error listing timers) and `snooze_alert` (1–60, default 5), all voice-only and owned by `core`. Verify with `packages/core/test/alert-tools.test.ts` covering every scenario in the alerts spec's tool requirements
-- [ ] 6.2 Remove the blocking `set_timer` from `modules/builtin` (manifest description and tools), update `modules/builtin/test/builtin.test.ts` to expect `get_current_time` and `end_conversation` only, and verify `pnpm --filter @friday/module-builtin test`
-- [ ] 6.3 Update `openspec/config.yaml` context: the voice-only tools are now the alert tools and `end_conversation`, the call context carries `device`, and a short alerts paragraph covers `/ws/device`, `DeviceLinks`, `AlertService`, migration 8 and the `alert` parameter. Verify `openspec validate device-alerts-and-timers --strict` still passes
+- [x] 6.1 Implement `registerAlertTools(registry, alerts)` in `alerts/tools.ts` with `set_timer` (seconds 1–86400, label up to 60, `language` `nl`/`en`, errors for no device, device offline, 20 timers), `list_timers`, `cancel_timer` (id, label, the only one, ambiguous error listing timers) and `snooze_alert` (1–60, default 5), all voice-only and owned by `core`. Verify with `packages/core/test/alert-tools.test.ts` covering every scenario in the alerts spec's tool requirements
+- [x] 6.2 Remove the blocking `set_timer` from `modules/builtin` (manifest description and tools), update `modules/builtin/test/builtin.test.ts` to expect `get_current_time` and `end_conversation` only, and verify `pnpm --filter @friday/module-builtin test`
+- [x] 6.3 Update `openspec/config.yaml` context: the voice-only tools are now the alert tools and `end_conversation`, the call context carries `device`, and a short alerts paragraph covers `/ws/device`, `DeviceLinks`, `AlertService`, migration 8 and the `alert` parameter. Verify `openspec validate device-alerts-and-timers --strict` still passes
 
 ## 7. Alerts API and portal
 

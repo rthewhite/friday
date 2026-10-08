@@ -6,8 +6,9 @@ Voice assistant on **Gemini 3.8 Live** (TypeScript / Node) built as a small core
 browser portal (Vue)   ── WebSocket PCM ──┐
                                           ├─► core ── Gemini Live (PCM 16k in / 24k out)
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
+ESP32 / Voice PE       ◄─ /ws/device (ring) ───┤   alerts: timers that ring their device
 portal Chat page       ── /api/chat (SSE) ────►├── Gemini text model (chat turns, streamed, with tools)
-                                               ├─► modules/builtin   time, timers, end_conversation
+                                               ├─► modules/builtin   time, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► modules/travel    driving time with traffic (TomTom)
@@ -21,10 +22,10 @@ The repo is a pnpm workspace:
 | Package | Path | What |
 |---|---|---|
 | `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
-| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `GeminiSession`, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `/ws/device`, `GeminiSession`, alerts and the timer tools, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
 | `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Chat, Conversations, Modules, and module pages |
 | `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
-| `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `set_timer`, `end_conversation` |
+| `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, `brain_recall_conversations`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
@@ -91,7 +92,7 @@ const h = await createTestHost(weather, { env: { WEATHER_API_KEY: "x" } });
 await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
 ```
 
-`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `set_timer` and `end_conversation` are voice-only, because a chat turn waits for every result and has no microphone to close. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
+`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `end_conversation` and the timer tools are voice-only, because a chat turn has no microphone to close and no device to ring. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
 
 A module that keeps relational data declares `migrations` and uses `ctx.db`, a synchronous handle on its own tables in `friday.db`. It can also add what it knows to Friday's system prompts with `ctx.prompt.addContext`:
 

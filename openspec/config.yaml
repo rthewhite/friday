@@ -9,12 +9,13 @@ context: |
   defineTool, config (env-backed), log. Core lists in-process modules in packages/core/src/modules.ts,
   FRIDAY_MODULES narrows them, GET /api/modules reports status. Tools live in one owner-tagged
   ToolRegistry instance (owner = module id or mcp:<server>); a tool may set channels (voice | chat,
-  both by default; set_timer and end_conversation are voice-only); each GeminiSession snapshots
+  both by default; end_conversation and core's timer tools are voice-only); each GeminiSession snapshots
   declarations("voice") at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
   before reaching Gemini (and ignored in chat). Handlers get a second argument, the call context { channel?,
-  conversationId? } from callTool's options: voice and chat pass their channel and the recorder's conversation id
-  (absent in a voice session's first exchange, which is stored at its turn end); MCP and remote tools never see it. Portal chat (packages/core/src/chat/): POST /api/chat
+  conversationId?, device? } from callTool's options: voice and chat pass their channel and the recorder's conversation id
+  (absent in a voice session's first exchange, which is stored at its turn end), a registered device's voice session
+  also its device id; MCP and remote tools never see it. Portal chat (packages/core/src/chat/): POST /api/chat
   runs one turn per message on the text model (FRIDAY_CHAT_MODEL, else FRIDAY_TEXT_MODEL) through
   LlmService.streamCall, replaying the thread's whole stored history (tool entries as function
   call/response pairs), a tool loop over declarations("chat") (FRIDAY_CHAT_TOOL_TIMEOUT_MS, 10 rounds),
@@ -108,6 +109,19 @@ context: |
   with 4401 on revoke/delete/replace. A device session's voice prompt ends with a "## Where you are" block
   (label, its Home Assistant area as the default for requests naming no room, notes), from the snapshot taken at
   accept, via systemPrompt(context, "voice", device). Connections without ?device= (the Talk page) need no key.
+  Device auth is shared by /ws/audio and /ws/device (transports/device-auth.ts).
+  Alerts (packages/core/src/alerts/, migration 8: alerts): timers that ring a device. Each device keeps a control
+  connection at /ws/device (transports/device-ws.ts; DeviceLinks in devices/links.ts, one per device, a newer one
+  closes the older with 4409; "online" in /api/devices) carrying ring/stop to the device and ringing_locally/
+  acknowledged/unanswered back. AlertService (service.ts) wakes on one re-planned timer, rings a device only while it
+  is online and has no audio session (DeviceSessions.onIdle / DeviceLinks.onOnline re-check), counts unanswered rings
+  (FRIDAY_ALERT_RINGS, FRIDAY_ALERT_RING_INTERVAL_MS) and misses alerts no ring could start for within
+  FRIDAY_ALERT_GRACE_MS. The device answers with /ws/audio?device=&alert=<id>: AlertService.claim() (4410 alert gone
+  when not ringing) makes it an alert session, GeminiSession options opening (tone.ts PCM, then an unrecorded
+  opening.ts turn) and awaitUser (end requests dropped and idle close "ended: no answer" until the user's first input,
+  which acknowledges). Core-owned voice tools set_timer (needs call.device with an open control connection, language
+  nl|en), list_timers, cancel_timer, snooze_alert (the device's open claim) in alerts/tools.ts; /api/alerts and
+  Settings > Alerts. Firmware: friday_client's second websocket client for /ws/device and the ringing state.
   Clients: browser and ESP32 satellites (esphome/) on the same WebSocket protocol: the Voice PE
   (friday-voice-pe.yaml) and the reSpeaker XVF3800 (friday-respeaker.yaml), both on the friday_client
   component. The reSpeaker adds two components: xvf3800 (I2C hub for XVF3800 firmware 1.0.9 only: version check,

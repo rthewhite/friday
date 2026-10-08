@@ -1,11 +1,11 @@
-/** Small native tools that ship with Friday: current time, countdown timers, end_conversation. */
+/** Small native tools that ship with Friday: current time and end_conversation. Timers are core's alerts. */
 import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, Type } from "@friday/sdk";
 
 export default defineModule({
   manifest: {
     id: "builtin",
     label: "Builtin",
-    description: "Current time, timers and ending the conversation.",
+    description: "Current time and ending the conversation.",
     config: [{ key: "FRIDAY_TIMEZONE", description: `Default IANA zone for get_current_time (default ${DEFAULT_TIME_ZONE})` }],
   },
   init(ctx) {
@@ -28,23 +28,6 @@ export default defineModule({
           human: now.toLocaleString("en-GB", { timeZone: zone, dateStyle: "full", timeStyle: "short" }),
           timezone: zone,
         };
-      },
-    });
-
-    ctx.defineTool<{ seconds: number; label?: string }>({
-      name: "set_timer",
-      description: "Start a countdown timer. Reports back when it finishes.",
-      parameters: {
-        type: Type.OBJECT,
-        properties: { seconds: { type: Type.INTEGER }, label: { type: Type.STRING } },
-        required: ["seconds"],
-      },
-      scheduling: "WHEN_IDLE",
-      // A chat turn waits for every tool result before it answers, so a timer would hold the reply.
-      channels: ["voice"],
-      handler: async ({ seconds, label = "timer" }) => {
-        await new Promise((r) => setTimeout(r, seconds * 1000));
-        return { done: true, label, message: `${label} finished after ${seconds} seconds` };
       },
     });
 
