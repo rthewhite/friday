@@ -33,8 +33,8 @@
 
 ## 5. Alert sessions on /ws/audio
 
-- [ ] 5.1 Read `alert` in `serveWs` for device connections: no claim → close `4410 alert gone` before any Gemini session; a claim → session with `opening` (tone and text) and `awaitUser` wired to the claim, `claim.closed` on `closed` and on a Gemini open failure. Verify with `ws.test.ts` covering "Answering a ring", "Alert cancelled meanwhile", "Gemini unavailable" and "Talk page" (alert ignored without a device)
-- [ ] 5.2 Verify end to end with fakes in `packages/core/test/alerts-e2e.test.ts`: a timer created through the service rings a fake control socket, a fake device opens `/ws/audio?alert=`, receives tone audio before the fake Gemini audio, the user's transcription acknowledges, and the alert ends `acknowledged`; without an answer it rings again after the interval
+- [x] 5.1 Read `alert` in `serveWs` for device connections: no claim → close `4410 alert gone` before any Gemini session; a claim → session with `opening` (tone and text) and `awaitUser` wired to the claim, `claim.closed` on `closed` and on a Gemini open failure. Verify with `ws.test.ts` covering "Answering a ring", "Alert cancelled meanwhile", "Gemini unavailable" and "Talk page" (alert ignored without a device)
+- [x] 5.2 Verify end to end with fakes in `packages/core/test/alerts-e2e.test.ts`: a timer created through the service rings a fake control socket, a fake device opens `/ws/audio?alert=`, receives tone audio before the fake Gemini audio, the user's transcription acknowledges, and the alert ends `acknowledged`; without an answer it rings again after the interval
 
 ## 6. Timer tools
 

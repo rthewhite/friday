@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
 import WebSocket from "ws";
-import { attachAudioWs, type AudioSession, type AudioWsOptions } from "../src/transports/ws.js";
+import { attachAudioWs, type AlertSessionOptions, type AudioSession, type AudioWsOptions } from "../src/transports/ws.js";
 import type { Event } from "../src/session.js";
 import type { ConversationRecorder } from "../src/conversations/recorder.js";
 import { randomBytes } from "node:crypto";
@@ -17,7 +17,7 @@ export class StubSession implements AudioSession {
   texts: string[] = [];
   closed = 0;
   failOpen = false;
-  constructor(public emit: (e: Event) => void, public recorder?: ConversationRecorder, public device?: DeviceSnapshot) {
+  constructor(public emit: (e: Event) => void, public recorder?: ConversationRecorder, public device?: DeviceSnapshot, public alert?: AlertSessionOptions) {
     StubSession.instances.push(this);
   }
   async open() {
@@ -56,7 +56,7 @@ export async function startHarness(opts: Omit<AudioWsOptions, "createSession"> =
   console.error = (...a) => logs.push(a.map(String).join(" "));
 
   const server = createServer();
-  const wss = attachAudioWs(server, { pingMs: 0, ...opts, createSession: (e, r, d) => new StubSession(e, r, d) });
+  const wss = attachAudioWs(server, { pingMs: 0, ...opts, createSession: (e, r, d, a) => new StubSession(e, r, d, a) });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
