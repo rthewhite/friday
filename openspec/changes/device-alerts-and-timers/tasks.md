@@ -51,8 +51,8 @@
 
 ## 8. Core wiring
 
-- [ ] 8.1 Wire `AlertStore`, `AlertService`, `DeviceLinks`, `attachDeviceWs` and `registerAlertTools` in `packages/core/src/server.ts`, start the service after modules load, and stop it on shutdown. Verify with `pnpm -r build && pnpm -r typecheck && pnpm -r test`, and by running `pnpm dev` with a free port: the startup log lists the four alert tools, and `/api/alerts` and `/ws/device` answer (a `wscat` connection without a key is closed with 4401)
-- [ ] 8.2 Check `deploy/k8s.yaml` for ingress or proxy rules that only pass `/ws/audio`, add `/ws/device` where needed, and verify by reading the manifest
+- [x] 8.1 Wire `AlertStore`, `AlertService`, `DeviceLinks`, `attachDeviceWs` and `registerAlertTools` in `packages/core/src/server.ts`, start the service after modules load, and stop it on shutdown. Verify with `pnpm -r build && pnpm -r typecheck && pnpm -r test`, and by running `pnpm dev` with a free port: the startup log lists the four alert tools, and `/api/alerts` and `/ws/device` answer (a `wscat` connection without a key is closed with 4401)
+- [x] 8.2 Check `deploy/k8s.yaml` for ingress or proxy rules that only pass `/ws/audio`, add `/ws/device` where needed, and verify by reading the manifest
 
 ## 9. Firmware
 

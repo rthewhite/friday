@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { ToolRegistry } from "@friday/sdk";
+import { resolveTimeZone, ToolRegistry } from "@friday/sdk";
 import { settings } from "./config.js";
 import { modules } from "./modules.js";
 import { ModuleHost } from "./module-host.js";
@@ -9,6 +9,7 @@ import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "./remote/key-sto
 import { RemoteHost } from "./remote/host.js";
 import { DeviceStore } from "./devices/store.js";
 import { DeviceSessions } from "./devices/sessions.js";
+import { DeviceLinks } from "./devices/links.js";
 import { databasePath, openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
 import { ConversationStore } from "./conversations/store.js";
@@ -18,6 +19,10 @@ import { ConfigStore } from "./secrets/config-store.js";
 import { parseMasterKey } from "./secrets/crypto.js";
 import { createResolver } from "./secrets/resolver.js";
 import { attachAudioWs } from "./transports/ws.js";
+import { attachDeviceWs } from "./transports/device-ws.js";
+import { AlertStore } from "./alerts/store.js";
+import { AlertService } from "./alerts/service.js";
+import { registerAlertTools } from "./alerts/tools.js";
 import { createApp } from "./app.js";
 import { JobStore } from "./jobs/store.js";
 import { Scheduler } from "./jobs/scheduler.js";
@@ -33,9 +38,11 @@ const mcpStore = new McpServerStore(db, masterKey);
 if (!configStore.secretsEnabled) console.warn("secrets disabled: FRIDAY_MASTER_KEY is not set; plain configuration still works, secrets come from the environment only");
 for (const f of configStore.verifyAll()) console.error(`config: ${f.scope}/${f.key} could not be decrypted and counts as unset`);
 const keys = new SqliteKeyStore(db);
-// Voice devices: /ws/audio?device= authenticates against the store; the API closes a device's sessions on revoke.
+// Voice devices: /ws/audio?device= and /ws/device authenticate against the store; the API closes a device's sessions
+// and control connection on revoke.
 const devices = new DeviceStore(db);
 const deviceSessions = new DeviceSessions();
+const deviceLinks = new DeviceLinks();
 // Core's own key: stored for core or globally in the portal, else the environment; read at each use.
 const coreKey = coreConfig(configStore, process.env);
 const geminiKey = () => coreKey("GEMINI_API_KEY");
@@ -45,6 +52,17 @@ if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the la
 // Cron's zone resolves like core's other keys (core scope, global, env) and re-plans when saved (followTimezone).
 const jobs = new Scheduler({ store: jobStore, timezone: () => coreKey("FRIDAY_TIMEZONE"), catchupDelayMs: settings.jobCatchupDelayMs });
 const conversations = new ConversationStore(db, { quietMinutes: settings.conversationQuietMinutes });
+// Alerts (timers) ring a device over its control connection; announcements use the household zone.
+const householdZone = () => resolveTimeZone(coreKey("FRIDAY_TIMEZONE")).zone;
+const alerts = new AlertService({
+  store: new AlertStore(db),
+  links: deviceLinks,
+  sessions: deviceSessions,
+  timezone: householdZone,
+  rings: settings.alertRings,
+  ringIntervalMs: settings.alertRingIntervalMs,
+  graceMs: settings.alertGraceMs,
+});
 
 const registry = new ToolRegistry();
 const promptContext = createPromptContext();
@@ -73,11 +91,13 @@ const remote = new RemoteHost({
   callTimeoutMs: settings.remoteCallTimeoutMs,
 });
 
+registerAlertTools(registry, { alerts, links: deviceLinks, deviceLabel: (id) => devices.get(id)?.label ?? id, timezone: householdZone });
 await host.load(modules);
 await mcp.load();
 if (!geminiKey()) console.warn("GEMINI_API_KEY is not set (Settings > Configuration > Secrets, or the environment)");
 console.log(`tools (${registry.names().length}):`, registry.names().join(", "));
 conversations.start();
+alerts.start();
 registerRetention(jobs, conversations, settings.conversationRetentionDays);
 
 let shuttingDown = false;
@@ -86,6 +106,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
     if (shuttingDown) return;
     shuttingDown = true;
     conversations.stop();
+    alerts.stop();
     // host.dispose() also closes the modules' own connections, before core's.
     void remote.closeAll().then(() => jobs.stop()).then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
   });
@@ -100,8 +121,9 @@ const chat = new ChatEngine({
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 
-const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs) }));
-attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions });
+const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs) }));
+attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts });
+attachDeviceWs(server, { devices, links: deviceLinks, onReport: (id, type, alert) => alerts.deviceReport(id, type, alert) });
 remote.attach(server);
 
 server.listen(settings.port, settings.host, () =>

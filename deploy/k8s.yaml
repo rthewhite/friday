@@ -110,8 +110,9 @@ spec:
     - websecure
   routes:
     # Whole host over TLS: the portal, /api/*, /ws/audio for browsers and voice
-    # devices (wss://friday.thewhite.nl/ws/audio), and /ws/modules for remote
-    # modules (wss://friday.thewhite.nl/ws/modules).
+    # devices (wss://friday.thewhite.nl/ws/audio), /ws/device for the voice
+    # devices' long-lived control connections (timers ring over it), and
+    # /ws/modules for remote modules (wss://friday.thewhite.nl/ws/modules).
     - match: Host(`friday.thewhite.nl`)
       kind: Rule
       services:
