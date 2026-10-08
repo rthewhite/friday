@@ -34,6 +34,22 @@ export function chatSettings(env: Record<string, string | undefined>) {
   };
 }
 
+/** How alerts ring. A function of the environment so the defaults are testable; invalid values fall back. */
+export function alertSettings(env: Record<string, string | undefined>) {
+  const positive = (key: string, fallback: number) => {
+    const n = Math.floor(Number(env[key]));
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  return {
+    /** Unanswered rings before an alert counts as missed. */
+    alertRings: positive("FRIDAY_ALERT_RINGS", 5),
+    /** Wait this long after an unanswered ring before ringing again. */
+    alertRingIntervalMs: positive("FRIDAY_ALERT_RING_INTERVAL_MS", 60_000),
+    /** No ring starts later than this after an alert's due time; an alert still waiting then is missed. */
+    alertGraceMs: positive("FRIDAY_ALERT_GRACE_MS", 600_000),
+  };
+}
+
 /** Module prompt context. A function of the environment so the default is testable. */
 export function promptSettings(env: Record<string, string | undefined>) {
   const max = Math.floor(Number(env.FRIDAY_PROMPT_CONTEXT_MAX_CHARS));
@@ -120,6 +136,8 @@ export const settings = {
   ...chatSettings(process.env),
   /** promptContextMaxChars. */
   ...promptSettings(process.env),
+  /** alertRings, alertRingIntervalMs, alertGraceMs. */
+  ...alertSettings(process.env),
   /** The Live session's instruction: the shared base plus the voice part. */
   systemPrompt: `${prompts.base}\n\n${prompts.voice}`,
   /** A chat turn's instruction: the shared base plus the chat part. */
