@@ -12,6 +12,7 @@ import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/c
 import { statusOf } from "./secrets/resolver.js";
 import type { SqliteKeyStore } from "./remote/key-store.js";
 import { DeviceConflict, DeviceInputError, DeviceNotFound, type Device, type DeviceStore } from "./devices/store.js";
+import type { DeviceLinks } from "./devices/links.js";
 import type { DeviceSessions } from "./devices/sessions.js";
 import type { Scheduler } from "./jobs/scheduler.js";
 import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore } from "./conversations/store.js";
@@ -51,6 +52,8 @@ export interface AppDeps {
   devices?: DeviceStore;
   /** Open device connections, for `connected` and for closing them on revoke, delete and key replacement. */
   deviceSessions?: DeviceSessions;
+  /** Device control connections, for `online` and for closing them on revoke, delete and key replacement. */
+  deviceLinks?: DeviceLinks;
   env?: Env;
   jobs?: Scheduler;
   conversations?: ConversationStore;
@@ -201,7 +204,17 @@ async function mcpWrite(deps: AppDeps, req: IncomingMessage, res: ServerResponse
   }
 }
 
-const withConnected = (deps: AppDeps, d: Device) => ({ ...d, connected: deps.deviceSessions?.connected(d.id) ?? false });
+const withConnected = (deps: AppDeps, d: Device) => ({
+  ...d,
+  online: deps.deviceLinks?.online(d.id) ?? false,
+  connected: deps.deviceSessions?.connected(d.id) ?? false,
+});
+
+/** End every connection of a device: its audio sessions and its control connection. */
+function disconnectDevice(deps: AppDeps, id: string): void {
+  deps.deviceSessions?.disconnect(id);
+  deps.deviceLinks?.disconnect(id);
+}
 
 /** Run a voice device route: 503 without a store, the body parsed when `withBody`, store errors as 400/404/409. */
 async function deviceRoute(
@@ -373,25 +386,26 @@ export function createApp(deps: AppDeps) {
     .add("PUT", "/api/devices/:id", (req, res, { id }) =>
       deviceRoute(deps, req, res, true, (store, body) => sendJson(res, withConnected(deps, store.update(id, body)))),
     )
-    // Replacing, revoking and deleting end the device's open sessions; replacing so the old key stops at once.
+    // Replacing, revoking and deleting end the device's open sessions and control connection; replacing so the old
+    // key stops at once.
     .add("POST", "/api/devices/:id/replace-key", (req, res, { id }) =>
       deviceRoute(deps, req, res, true, (store, body) => {
         const d = store.replaceKey(id, body);
-        deps.deviceSessions?.disconnect(id);
+        disconnectDevice(deps, id);
         sendJson(res, withConnected(deps, d));
       }),
     )
     .add("POST", "/api/devices/:id/revoke", (req, res, { id }) =>
       deviceRoute(deps, req, res, false, (store) => {
         const d = store.revoke(id);
-        deps.deviceSessions?.disconnect(id);
+        disconnectDevice(deps, id);
         sendJson(res, withConnected(deps, d));
       }),
     )
     .add("DELETE", "/api/devices/:id", (req, res, { id }) =>
       deviceRoute(deps, req, res, false, (store) => {
         store.remove(id);
-        deps.deviceSessions?.disconnect(id);
+        disconnectDevice(deps, id);
         res.statusCode = 204;
         res.end();
       }),

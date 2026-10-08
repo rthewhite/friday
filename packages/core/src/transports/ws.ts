@@ -33,8 +33,9 @@ import { systemPrompt } from "../prompt-context.js";
 import { GeminiSession, type Event } from "../session.js";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
-import type { AuthResult, DeviceSnapshot, DeviceStore } from "../devices/store.js";
+import type { DeviceSnapshot, DeviceStore } from "../devices/store.js";
 import type { DeviceSessions } from "../devices/sessions.js";
+import { authenticateDevice } from "./device-auth.js";
 import { keepAlive } from "./keep-alive.js";
 import { mountWs } from "./mount.js";
 
@@ -67,15 +68,8 @@ export interface AudioWsOptions {
   deviceSessions?: DeviceSessions;
 }
 
-const UNAUTHORIZED: AuthResult = { ok: false, code: 4401, reason: "unauthorized" };
-
 /** The session events a voice-device connection receives. */
 const DEVICE_EVENTS: ReadonlySet<Event["kind"]> = new Set(["audio", "interrupted", "turn_complete", "closed"]);
-
-/** The key from `Authorization: Bearer <key>`, or undefined. A key in the query string is never read. */
-function bearerKey(req: IncomingMessage | undefined): string | undefined {
-  return /^Bearer\s+(\S+)\s*$/i.exec(req?.headers.authorization ?? "")?.[1];
-}
 
 /** Mount the audio WebSocket on an HTTP server at /ws/audio. */
 export function attachAudioWs(server: Server, opts: AudioWsOptions = {}): WebSocketServer {
@@ -89,22 +83,8 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
   const claimed = new URL(req?.url ?? "/", "http://x").searchParams.get("device");
   let device: DeviceSnapshot | undefined;
   if (claimed !== null) {
-    let auth: AuthResult;
-    try {
-      auth = opts.devices?.authenticate(claimed, bearerKey(req)) ?? UNAUTHORIZED;
-    } catch (e) {
-      // serveWs runs unawaited: a store error (a locked or full database) must close this socket, not the process.
-      console.error(`ws: [${JSON.stringify(claimed.slice(0, 64))}] could not check the device`, e);
-      ws.close(1011, "internal error");
-      return;
-    }
-    if (!auth.ok) {
-      // Frames sent before the close are dropped: no message handler is attached.
-      console.log(`ws: [${JSON.stringify(claimed.slice(0, 64))}] rejected: ${auth.code} ${auth.reason}`);
-      ws.close(auth.code, auth.reason);
-      return;
-    }
-    device = auth.device;
+    device = authenticateDevice(ws, req, opts.devices, claimed);
+    if (!device) return;
   }
   const tag = device ? `[${device.id}] ` : "";
   const create =

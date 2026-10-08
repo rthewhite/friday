@@ -7,10 +7,10 @@
 
 ## 2. Device control connection
 
-- [ ] 2.1 Move device authentication out of `serveWs` into `transports/device-auth.ts` (`authenticateDevice(ws, req, devices)`) and verify the existing `ws.test.ts` device cases (4400, 4401, 4403, pending attempt, key in URL, store error → 1011) still pass unchanged
-- [ ] 2.2 Add `DeviceLinks` in `packages/core/src/devices/links.ts` (one socket per device, `4409 replaced`, `send`, `online`, `onOnline`, `disconnect` with 4401), and `DeviceSessions.onIdle` when a device's last audio socket closes. Verify with unit tests in `packages/core/test/device-links.test.ts`
-- [ ] 2.3 Mount `/ws/device` in `transports/device-ws.ts` with `keepAlive`, shared authentication, ignoring binary and malformed frames, and routing `ringing_locally` / `acknowledged` / `unanswered` to an injected report handler. Verify with `packages/core/test/device-ws.test.ts`: accepted device stays open without a Gemini session, unregistered device → 4403 plus pending attempt, second connection replaces the first with 4409, malformed frames ignored, reports reach the handler, dead connection terminated after missed pongs
-- [ ] 2.4 Close control connections on revoke, delete and key replacement, and report `online` alongside `connected` in `GET /api/devices`. Verify with new cases in `devices-api.test.ts` (online flag, revoke closes the control socket with 4401)
+- [x] 2.1 Move device authentication out of `serveWs` into `transports/device-auth.ts` (`authenticateDevice(ws, req, devices)`) and verify the existing `ws.test.ts` device cases (4400, 4401, 4403, pending attempt, key in URL, store error → 1011) still pass unchanged
+- [x] 2.2 Add `DeviceLinks` in `packages/core/src/devices/links.ts` (one socket per device, `4409 replaced`, `send`, `online`, `onOnline`, `disconnect` with 4401), and `DeviceSessions.onIdle` when a device's last audio socket closes. Verify with unit tests in `packages/core/test/device-links.test.ts`
+- [x] 2.3 Mount `/ws/device` in `transports/device-ws.ts` with `keepAlive`, shared authentication, ignoring binary and malformed frames, and routing `ringing_locally` / `acknowledged` / `unanswered` to an injected report handler. Verify with `packages/core/test/device-ws.test.ts`: accepted device stays open without a Gemini session, unregistered device → 4403 plus pending attempt, second connection replaces the first with 4409, malformed frames ignored, reports reach the handler, dead connection terminated after missed pongs
+- [x] 2.4 Close control connections on revoke, delete and key replacement, and report `online` alongside `connected` in `GET /api/devices`. Verify with new cases in `devices-api.test.ts` (online flag, revoke closes the control socket with 4401)
 
 ## 3. Session options and the device in the call context
 
