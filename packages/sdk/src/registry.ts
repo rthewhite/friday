@@ -13,6 +13,8 @@ export interface CallOptions {
   channel?: ConversationChannel;
   /** Handed to the handler with the channel, in its call context. */
   conversationId?: string;
+  /** The voice device the call comes from, handed to the handler in its call context. */
+  device?: string;
 }
 
 export interface ToolEntry {
@@ -103,10 +105,11 @@ export class ToolRegistry {
   }
 }
 
-function context({ channel, conversationId }: CallOptions): ToolCallContext {
+function context({ channel, conversationId, device }: CallOptions): ToolCallContext {
   const call: ToolCallContext = {};
   if (channel) call.channel = channel;
   if (conversationId) call.conversationId = conversationId;
+  if (device) call.device = device;
   return call;
 }
 

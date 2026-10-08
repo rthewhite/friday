@@ -51,7 +51,25 @@ export interface SessionOptions {
    * part, module context). Defaults to the fixed voice prompt.
    */
   systemPrompt?: () => string;
+  /** The registered voice device the session belongs to; tool handlers see it in their call context. */
+  device?: string;
+  /**
+   * What the session starts with once Gemini is connected: `audio` (24 kHz PCM, e.g. an alert tone) is emitted
+   * before anything from Gemini, then `text` is sent as a turn the user didn't say, so it is never recorded.
+   */
+  opening?: { audio: Buffer; text: string };
+  /**
+   * Wait for the user before letting the conversation end (an alert nobody has answered yet): until the first
+   * transcription or typed text, end requests are dropped and silence closes with `ended: no answer`, even when
+   * the idle timeout is disabled. `onFirstInput` is called once, when the user first speaks or types.
+   */
+  awaitUser?: { onFirstInput(): void };
 }
+
+/** The idle timeout of a session still waiting for the user, used even when FRIDAY_IDLE_TIMEOUT_MS is 0. */
+export const AWAIT_USER_IDLE_MS = 8000;
+/** 100 ms of 24 kHz s16le: the opening audio is emitted in chunks of this size. */
+const OPENING_CHUNK = (settings.outputRate * 2) / 10;
 
 export class GeminiSession {
   private session?: Awaited<ReturnType<LiveConnect>>;
@@ -64,6 +82,8 @@ export class GeminiSession {
   /** Set when an end was dropped after a question: Gemini's late interrupted flag for it is withheld until the user speaks or types. */
   private holdInterrupted = false;
   private toolsInFlight = 0;
+  /** True until the user first speaks or types, when the session was opened with `awaitUser`. */
+  private awaitingUser: boolean;
   private readonly log: Pick<Console, "log" | "error">;
 
   constructor(
@@ -72,6 +92,7 @@ export class GeminiSession {
     private readonly opts: SessionOptions = {},
   ) {
     this.log = opts.log ?? console;
+    this.awaitingUser = opts.awaitUser !== undefined;
   }
 
   async open(): Promise<void> {
@@ -105,6 +126,13 @@ export class GeminiSession {
       },
     }, apiKey);
     this.log.log(`gemini session open (${settings.model}, ${decls.length} tools, vad ${settings.vadStartSensitivity}/${settings.vadPrefixPaddingMs}ms)`);
+    const opening = this.opts.opening;
+    if (opening && !this.closed) {
+      // The audio goes out first so the client plays it before Gemini's reply. The text is sent straight to
+      // Gemini: it isn't the user's turn, so it is neither recorded nor counted as the user reacting.
+      for (let i = 0; i < opening.audio.length; i += OPENING_CHUNK) this.onEvent({ kind: "audio", data: opening.audio.subarray(i, i + OPENING_CHUNK) });
+      this.session?.sendClientContent({ turns: [{ role: "user", parts: [{ text: opening.text }] }] });
+    }
   }
 
   async sendAudio(pcm16k: Buffer): Promise<void> {
@@ -115,6 +143,7 @@ export class GeminiSession {
   }
 
   sendText(text: string): void {
+    this.userReacted();
     this.holdInterrupted = false;
     this.session?.sendClientContent({ turns: [{ role: "user", parts: [{ text }] }] });
     this.opts.recorder?.user(text, "text");
@@ -135,6 +164,7 @@ export class GeminiSession {
       this.turnText = ""; // a barge-in ends that turn's words
     }
     if (sc.inputTranscription?.text) {
+      this.userReacted();
       if (settings.logTranscripts) this.log.log(`gemini: heard ${JSON.stringify(sc.inputTranscription.text)}`);
       this.clearIdle(); // the user is talking again
       this.onEvent({ kind: "user_text", data: sc.inputTranscription.text });
@@ -153,7 +183,14 @@ export class GeminiSession {
       this.opts.recorder?.turnComplete();
       const askedQuestion = this.endRequested !== undefined && endsWithQuestion(this.turnText);
       this.turnText = "";
-      if (askedQuestion) {
+      if (this.awaitingUser && this.endRequested !== undefined) {
+        // Nobody has answered yet: the model may not end before the user reacted. As after a question, a late
+        // interrupted flag for the dropped end is withheld until the user speaks or types.
+        this.log.log("gemini: end requested before the user answered, keeping the session open");
+        this.endRequested = undefined;
+        this.holdInterrupted = true;
+        this.armIdle();
+      } else if (askedQuestion) {
         // The model asked something and ended in the same turn: let the user answer, and let the
         // idle timer end it if they don't. A later turn has to ask for the end again.
         this.log.log("gemini: end requested after a question, keeping the session open");
@@ -165,11 +202,23 @@ export class GeminiSession {
     }
   }
 
-  /** Close once the user has been silent for idleTimeoutMs after a turn, unless a tool is still pending. */
+  /**
+   * Close once the user has been silent for idleTimeoutMs after a turn, unless a tool is still pending. While the
+   * session waits for the user, silence closes it with `ended: no answer`, and a disabled timeout doesn't apply.
+   */
   private armIdle(reason = "ended: no follow-up"): void {
     this.clearIdle();
-    if (!settings.idleTimeoutMs || this.toolsInFlight > 0) return;
-    this.idleTimer = setTimeout(() => this.finish(reason), settings.idleTimeoutMs);
+    const ms = this.awaitingUser ? settings.idleTimeoutMs || AWAIT_USER_IDLE_MS : settings.idleTimeoutMs;
+    if (!ms || this.toolsInFlight > 0) return;
+    const why = this.awaitingUser ? "ended: no answer" : reason;
+    this.idleTimer = setTimeout(() => this.finish(why), ms);
+  }
+
+  /** The user spoke or typed: a session waiting for them now behaves like any other. */
+  private userReacted(): void {
+    if (!this.awaitingUser) return;
+    this.awaitingUser = false;
+    this.opts.awaitUser?.onFirstInput();
   }
 
   private clearIdle(): void {
@@ -192,7 +241,7 @@ export class GeminiSession {
     this.clearIdle();
     // Absent in the session's first exchange: nothing of it is stored until the turn ends.
     const conversationId = this.opts.recorder?.conversationId;
-    const { result, scheduling, endConversation } = await this.registry.callTool(name, args, { channel: "voice", conversationId });
+    const { result, scheduling, endConversation } = await this.registry.callTool(name, args, { channel: "voice", conversationId, device: this.opts.device });
     this.toolsInFlight--;
     recorded?.result(result);
     this.onEvent({ kind: "tool_result", data: { name, result } });

@@ -14,11 +14,11 @@
 
 ## 3. Session options and the device in the call context
 
-- [ ] 3.1 Add `device?: string` to `ToolCallContext` in `packages/sdk/src/tool.ts` and pass it through `ToolRegistry.callTool` options. Verify with new cases in `packages/sdk/test/registry.test.ts` (device reaches the handler, absent without options) and `pnpm --filter @friday/sdk typecheck`
-- [ ] 3.2 Add `SessionOptions.device` to `GeminiSession` and pass it in `runTool`; have `serveWs` set it from the authenticated device. Verify with `session.test.ts` (a device session's tool call sees the device, a Talk page session's doesn't)
-- [ ] 3.3 Add `SessionOptions.opening` (tone `audio` events in 100 ms chunks before Gemini audio, then the opening text through `sendClientContent`, not recorded) and verify with `session.test.ts`: event order, the recorder holds no user entry for the opening, and the opening doesn't release `holdInterrupted` or count as user input
-- [ ] 3.4 Add `SessionOptions.awaitUser` (drop end requests until the first input, idle reason `ended: no answer`, 8000 ms even when `FRIDAY_IDLE_TIMEOUT_MS` is 0, `onFirstInput` called once on the first transcription or `sendText`). Verify with `session.test.ts` covering the voice-session spec scenarios "Model tries to end right away", "User answers", "Nobody answers an alert" and "Timeout disabled"
-- [ ] 3.5 Update the README's idle timeout paragraph (no more "paused while a timer runs"; alert sessions close with `no answer`) and verify it matches the voice-session spec
+- [x] 3.1 Add `device?: string` to `ToolCallContext` in `packages/sdk/src/tool.ts` and pass it through `ToolRegistry.callTool` options. Verify with new cases in `packages/sdk/test/registry.test.ts` (device reaches the handler, absent without options) and `pnpm --filter @friday/sdk typecheck`
+- [x] 3.2 Add `SessionOptions.device` to `GeminiSession` and pass it in `runTool`; have `serveWs` set it from the authenticated device. Verify with `session.test.ts` (a device session's tool call sees the device, a Talk page session's doesn't)
+- [x] 3.3 Add `SessionOptions.opening` (tone `audio` events in 100 ms chunks before Gemini audio, then the opening text through `sendClientContent`, not recorded) and verify with `session.test.ts`: event order, the recorder holds no user entry for the opening, and the opening doesn't release `holdInterrupted` or count as user input
+- [x] 3.4 Add `SessionOptions.awaitUser` (drop end requests until the first input, idle reason `ended: no answer`, 8000 ms even when `FRIDAY_IDLE_TIMEOUT_MS` is 0, `onFirstInput` called once on the first transcription or `sendText`). Verify with `session.test.ts` covering the voice-session spec scenarios "Model tries to end right away", "User answers", "Nobody answers an alert" and "Timeout disabled"
+- [x] 3.5 Update the README's idle timeout paragraph (no more "paused while a timer runs"; alert sessions close with `no answer`) and verify it matches the voice-session spec
 
 ## 4. Alert service
 

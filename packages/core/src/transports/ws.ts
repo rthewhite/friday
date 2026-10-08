@@ -91,7 +91,12 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     opts.createSession ??
     ((onEvent, recorder, device) => {
       if (!opts.registry) throw new Error("attachAudioWs needs a registry or createSession");
-      return new GeminiSession(onEvent, opts.registry, { recorder, geminiKey: opts.geminiKey, systemPrompt: systemPrompt(opts.promptContext, "voice", device) });
+      return new GeminiSession(onEvent, opts.registry, {
+        recorder,
+        geminiKey: opts.geminiKey,
+        systemPrompt: systemPrompt(opts.promptContext, "voice", device),
+        device: device?.id,
+      });
     });
   const recorder = opts.conversations?.recorder({ channel: "voice", device: device?.id ?? null });
   if (device && opts.deviceSessions) {

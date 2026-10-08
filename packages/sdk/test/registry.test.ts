@@ -136,6 +136,16 @@ test("callTool hands the handler its channel and conversation id", async () => {
   assert.deepEqual(seen, [{ channel: "chat", conversationId: "c1" }, { channel: "voice" }, {}]);
 });
 
+test("callTool hands the handler the device the call comes from, and none without options", async () => {
+  const r = new ToolRegistry(quiet);
+  const seen: unknown[] = [];
+  r.add("core", { name: "t", description: "", handler: (_args, call) => (seen.push(call), {}) });
+  await r.callTool("t", {}, { channel: "voice", conversationId: "c1", device: "friday-kitchen" });
+  await r.callTool("t", {}, { channel: "voice" });
+  await r.callTool("t", {});
+  assert.deepEqual(seen, [{ channel: "voice", conversationId: "c1", device: "friday-kitchen" }, { channel: "voice" }, {}]);
+});
+
 test("a handler that takes only its args behaves as before", async () => {
   const r = new ToolRegistry(quiet);
   r.add("a", { name: "echo", description: "", handler: (args: { x?: number }) => ({ x: args.x }) });
