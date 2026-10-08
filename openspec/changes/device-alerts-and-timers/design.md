@@ -167,7 +167,7 @@ In `friday_client` (both devices share it):
 
 **Button.** `toggle()` in `RINGING` calls `stop_ringing_(true)`. Ending an alert session with the button (`stop()` while an alert id is set) sends `acknowledged` first. The wake word is already only enabled in idle (the YAML `on_state` handler), so it's off while ringing.
 
-**reSpeaker Mute button.** Because the XVF3800 toggles mute itself, the YAML `on_mute` handler does this while `friday_client` is ringing: it calls `stop_ringing(true)`, then restores the previous mute state with `xvf3800.mute`/`unmute`. To the user, the Mute button stops the ringing and mute is unchanged. Restoring mute takes one GPO poll, during which the mics may flip. That's harmless, because no session is open while ringing locally.
+**reSpeaker Mute button.** Because the XVF3800 toggles mute itself, the YAML `on_mute` handler does this while `friday_client` is ringing: it calls `stop_ringing(true)`, then runs a `restore_mute` script that calls `set_mute()` with the previous state 50 ms later. To the user, the Mute button stops the ringing and mute is unchanged. The restore runs from a script after a short delay, not inside the handler, because `set_mute()` calls `on_mute` right away and would otherwise re-enter the running automation. During those 50 ms the mics are flipped. That's harmless, because no session is open while ringing locally.
 
 **Online sensor.** `is_online()` is exposed and the YAML adds a template `binary_sensor`. The LED `on_state` handlers in both YAMLs get a `ringing` pattern.
 

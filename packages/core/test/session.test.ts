@@ -544,6 +544,18 @@ test("once the user answers, onFirstInput runs once and the session ends like an
   }
 });
 
+test("the user barging in on the tone interrupts playback and acknowledges the alert", async () => {
+  const a = await alertSession(60_000);
+  try {
+    a.s.handle(msg({ interrupted: true }));
+    a.s.handle(msg({ inputTranscription: { text: "stop" } }));
+    assert.ok(a.events.some((e) => e.kind === "interrupted"), "the client drops the tone and anything queued");
+    assert.deepEqual(a.firstInputs, [1]);
+  } finally {
+    a.restore();
+  }
+});
+
 test("typed text also counts as the user answering", async () => {
   const a = await alertSession(60_000);
   try {

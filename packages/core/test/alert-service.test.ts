@@ -208,6 +208,22 @@ test("the button pressed during an alert session acknowledges, and the session c
   t.service.stop();
 });
 
+test("restart before the due time: the timer is still scheduled and rings on time", async () => {
+  const first = setup();
+  first.service.start();
+  const a = first.timer();
+  await first.clock.advance(2 * MIN);
+  first.service.stop();
+  const t = setup({ db: first.db, clock: first.clock });
+  t.service.start();
+  assert.equal(t.state(a.id), "scheduled");
+  await t.clock.advance(3 * MIN - 1);
+  assert.deepEqual(t.device.rings(), []);
+  await t.clock.advance(1);
+  assert.deepEqual(t.device.rings(), [a.id]);
+  t.service.stop();
+});
+
 test("short restart: an alert due while Friday was down rings right after startup, saying how late it is", async () => {
   const first = setup();
   first.service.start();

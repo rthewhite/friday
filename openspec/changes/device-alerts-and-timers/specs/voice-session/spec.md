@@ -6,7 +6,7 @@
 
 A session opened for ringing alerts (as specified in `audio-transport`) SHALL be an alert session for every alert ringing on its device at that moment. It SHALL open like any device session, with the same prompt, tools and device block, and then:
 1. emit a short alert tone as `audio` events before any audio from Gemini, so the device plays it first;
-2. send Gemini an opening turn that names each alert with its kind, label and due time, says how long ago it fell due when that is more than a minute, names the language the user spoke when setting it, and asks the model to announce the alerts briefly in that language and wait for the user's answer.
+2. send Gemini an opening turn that names each alert with its kind, label and due time, says how long ago it fell due when that is a minute or more, names the language the user spoke when setting it, and asks the model to announce the alerts briefly in that language and wait for the user's answer.
 
 The user speaking or sending text for the first time in an alert session SHALL acknowledge its alerts (as specified in `alerts`). Until then, the session SHALL drop any end-of-conversation request, in addition to the exception in "Model-initiated end of conversation", so the model cannot end the session before the user reacted. After the user has reacted, the session SHALL behave like any other session. An alert session SHALL report when it closes, and whether its alerts were acknowledged or snoozed, so unanswered rings can be counted.
 
