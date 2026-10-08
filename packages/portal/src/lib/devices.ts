@@ -9,6 +9,9 @@ export interface DeviceRecord extends Record<string, unknown> {
   keyReplacedAt: string | null;
   lastSeenAt: string | null;
   revoked: boolean;
+  /** Its control connection is open: Friday can reach it, e.g. to ring a timer. */
+  online: boolean;
+  /** It has a conversation open. */
   connected: boolean;
   replacement?: { fingerprint: string; lastSeenAt: string; attempts: number };
 }
@@ -24,6 +27,16 @@ export interface PendingRecord extends Record<string, unknown> {
 export interface DevicesListing {
   devices: DeviceRecord[];
   pending: PendingRecord[];
+}
+
+export type DeviceState = "revoked" | "in a session" | "online" | "offline";
+
+/** A device's status dot: revoked, in a session, online (reachable), or offline (Friday can't ring it). */
+export function deviceStatus(d: Pick<DeviceRecord, "revoked" | "online" | "connected">): { state: DeviceState; tone: "error" | "accent" | "success" | "neutral" } {
+  if (d.revoked) return { state: "revoked", tone: "error" };
+  if (d.connected) return { state: "in a session", tone: "accent" };
+  if (d.online) return { state: "online", tone: "success" };
+  return { state: "offline", tone: "neutral" };
 }
 
 /** Registered device ids to their labels. */

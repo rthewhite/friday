@@ -44,10 +44,10 @@
 
 ## 7. Alerts API and portal
 
-- [ ] 7.1 Add `GET /api/alerts` and `DELETE /api/alerts/:id` (204, 404, 409) to the app, and make device deletion cancel the device's alerts. Verify with `packages/core/test/alerts-api.test.ts` covering listing order, target labels for deleted devices, and each response code, plus a `devices-api.test.ts` case for deletion
-- [ ] 7.2 Add the `Alerts` page at `/settings/alerts` (active alerts with time left and `Cancel`, finished alerts with outcome and `missed` highlighted, `Refresh`) and the `System` nav entry. Put list formatting in a pure lib function and test it in `packages/portal/test/alerts.test.ts`; verify `pnpm --filter @friday/portal test` and `pnpm --filter @friday/portal typecheck`
-- [ ] 7.3 Show online, in a session, offline and revoked status dots on the Voice devices page, with the help text about offline devices not ringing. Extend `packages/portal/test/devices.test.ts` for the status mapping and verify portal test and typecheck
-- [ ] 7.4 Document alerts and timers in the README (what rings where, the ring cycle, missed alerts, the Alerts page, firmware needed) and verify every documented setting exists in `.env.example`
+- [x] 7.1 Add `GET /api/alerts` and `DELETE /api/alerts/:id` (204, 404, 409) to the app, and make device deletion cancel the device's alerts. Verify with `packages/core/test/alerts-api.test.ts` covering listing order, target labels for deleted devices, and each response code, plus a `devices-api.test.ts` case for deletion
+- [x] 7.2 Add the `Alerts` page at `/settings/alerts` (active alerts with time left and `Cancel`, finished alerts with outcome and `missed` highlighted, `Refresh`) and the `System` nav entry. Put list formatting in a pure lib function and test it in `packages/portal/test/alerts.test.ts`; verify `pnpm --filter @friday/portal test` and `pnpm --filter @friday/portal typecheck`
+- [x] 7.3 Show online, in a session, offline and revoked status dots on the Voice devices page, with the help text about offline devices not ringing. Extend `packages/portal/test/devices.test.ts` for the status mapping and verify portal test and typecheck
+- [x] 7.4 Document alerts and timers in the README (what rings where, the ring cycle, missed alerts, the Alerts page, firmware needed) and verify every documented setting exists in `.env.example`
 
 ## 8. Core wiring
 

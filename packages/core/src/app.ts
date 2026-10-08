@@ -15,6 +15,8 @@ import { DeviceConflict, DeviceInputError, DeviceNotFound, type Device, type Dev
 import type { DeviceLinks } from "./devices/links.js";
 import type { DeviceSessions } from "./devices/sessions.js";
 import type { Scheduler } from "./jobs/scheduler.js";
+import { AlertConflict, AlertNotFound, type AlertService } from "./alerts/service.js";
+import type { Alert } from "./alerts/store.js";
 import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore } from "./conversations/store.js";
 import type { Env } from "@friday/sdk";
 import { CORE_ID, coreManifest } from "./core-config.js";
@@ -54,6 +56,8 @@ export interface AppDeps {
   deviceSessions?: DeviceSessions;
   /** Device control connections, for `online` and for closing them on revoke, delete and key replacement. */
   deviceLinks?: DeviceLinks;
+  /** Timers and other alerts; without it `/api/alerts` answers 503. Deleting a device cancels its alerts. */
+  alerts?: AlertService;
   env?: Env;
   jobs?: Scheduler;
   conversations?: ConversationStore;
@@ -208,6 +212,19 @@ const withConnected = (deps: AppDeps, d: Device) => ({
   ...d,
   online: deps.deviceLinks?.online(d.id) ?? false,
   connected: deps.deviceSessions?.connected(d.id) ?? false,
+});
+
+/** An alert as the portal sees it: the target carries the device's current label, none once the device is gone. */
+const alertJson = (a: Alert, labels: Map<string, string>) => ({
+  id: a.id,
+  kind: a.kind,
+  label: a.label,
+  dueAt: a.dueAt,
+  target: { ...a.target, ...(labels.has(a.target.id) ? { label: labels.get(a.target.id) } : {}) },
+  state: a.state,
+  createdAt: a.createdAt,
+  finishedAt: a.finishedAt,
+  rings: a.rings,
 });
 
 /** End every connection of a device: its audio sessions and its control connection. */
@@ -406,10 +423,28 @@ export function createApp(deps: AppDeps) {
       deviceRoute(deps, req, res, false, (store) => {
         store.remove(id);
         disconnectDevice(deps, id);
+        deps.alerts?.cancelDevice(id);
         res.statusCode = 204;
         res.end();
       }),
     )
+    .add("GET", "/api/alerts", (_req, res) => {
+      if (!deps.alerts) return sendJson(res, { error: "no alert service" }, 503);
+      const labels = new Map(deps.devices?.list().devices.map((d) => [d.id, d.label]) ?? []);
+      sendJson(res, { alerts: deps.alerts.list().map((a) => alertJson(a, labels)) });
+    })
+    .add("DELETE", "/api/alerts/:id", (_req, res, { id }) => {
+      if (!deps.alerts) return sendJson(res, { error: "no alert service" }, 503);
+      try {
+        deps.alerts.cancel(id);
+      } catch (e) {
+        if (e instanceof AlertNotFound) return sendJson(res, { error: e.message }, 404);
+        if (e instanceof AlertConflict) return sendJson(res, { error: e.message }, 409);
+        throw e;
+      }
+      res.statusCode = 204;
+      res.end();
+    })
     .add("GET", "/api/jobs", (_req, res) => sendJson(res, deps.jobs?.list() ?? []))
     .add("GET", "/api/jobs/:owner/:name/runs", (_req, res, { owner, name }) => {
       const runs = deps.jobs?.runs(`${owner}/${name}`);
