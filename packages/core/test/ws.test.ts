@@ -507,6 +507,20 @@ test("the client leaving an alert session ends its claim", async () => {
   }
 });
 
+test("an alert check that throws closes the socket with 1011 instead of escaping as an unhandled rejection", async () => {
+  const devices = deviceFixture();
+  const key = devices.register("kitchen");
+  const alerts = { claim(): never { throw new Error("database is locked"); } };
+  const h = await startHarness({ devices: devices.store, alerts });
+  try {
+    assert.deepEqual(await h.rejected("?device=kitchen&alert=k3f9", key), { code: 1011, reason: "internal error" });
+    assert.equal(StubSession.instances.length, 0);
+    assert.ok(h.logs.some((l) => l.includes("database is locked")));
+  } finally {
+    await h.close();
+  }
+});
+
 test("alert without a device is ignored: the Talk page gets a normal session", async () => {
   const { alerts, calls } = fakeAlerts();
   const h = await startHarness({ alerts });

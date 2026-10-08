@@ -8,6 +8,10 @@
  * unanswered ring (no session within ANSWER_TIMEOUT_MS, or a session that closed without either) rings again after
  * the ring interval, until the ring limit makes it missed. A device that rings an alert with its own tone reports
  * the outcome itself. No ring starts after an alert's grace limit; a ring in progress is never cut off.
+ *
+ * A device's own ring is trusted only while the device can tell us about it: when its control connection comes back
+ * the service forgets which alerts it rang locally and rings them again (a device still ringing says so again), and
+ * a local ring nobody reported on is missed after LOCAL_RING_MAX_MS, the longest a device may ring.
  */
 import { systemClock, type Clock } from "../jobs/scheduler.js";
 import type { DeviceLinks } from "../devices/links.js";
@@ -18,8 +22,12 @@ import type { Alert, AlertStore, FinalState, NewAlert } from "./store.js";
 
 /** How long a device has to open an alert session after a ring. */
 export const ANSWER_TIMEOUT_MS = 15_000;
+/** The longest a device rings an alert with its own tone (the firmware's ring_limit maximum). */
+export const LOCAL_RING_MAX_MS = 60 * 60 * 1000;
 /** The planning timer never sleeps longer than this, so clock changes and long timers stay harmless. */
 const MAX_SLEEP_MS = 60 * 60 * 1000;
+/** After a failed tick (a database error), try again this much later. */
+const RETRY_MS = 30_000;
 
 export class AlertNotFound extends Error {}
 export class AlertConflict extends Error {}
@@ -77,12 +85,17 @@ export class AlertService {
   /** Resume after a (re)start: devices re-report their local rings, and alerts that were ringing ring again now. */
   start(): void {
     this.stopped = false;
-    const now = this.now();
-    this.opts.store.resetLocal();
-    for (const a of this.opts.store.active()) {
-      if (a.state === "ringing" && new Date(a.nextRingAt) > now) this.opts.store.update(a.id, { nextRingAt: now });
-    }
-    this.unsubscribe.push(this.opts.links.onOnline(() => this.tick()), this.opts.sessions.onIdle(() => this.tick()));
+    this.guard(() => {
+      const now = this.now();
+      this.opts.store.resetLocal();
+      for (const a of this.opts.store.active()) {
+        if (a.state === "ringing" && new Date(a.nextRingAt) > now) this.opts.store.update(a.id, { nextRingAt: now });
+      }
+    });
+    this.unsubscribe.push(
+      this.opts.links.onOnline((id) => this.deviceOnline(id)),
+      this.opts.sessions.onIdle(() => this.tick()),
+    );
     this.tick();
   }
 
@@ -143,13 +156,14 @@ export class AlertService {
   snooze(deviceId: string | undefined, minutes: number): Alert[] {
     const claim = deviceId === undefined ? undefined : this.claims.get(deviceId);
     if (!claim) throw new AlertNotFound("nothing is ringing");
-    const due = new Date(this.now().getTime() + minutes * 60_000);
+    const now = this.now();
+    const due = new Date(now.getTime() + minutes * 60_000);
     const out: Alert[] = [];
     for (const id of claim.ids) {
       const a = this.opts.store.get(id);
       // Answering acknowledged them a moment ago; only alerts cancelled or missed meanwhile stay as they are.
       if (!a || (a.state !== "ringing" && a.state !== "acknowledged")) continue;
-      out.push(this.opts.store.update(id, { state: "scheduled", dueAt: due, nextRingAt: due, rings: 0, local: false })!);
+      out.push(this.opts.store.update(id, { state: "scheduled", dueAt: due, nextRingAt: due, rings: 0, local: false, snoozedAt: now })!);
     }
     claim.outcome = "snoozed";
     this.log.log(`alerts: ${deviceId} snoozed ${out.map((a) => a.id).join(", ")} until ${due.toISOString()}`);
@@ -158,39 +172,36 @@ export class AlertService {
   }
 
   /**
-   * An alert session for `alertId` on `deviceId` is opening. Returns its claim on every alert ringing on the device,
-   * or undefined when that alert isn't ringing there (anymore) or the device already has an alert session.
+   * An alert session for `alertId` on `deviceId` is opening. Returns its claim on every alert ringing on the device
+   * (not those it rings with its own tone), or undefined when that alert isn't ringing there (anymore), is rung by
+   * the device itself, or the device already has an alert session.
    */
   claim(deviceId: string, alertId: string): AlertClaim | undefined {
     const a = this.opts.store.get(alertId);
-    if (!a || a.state !== "ringing" || a.target.kind !== "device" || a.target.id !== deviceId || this.claims.has(deviceId)) return undefined;
+    if (!a || a.state !== "ringing" || a.local || a.target.kind !== "device" || a.target.id !== deviceId || this.claims.has(deviceId)) return undefined;
+    const alerts = this.opts.store.active({ kind: "device", id: deviceId }).filter((x) => x.state === "ringing" && !x.local);
+    const text = openingText(alerts, this.now(), this.opts.timezone());
+    // Nothing is registered until the claim can be handed out whole.
     const r = this.ringing.get(deviceId);
     if (r) this.clock.clearTimeout(r.timer);
     this.ringing.delete(deviceId);
-    const alerts = this.opts.store.active({ kind: "device", id: deviceId }).filter((x) => x.state === "ringing" && !x.local);
     const open: OpenClaim = { ids: alerts.map((x) => x.id) };
     this.claims.set(deviceId, open);
     this.log.log(`alerts: ${deviceId} answered the ring for ${open.ids.join(", ")}`);
     let done = false;
     return {
       alerts,
-      text: openingText(alerts, this.now(), this.opts.timezone()),
-      acknowledge: () => {
-        if (open.outcome || this.claims.get(deviceId) !== open) return;
-        open.outcome = "acknowledged";
-        for (const id of open.ids) {
-          const x = this.opts.store.get(id);
-          if (x?.state === "ringing") this.finish(x, "acknowledged");
-        }
-      },
-      closed: () => {
-        if (done) return;
-        done = true;
-        if (this.claims.get(deviceId) !== open) return;
-        this.claims.delete(deviceId);
-        if (!open.outcome) this.unanswered(open.ids);
-        this.tick();
-      },
+      text,
+      acknowledge: () => this.guard(() => this.acknowledgeClaim(deviceId, open)),
+      closed: () =>
+        this.guard(() => {
+          if (done) return;
+          done = true;
+          if (this.claims.get(deviceId) !== open) return;
+          this.claims.delete(deviceId);
+          if (!open.outcome) this.unanswered(open.ids);
+          this.tick();
+        }),
     };
   }
 
@@ -199,7 +210,8 @@ export class AlertService {
     const a = this.opts.store.get(alertId);
     if (!a || a.state !== "ringing" || a.target.kind !== "device" || a.target.id !== deviceId) return;
     if (type === "ringing_locally") {
-      this.opts.store.update(a.id, { local: true });
+      // nextRingAt marks since when, for the LOCAL_RING_MAX_MS limit.
+      this.opts.store.update(a.id, { local: true, nextRingAt: this.now() });
       const r = this.ringing.get(deviceId);
       if (r?.ids.includes(a.id)) {
         this.clock.clearTimeout(r.timer);
@@ -207,36 +219,67 @@ export class AlertService {
       }
       this.log.log(`alerts: ${deviceId} rings ${a.id} with its own tone`);
     } else if (type === "acknowledged") {
+      // The button during an alert session answers everything that session announced.
       const claim = this.claims.get(deviceId);
-      if (claim?.ids.includes(a.id)) claim.outcome ??= "acknowledged";
-      this.finish(a, "acknowledged");
+      if (claim?.ids.includes(a.id)) this.acknowledgeClaim(deviceId, claim);
+      else this.finish(a, "acknowledged");
     } else if (type === "unanswered") {
-      if (!a.local) return;
+      this.log.log(`alerts: ${a.id} "${a.label}" missed (the device's own ring ran out)`);
       this.finish(a, "missed");
     }
     this.tick();
   }
 
-  /** Ring what is due, miss what is past its grace limit, and plan the next wake-up. */
+  /** The device's control connection (re)opened: what it rang itself rings again now, so it reports afresh. */
+  private deviceOnline(deviceId: string): void {
+    this.guard(() => {
+      const now = this.now();
+      for (const a of this.opts.store.active({ kind: "device", id: deviceId })) {
+        if (a.local) this.opts.store.update(a.id, { local: false, nextRingAt: now });
+      }
+      this.tick();
+    });
+  }
+
+  private acknowledgeClaim(deviceId: string, open: OpenClaim): void {
+    if (open.outcome || this.claims.get(deviceId) !== open) return;
+    open.outcome = "acknowledged";
+    for (const id of open.ids) {
+      const x = this.opts.store.get(id);
+      if (x?.state === "ringing") this.finish(x, "acknowledged");
+    }
+  }
+
+  /** Ring what is due, miss what is past its limit, and plan the next wake-up. */
   private tick(): void {
     if (this.stopped) return;
-    const now = this.now(), t = now.getTime();
-    const due = new Map<string, Alert[]>();
-    for (const a of this.opts.store.active()) {
-      if (a.local || this.inProgress(a)) continue;
-      const deadline = new Date(a.dueAt).getTime() + this.opts.graceMs;
-      const free = this.free(a.target.id);
-      if (free && new Date(a.nextRingAt).getTime() <= t && t <= deadline) {
-        const list = due.get(a.target.id) ?? [];
-        list.push(a);
-        due.set(a.target.id, list);
-      } else if (t >= deadline) {
-        this.log.log(`alerts: ${a.id} "${a.label}" missed (${free ? "unanswered" : "device offline or busy"} until its grace limit)`);
-        this.finish(a, "missed");
+    this.guard(() => {
+      const t = this.clock.now();
+      const due = new Map<string, Alert[]>();
+      const waiting: Alert[] = [];
+      for (const a of this.opts.store.active()) {
+        if (this.inProgress(a)) continue;
+        if (a.local) {
+          if (t >= new Date(a.nextRingAt).getTime() + LOCAL_RING_MAX_MS) {
+            this.log.log(`alerts: ${a.id} "${a.label}" missed (no word from the device's own ring)`);
+            this.finish(a, "missed");
+          } else waiting.push(a);
+          continue;
+        }
+        const deadline = new Date(a.dueAt).getTime() + this.opts.graceMs;
+        const free = this.free(a.target.id);
+        if (free && new Date(a.nextRingAt).getTime() <= t && t <= deadline) {
+          const list = due.get(a.target.id) ?? [];
+          list.push(a);
+          due.set(a.target.id, list);
+        } else if (t >= deadline) {
+          this.log.log(`alerts: ${a.id} "${a.label}" missed (${free ? "unanswered" : "device offline or busy"} until its grace limit)`);
+          this.finish(a, "missed");
+        } else waiting.push(a);
       }
-    }
-    for (const [deviceId, alerts] of due) this.ring(deviceId, alerts);
-    this.plan();
+      for (const [deviceId, alerts] of due) this.ring(deviceId, alerts);
+      this.plan(waiting);
+    });
   }
 
   private ring(deviceId: string, alerts: Alert[]): void {
@@ -248,7 +291,7 @@ export class AlertService {
       if (this.ringing.get(deviceId)?.timer !== timer) return;
       this.ringing.delete(deviceId);
       this.log.log(`alerts: ${deviceId} did not answer the ring`);
-      this.unanswered(ids);
+      this.guard(() => this.unanswered(ids));
       this.tick();
     }, ANSWER_TIMEOUT_MS);
     this.ringing.set(deviceId, { ids, timer });
@@ -256,7 +299,7 @@ export class AlertService {
 
   /** One more unanswered ring for each alert still ringing: ring again later, or missed at the ring limit. */
   private unanswered(ids: string[]): void {
-    const next = new Date(this.now().getTime() + this.opts.ringIntervalMs);
+    const next = new Date(this.clock.now() + this.opts.ringIntervalMs);
     for (const id of ids) {
       const a = this.opts.store.get(id);
       if (!a || a.state !== "ringing" || a.local) continue;
@@ -276,22 +319,41 @@ export class AlertService {
     return out;
   }
 
-  /** Wake at the earliest next ring of a device that can be rung, or grace limit. */
-  private plan(): void {
+  /** Wake at the earliest next ring of a device that can be rung, grace limit, or end of a local ring. */
+  private plan(waiting: Alert[]): void {
     if (this.timer !== undefined) this.clock.clearTimeout(this.timer);
     this.timer = undefined;
     let next = Infinity;
-    for (const a of this.opts.store.active()) {
-      if (a.local || this.inProgress(a)) continue;
-      const deadline = new Date(a.dueAt).getTime() + this.opts.graceMs;
-      next = Math.min(next, deadline, this.free(a.target.id) ? new Date(a.nextRingAt).getTime() : Infinity);
+    for (const a of waiting) {
+      if (a.local) next = Math.min(next, new Date(a.nextRingAt).getTime() + LOCAL_RING_MAX_MS);
+      else {
+        const deadline = new Date(a.dueAt).getTime() + this.opts.graceMs;
+        next = Math.min(next, deadline, this.free(a.target.id) ? new Date(a.nextRingAt).getTime() : Infinity);
+      }
     }
     if (next === Infinity) return;
-    const delay = Math.min(Math.max(0, next - this.clock.now()), MAX_SLEEP_MS);
+    this.schedule(Math.min(Math.max(0, next - this.clock.now()), MAX_SLEEP_MS));
+  }
+
+  private schedule(delay: number): void {
+    if (this.timer !== undefined) this.clock.clearTimeout(this.timer);
     this.timer = this.clock.setTimeout(() => {
       this.timer = undefined;
       this.tick();
     }, delay);
+  }
+
+  /**
+   * Run `fn`, which touches friday.db. The service runs from timers and socket events, where an exception would end
+   * the process: a failure (a locked or full database) is logged and the service tries again a little later.
+   */
+  private guard(fn: () => void): void {
+    try {
+      fn();
+    } catch (e) {
+      this.log.error("alerts: could not update alerts, trying again shortly", e);
+      if (!this.stopped) this.schedule(RETRY_MS);
+    }
   }
 
   /** A ring was sent for it, or an alert session announces it. */

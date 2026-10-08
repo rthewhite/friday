@@ -19,8 +19,11 @@ export function spokenDuration(ms: number): string {
 const clock = (at: Date, zone: string) => at.toLocaleTimeString("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" });
 
 function describe(a: Alert, now: Date, zone: string): string {
-  const due = new Date(a.dueAt), created = new Date(a.createdAt);
-  let s = `the ${a.kind} "${a.label}" (${spokenDuration(due.getTime() - created.getTime())}, set at ${clock(created, zone)}) went off at ${clock(due, zone)}`;
+  const due = new Date(a.dueAt);
+  // A snooze moves the due time: from then on it's "snoozed for N minutes", not a timer of the whole span.
+  const from = new Date(a.snoozedAt ?? a.createdAt);
+  const what = a.snoozedAt ? `snoozed for ${spokenDuration(due.getTime() - from.getTime())} at ${clock(from, zone)}` : `${spokenDuration(due.getTime() - from.getTime())}, set at ${clock(from, zone)}`;
+  let s = `the ${a.kind} "${a.label}" (${what}) went off at ${clock(due, zone)}`;
   const lateMin = Math.floor((now.getTime() - due.getTime()) / 60_000);
   if (lateMin >= 1) s += `, ${plural(lateMin, "minute")} ago`;
   return s;

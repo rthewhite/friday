@@ -20,6 +20,7 @@ function alert(over: Partial<Alert> = {}): Alert {
     rings: 0,
     local: false,
     conversationId: null,
+    snoozedAt: null,
     finishedAt: null,
     ...over,
   };
@@ -69,6 +70,11 @@ test("several alerts are listed in one text, in the first alert's language", () 
     'Alerts: the timer "eggs" (5 minutes, set at 12:00) went off at 12:05; the timer "pasta" (10 minutes, set at 11:55) went off at 12:05. ' +
       "Tell the user briefly, in English, and wait for their answer. If they want more time, call snooze_alert.",
   );
+});
+
+test("a snoozed timer is announced as snoozed, with the snooze's length rather than the whole span", () => {
+  const snoozed = alert({ dueAt: "2026-10-08T10:10:00.000Z", snoozedAt: "2026-10-08T10:05:00.000Z" });
+  assert.match(openingText([snoozed], new Date("2026-10-08T10:10:00Z"), zone), /^Alert: the timer "eggs" \(snoozed for 5 minutes at 12:05\) went off at 12:10\./);
 });
 
 test("an opening needs an alert", () => {

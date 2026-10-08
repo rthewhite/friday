@@ -15,8 +15,8 @@ export const MAX_TIMERS_PER_DEVICE = 20;
 export interface AlertToolsOptions {
   alerts: Pick<AlertService, "create" | "active" | "cancel" | "snooze">;
   links: Pick<DeviceLinks, "online">;
-  /** A device's label for the model; its id when the device is unknown. */
-  deviceLabel: (id: string) => string;
+  /** Registered devices' labels by id, read once per tool call; an unknown device is named by its id. */
+  deviceLabels: () => Map<string, string>;
   /** Household zone for the times the tools report (FRIDAY_TIMEZONE, resolved). */
   timezone: () => string;
   now?: () => number;
@@ -28,10 +28,15 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
   const now = opts.now ?? Date.now;
   const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { timeZone: opts.timezone(), hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const timers = () => opts.alerts.active().filter((a) => a.kind === "timer");
-  const describe = (a: Alert) => ({
+  /** The model's view of the timers, with the device labels read once. */
+  const described = (list: Alert[]) => {
+    const labels = list.length ? opts.deviceLabels() : new Map<string, string>();
+    return list.map((a) => describe(a, labels));
+  };
+  const describe = (a: Alert, labels: Map<string, string>) => ({
     id: a.id,
     label: a.label,
-    device: opts.deviceLabel(a.target.id),
+    device: labels.get(a.target.id) ?? a.target.id,
     due: time(a.dueAt),
     seconds_left: Math.max(0, Math.round((Date.parse(a.dueAt) - now()) / 1000)),
     state: a.state,
@@ -81,7 +86,7 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
     description: "List the timers that are running or ringing on every device, with the seconds left on each.",
     parameters: { type: Type.OBJECT, properties: {} },
     channels: ["voice"],
-    handler: () => ({ timers: timers().map(describe) }),
+    handler: () => ({ timers: described(timers()) }),
   });
 
   registry.add(TOOL_OWNER, {
@@ -104,7 +109,7 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
       const matches = id ? all.filter((a) => a.id === id) : label ? all.filter((a) => a.label.toLowerCase() === label) : all;
       if (matches.length !== 1) {
         const why = !all.length ? "No timer is running." : matches.length ? "Several timers match; say which one." : "No timer matches.";
-        return { error: `${why} Nothing was cancelled.`, timers: all.map(describe) };
+        return { error: `${why} Nothing was cancelled.`, timers: described(all) };
       }
       const cancelled = opts.alerts.cancel(matches[0].id);
       return { cancelled: { id: cancelled.id, label: cancelled.label } };

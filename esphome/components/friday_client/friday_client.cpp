@@ -587,6 +587,16 @@ void FridayClient::on_ctrl_event_(int32_t event_id, esp_websocket_event_data_t *
 void FridayClient::ctrl_loop_(uint32_t now) {
   if (this->ctrl_disabled_) return;
 
+  // Reports kept while offline go out first, before acting on what Friday sent since it reconnected.
+  if (this->ctrl_connected_ && this->ctrl_client_ != nullptr && !this->ctrl_outbox_.empty()) {
+    for (const auto &msg : this->ctrl_outbox_) {
+      if (esp_websocket_client_send_text(this->ctrl_client_, msg.data(), msg.size(), pdMS_TO_TICKS(500)) < 0) {
+        ESP_LOGW(TAG, "control: could not send a kept report");
+      }
+    }
+    this->ctrl_outbox_.clear();
+  }
+
   std::vector<std::string> inbox;
   xSemaphoreTake(this->ctrl_mutex_, portMAX_DELAY);
   inbox.swap(this->ctrl_inbox_);
@@ -639,14 +649,19 @@ void FridayClient::on_ctrl_message_(const std::string &raw) {
   });
 }
 
+/// Report on an alert. While the control connection is down the report waits (a few at most) and goes out, in
+/// order, as soon as it is back, so a button press during a Wi-Fi hiccup still reaches Friday.
 void FridayClient::ctrl_send_(const char *type, const std::string &alert) {
-  if (this->ctrl_client_ == nullptr || !this->ctrl_connected_ || alert.empty()) {
-    ESP_LOGD(TAG, "control: not connected, %s for %s not sent", type, alert.c_str());
-    return;
-  }
+  if (alert.empty()) return;
   char buf[96];
   int n = snprintf(buf, sizeof(buf), "{\"type\":\"%s\",\"alert\":\"%s\"}", type, alert.c_str());
   if (n <= 0 || n >= int(sizeof(buf))) return;
+  if (this->ctrl_client_ == nullptr || !this->ctrl_connected_) {
+    if (this->ctrl_outbox_.size() >= 8) this->ctrl_outbox_.erase(this->ctrl_outbox_.begin());
+    this->ctrl_outbox_.emplace_back(buf, n);
+    ESP_LOGD(TAG, "control: not connected, %s for %s kept until it is", type, alert.c_str());
+    return;
+  }
   if (esp_websocket_client_send_text(this->ctrl_client_, buf, n, pdMS_TO_TICKS(500)) < 0) ESP_LOGW(TAG, "control: could not send %s", type);
 }
 
@@ -698,9 +713,13 @@ void FridayClient::ring_local_(std::string alert) {
     this->ring_next_chime_at_ = this->ring_started_at_;
     this->set_state_(State::RINGING);
   }
-  if (alert.empty() || std::find(this->ring_ids_.begin(), this->ring_ids_.end(), alert) != this->ring_ids_.end()) return;
-  ESP_LOGI(TAG, "ringing %s locally", alert.c_str());
-  this->ring_ids_.push_back(alert);
+  if (alert.empty()) return;
+  if (std::find(this->ring_ids_.begin(), this->ring_ids_.end(), alert) == this->ring_ids_.end()) {
+    ESP_LOGI(TAG, "ringing %s locally", alert.c_str());
+    this->ring_ids_.push_back(alert);
+  }
+  // Every time, also for an alert already ringing: Friday forgets local rings when this device's control connection
+  // comes back (it may have missed a report), and rings again to hear it.
   this->ctrl_send_("ringing_locally", alert);
 }
 

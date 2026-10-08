@@ -215,6 +215,7 @@ class FridayClient : public Component {
   uint8_t ctrl_last_opcode_{0};
   SemaphoreHandle_t ctrl_mutex_{nullptr};      // guards ctrl_inbox_
   std::vector<std::string> ctrl_inbox_;
+  std::vector<std::string> ctrl_outbox_;       // reports made while offline (main loop only)
 };
 
 class StateTrigger : public Trigger<std::string> {

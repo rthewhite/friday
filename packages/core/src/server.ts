@@ -91,7 +91,12 @@ const remote = new RemoteHost({
   callTimeoutMs: settings.remoteCallTimeoutMs,
 });
 
-registerAlertTools(registry, { alerts, links: deviceLinks, deviceLabel: (id) => devices.get(id)?.label ?? id, timezone: householdZone });
+registerAlertTools(registry, {
+  alerts,
+  links: deviceLinks,
+  deviceLabels: () => new Map(devices.list().devices.map((d) => [d.id, d.label])),
+  timezone: householdZone,
+});
 await host.load(modules);
 await mcp.load();
 if (!geminiKey()) console.warn("GEMINI_API_KEY is not set (Settings > Configuration > Secrets, or the environment)");

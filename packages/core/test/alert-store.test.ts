@@ -34,6 +34,7 @@ test("a created timer is scheduled, due and next rung at its due time, with a sh
     local: false,
     createdAt: "2026-10-08T12:00:00.000Z",
     conversationId: "c1",
+    snoozedAt: null,
     finishedAt: null,
   });
 });
@@ -48,22 +49,12 @@ test("ids are never reused while a stored alert has them", () => {
   assert.equal(b.id, "3333");
 });
 
-test("due() returns active alerts the service rings, by due time, up to the given moment", () => {
+test("a snooze is stored with the alert", () => {
   const { store, timer, clock } = setup();
-  const late = timer({ label: "pasta", dueAt: new Date(clock.t + 600_000) });
-  const soon = timer();
-  const local = timer({ label: "rice" });
-  store.update(local.id, { state: "ringing", local: true });
-  const done = timer({ label: "tea" });
-  store.update(done.id, { state: "acknowledged" });
-  assert.deepEqual(store.due(new Date(clock.t + 300_000)).map((a) => a.label), ["eggs"]);
-  assert.deepEqual(store.due(new Date(clock.t + 600_000)).map((a) => a.id), [soon.id, late.id]);
-  assert.equal(store.nextRingAt()?.toISOString(), "2026-10-08T12:05:00.000Z");
-});
-
-test("nextRingAt() is undefined when nothing is active", () => {
-  const { store } = setup();
-  assert.equal(store.nextRingAt(), undefined);
+  const a = timer();
+  const at = new Date(clock.t + 300_000);
+  assert.equal(store.update(a.id, { state: "scheduled", dueAt: new Date(at.getTime() + 120_000), snoozedAt: at })!.snoozedAt, at.toISOString());
+  assert.equal(store.update(a.id, { rings: 1 })!.snoozedAt, at.toISOString(), "a later update keeps it");
 });
 
 test("update() moves times and counters, and a final state stamps finished_at once", () => {

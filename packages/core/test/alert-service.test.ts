@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { migrate, migrations } from "../src/storage/db.js";
 import { AlertStore, type NewAlert } from "../src/alerts/store.js";
-import { AlertConflict, AlertNotFound, AlertService, ANSWER_TIMEOUT_MS } from "../src/alerts/service.js";
+import { AlertConflict, AlertNotFound, AlertService, ANSWER_TIMEOUT_MS, LOCAL_RING_MAX_MS } from "../src/alerts/service.js";
 import { DeviceLinks } from "../src/devices/links.js";
 import { DeviceSessions } from "../src/devices/sessions.js";
 import { FakeClock } from "./fake-clock.js";
@@ -179,7 +179,7 @@ test("a device ringing an alert locally stops server rings and reports the outco
   t.service.stop();
 });
 
-test("reports about alerts not ringing on that device are ignored, and unanswered needs a local ring", async () => {
+test("reports about alerts not ringing on that device are ignored", async () => {
   const t = setup();
   t.service.start();
   const a = t.timer();
@@ -187,12 +187,109 @@ test("reports about alerts not ringing on that device are ignored, and unanswere
   assert.equal(t.state(a.id), "scheduled", "not ringing yet");
   await t.clock.advance(5 * MIN);
   t.service.deviceReport("friday-bedroom", "acknowledged", a.id);
-  t.service.deviceReport(KITCHEN, "unanswered", a.id);
+  t.service.deviceReport("friday-bedroom", "unanswered", a.id);
   t.service.deviceReport(KITCHEN, "acknowledged", "nope");
   assert.equal(t.state(a.id), "ringing");
   t.service.deviceReport(KITCHEN, "acknowledged", a.id);
   assert.equal(t.state(a.id), "acknowledged");
   t.service.stop();
+});
+
+test("the device's own ring running out makes an alert missed, even when Friday no longer knew it rang locally", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer();
+  await t.clock.advance(5 * MIN);
+  t.service.deviceReport(KITCHEN, "unanswered", a.id);
+  assert.equal(t.state(a.id), "missed");
+  t.service.stop();
+});
+
+test("a claim for an alert the device rings itself is refused, and leaves the device free to be rung", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer();
+  await t.clock.advance(5 * MIN);
+  t.service.deviceReport(KITCHEN, "ringing_locally", a.id);
+  assert.equal(t.service.claim(KITCHEN, a.id), undefined);
+  const b = t.timer({ label: "pasta", dueAt: new Date(t.clock.now() + MIN) });
+  await t.clock.advance(MIN);
+  assert.deepEqual(t.device.rings(), [a.id, b.id], "no claim was left behind blocking the next ring");
+  t.service.stop();
+});
+
+test("the button during a session announcing two timers acknowledges both", async () => {
+  const t = setup();
+  t.service.start();
+  const eggs = t.timer();
+  const pasta = t.timer({ label: "pasta" });
+  await t.clock.advance(5 * MIN);
+  const claim = t.service.claim(KITCHEN, t.device.rings()[0])!;
+  t.service.deviceReport(KITCHEN, "acknowledged", t.device.rings()[0]); // the firmware names only the alert it was rung for
+  claim.closed();
+  assert.equal(t.state(eggs.id), "acknowledged");
+  assert.equal(t.state(pasta.id), "acknowledged");
+  await t.clock.advance(5 * MIN);
+  assert.equal(t.device.rings().length, 1, "nothing rings again");
+  t.service.stop();
+});
+
+test("when a device ringing locally reconnects, its alerts ring again so it can report afresh", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer();
+  await t.clock.advance(5 * MIN);
+  t.service.deviceReport(KITCHEN, "ringing_locally", a.id);
+  t.links.remove(KITCHEN, t.device as never); // the control connection drops, a report may be lost
+  const again = new FakeSocket();
+  t.links.add(KITCHEN, again);
+  assert.equal(t.store.get(a.id)!.local, false);
+  assert.deepEqual(again.rings(), [a.id]);
+  t.service.deviceReport(KITCHEN, "ringing_locally", a.id); // still ringing: it says so again
+  assert.equal(t.store.get(a.id)!.local, true);
+  t.service.stop();
+});
+
+test("a local ring nobody reports on is missed after the longest a device may ring", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer();
+  await t.clock.advance(5 * MIN);
+  t.service.deviceReport(KITCHEN, "ringing_locally", a.id);
+  await t.clock.advance(LOCAL_RING_MAX_MS - 1);
+  assert.equal(t.state(a.id), "ringing");
+  await t.clock.advance(1);
+  assert.equal(t.state(a.id), "missed");
+  t.service.stop();
+});
+
+test("a database error in the service is logged, not thrown, and the service tries again", async () => {
+  const t = setup();
+  const errors: unknown[] = [];
+  const service = new AlertService({
+    store: t.store,
+    links: t.links,
+    sessions: t.sessions,
+    clock: t.clock,
+    log: { log() {}, error: (...a: unknown[]) => void errors.push(a) },
+    timezone: () => "Europe/Amsterdam",
+    rings: 5,
+    ringIntervalMs: MIN,
+    graceMs: 10 * MIN,
+  });
+  const a = t.store.create({ kind: "timer", label: "eggs", language: "en", dueAt: new Date(t.clock.now() + MIN), target: { kind: "device", id: KITCHEN } });
+  const active = t.store.active.bind(t.store);
+  let failing = true;
+  t.store.active = ((target) => {
+    if (failing && !target) throw new Error("database is locked");
+    return active(target);
+  }) as typeof t.store.active;
+  service.start(); // neither the startup reset nor the tick may throw
+  assert.equal(errors.length, 2);
+  failing = false;
+  await t.clock.advance(MIN);
+  assert.deepEqual(t.device.rings(), [a.id], "the retry rang it");
+  service.stop();
 });
 
 test("the button pressed during an alert session acknowledges, and the session closing then is no unanswered ring", async () => {

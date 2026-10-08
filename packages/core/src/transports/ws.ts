@@ -35,7 +35,7 @@ import type { PromptContext, ToolRegistry } from "@friday/sdk";
 import { settings } from "../config.js";
 import { systemPrompt } from "../prompt-context.js";
 import { GeminiSession, type Event, type SessionOptions } from "../session.js";
-import type { AlertService } from "../alerts/service.js";
+import type { AlertClaim, AlertService } from "../alerts/service.js";
 import { alertTone } from "../alerts/tone.js";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
@@ -106,7 +106,15 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
   const tag = device ? `[${device.id}] ` : "";
   // A device answering a ring: the session announces its ringing alerts, or there is nothing left to announce.
   const alertId = device ? params.get("alert") : null;
-  const claim = alertId !== null && device ? opts.alerts?.claim(device.id, alertId) : undefined;
+  let claim: AlertClaim | undefined;
+  try {
+    claim = alertId !== null && device ? opts.alerts?.claim(device.id, alertId) : undefined;
+  } catch (e) {
+    // serveWs runs unawaited: a store error must close this socket, not the process.
+    console.error(`ws: ${tag}could not check the alert`, e);
+    ws.close(1011, "internal error");
+    return;
+  }
   if (alertId !== null && !claim) {
     console.log(`ws: ${tag}alert ${JSON.stringify(alertId.slice(0, 16))} is not ringing, closing`);
     ws.close(4410, "alert gone");

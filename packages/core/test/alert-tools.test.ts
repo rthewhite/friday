@@ -27,7 +27,7 @@ function setup() {
   alerts.start();
   const registry = new ToolRegistry(quiet);
   const labels: Record<string, string> = { [KITCHEN]: "Kitchen satellite", "friday-hall": "Hall" };
-  registerAlertTools(registry, { alerts, links, deviceLabel: (id) => labels[id] ?? id, timezone: () => "Europe/Amsterdam", now: clock.now });
+  registerAlertTools(registry, { alerts, links, deviceLabels: () => new Map(Object.entries(labels)), timezone: () => "Europe/Amsterdam", now: clock.now });
   /** Call a tool as a voice session of `device` would; null for a session without a device (the Talk page). */
   const call = async (name: string, args: Record<string, unknown>, device: string | null = KITCHEN) =>
     (await registry.callTool(name, args, { channel: "voice", device: device ?? undefined, conversationId: "c1" })).result as Record<string, any>;

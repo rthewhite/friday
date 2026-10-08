@@ -42,13 +42,13 @@ async function cancel(a: AlertRecord) {
   finally { cancelling.value = null; await load(); }
 }
 
-// The time left ticks every second; the list itself reloads every 15 s while anything is active.
+// The time left ticks every second; the list itself reloads every 15 s, so a timer set by voice shows up on its own.
 let tick: ReturnType<typeof setInterval> | undefined;
 let poll: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   void load();
   tick = setInterval(() => (now.value = Date.now()), 1000);
-  poll = setInterval(() => { if (lists.value.active.length) void load(); }, 15_000);
+  poll = setInterval(() => void load(), 15_000);
 });
 onBeforeUnmount(() => { clearInterval(tick); clearInterval(poll); });
 

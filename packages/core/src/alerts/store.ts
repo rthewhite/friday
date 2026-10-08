@@ -32,6 +32,8 @@ export interface Alert {
   local: boolean;
   createdAt: string;
   conversationId: string | null;
+  /** When it was last snoozed; its due time then counts from here, not from createdAt. */
+  snoozedAt: string | null;
   finishedAt: string | null;
 }
 
@@ -50,6 +52,7 @@ export interface AlertPatch {
   nextRingAt?: Date;
   rings?: number;
   local?: boolean;
+  snoozedAt?: Date;
 }
 
 interface AlertRow {
@@ -66,6 +69,7 @@ interface AlertRow {
   local: number;
   created_at: string;
   conversation_id: string | null;
+  snoozed_at: string | null;
   finished_at: string | null;
 }
 
@@ -116,17 +120,6 @@ export class AlertStore {
     return this.rows(`SELECT * FROM alerts WHERE ${ACTIVE} AND target_kind = ? AND target_id = ? ORDER BY due_at, id`, target.kind, target.id);
   }
 
-  /** Active alerts the service should try to ring by `at` (not those the device rings itself). */
-  due(at: Date): Alert[] {
-    return this.rows(`SELECT * FROM alerts WHERE ${ACTIVE} AND local = 0 AND next_ring_at <= ? ORDER BY due_at, id`, at.toISOString());
-  }
-
-  /** The earliest next try among active alerts the service rings, if any. */
-  nextRingAt(): Date | undefined {
-    const row = this.db.prepare(`SELECT MIN(next_ring_at) AS at FROM alerts WHERE ${ACTIVE} AND local = 0`).get() as { at: string | null };
-    return row.at ? new Date(row.at) : undefined;
-  }
-
   /** Change an alert; entering a final state stamps `finished_at` and prunes old finished alerts. */
   update(id: string, patch: AlertPatch): Alert | undefined {
     const current = this.get(id);
@@ -134,13 +127,14 @@ export class AlertStore {
     const state = patch.state ?? current.state;
     const finishedAt = isFinal(state) ? (current.finishedAt ?? this.iso()) : null;
     this.db
-      .prepare("UPDATE alerts SET state = ?, due_at = ?, next_ring_at = ?, rings = ?, local = ?, finished_at = ? WHERE id = ?")
+      .prepare("UPDATE alerts SET state = ?, due_at = ?, next_ring_at = ?, rings = ?, local = ?, snoozed_at = ?, finished_at = ? WHERE id = ?")
       .run(
         state,
         patch.dueAt?.toISOString() ?? current.dueAt,
         patch.nextRingAt?.toISOString() ?? current.nextRingAt,
         patch.rings ?? current.rings,
         (patch.local ?? current.local) ? 1 : 0,
+        patch.snoozedAt?.toISOString() ?? current.snoozedAt,
         finishedAt,
         id,
       );
@@ -153,7 +147,7 @@ export class AlertStore {
     return this.active(target).map((a) => this.update(a.id, { state: "cancelled" })!);
   }
 
-  /** Clear every `local` flag: after a restart devices report their local rings again. */
+  /** Clear every `local` flag: after a restart devices report their local rings again when rung. */
   resetLocal(): void {
     this.db.prepare("UPDATE alerts SET local = 0 WHERE local = 1").run();
   }
@@ -199,5 +193,6 @@ const toAlert = (r: AlertRow): Alert => ({
   local: r.local === 1,
   createdAt: r.created_at,
   conversationId: r.conversation_id,
+  snoozedAt: r.snoozed_at,
   finishedAt: r.finished_at,
 });
