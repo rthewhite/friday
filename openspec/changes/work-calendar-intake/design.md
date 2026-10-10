@@ -66,7 +66,7 @@ The CalDAV client's `credentials()` callback stays as it is. It is simply not ca
 - **Errors:** 401 or 403 becomes an `IntakeRejectedError` ("the intake refused INTAKE_KEY"). Other non-2xx answers and invalid JSON become an `UpstreamError` with the status only. Neither error includes the URL's query or the key. Plain `http` is allowed, since the intake is on the LAN.
 - **Result:** the parsed `messages` array. Picking and validating a message is left to D4, which keeps the client a dumb transport and makes D4 testable without `fetch`.
 
-The poll runs inside the `calendar/refresh` job, so it runs every 5 minutes and after portal refreshes. It is not triggered after calendar writes, since nothing Friday writes can change the work calendar.
+The poll runs inside the `calendar/refresh` job, so it runs every 5 minutes, after portal refreshes, and after iCloud writes, which trigger the same job. Nothing Friday writes can change the work calendar, but the extra poll is harmless: it finds nothing waiting or a newer copy. Keeping it saves a second job.
 
 ### D4. Snapshot: pick, validate, persist, then use
 

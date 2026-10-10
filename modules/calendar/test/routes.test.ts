@@ -214,6 +214,9 @@ test("POST refresh takes a waiting delivery off the intake", async () => {
   assert.equal(failed.work.ok, false);
   assert.match(failed.work.error, /refused INTAKE_KEY/);
   assert.equal(failed.work.events, 3);
+  // The refused key doesn't stop iCloud from refreshing.
+  assert.equal(failed.connected, true);
+  assert.equal(failed.checkedAt, "2026-10-03T08:00:00.000Z");
   await s.host.dispose();
 });
 
