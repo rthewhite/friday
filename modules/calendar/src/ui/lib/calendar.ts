@@ -5,17 +5,60 @@ export interface CalendarRow {
   name: string;
   color: string | null;
   writable: boolean;
+  source: "icloud" | "intake";
   use: boolean;
   inAgenda: boolean;
   default: boolean;
 }
 
+/** The Work calendar's copy from the intake, and the last poll. */
+export interface WorkStatus {
+  configured: boolean;
+  missing?: string[];
+  receivedAt: string | null;
+  events: number | null;
+  skipped: number | null;
+  coverage: { from: string; to: string } | null;
+  polledAt: string | null;
+  ok: boolean | null;
+  error: string | null;
+  warning: string | null;
+}
+
 export interface Status {
+  icloud: { configured: boolean; missing?: string[] };
   username: string | null;
   connected: boolean;
   checkedAt: string | null;
   error: string | null;
+  work: WorkStatus;
   calendars: CalendarRow[];
+}
+
+/** The flow delivers hourly; matches the agenda's out-of-date note. */
+export const WORK_STALE_AFTER_MS = 3 * 60 * 60_000;
+
+export type Tone = "neutral" | "success" | "warning" | "error";
+
+/** How the Work calendar is doing, for its status dot. */
+export function workState(w: WorkStatus, now = Date.now()): { tone: Tone; label: string } {
+  if (!w.configured) return { tone: "neutral", label: "Not configured" };
+  if (w.ok === false) return { tone: "error", label: "Last poll failed" };
+  if (!w.receivedAt) return { tone: "warning", label: "Nothing received yet" };
+  if (now - Date.parse(w.receivedAt) > WORK_STALE_AFTER_MS) return { tone: "warning", label: "Out of date" };
+  return { tone: "success", label: "Up to date" };
+}
+
+const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const day = (date: string) => DAY.format(new Date(`${date}T00:00:00Z`));
+
+/** "218 events, 3 Sep 2026 to 3 Apr 2027 (2 left out as invalid)". */
+export function workSummary(w: Pick<WorkStatus, "events" | "skipped" | "coverage">): string {
+  if (w.events === null) return "";
+  const events = `${w.events} event${w.events === 1 ? "" : "s"}`;
+  const range = w.coverage ? `, ${day(w.coverage.from)} to ${day(w.coverage.to)}` : "";
+  const skipped = w.skipped ? ` (${w.skipped} left out as invalid)` : "";
+  return `${events}${range}${skipped}`;
 }
 
 export interface Summary {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
 import { Badge, Button, Card, DataTable, Icon, PageLayout, StatusDot, Tabs, formatDateTime, type Column } from "@friday/portal-ui";
-import { ApiError, actionLabel, api, changeDetail, settingsPatch, type CalendarRow, type ChangeRow, type Status } from "./lib/calendar.js";
+import { ApiError, actionLabel, api, changeDetail, settingsPatch, workState, workSummary, type CalendarRow, type ChangeRow, type Status } from "./lib/calendar.js";
 
 const tab = ref("overview");
 const status = ref<Status | null>(null);
@@ -78,7 +78,7 @@ const rows = () => (changes.value ?? []).map((c) => ({ ...c, detail: changeDetai
 </script>
 
 <template>
-  <PageLayout eyebrow="Modules" title="Calendar" subtitle="What Friday sees of your iCloud calendar, and what it changed">
+  <PageLayout eyebrow="Modules" title="Calendar" subtitle="What Friday sees of your iCloud and Work calendars, and what it changed">
     <template #actions>
       <Button variant="ghost" :disabled="busy" @click="tab === 'overview' ? refresh() : load()"><Icon name="refresh" />Refresh</Button>
     </template>
@@ -89,12 +89,37 @@ const rows = () => (changes.value ?? []).map((c) => ({ ...c, detail: changeDetai
 
     <template v-if="tab === 'overview' && status">
       <Card title="Connection">
-        <div class="flex flex-wrap items-center gap-3 text-sm">
-          <StatusDot :tone="status.connected ? 'success' : 'error'" :label="status.connected ? 'Connected' : 'Not connected'" />
-          <span class="text-f-text-muted">{{ status.username ?? "no ICLOUD_USERNAME" }}</span>
-          <span v-if="status.checkedAt" class="text-f-text-muted">checked {{ formatDateTime(status.checkedAt) }}</span>
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-1">
+            <div class="flex flex-wrap items-center gap-3 text-sm">
+              <span class="w-16 font-medium text-f-text-bright">iCloud</span>
+              <template v-if="status.icloud.configured">
+                <StatusDot :tone="status.connected ? 'success' : 'error'" :label="status.connected ? 'Connected' : 'Not connected'" />
+                <span class="text-f-text-muted">{{ status.username }}</span>
+                <span v-if="status.checkedAt" class="text-f-text-muted">checked {{ formatDateTime(status.checkedAt) }}</span>
+              </template>
+              <template v-else>
+                <StatusDot tone="neutral" label="Not configured" />
+                <span class="text-f-text-muted">set {{ status.icloud.missing?.join(" and ") }} in Settings > Configuration</span>
+              </template>
+            </div>
+            <p v-if="status.icloud.configured && status.error" class="text-sm text-f-error">{{ status.error }}</p>
+          </div>
+          <div class="flex flex-col gap-1">
+            <div class="flex flex-wrap items-center gap-3 text-sm">
+              <span class="w-16 font-medium text-f-text-bright">Work</span>
+              <StatusDot :tone="workState(status.work).tone" :label="workState(status.work).label" />
+              <template v-if="status.work.configured">
+                <span v-if="status.work.receivedAt" class="text-f-text-muted">updated {{ formatDateTime(status.work.receivedAt) }}</span>
+                <span v-if="status.work.events !== null" class="text-f-text-muted">{{ workSummary(status.work) }}</span>
+                <span v-if="status.work.polledAt" class="text-f-text-muted">polled {{ formatDateTime(status.work.polledAt) }}</span>
+              </template>
+              <span v-else class="text-f-text-muted">set {{ status.work.missing?.join(" and ") }} (one place only: reading the intake removes what it returns)</span>
+            </div>
+            <p v-if="status.work.error" class="text-sm text-f-error">{{ status.work.error }}</p>
+            <p v-if="status.work.warning" class="text-sm text-f-warning">{{ status.work.warning }}</p>
+          </div>
         </div>
-        <p v-if="status.error" class="text-sm text-f-error">{{ status.error }}</p>
       </Card>
 
       <Card title="Calendars">
@@ -104,6 +129,7 @@ const rows = () => (changes.value ?? []).map((c) => ({ ...c, detail: changeDetai
             <span class="flex min-w-48 items-center gap-2">
               <span class="inline-block h-3 w-3 shrink-0 rounded-full" :style="{ background: c.color ?? 'var(--color-f-text-muted)' }" aria-hidden="true" />
               <span class="font-medium text-f-text-bright">{{ c.name }}</span>
+              <Badge v-if="c.source === 'intake'" tone="accent">Outlook</Badge>
               <Badge v-if="!c.writable">read-only</Badge>
             </span>
             <label class="flex items-center gap-2">

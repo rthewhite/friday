@@ -82,18 +82,18 @@
 
 ## 5. Portal
 
-- [ ] 5.1 Extend `GET status` and `POST refresh` (design D8): `icloud.configured`/`missing`, the `work` object, and `source` per calendar. Verify in `test/routes.test.ts`:
+- [x] 5.1 Extend `GET status` and `POST refresh` (design D8): `icloud.configured`/`missing`, the `work` object, and `source` per calendar. Verify in `test/routes.test.ts`:
   - the "Work status" scenario;
   - `POST refresh` drains a queued fake-intake message;
   - with only the intake configured, the status has no username and `icloud.configured: false`;
   - no response body contains `INTAKE_KEY` or the iCloud password.
-- [ ] 5.2 Update `CalendarPage.vue` (design D8):
+- [x] 5.2 Update `CalendarPage.vue` (design D8):
   - two connection rows (iCloud and Work), with the Work row showing last update, events, coverage, last poll and error;
   - an `Outlook` badge on the Work calendar;
   - "not configured" states.
 
-  Put the time and coverage text helpers in `src/ui/lib/calendar.ts`, with tests in `test/ui-lib.test.ts`. Verify with `pnpm --filter @friday/portal build`. Then check in a browser against a dev server on free ports (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`), with only the iCloud keys in `.env`, so the intake isn't configured and the "not configured" Work row shows. Stop the dev server afterwards.
-- [ ] 5.3 Run `pnpm --filter @friday/module-calendar test` and `typecheck`, and `pnpm --filter @friday/portal typecheck`.
+  Put the time and coverage text helpers in `src/ui/lib/calendar.ts`, with tests in `test/ui-lib.test.ts`. Verify with `pnpm --filter @friday/portal build`. Then check in a browser against a dev server on free ports (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`). The worktree's `.env` has no iCloud keys, so this was done with only the intake keys, pointed at a local fake intake (never the real one): the iCloud row shows "not configured", the Work row shows its copy, and the agenda preview follows an `inAgenda` toggle. The "not configured" Work state is covered by `routes.test.ts`. Stop the dev server afterwards.
+- [x] 5.3 Run `pnpm --filter @friday/module-calendar test` and `typecheck`, and `pnpm --filter @friday/portal typecheck`.
 
 ## 6. Deploy and docs
 
