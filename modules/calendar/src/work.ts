@@ -108,8 +108,11 @@ export function pickDelivery(messages: unknown[], storedReceivedAt?: string): De
       continue;
     }
     const valid = content.filter(isValidItem);
-    if (content.length && !valid.length) {
-      firstReason ??= `none of the ${content.length} events in the delivery received at ${String(m.received_at)} is valid (each needs a subject, isAllDay, and start and end with an offset)`;
+    if (!valid.length) {
+      // The flow's window always holds meetings, so an empty copy is a glitch in the flow, not a free calendar.
+      firstReason ??= content.length
+        ? `none of the ${content.length} events in the delivery received at ${String(m.received_at)} is valid (each needs a subject, isAllDay, and start and end with an offset)`
+        : `the delivery received at ${String(m.received_at)} has no events, which the flow's window never legitimately gives`;
       continue;
     }
     return {

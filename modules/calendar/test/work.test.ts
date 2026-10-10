@@ -141,7 +141,7 @@ test("events without an offset are invalid; a delivery of only those keeps the s
   assert.match(String(h.work.status.error), /offset/);
 });
 
-test("invalid events are left out and counted; an empty list is a valid, empty calendar", async () => {
+test("invalid events are left out and counted; an empty list is refused and the copy kept", async () => {
   const intake = new FakeIntake();
   intake.deliver(
     [meeting("Good", "2026-10-05T07:30:00+00:00", "2026-10-05T08:00:00+00:00"), meeting("Backwards", "2026-10-05T09:00:00+00:00", "2026-10-05T08:00:00+00:00"), { subject: "No times" }],
@@ -153,8 +153,9 @@ test("invalid events are left out and counted; an empty list is a valid, empty c
   assert.equal(h.work.snapshot?.skipped, 2);
   assert.match(h.warnings.join("\n"), /left out 2 invalid events/);
   intake.deliver([], "2026-10-03T08:00:00Z");
-  await h.work.poll();
-  assert.deepEqual(h.work.snapshot?.items, []);
+  await assert.rejects(h.work.poll(), /has no events.*previous copy is kept/);
+  assert.deepEqual(titles(h.work.snapshot?.items), ["Good"]);
+  assert.equal(h.work.status.ok, false);
 });
 
 test("after a restart the stored snapshot is used without a delivery", async () => {

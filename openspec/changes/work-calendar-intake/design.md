@@ -79,7 +79,7 @@ poll() -> messages
   |-- for m in messages sorted by received_at desc (array index breaks ties: later wins):
   |     skip if m.subject != "calendar" or received_at <= stored.receivedAt
   |     valid = content.filter(isValidItem)
-  |     usable = Array.isArray(content) && (content.length == 0 || valid.length > 0)
+  |     usable = Array.isArray(content) && valid.length > 0   (an empty copy is a flow glitch)
   |     if usable: candidate = m; break
   |-- no candidate -> keep, lastPoll = failed (why the newest was unusable)
   `-- candidate   -> await ctx.storage.set("work-snapshot", {...}) THEN this.snapshot = ...
