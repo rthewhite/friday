@@ -348,7 +348,8 @@ export class CalendarService {
       });
     }
     const events = found.slice(0, MAX_RESULTS).map((f) => this.view(f));
-    const icloudError = collected.icloudError ?? this.icloudError;
+    // A failed discovery only matters when iCloud's calendars were asked for, not for `calendar: "Work"`.
+    const icloudError = collected.icloudError ?? (calendars.some((c) => c.source !== "intake") || !present(args.calendar) ? this.icloudError : undefined);
     const coverage = this.coverageNote(calendars, fromMs, toMs);
     return {
       events,

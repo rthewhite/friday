@@ -49,14 +49,14 @@
 
 ## 3. Tools across both sources
 
-- [ ] 3.1 Split `occurrences()` by source: Work from the snapshot, iCloud as today. An iCloud failure becomes a note when Work is also asked for (design D1). Add `status` to `Occurrence` and `EventView`. Verify in `test/tools.test.ts`:
+- [x] 3.1 Split `occurrences()` by source: Work from the snapshot, iCloud as today. An iCloud failure becomes a note when Work is also asked for (design D1). Add `status` to `Occurrence` and `EventView`. Verify in `test/tools.test.ts`:
   - `calendar_list_events` returns work and iCloud events merged by start, with `status` and `location` mapped;
   - "iCloud down" returns the work events with the note;
   - a `calendar: "Work"` filter works with iCloud down.
-- [ ] 3.2 Add the coverage note to `list()` (design D6): no snapshot yet, or a range outside one month back to six months ahead of `received_at`. Verify with the "Search past the work window" scenario, a range inside the window (no note), and a listing that leaves out the Work calendar (no note).
-- [ ] 3.3 Count work meetings in `overlaps()`, except those with status `free` or `cancelled`. Verify with the "Work meeting clash" and "Cancelled meeting ignored" scenarios, and creating an event with `calendar: "Work"` (refused as read-only).
-- [ ] 3.4 Refuse Work events in `readOnlyReason()` and in `current()` before any iCloud request. Verify with the "Work meeting" scenario for update and delete: no token is issued, and the fake iCloud sees no request.
-- [ ] 3.5 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
+- [x] 3.2 Add the coverage note to `list()` (design D6): no snapshot yet, or a range outside one month back to six months ahead of `received_at`. Verify with the "Search past the work window" scenario, a range inside the window (no note), and a listing that leaves out the Work calendar (no note).
+- [x] 3.3 Count work meetings in `overlaps()`, except those with status `free` or `cancelled`. Verify with the "Work meeting clash" and "Cancelled meeting ignored" scenarios, and creating an event with `calendar: "Work"` (refused as read-only).
+- [x] 3.4 Refuse Work events in `readOnlyReason()` and in `current()` before any iCloud request. Verify with the "Work meeting" scenario for update and delete: no token is issued, and the fake iCloud sees no request.
+- [x] 3.5 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
 
 ## 4. Refresh job and agenda
 

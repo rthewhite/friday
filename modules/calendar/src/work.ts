@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import { localDate, startOfLocalDay, type ModuleLogger, type ModuleStorage } from "@friday/sdk";
 import type { CalendarInfo } from "./caldav.js";
-import { addDays, dayLabel, endOfLocalDay } from "./format.js";
+import { addDays, endOfLocalDay } from "./format.js";
 import type { EventStatus, Occurrence } from "./ical.js";
 import { INTAKE_SUBJECT, type IntakeClient } from "./intake.js";
 
@@ -179,8 +179,12 @@ export function coverage(receivedAt: string, zone: string): Coverage {
   return { from, to, fromMs: startOfLocalDay(from, zone)!.getTime(), toMs: endOfLocalDay(to, zone).getTime() };
 }
 
-/** "10 Sep 2026" */
-const longDay = (date: string) => dayLabel(date, "").replace(/^\w+ /, "");
+const LONG_DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+/** "10 September 2026" */
+const longDay = (date: string) => {
+  const [y, m, d] = date.split("-").map(Number);
+  return LONG_DAY.format(new Date(Date.UTC(y, m - 1, d)));
+};
 
 export function coverageText(c: Coverage): string {
   return `The Work calendar only covers ${longDay(c.from)} to ${longDay(c.to)}; there may be work events outside that.`;
