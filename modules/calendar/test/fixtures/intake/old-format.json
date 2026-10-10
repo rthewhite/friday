@@ -1,0 +1,36 @@
+{
+  "messages": [
+    {
+      "id": "a5b933c752a61c97c96c7cc6fe359545",
+      "subject": "calendar",
+      "sender": "power-automate",
+      "received_at": "2026-10-03T07:08:58.554Z",
+      "content": [
+        {
+          "subject": "Interview candidate",
+          "start": "2026-11-25T09:00:00.0000000",
+          "end": "2026-11-25T10:00:00.0000000",
+          "isAllDay": false,
+          "location": "https://video.example/j.php?MTID=m35d5de98a2ad14c3",
+          "organizer": "recruiter@agency.example",
+          "showAs": "tentative",
+          "recurrence": "none",
+          "reccurenceEndDate": "2026-10-09T21:18:42.697359+00:00",
+          "numberOfReccurences": null
+        },
+        {
+          "subject": "Team Standup",
+          "start": "2026-01-22T08:00:00.0000000",
+          "end": "2026-01-22T08:15:00.0000000",
+          "isAllDay": false,
+          "location": "Microsoft Teams Meeting",
+          "organizer": "lead@corp.example",
+          "showAs": "busy",
+          "recurrence": "weekly",
+          "reccurenceEndDate": "2026-10-09T21:18:42.697359+00:00",
+          "numberOfReccurences": null
+        }
+      ]
+    }
+  ]
+}

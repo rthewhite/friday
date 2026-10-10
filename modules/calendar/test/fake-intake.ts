@@ -1,5 +1,11 @@
 /** A fake intake: queued deliveries that a POST with the right key returns and removes, like the real /out. */
+import { readFileSync } from "node:fs";
 import type { IntakeItem } from "../src/work.js";
+
+/** A recorded /out answer from test/fixtures/intake (shaped like the real one, titles made up). */
+export function fixture(name: "v3" | "old-format" | "empty"): { messages: Delivery[] } {
+  return JSON.parse(readFileSync(new URL(`./fixtures/intake/${name}.json`, import.meta.url), "utf8"));
+}
 
 export const INTAKE_URL = "http://intake.test:8081/out";
 export const INTAKE_KEY = "intake-key-Zm9vYmFyYmF6cXV4";
@@ -33,6 +39,12 @@ export class FakeIntake {
     const d = { id: `msg${++this.seq}`, subject, sender: "power-automate", received_at: receivedAt, content };
     this.queue.push(d);
     return d;
+  }
+
+  /** Queue a fixture's deliveries. */
+  load(name: Parameters<typeof fixture>[0]): this {
+    this.queue.push(...fixture(name).messages);
+    return this;
   }
 
   readonly fetch: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {

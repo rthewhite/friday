@@ -16,7 +16,7 @@
 
 ## 2. Intake client and snapshot
 
-- [ ] 2.1 Implement `src/intake.ts` (design D3):
+- [x] 2.1 Implement `src/intake.ts` (design D3):
   - a `POST` with the bearer key and `{"subject":"calendar"}`;
   - `redirect: "manual"`, with a 3xx as an error;
   - a 30 s timeout;
@@ -28,7 +28,7 @@
   - a 401 message names `INTAKE_KEY` without its value;
   - a redirect is not followed and no request reaches the redirect target;
   - a timeout.
-- [ ] 2.2 Implement `WorkSource` in `src/work.ts` (design D4):
+- [x] 2.2 Implement `WorkSource` in `src/work.ts` (design D4):
   - pick the newest usable message newer than the stored snapshot;
   - validate items (offset required), counting the skipped ones;
   - `ctx.storage.set("work-snapshot")` before the in-memory swap;
@@ -36,7 +36,7 @@
   - warn at exactly 256 items.
 
   Add fixtures in `test/fixtures/intake/`, shaped like the real payload with made-up titles: a V3 delivery, an old-format delivery and an empty queue. Verify in `test/work.test.ts` with the spec scenarios: new snapshot, nothing waiting, several deliveries queued, newest unusable, old-format events, restart (a new module instance on the same storage), and the 256 warning.
-- [ ] 2.3 Implement `toOccurrence` and `workLocation` (design D5):
+- [x] 2.3 Implement `toOccurrence` and `workLocation` (design D5):
   - offsets to instants;
   - all-day dates taken as written;
   - stripping the cancelled prefix (`Geannuleerd`, `Canceled`, `Cancelled`);
@@ -45,7 +45,7 @@
   - ids from title, start and end.
 
   Verify in `test/work.test.ts` with the "Work events" scenarios: timed in Amsterdam, all-day in `America/New_York`, cancelled, an online meeting with rooms, a meeting link, and an id that survives a new snapshot. Also add cases for `Microsoft Teams Meeting` alone, an empty location, and `__Room`.
-- [ ] 2.4 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
+- [x] 2.4 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
 
 ## 3. Tools across both sources
 
