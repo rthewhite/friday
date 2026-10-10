@@ -62,11 +62,11 @@ The CalDAV client's `credentials()` callback stays as it is. It is simply not ca
 ### D3. Intake client (`src/intake.ts`)
 
 `IntakeClient.poll(signal)` uses an injectable `fetch`, like the CalDAV client.
-- **The request:** `POST` to `INTAKE_URL` with `Authorization: Bearer`, `Content-Type: application/json` and body `{"subject":"calendar"}`. It sets `redirect: "manual"` (a 3xx is an error), and a 30-second timeout through `AbortSignal.any([signal, AbortSignal.timeout(30_000)])`.
+- **The request:** `POST` to `INTAKE_URL` with `Authorization: Bearer`, `Content-Type: application/json` and body `{"subject":"calendar"}`. It sets `redirect: "manual"` (a 3xx is an error). A 30-second timeout and the caller's signal can cancel the request only until the response headers arrive. The intake has removed the deliveries by the time it answers, so the body is always read to the end. A body that breaks off is reported as a lost delivery.
 - **Errors:** 401 or 403 becomes an `IntakeRejectedError` ("the intake refused INTAKE_KEY"). Other non-2xx answers and invalid JSON become an `UpstreamError` with the status only. Neither error includes the URL's query or the key. Plain `http` is allowed, since the intake is on the LAN.
 - **Result:** the parsed `messages` array. Picking and validating a message is left to D4, which keeps the client a dumb transport and makes D4 testable without `fetch`.
 
-The poll runs inside the `calendar/refresh` job, so it runs every 5 minutes and after portal refreshes. It is not triggered after calendar writes, since nothing Friday writes can change the work calendar.
+The poll runs inside the `calendar/refresh` job, so it runs every 5 minutes, after portal refreshes, and after iCloud writes, which trigger the same job. Nothing Friday writes can change the work calendar, but the extra poll is harmless: it finds nothing waiting or a newer copy. Keeping it saves a second job.
 
 ### D4. Snapshot: pick, validate, persist, then use
 
@@ -79,16 +79,16 @@ poll() -> messages
   |-- for m in messages sorted by received_at desc (array index breaks ties: later wins):
   |     skip if m.subject != "calendar" or received_at <= stored.receivedAt
   |     valid = content.filter(isValidItem)
-  |     usable = Array.isArray(content) && (content.length == 0 || valid.length > 0)
+  |     usable = Array.isArray(content) && valid.length > 0   (an empty copy is a flow glitch)
   |     if usable: candidate = m; break
   |-- no candidate -> keep, lastPoll = failed (why the newest was unusable)
   `-- candidate   -> await ctx.storage.set("work-snapshot", {...}) THEN this.snapshot = ...
 ```
 
-- **What's stored:** `{ messageId, receivedAt, storedAt, items, skipped }`, where `items` are the valid raw items. Storing the raw items rather than mapped events means a fix to the mapping (D5) applies to the stored snapshot straight away, without waiting for the next push. About 70 KB of JSON, so `ctx.storage` (module_kv) is enough and no migration is needed.
+- **What's stored:** `{ messageId, receivedAt, storedAt, items, skipped, passedOver? }`, where `items` are the valid raw items and `passedOver` says why a newer delivery from the same poll couldn't be used (it is gone from the intake, so the reason is kept with the copy). Storing the raw items rather than mapped events means a fix to the mapping (D5) applies to the stored snapshot straight away, without waiting for the next push. About 70 KB of JSON, so `ctx.storage` (module_kv) is enough and no migration is needed.
 - **Startup:** `init` loads the snapshot before the first prompt is built, so the agenda has work events immediately after a restart.
 - **Valid items:** `isValidItem` needs a string `subject`, a boolean `isAllDay`, and `start`/`end` that match `YYYY-MM-DDTHH:MM:SS(.fraction)?(Z|±HH:MM)` and parse. `end` must not be before `start`. The old-format items fail on the offset check.
-- **256 items:** a warning in the log and in `status.work.warning`, with the event count. No other behaviour changes.
+- **Warnings:** a copy of exactly 256 items (valid plus skipped) and a `passedOver` reason are logged when stored. `status.work.warning` derives them from the stored copy, so they last as long as that copy does and survive empty polls and restarts. No other behaviour changes.
 
 Persisting before the in-memory swap means a crash between the two leaves the store ahead of memory, which the next start loads. A crash *between the POST and the store* loses that delivery, and the next hourly push replaces it.
 
@@ -106,16 +106,17 @@ Persisting before the in-memory swap means a crash between the two leaves the st
 
 ### D6. Coverage note
 
-The flow's window isn't in the payload. `coverage(snapshot, zone)` therefore computes it from `received_at`: the local date one calendar month before it, through the local date six calendar months after it, clamped to the end of the month when needed. `list()` adds `coverage` when the Work calendar is among the queried calendars and the range reaches outside that window, or when there is no snapshot yet. The text is, for example: "The Work calendar only covers 10 Sep 2026 to 10 Apr 2027; there may be work events outside that." The window is a constant in `work.ts` (`COVERAGE = { monthsBack: 1, monthsAhead: 6 }`), with a comment saying it mirrors the Power Automate flow. The status route shows it, so a mismatch after someone changes the flow is visible in the portal.
+The flow's window isn't in the payload. `coverage(snapshot, zone)` therefore computes it from `received_at`: the local date one calendar month before it, through the local date six calendar months after it, clamped to the end of the month when needed. `list()` adds `coverage` when the Work calendar is among the queried calendars and the range reaches outside that window, or when there is no snapshot yet. The text is, for example: "The Work calendar only covers 10 September 2026 to 10 April 2027; there may be work events outside that." The window is a constant in `work.ts` (`COVERAGE = { monthsBack: 1, monthsAhead: 6 }`), with a comment saying it mirrors the Power Automate flow. The status route shows it, so a mismatch after someone changes the flow is visible in the portal.
 
 *Alternative:* derive the window from the earliest and latest event. That underestimates it on quiet weeks and would claim gaps that aren't there. Rejected.
 
 ### D7. Agenda: independent sources, per-source notes
 
-`Agenda.refresh()` becomes three steps that can each fail on their own:
-1. poll the intake when it is configured (D4), recording the error;
-2. iCloud discovery and the three-day fetch when iCloud is configured, as today, recording the error;
-3. fill the cache.
+`Agenda.refresh()` runs two steps **in parallel** (`Promise.allSettled`), each failing on its own:
+- poll the intake when it is configured (D4);
+- iCloud discovery and the three-day fetch into the cache when iCloud is configured, as today.
+
+Running them in parallel matters because both share the job's 60-second signal. Run one after the other, a hanging iCloud would use up that time and get the intake poll cancelled on every run. `account()` returns an iCloud failure to its caller rather than keeping it on the service, so concurrent tool calls, routes and refreshes can't misreport each other's state.
 
 The job's summary names both, for example `4 events in 2 calendars; work: 218 events (received 14:45)`. The job fails, so that Settings > Background jobs shows it, only when every configured source failed.
 
@@ -135,17 +136,18 @@ work: {
   configured, missing?,
   receivedAt, events, skipped,
   coverage: { from, to },
-  polledAt, ok, error?, warning?
+  polledAt, ok, error?, warning?,
+  stale            // WorkSource.stale(): the one 3-hour rule the agenda note uses too
 }
 ```
 
-and `source` per calendar. `POST refresh` polls too.
+and `source` per calendar. `POST refresh` polls too. While iCloud is down, `PUT settings` validates against the calendars as last discovered (`knownCalendars()`), so iCloud calendars can still be toggled. An id that isn't known even there gets iCloud's error (502) instead of "unknown calendar".
 
 On the page, the Overview's connection card becomes two rows, iCloud and Work, each with a `StatusDot`. The Work calendar row in the calendar list gets an `Outlook` badge next to `read-only`. There are no new components.
 
 ### D9. Deploy and the one-consumer rule
 
-`deploy/k8s.yaml` adds a second `envFrom` entry, `secretRef: { name: intake }`, under `friday-secrets`.
+`deploy/k8s.yaml` adds a second `envFrom` entry, `secretRef: { name: intake, optional: true }`, under `friday-secrets`. It is optional so that a missing Secret doesn't stop the pod: Friday runs fine with iCloud alone.
 
 The key operating rule is that **only one Friday may poll the intake**, because a second one silently steals the snapshots. Three things enforce it:
 - The keys are only in the k8s Secret.

@@ -25,6 +25,8 @@ export interface CalendarInfo {
   /** `#rrggbb`, when iCloud reports a colour. */
   color?: string;
   writable: boolean;
+  /** Where the calendar comes from; iCloud when absent. The intake's Work calendar is never writable. */
+  source?: "icloud" | "intake";
 }
 
 export interface Account {

@@ -1,10 +1,11 @@
-/** HTTP routes under /api/modules/calendar/ for the portal page. None of them ever returns the password. */
+/** HTTP routes under /api/modules/calendar/ for the portal page. None of them ever returns the password or INTAKE_KEY. */
 import type { HttpMethod, ModuleContext, RouteRequest, RouteResponse } from "@friday/sdk";
 import type { Agenda } from "./agenda.js";
 import type { Change, ChangeLog } from "./changes.js";
 import { CredentialRejectedError, InputError, NotUndoableError, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
 import type { CalendarService } from "./service.js";
 import type { Settings } from "./settings.js";
+import type { WorkSource } from "./work.js";
 
 export const DEFAULT_CHANGES = 50;
 export const MAX_CHANGES_PAGE = 200;
@@ -14,6 +15,7 @@ export interface RouteDeps {
   settings: Settings;
   agenda: Agenda;
   changes: ChangeLog;
+  work: WorkSource;
 }
 
 type Handler = (req: RouteRequest, res: RouteResponse, params: Record<string, string>) => Promise<void> | void;
@@ -61,15 +63,35 @@ export function registerCalendarRoutes(ctx: ModuleContext, d: RouteDeps): void {
 
   const status = async () => {
     // Discover once if nothing has been fetched yet, so the page shows calendars right after setup.
-    if (!d.service.lastAccount) await d.service.account().catch(() => undefined);
-    const account = d.service.lastAccount;
-    const def = account ? d.settings.defaultCalendar(account.calendars) : undefined;
+    if (d.service.icloudConfigured && !d.service.lastAccount) await d.service.account().catch(() => undefined);
+    const calendars = d.service.knownCalendars();
+    const def = d.settings.defaultCalendar(calendars);
+    const icloudMissing = d.service.icloudMissing();
+    const workMissing = d.work.missing();
+    const snapshot = d.work.snapshot;
+    const coverage = d.work.coverage(d.service.zone);
     return {
-      username: ctx.config.get("ICLOUD_USERNAME") ?? null,
+      icloud: { configured: !icloudMissing.length, ...(icloudMissing.length ? { missing: icloudMissing } : {}) },
+      username: (icloudMissing.length ? undefined : ctx.config.get("ICLOUD_USERNAME")) ?? null,
       connected: d.service.status.ok,
       checkedAt: d.service.status.checkedAt ?? null,
       error: d.service.status.error ?? null,
-      calendars: (account?.calendars ?? []).map((c) => ({ id: c.id, name: c.name, color: c.color ?? null, writable: c.writable, ...d.settings.of(c.id), default: c.id === def?.id })),
+      work: {
+        configured: !workMissing.length,
+        ...(workMissing.length ? { missing: workMissing } : {}),
+        receivedAt: snapshot?.receivedAt ?? null,
+        events: snapshot?.items.length ?? null,
+        skipped: snapshot?.skipped ?? null,
+        coverage: coverage ? { from: coverage.from, to: coverage.to } : null,
+        polledAt: d.work.status.polledAt ?? null,
+        ok: d.work.status.ok ?? null,
+        error: d.work.status.error ?? null,
+        warning: d.work.warnings().join(" ") || null,
+        stale: d.work.stale(),
+      },
+      calendars: calendars.map((c) => ({
+        id: c.id, name: c.name, color: c.color ?? null, writable: c.writable, source: c.source ?? "icloud", ...d.settings.of(c.id), default: c.id === def?.id,
+      })),
     };
   };
 
@@ -79,7 +101,15 @@ export function registerCalendarRoutes(ctx: ModuleContext, d: RouteDeps): void {
 
   route("PUT", "settings", async (req, res) => {
     const account = await d.service.account();
-    await d.settings.update(await body(req), account.calendars);
+    // While iCloud is down its calendars as last discovered still count, so their settings can be changed;
+    // an id that isn't known at all then gets iCloud's error rather than "unknown calendar".
+    const calendars = account.icloudError ? d.service.knownCalendars() : account.calendars;
+    try {
+      await d.settings.update(await body(req), calendars);
+    } catch (e) {
+      if (e instanceof InputError && account.icloudError && /unknown calendar id/.test(e.message)) throw account.icloudError;
+      throw e;
+    }
     // A calendar turned on needs fetching before the agenda can show it; a failure shows in the status.
     await d.agenda.refresh().catch(() => undefined);
     res.json(await status());

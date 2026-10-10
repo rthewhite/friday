@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createTestHost } from "@friday/sdk/test";
 import { createCalendarModule } from "../src/index.js";
 import { FakeICloud, PASSWORD, USERNAME, timed, vcalendar } from "./fake-icloud.js";
+import { FakeIntake, INTAKE_KEY, INTAKE_URL, meeting } from "./fake-intake.js";
 import { NOW } from "./harness.js";
 
 async function setup(password = PASSWORD) {
@@ -30,10 +31,12 @@ test("GET status shows the account, the connection and the calendars with their 
   assert.equal(body.error, null);
   assert.ok(body.checkedAt);
   assert.deepEqual(body.calendars, [
-    { id: "home", name: "Home", color: "#1badf8", writable: true, use: true, inAgenda: true, default: true },
-    { id: "work", name: "Work", color: "#ff2968", writable: true, use: true, inAgenda: true, default: false },
-    { id: "holidays", name: "Holidays NL", color: null, writable: false, use: true, inAgenda: true, default: false },
+    { id: "home", name: "Home", color: "#1badf8", writable: true, source: "icloud", use: true, inAgenda: true, default: true },
+    { id: "work", name: "Work", color: "#ff2968", writable: true, source: "icloud", use: true, inAgenda: true, default: false },
+    { id: "holidays", name: "Holidays NL", color: null, writable: false, source: "icloud", use: true, inAgenda: true, default: false },
   ]);
+  assert.deepEqual(body.icloud, { configured: true });
+  assert.deepEqual(body.work, { configured: false, missing: ["INTAKE_URL", "INTAKE_KEY"], receivedAt: null, events: null, skipped: null, coverage: null, polledAt: null, ok: null, error: null, warning: null, stale: false });
   await s.host.dispose();
 });
 
@@ -52,7 +55,7 @@ test("PUT settings saves use, inAgenda and the default, and the agenda follows",
   assert.match((await s.req("GET", "agenda")).body.text, /Standup/);
   const { status, body } = await s.req("PUT", "settings", { calendars: { work: { inAgenda: false } }, defaultId: "work" });
   assert.equal(status, 200);
-  assert.deepEqual(body.calendars.find((c: any) => c.id === "work"), { id: "work", name: "Work", color: "#ff2968", writable: true, use: true, inAgenda: false, default: true });
+  assert.deepEqual(body.calendars.find((c: any) => c.id === "work"), { id: "work", name: "Work", color: "#ff2968", writable: true, source: "icloud", use: true, inAgenda: false, default: true });
   const agenda = (await s.req("GET", "agenda")).body;
   assert.doesNotMatch(agenda.text, /Standup/);
   assert.match(agenda.text, /Dentist/);
@@ -154,5 +157,102 @@ test("no route ever returns the password", async () => {
   await s.req("POST", "refresh");
   await s.req("PUT", "settings", { defaultId: "holidays" });
   for (const b of s.bodies) assert.ok(!b.includes(PASSWORD), b);
+  await s.host.dispose();
+});
+
+// ---- The Work calendar ---------------------------------------------------------------------------------------
+
+async function withIntake(opts: { icloud?: boolean } = {}) {
+  const fake = new FakeICloud();
+  const intake = new FakeIntake();
+  const env: Record<string, string> = { INTAKE_URL, INTAKE_KEY, ...(opts.icloud === false ? {} : { ICLOUD_USERNAME: USERNAME, ICLOUD_APP_PASSWORD: PASSWORD }) };
+  const clock = { t: new Date(NOW).getTime() };
+  const host = await createTestHost(createCalendarModule({ fetch: fake.fetch, intakeFetch: intake.fetch, now: () => new Date(clock.t) }), { env });
+  const bodies: string[] = [];
+  const req = async (method: "GET" | "PUT" | "POST", path: string, body?: unknown) => {
+    const r = await host.request(method, path, body);
+    bodies.push(JSON.stringify(r.body));
+    return { status: r.status, body: r.body as any };
+  };
+  return { fake, intake, host, clock, req, bodies };
+}
+
+const meetings = (n: number) => Array.from({ length: n }, (_, i) => meeting(`Meeting ${i}`, "2026-10-05T07:30:00+00:00", "2026-10-05T08:00:00+00:00"));
+
+test("GET status shows the work calendar's copy and last poll, and lists it from the intake", async () => {
+  const s = await withIntake();
+  s.intake.deliver(meetings(218), "2026-10-03T07:45:00Z");
+  await s.host.runJob("refresh");
+  await s.host.runJob("refresh"); // nothing waiting the second time
+  const { body } = await s.req("GET", "status");
+  assert.deepEqual(body.work, {
+    configured: true, receivedAt: "2026-10-03T07:45:00.000Z", events: 218, skipped: 0, coverage: { from: "2026-09-03", to: "2027-04-03" },
+    polledAt: "2026-10-03T08:00:00.000Z", ok: true, error: null, warning: null, stale: false,
+  });
+  // The fake iCloud has its own "Work", so the intake one is renamed.
+  assert.deepEqual(body.calendars.at(-1), { id: "intake-work", name: "Work (Outlook)", color: null, writable: false, source: "intake", use: true, inAgenda: true, default: false });
+  await s.host.dispose();
+});
+
+test("PUT settings refuses the Work calendar as the default", async () => {
+  const s = await withIntake();
+  const r = await s.req("PUT", "settings", { defaultId: "intake-work" });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /read-only/);
+  await s.host.dispose();
+});
+
+test("POST refresh takes a waiting delivery off the intake", async () => {
+  const s = await withIntake();
+  await s.host.runJob("refresh");
+  s.intake.deliver(meetings(3), "2026-10-03T07:50:00Z");
+  const { body } = await s.req("POST", "refresh");
+  assert.equal(s.intake.queue.length, 0);
+  assert.equal(body.work.events, 3);
+  s.intake.respond = () => new Response("", { status: 401 });
+  const failed = (await s.req("POST", "refresh")).body;
+  assert.equal(failed.work.ok, false);
+  assert.match(failed.work.error, /refused INTAKE_KEY/);
+  assert.equal(failed.work.events, 3);
+  // The refused key doesn't stop iCloud from refreshing.
+  assert.equal(failed.connected, true);
+  assert.equal(failed.checkedAt, "2026-10-03T08:00:00.000Z");
+  await s.host.dispose();
+});
+
+test("while iCloud is down, its calendars' settings can still be changed, and unknown ids get iCloud's error", async () => {
+  const s = await withIntake();
+  await s.req("GET", "status"); // discovered once
+  s.clock.t += 60 * 60_000; // the discovery is old, so the next one asks iCloud
+  s.fake.failWith = 503;
+  const ok = await s.req("PUT", "settings", { calendars: { home: { inAgenda: false } } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.calendars.find((c: any) => c.id === "home").inAgenda, false);
+  const unknown = await s.req("PUT", "settings", { calendars: { gym: { use: false } } });
+  assert.equal(unknown.status, 502);
+  assert.match(unknown.body.error, /busy/);
+  await s.host.dispose();
+});
+
+test("with only the intake configured, the status has no iCloud account", async () => {
+  const s = await withIntake({ icloud: false });
+  const { body } = await s.req("GET", "status");
+  assert.deepEqual(body.icloud, { configured: false, missing: ["ICLOUD_USERNAME", "ICLOUD_APP_PASSWORD"] });
+  assert.equal(body.username, null);
+  assert.deepEqual(body.calendars.map((c: any) => c.name), ["Work"]);
+  assert.equal(s.fake.requests.length, 0);
+  await s.host.dispose();
+});
+
+test("no route ever returns INTAKE_KEY", async () => {
+  const s = await withIntake();
+  s.intake.deliver(meetings(2), "2026-10-03T07:45:00Z");
+  await s.req("POST", "refresh");
+  s.intake.respond = () => new Response("", { status: 403 });
+  await s.req("POST", "refresh");
+  await s.req("GET", "status");
+  await s.req("GET", "agenda");
+  await s.req("PUT", "settings", { defaultId: "intake-work" });
+  for (const b of s.bodies) assert.ok(!b.includes(INTAKE_KEY) && !b.includes(PASSWORD), b);
   await s.host.dispose();
 });

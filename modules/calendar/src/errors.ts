@@ -79,3 +79,11 @@ export class PreconditionFailed extends Error {
     this.name = "PreconditionFailed";
   }
 }
+
+/** The intake refused INTAKE_KEY (HTTP 401 or 403). Never contains the key. */
+export class IntakeRejectedError extends Error {
+  constructor(status: number) {
+    super(`The intake refused INTAKE_KEY (HTTP ${status}): check the key saved in Settings > Configuration, or the intake Secret.`);
+    this.name = "IntakeRejectedError";
+  }
+}

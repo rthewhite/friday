@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { InputError, ReadOnlyError } from "../src/errors.js";
 import type { EventView } from "../src/service.js";
 import { CAL, FakeICloud, allDay, timed, vcalendar } from "./fake-icloud.js";
+import { FakeIntake } from "./fake-intake.js";
 import { error, harness } from "./harness.js";
 
 type Listed = { events: EventView[]; truncated?: boolean; total?: number };
@@ -181,4 +182,101 @@ test("a calendar that refuses a write with 403 becomes read-only", async () => {
   fake.calendars = [{ id: "shared", name: "Family", privileges: ["read"] }];
   await assert.rejects(h.service.create({ title: "x", start: "2026-10-13T09:00" }), ReadOnlyError);
   assert.equal(h.service.lastAccount!.calendars[0].writable, false);
+});
+
+// ---- The Work calendar alongside iCloud --------------------------------------------------------------------
+
+type ListedWork = Listed & { unavailable?: string; coverage?: string };
+
+/** Home in iCloud with a 09:00 swim on Monday 5 October, and the Work calendar from the v3 fixture (received 3 Oct). */
+async function withWork(opts: { receivedAt?: string } = {}) {
+  const intake = new FakeIntake().load("v3");
+  if (opts.receivedAt) intake.queue[0].received_at = opts.receivedAt;
+  const h = await harness(new FakeICloud({ calendars: [{ id: "home", name: "Home", privileges: ["read", "write"] }] }), { intake });
+  h.fake.seed("home", "swim", vcalendar(timed("swim", "Swimming lesson", "20261005T090000", "20261005T091500")));
+  await h.work.poll();
+  return h;
+}
+
+test("work and iCloud events are listed together by start, with status and location", async () => {
+  const h = await withWork();
+  const r = (await h.service.list({ from: "2026-10-05", to: "2026-10-05" })) as ListedWork;
+  assert.deepEqual(r.events.map((e) => [e.title, e.calendar, e.when, e.status, e.location]), [
+    ["Swimming lesson", "Home", "Mon 5 Oct, 09:00-09:15", undefined, undefined],
+    ["Team Standup", "Work", "Mon 5 Oct, 09:30-09:45", undefined, "online"],
+    ["Quarterly planning", "Work", "Mon 5 Oct, 14:00-16:00", "tentative", "online, Video Conference, SkyLounge"],
+  ]);
+  assert.equal(r.unavailable, undefined);
+  assert.equal(r.coverage, undefined);
+});
+
+test("when iCloud is down the work events are still listed, with a note", async () => {
+  const h = await withWork();
+  await h.service.account(); // discovered, then iCloud goes down: the query fails
+  h.fake.failWith = 503;
+  const r = (await h.service.list({ from: "2026-10-05", to: "2026-10-05" })) as ListedWork;
+  assert.deepEqual(r.events.map((e) => e.title), ["Team Standup", "Quarterly planning"]);
+  assert.match(String(r.unavailable), /iCloud calendars could not be read.*503/);
+  // Discovery failing too (an expired cache) gives the same answer.
+  h.clock.t += 60 * 60_000;
+  const again = (await h.service.list({ from: "2026-10-05", to: "2026-10-05" })) as ListedWork;
+  assert.deepEqual(again.events.map((e) => e.title), ["Team Standup", "Quarterly planning"]);
+  assert.match(String(again.unavailable), /503/);
+});
+
+test("asking for the Work calendar alone doesn't depend on iCloud", async () => {
+  const h = await withWork();
+  h.fake.failWith = 0;
+  const r = (await h.service.list({ from: "2026-10-05", to: "2026-10-05", calendar: "Work" })) as ListedWork;
+  assert.deepEqual(r.events.map((e) => e.title), ["Team Standup", "Quarterly planning"]);
+  assert.equal(r.unavailable, undefined);
+  // An iCloud calendar by name, with iCloud down, is iCloud's error rather than "no such calendar".
+  assert.match((await error(h.service.list({ calendar: "Home" }))).message, /could not be reached|network|fetch/i);
+});
+
+test("a search that reaches past the work window says what the Work calendar covers", async () => {
+  const h = await withWork({ receivedAt: "2026-10-10T12:00:00Z" });
+  const r = (await h.service.list({ query: "standup" })) as ListedWork;
+  assert.equal(r.coverage, "The Work calendar only covers 10 September 2026 to 10 April 2027; there may be work events outside that.");
+  // Inside the window, or without the Work calendar, there is no note.
+  assert.equal(((await h.service.list({ from: "2026-10-05", to: "2026-12-31" })) as ListedWork).coverage, undefined);
+  assert.equal(((await h.service.list({ from: "2026-01-01", to: "2026-12-31", calendar: "Home" })) as ListedWork).coverage, undefined);
+  assert.match(String(((await h.service.list({ from: "2026-09-01", to: "2026-09-30" })) as ListedWork).coverage), /only covers/);
+});
+
+test("before any work delivery arrived, listing says the work events are missing", async () => {
+  const h = await harness(new FakeICloud({ calendars: [{ id: "home", name: "Home", privileges: ["read", "write"] }] }), { intake: new FakeIntake() });
+  const r = (await h.service.list({})) as ListedWork;
+  assert.match(String(r.coverage), /No copy of the Work calendar has been received yet/);
+});
+
+test("creating an event reports busy work meetings as overlaps, not cancelled or free ones", async () => {
+  const h = await withWork();
+  const clash = (await h.service.create({ title: "Dentist", start: "2026-10-05T09:40", end: "2026-10-05T10:30" })) as { overlaps: { title: string; calendar?: string }[] };
+  assert.deepEqual(clash.overlaps.map((o) => [o.title, o.calendar]), [["Team Standup", "Work"]]);
+  const cancelled = (await h.service.create({ title: "Call", start: "2026-10-06T10:00", end: "2026-10-06T10:30" })) as { overlaps: unknown[] };
+  assert.deepEqual(cancelled.overlaps, []);
+});
+
+test("nothing can be created in the Work calendar", async () => {
+  const h = await withWork();
+  const e = await error(h.service.create({ title: "Lunch", start: "2026-10-05T12:00", calendar: "Work" }));
+  assert.ok(e instanceof ReadOnlyError);
+  assert.match(e.message, /"Work" is a read-only calendar/);
+  assert.equal(h.fake.writes().length, 0);
+});
+
+test("work events are read-only and can't be previewed for an edit or deletion, without asking iCloud", async () => {
+  const h = await withWork();
+  const { events } = (await h.service.list({ from: "2026-10-05", to: "2026-10-05", calendar: "Work" })) as Listed;
+  const standup = events[0];
+  assert.equal(standup.readOnly, true);
+  assert.match(String(standup.readOnlyReason), /change it in Outlook/);
+  const before = h.fake.requests.length;
+  for (const p of [h.service.previewUpdate({ id: standup.id, title: "Renamed" }), h.service.previewDelete({ id: standup.id })]) {
+    const e = await error(p);
+    assert.ok(e instanceof ReadOnlyError);
+    assert.match(e.message, /Friday can't change "Team Standup".*Outlook/);
+  }
+  assert.equal(h.fake.requests.length, before);
 });
