@@ -132,8 +132,6 @@ export interface Found {
 export class CalendarService {
   /** The iCloud connection, as the portal shows it. */
   status: ConnectionStatus = { ok: false };
-  /** Why the last account() left the iCloud calendars out, when it fell back to the Work calendar alone. */
-  icloudError?: Error;
   private cached?: { account: Account; at: number };
 
   constructor(private readonly d: ServiceDeps) {}
@@ -184,23 +182,23 @@ export class CalendarService {
   /**
    * iCloud's calendars (rediscovered when `force` or when the cached discovery is old) followed by the Work calendar
    * when the intake is configured. An iCloud failure is thrown only when there is no Work calendar to fall back on;
-   * otherwise the result is the Work calendar alone and the failure is kept in `icloudError`.
+   * otherwise the result is the Work calendar alone, with the failure in `icloudError`.
    */
-  async account(force = false, signal?: AbortSignal): Promise<Account> {
+  async account(force = false, signal?: AbortSignal): Promise<Account & { icloudError?: Error }> {
     const work = this.work;
     let icloud: Account | undefined;
-    this.icloudError = undefined;
+    let icloudError: Error | undefined;
     if (this.icloudConfigured) {
       try {
         icloud = await this.icloudAccount(force, signal);
       } catch (e) {
         if (!work) throw e;
-        this.icloudError = e instanceof Error ? e : new Error(String(e));
+        icloudError = e instanceof Error ? e : new Error(String(e));
       }
     }
     const calendars = [...(icloud?.calendars ?? [])];
     if (work) calendars.push(work.calendar(calendars.map((c) => c.name)));
-    return { username: icloud?.username ?? "", addresses: icloud?.addresses ?? [], calendars };
+    return { username: icloud?.username ?? "", addresses: icloud?.addresses ?? [], calendars, ...(icloudError ? { icloudError } : {}) };
   }
 
   private async icloudAccount(force: boolean, signal?: AbortSignal): Promise<Account> {
@@ -218,13 +216,19 @@ export class CalendarService {
 
   /** Used calendars, optionally only the one named `name` (case-insensitive). */
   async usedCalendars(name?: string): Promise<CalendarInfo[]> {
-    const used = this.d.settings.used((await this.account()).calendars);
-    if (name === undefined) return used;
+    return (await this.used(name)).calendars;
+  }
+
+  /** Used calendars (or the one named `name`), and why iCloud's were left out when the Work calendar stood in. */
+  private async used(name?: string): Promise<{ calendars: CalendarInfo[]; icloudError?: Error }> {
+    const account = await this.account();
+    const used = this.d.settings.used(account.calendars);
+    if (name === undefined) return { calendars: used, ...(account.icloudError ? { icloudError: account.icloudError } : {}) };
     const match = used.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
     // The calendar may well be one of iCloud's, which just couldn't be listed.
-    if (!match && this.icloudError) throw this.icloudError;
+    if (!match && account.icloudError) throw account.icloudError;
     if (!match) throw new InputError(`There is no calendar called "${name}". The calendars are: ${used.map((c) => `"${c.name}"`).join(", ") || "(none)"}.`);
-    return [match];
+    return { calendars: [match] };
   }
 
   /** A calendar the tools may touch: discovered and used. Calendars switched off at /m/calendar are invisible to them. */
@@ -337,7 +341,8 @@ export class CalendarService {
     if (toMs <= fromMs) throw new InputError("to must be after from.");
     if (toMs - fromMs > MAX_RANGE_DAYS * DAY_MS + 2 * 3_600_000) throw new InputError(`The range can be at most ${MAX_RANGE_DAYS} days; ask for a shorter one.`);
 
-    const calendars = await this.usedCalendars(present(args.calendar));
+    const used = await this.used(present(args.calendar));
+    const calendars = used.calendars;
     const collected = await this.collect(calendars, fromMs, toMs);
     let found = collected.found;
     if (query) {
@@ -348,8 +353,8 @@ export class CalendarService {
       });
     }
     const events = found.slice(0, MAX_RESULTS).map((f) => this.view(f));
-    // A failed discovery only matters when iCloud's calendars were asked for, not for `calendar: "Work"`.
-    const icloudError = collected.icloudError ?? (calendars.some((c) => c.source !== "intake") || !present(args.calendar) ? this.icloudError : undefined);
+    // `used` only reports a failed discovery when no calendar was named, so `calendar: "Work"` doesn't depend on iCloud.
+    const icloudError = collected.icloudError ?? used.icloudError;
     const coverage = this.coverageNote(calendars, fromMs, toMs);
     return {
       events,

@@ -52,6 +52,8 @@ spec:
                 name: friday-secrets
             - secretRef:
                 name: intake
+                # Friday runs without it (iCloud alone); a missing Secret must not stop the pod.
+                optional: true
           volumeMounts:
             - name: data
               mountPath: /data

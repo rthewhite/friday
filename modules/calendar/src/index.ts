@@ -55,12 +55,7 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
     },
     migrations,
     async init(ctx) {
-      const missing = (keys: readonly string[]) => keys.filter((k) => !ctx.config.get(k)?.trim());
-      const icloudMissing = () => missing(ICLOUD_KEYS);
-      if (icloudMissing().length && missing(INTAKE_KEYS).length) {
-        const unset = [...icloudMissing(), ...missing(INTAKE_KEYS)].join(", ");
-        throw new Error(`calendar: configure ICLOUD_USERNAME and ICLOUD_APP_PASSWORD, or INTAKE_URL and INTAKE_KEY (not set: ${unset})`);
-      }
+      const icloudMissing = () => ICLOUD_KEYS.filter((k) => !ctx.config.get(k)?.trim());
       const work = new WorkSource({
         storage: ctx.storage,
         client: new IntakeClient({ fetch: opts.intakeFetch, config: () => ({ url: ctx.config.require("INTAKE_URL").trim(), key: ctx.config.require("INTAKE_KEY").trim() }) }),
@@ -68,6 +63,10 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
         now,
         log: ctx.log,
       });
+      if (icloudMissing().length && work.missing().length) {
+        const unset = [...icloudMissing(), ...work.missing()].join(", ");
+        throw new Error(`calendar: configure ${ICLOUD_KEYS.join(" and ")}, or ${INTAKE_KEYS.join(" and ")} (not set: ${unset})`);
+      }
       await work.load();
       const client = new CalDavClient({
         fetch: opts.fetch,

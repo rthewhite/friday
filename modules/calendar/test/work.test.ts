@@ -40,8 +40,9 @@ test("an iCloud calendar called Work renames the intake one", async () => {
 test("when iCloud discovery fails the Work calendar is still listed, and the failure is kept", async () => {
   const h = await harness(new FakeICloud(), { intake: new FakeIntake() });
   h.fake.failWith = 500;
-  assert.deepEqual(names((await h.service.account(true)).calendars), ["Work"]);
-  assert.match(String(h.service.icloudError?.message), /500/);
+  const account = await h.service.account(true);
+  assert.deepEqual(names(account.calendars), ["Work"]);
+  assert.match(String(account.icloudError?.message), /500/);
   // Without the Work calendar to fall back on, the failure is thrown as before.
   const plain = await harness(new FakeICloud());
   plain.fake.failWith = 500;
@@ -110,6 +111,11 @@ test("when the newest delivery is unusable an older, still newer one is used", a
   const h = await workHarness(intake);
   await h.work.poll();
   assert.deepEqual(titles(h.work.snapshot?.items), ["Older"]);
+  // The newer one is gone from the intake, so say why it wasn't used, for as long as this copy is the one in use.
+  assert.deepEqual(h.work.warnings(), ["A newer delivery couldn't be used: the delivery received at 2026-10-03T07:30:00Z has no list of events."]);
+  assert.match(h.warnings.join("\n"), /newer delivery couldn't be used/);
+  await h.work.poll();
+  assert.equal(h.work.warnings().length, 1);
 });
 
 test("deliveries older than the stored snapshot are not used", async () => {
@@ -166,8 +172,11 @@ test("a delivery of exactly 256 events is flagged as possibly cut off", async ()
   intake.deliver(Array.from({ length: 256 }, (_, i) => meeting(`Meeting ${i}`, "2026-10-05T07:30:00+00:00", "2026-10-05T08:00:00+00:00")), "2026-10-03T07:00:00Z");
   const h = await workHarness(intake);
   await h.work.poll();
-  assert.match(String(h.work.status.warning), /exactly 256 events/);
+  assert.match(h.work.warnings().join(), /exactly 256 events/);
   assert.match(h.warnings.join("\n"), /exactly 256 events/);
+  // It belongs to the copy, not the poll: an empty poll later doesn't clear it.
+  await h.work.poll();
+  assert.match(h.work.warnings().join(), /exactly 256 events/);
 });
 
 // ---- Mapping ------------------------------------------------------------------------------------------------

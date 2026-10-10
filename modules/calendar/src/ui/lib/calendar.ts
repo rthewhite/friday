@@ -23,6 +23,8 @@ export interface WorkStatus {
   ok: boolean | null;
   error: string | null;
   warning: string | null;
+  /** The server's verdict that the copy is older than the agenda accepts without a note. */
+  stale: boolean;
 }
 
 export interface Status {
@@ -35,17 +37,14 @@ export interface Status {
   calendars: CalendarRow[];
 }
 
-/** The flow delivers hourly; matches the agenda's out-of-date note. */
-export const WORK_STALE_AFTER_MS = 3 * 60 * 60_000;
-
 export type Tone = "neutral" | "success" | "warning" | "error";
 
 /** How the Work calendar is doing, for its status dot. */
-export function workState(w: WorkStatus, now = Date.now()): { tone: Tone; label: string } {
+export function workState(w: WorkStatus): { tone: Tone; label: string } {
   if (!w.configured) return { tone: "neutral", label: "Not configured" };
   if (w.ok === false) return { tone: "error", label: "Last poll failed" };
   if (!w.receivedAt) return { tone: "warning", label: "Nothing received yet" };
-  if (now - Date.parse(w.receivedAt) > WORK_STALE_AFTER_MS) return { tone: "warning", label: "Out of date" };
+  if (w.stale) return { tone: "warning", label: "Out of date" };
   return { tone: "success", label: "Up to date" };
 }
 

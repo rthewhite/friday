@@ -86,7 +86,8 @@ export function registerCalendarRoutes(ctx: ModuleContext, d: RouteDeps): void {
         polledAt: d.work.status.polledAt ?? null,
         ok: d.work.status.ok ?? null,
         error: d.work.status.error ?? null,
-        warning: d.work.status.warning ?? null,
+        warning: d.work.warnings().join(" ") || null,
+        stale: d.work.stale(),
       },
       calendars: calendars.map((c) => ({
         id: c.id, name: c.name, color: c.color ?? null, writable: c.writable, source: c.source ?? "icloud", ...d.settings.of(c.id), default: c.id === def?.id,
@@ -100,7 +101,15 @@ export function registerCalendarRoutes(ctx: ModuleContext, d: RouteDeps): void {
 
   route("PUT", "settings", async (req, res) => {
     const account = await d.service.account();
-    await d.settings.update(await body(req), account.calendars);
+    // While iCloud is down its calendars as last discovered still count, so their settings can be changed;
+    // an id that isn't known at all then gets iCloud's error rather than "unknown calendar".
+    const calendars = account.icloudError ? d.service.knownCalendars() : account.calendars;
+    try {
+      await d.settings.update(await body(req), calendars);
+    } catch (e) {
+      if (e instanceof InputError && account.icloudError && /unknown calendar id/.test(e.message)) throw account.icloudError;
+      throw e;
+    }
     // A calendar turned on needs fetching before the agenda can show it; a failure shows in the status.
     await d.agenda.refresh().catch(() => undefined);
     res.json(await status());

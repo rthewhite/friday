@@ -20,6 +20,8 @@ export const INTAKE_KEYS = ["INTAKE_URL", "INTAKE_KEY"] as const;
 export const COVERAGE = { monthsBack: 1, monthsAhead: 6 };
 /** "Get events" capped at 256 items; a snapshot of exactly that many may have been cut off by the flow. */
 export const FLOW_ITEM_CAP = 256;
+/** The flow delivers hourly; a copy older than this means deliveries stopped arriving. */
+export const WORK_STALE_AFTER_MS = 3 * 60 * 60_000;
 export const WORK_READ_ONLY = "It is in the Work calendar, a copy of Outlook that Friday can only read; change it in Outlook.";
 
 /** One event as the flow sends it (fields Friday doesn't use are ignored). */
@@ -41,13 +43,23 @@ export interface Snapshot {
   items: IntakeItem[];
   /** Events in the delivery that were left out as invalid. */
   skipped: number;
+  /** Why a newer delivery taken in the same poll couldn't be used instead (it is gone from the intake). */
+  passedOver?: string;
 }
 
 export interface WorkPollStatus {
   polledAt?: string;
   ok?: boolean;
   error?: string;
-  warning?: string;
+}
+
+/** What is worth knowing about a stored snapshot: cut off by the flow, or a newer delivery that was unusable. */
+export function snapshotWarnings(s: Snapshot | undefined): string[] {
+  if (!s) return [];
+  const out: string[] = [];
+  if (s.items.length + s.skipped === FLOW_ITEM_CAP) out.push(`The work calendar copy has exactly ${FLOW_ITEM_CAP} events, so the flow may have cut it off.`);
+  if (s.passedOver) out.push(`A newer delivery couldn't be used: ${s.passedOver}.`);
+  return out;
 }
 
 const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -73,7 +85,7 @@ function keep(i: IntakeItem): IntakeItem {
 export type DeliveryChoice =
   | { kind: "none"; reason: string }
   | { kind: "unusable"; reason: string }
-  | { kind: "snapshot"; snapshot: Omit<Snapshot, "storedAt">; total: number };
+  | { kind: "snapshot"; snapshot: Omit<Snapshot, "storedAt"> };
 
 /**
  * Chooses what a poll's messages mean for the stored snapshot: the newest usable calendar delivery newer than
@@ -102,8 +114,13 @@ export function pickDelivery(messages: unknown[], storedReceivedAt?: string): De
     }
     return {
       kind: "snapshot",
-      total: content.length,
-      snapshot: { messageId: String(m.id ?? ""), receivedAt: new Date(Date.parse(String(m.received_at))).toISOString(), items: valid.map(keep), skipped: content.length - valid.length },
+      snapshot: {
+        messageId: String(m.id ?? ""),
+        receivedAt: new Date(Date.parse(String(m.received_at))).toISOString(),
+        items: valid.map(keep),
+        skipped: content.length - valid.length,
+        ...(firstReason ? { passedOver: firstReason } : {}),
+      },
     };
   }
   return { kind: "unusable", reason: firstReason! };
@@ -246,13 +263,9 @@ export class WorkSource {
       // Stored before it is used: the intake has already forgotten it.
       await this.d.storage.set(SNAPSHOT_KEY, snapshot);
       this.stored = snapshot;
-      let warning: string | undefined;
-      if (pick.total === FLOW_ITEM_CAP) {
-        warning = `The work calendar delivery has exactly ${FLOW_ITEM_CAP} events, so the flow may have cut it off.`;
-        this.d.log?.warn(warning);
-      }
+      for (const w of snapshotWarnings(snapshot)) this.d.log?.warn(w);
       if (snapshot.skipped) this.d.log?.warn(`left out ${snapshot.skipped} invalid event${snapshot.skipped === 1 ? "" : "s"} of the work calendar delivery`);
-      this.status = { polledAt, ok: true, ...(warning ? { warning } : {}) };
+      this.status = { polledAt, ok: true };
       return `${snapshot.items.length} event${snapshot.items.length === 1 ? "" : "s"} received`;
     } catch (e) {
       this.status = { polledAt, ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -270,6 +283,16 @@ export class WorkSource {
 
   coverage(zone: string): Coverage | undefined {
     return this.stored ? coverage(this.stored.receivedAt, zone) : undefined;
+  }
+
+  /** Warnings about the stored copy; they last as long as that copy does. */
+  warnings(): string[] {
+    return snapshotWarnings(this.stored);
+  }
+
+  /** True when the stored copy is older than the agenda accepts without a note (deliveries stopped). */
+  stale(): boolean {
+    return !!this.stored && this.d.now().getTime() - Date.parse(this.stored.receivedAt) > WORK_STALE_AFTER_MS;
   }
 }
 

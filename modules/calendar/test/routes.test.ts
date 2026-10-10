@@ -36,7 +36,7 @@ test("GET status shows the account, the connection and the calendars with their 
     { id: "holidays", name: "Holidays NL", color: null, writable: false, source: "icloud", use: true, inAgenda: true, default: false },
   ]);
   assert.deepEqual(body.icloud, { configured: true });
-  assert.deepEqual(body.work, { configured: false, missing: ["INTAKE_URL", "INTAKE_KEY"], receivedAt: null, events: null, skipped: null, coverage: null, polledAt: null, ok: null, error: null, warning: null });
+  assert.deepEqual(body.work, { configured: false, missing: ["INTAKE_URL", "INTAKE_KEY"], receivedAt: null, events: null, skipped: null, coverage: null, polledAt: null, ok: null, error: null, warning: null, stale: false });
   await s.host.dispose();
 });
 
@@ -187,7 +187,7 @@ test("GET status shows the work calendar's copy and last poll, and lists it from
   const { body } = await s.req("GET", "status");
   assert.deepEqual(body.work, {
     configured: true, receivedAt: "2026-10-03T07:45:00.000Z", events: 218, skipped: 0, coverage: { from: "2026-09-03", to: "2027-04-03" },
-    polledAt: "2026-10-03T08:00:00.000Z", ok: true, error: null, warning: null,
+    polledAt: "2026-10-03T08:00:00.000Z", ok: true, error: null, warning: null, stale: false,
   });
   // The fake iCloud has its own "Work", so the intake one is renamed.
   assert.deepEqual(body.calendars.at(-1), { id: "intake-work", name: "Work (Outlook)", color: null, writable: false, source: "intake", use: true, inAgenda: true, default: false });
@@ -217,6 +217,20 @@ test("POST refresh takes a waiting delivery off the intake", async () => {
   // The refused key doesn't stop iCloud from refreshing.
   assert.equal(failed.connected, true);
   assert.equal(failed.checkedAt, "2026-10-03T08:00:00.000Z");
+  await s.host.dispose();
+});
+
+test("while iCloud is down, its calendars' settings can still be changed, and unknown ids get iCloud's error", async () => {
+  const s = await withIntake();
+  await s.req("GET", "status"); // discovered once
+  s.clock.t += 60 * 60_000; // the discovery is old, so the next one asks iCloud
+  s.fake.failWith = 503;
+  const ok = await s.req("PUT", "settings", { calendars: { home: { inAgenda: false } } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.calendars.find((c: any) => c.id === "home").inAgenda, false);
+  const unknown = await s.req("PUT", "settings", { calendars: { gym: { use: false } } });
+  assert.equal(unknown.status, 502);
+  assert.match(unknown.body.error, /busy/);
   await s.host.dispose();
 });
 

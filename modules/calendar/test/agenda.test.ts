@@ -163,6 +163,23 @@ test("a failed intake poll still refreshes iCloud, and the other way round", asy
   assert.match(s.agenda.render(), /Swimming lesson[\s\S]*MASH Standup/);
 });
 
+test("a hanging iCloud doesn't keep the intake from being polled before the job is cancelled", async () => {
+  const intake = new FakeIntake();
+  intake.deliver([meeting("MASH Standup", "2026-10-03T08:30:00+00:00", "2026-10-03T08:45:00+00:00")], "2026-10-03T07:45:00Z");
+  const fake = new FakeICloud({ calendars: [{ id: "home", name: "Home", privileges: ["read", "write"] }] });
+  // iCloud never answers; only the job's signal ends the request.
+  (fake as { fetch: typeof fetch }).fetch = ((_input: unknown, init?: RequestInit) =>
+    new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)))) as typeof fetch;
+  const h = await harness(fake, { intake });
+  const agenda = new Agenda(h.service, h.settings, h.now);
+  const job = new AbortController();
+  setTimeout(() => job.abort(), 30);
+  const r = await agenda.refresh(job.signal);
+  assert.match(r.summary, /^iCloud failed: .*; work: 1 event \(received 09:45\)$/);
+  assert.equal(intake.queue.length, 0);
+  assert.match(agenda.render(), /MASH Standup/);
+});
+
 test("the refresh fails only when every configured source failed", async () => {
   const s = await withWork();
   s.intake.respond = () => new Response("", { status: 500 });

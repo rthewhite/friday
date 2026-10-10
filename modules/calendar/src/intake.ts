@@ -39,7 +39,17 @@ export class IntakeClient {
       throw new UpstreamError("INTAKE_URL is not a valid URL.");
     }
     if (target.protocol !== "http:" && target.protocol !== "https:") throw new UpstreamError("INTAKE_URL must be an http or https URL.");
-    const timeout = AbortSignal.timeout(this.timeoutMs);
+    // The timeout and the caller's signal may cancel the request only until the intake answers: by then it has
+    // removed the deliveries it is sending, so the body is read to the end whatever happens.
+    const abort = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, this.timeoutMs);
+    const cancel = () => abort.abort();
+    if (signal?.aborted) cancel();
+    signal?.addEventListener("abort", cancel, { once: true });
     let res: Response;
     try {
       res = await this.fetchImpl(target, {
@@ -47,21 +57,31 @@ export class IntakeClient {
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ subject: INTAKE_SUBJECT }),
         redirect: "manual",
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: abort.signal,
       });
     } catch {
-      if (timeout.aborted) throw new UpstreamError(`The intake did not answer within ${Math.round(this.timeoutMs / 1000)} seconds.`);
+      if (timedOut) throw new UpstreamError(`The intake did not answer within ${Math.round(this.timeoutMs / 1000)} seconds.`);
       if (signal?.aborted) throw new UpstreamError("The intake poll was cancelled.");
       throw new UpstreamError("The intake could not be reached.");
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
     }
     if (res.status === 401 || res.status === 403) throw new IntakeRejectedError(res.status);
     if ((res.status >= 300 && res.status < 400) || res.type === "opaqueredirect") {
       throw new UpstreamError(`The intake answered with a redirect (HTTP ${res.status}), which Friday doesn't follow.`);
     }
     if (!res.ok) throw new UpstreamError(`The intake answered HTTP ${res.status}.`);
+    let text: string;
+    try {
+      text = await res.text();
+    } catch {
+      // The intake has already let go of whatever it was sending.
+      throw new UpstreamError("The intake's answer broke off while it was being read; any delivery in it is lost (the next hourly one replaces it).");
+    }
     let body: unknown;
     try {
-      body = await res.json();
+      body = JSON.parse(text);
     } catch {
       throw new UpstreamError("The intake's answer was not JSON.");
     }

@@ -59,6 +59,35 @@ test("a poll gives up after its timeout", async () => {
   assert.match(e.message, /did not answer within/);
 });
 
+test("once the intake answered, neither the timeout nor the caller can cut the delivery off", async () => {
+  let sent: AbortSignal | undefined;
+  const caller = new AbortController();
+  // Headers at once, the body 60 ms later: past the 20 ms timeout, and the caller gives up in between.
+  const slowBody: typeof fetch = async (_input, init) => {
+    sent = init?.signal ?? undefined;
+    const stream = new ReadableStream({
+      start(c) {
+        setTimeout(() => {
+          c.enqueue(new TextEncoder().encode(JSON.stringify({ messages: [{ id: "m1" }] })));
+          c.close();
+        }, 60);
+      },
+    });
+    setTimeout(() => caller.abort(), 10);
+    return new Response(stream, { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const messages = await client(slowBody, 20).poll(caller.signal);
+  assert.equal(messages.length, 1);
+  assert.equal(sent?.aborted, false);
+});
+
+test("a body that breaks off is reported as a lost delivery", async () => {
+  const broken: typeof fetch = async () =>
+    new Response(new ReadableStream({ start: (c) => c.error(new Error("socket hang up")) }), { status: 200 });
+  const e = await failure(client(broken).poll());
+  assert.match(e.message, /broke off .* lost/);
+});
+
 test("unreachable intakes, server errors and odd answers are UpstreamErrors", async () => {
   const down: typeof fetch = () => Promise.reject(new TypeError("fetch failed"));
   assert.match((await failure(client(down).poll())).message, /could not be reached/);

@@ -13,8 +13,6 @@ import { WORK_CALENDAR_ID } from "./work.js";
 
 export const REFRESH_EVERY_MS = 5 * 60_000;
 export const STALE_AFTER_MS = 15 * 60_000;
-/** The flow delivers hourly; a work copy older than this means deliveries stopped arriving. */
-export const WORK_STALE_AFTER_MS = 3 * 60 * 60_000;
 export const AGENDA_MAX_CHARS = 2000;
 const WINDOW_DAYS = 3;
 
@@ -46,31 +44,23 @@ export class Agenda {
    * a failing source keeps what it had. Throws only when every configured source failed.
    */
   async refresh(signal?: AbortSignal): Promise<{ summary: string }> {
-    const parts: string[] = [];
-    const errors: unknown[] = [];
-    let configured = 0;
-    if (this.service.icloudConfigured) {
-      configured++;
-      try {
-        parts.push(await this.refreshICloud(signal));
-      } catch (e) {
-        errors.push(e);
-        parts.push(`iCloud failed: ${message(e)}`);
-      }
-    }
     const work = this.service.work;
+    // In parallel, so a slow iCloud can't use up the job's time before the intake is polled.
+    const runs: { label: string; run: Promise<string> }[] = [];
+    if (this.service.icloudConfigured) runs.push({ label: "iCloud", run: this.refreshICloud(signal) });
     if (work) {
-      configured++;
-      try {
-        await work.poll(signal);
-        const s = work.snapshot;
-        parts.push(s ? `work: ${plural(s.items.length, "event")} (received ${wallClock(Date.parse(s.receivedAt), this.service.zone).time})` : "work: nothing received yet");
-      } catch (e) {
-        errors.push(e);
-        parts.push(`work failed: ${message(e)}`);
-      }
+      runs.push({
+        label: "work",
+        run: work.poll(signal).then(() => {
+          const s = work.snapshot;
+          return s ? `work: ${plural(s.items.length, "event")} (received ${wallClock(Date.parse(s.receivedAt), this.service.zone).time})` : "work: nothing received yet";
+        }),
+      });
     }
-    if (configured && errors.length === configured) throw errors.length === 1 ? errors[0] : new Error(parts.join("; "));
+    const results = await Promise.allSettled(runs.map((r) => r.run));
+    const parts = results.map((r, i) => (r.status === "fulfilled" ? r.value : `${runs[i].label} failed: ${message(r.reason)}`));
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (runs.length && failed.length === runs.length) throw failed.length === 1 ? failed[0].reason : new Error(parts.join("; "));
     return { summary: parts.join("; ") };
   }
 
@@ -78,7 +68,7 @@ export class Agenda {
   private async refreshICloud(signal?: AbortSignal): Promise<string> {
     const zone = this.service.zone;
     const account = await this.service.account(true, signal);
-    if (this.service.icloudError) throw this.service.icloudError;
+    if (account.icloudError) throw account.icloudError;
     const calendars = this.settings.used(account.calendars).filter((c) => c.source !== "intake");
     const today = localDate(this.now(), zone);
     const from = startOfLocalDay(today, zone)!.getTime();
@@ -139,9 +129,8 @@ export class Agenda {
     if (icloud && this.cache && now.getTime() - this.cache.fetchedAt > STALE_AFTER_MS) {
       lines.push({ text: `(Fetched at ${this.at(this.cache.fetchedAt, today)}; iCloud hasn't answered since, so this may be out of date.)`, event: false });
     }
-    const received = work?.snapshot ? Date.parse(work.snapshot.receivedAt) : undefined;
-    if (received !== undefined && now.getTime() - received > WORK_STALE_AFTER_MS) {
-      lines.push({ text: `(The Work calendar was last updated at ${this.at(received, today)}, so it may be out of date.)`, event: false });
+    if (work?.snapshot && work.stale()) {
+      lines.push({ text: `(The Work calendar was last updated at ${this.at(Date.parse(work.snapshot.receivedAt), today)}, so it may be out of date.)`, event: false });
     }
     return cut(lines);
   }
