@@ -10,10 +10,11 @@ import type { Change, ChangeLog, ChangeSource } from "./changes.js";
 import { InputError, NotUndoableError, PreconditionFailed, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
 import { addDays, endOfLocalDay, localIso, whenText, type Span } from "./format.js";
 import type { EventHandles, EventRef } from "./handles.js";
-import { applyEdit, buildEvent, deleteOccurrence, EditRefused, expand, findOccurrence, isInvitation, parseIcs, type EditChanges, type Occurrence, type ParsedObject, type Repeat } from "./ical.js";
+import { applyEdit, buildEvent, deleteOccurrence, EditRefused, expand, findOccurrence, isInvitation, parseIcs, type EditChanges, type EventStatus, type Occurrence, type ParsedObject, type Repeat } from "./ical.js";
 import type { Settings } from "./settings.js";
 import { parseTime, present } from "./times.js";
 import type { PendingChange, TokenStore } from "./tokens.js";
+import { coverageText, WORK_CALENDAR_ID, WORK_READ_ONLY, WORK_URL, type WorkSource } from "./work.js";
 
 export const MAX_RESULTS = 50;
 export const MAX_RANGE_DAYS = 366;
@@ -41,6 +42,7 @@ export interface EventView {
   recurring: boolean;
   readOnly: boolean;
   readOnlyReason?: string;
+  status?: EventStatus;
   location?: string;
   notes?: string;
 }
@@ -64,6 +66,10 @@ export interface ServiceDeps {
   /** Called after every successful write, so the agenda refreshes. */
   onWrite?: () => void;
   log?: ModuleLogger;
+  /** The Work calendar from the intake; listed only while its keys are set. */
+  work?: WorkSource;
+  /** iCloud keys that are not set (none by default); iCloud is skipped while any is missing. */
+  icloudMissing?: () => string[];
 }
 
 export interface ListArgs {
@@ -124,7 +130,10 @@ export interface Found {
 }
 
 export class CalendarService {
+  /** The iCloud connection, as the portal shows it. */
   status: ConnectionStatus = { ok: false };
+  /** Why the last account() left the iCloud calendars out, when it fell back to the Work calendar alone. */
+  icloudError?: Error;
   private cached?: { account: Account; at: number };
 
   constructor(private readonly d: ServiceDeps) {}
@@ -147,13 +156,54 @@ export class CalendarService {
     }
   }
 
-  /** The last discovery, if any (for the portal and the agenda). */
+  /** The last iCloud discovery, if any (for the portal and the agenda). */
   get lastAccount(): Account | undefined {
     return this.cached?.account;
   }
 
-  /** The account's calendars, rediscovered when `force` or when the cached discovery is old. */
+  /** iCloud keys that are not set. */
+  icloudMissing(): string[] {
+    return this.d.icloudMissing?.() ?? [];
+  }
+
+  get icloudConfigured(): boolean {
+    return this.icloudMissing().length === 0;
+  }
+
+  /** The Work source while its keys are set. */
+  get work(): WorkSource | undefined {
+    return this.d.work?.configured ? this.d.work : undefined;
+  }
+
+  /** The calendars as last discovered, without a request: iCloud's, then Work. */
+  knownCalendars(): CalendarInfo[] {
+    const icloud = this.icloudConfigured ? (this.cached?.account.calendars ?? []) : [];
+    return this.work ? [...icloud, this.work.calendar(icloud.map((c) => c.name))] : icloud;
+  }
+
+  /**
+   * iCloud's calendars (rediscovered when `force` or when the cached discovery is old) followed by the Work calendar
+   * when the intake is configured. An iCloud failure is thrown only when there is no Work calendar to fall back on;
+   * otherwise the result is the Work calendar alone and the failure is kept in `icloudError`.
+   */
   async account(force = false, signal?: AbortSignal): Promise<Account> {
+    const work = this.work;
+    let icloud: Account | undefined;
+    this.icloudError = undefined;
+    if (this.icloudConfigured) {
+      try {
+        icloud = await this.icloudAccount(force, signal);
+      } catch (e) {
+        if (!work) throw e;
+        this.icloudError = e instanceof Error ? e : new Error(String(e));
+      }
+    }
+    const calendars = [...(icloud?.calendars ?? [])];
+    if (work) calendars.push(work.calendar(calendars.map((c) => c.name)));
+    return { username: icloud?.username ?? "", addresses: icloud?.addresses ?? [], calendars };
+  }
+
+  private async icloudAccount(force: boolean, signal?: AbortSignal): Promise<Account> {
     if (!force && this.cached && this.d.now().getTime() - this.cached.at < ACCOUNT_MAX_AGE_MS) return this.cached.account;
     const account = await this.icloud(() => this.d.client.discover(signal));
     this.cached = { account, at: this.d.now().getTime() };
@@ -171,6 +221,8 @@ export class CalendarService {
     const used = this.d.settings.used((await this.account()).calendars);
     if (name === undefined) return used;
     const match = used.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+    // The calendar may well be one of iCloud's, which just couldn't be listed.
+    if (!match && this.icloudError) throw this.icloudError;
     if (!match) throw new InputError(`There is no calendar called "${name}". The calendars are: ${used.map((c) => `"${c.name}"`).join(", ") || "(none)"}.`);
     return [match];
   }
@@ -180,26 +232,54 @@ export class CalendarService {
     return this.d.settings.used((await this.account()).calendars).find((c) => c.id === id);
   }
 
-  /** Every occurrence in [from, to) in `calendars`, sorted by start. */
+  /** Every occurrence in [from, to) in `calendars`, sorted by start. Partial when iCloud failed (see `collect`). */
   async occurrences(calendars: CalendarInfo[], from: number, to: number, signal?: AbortSignal): Promise<Found[]> {
+    return (await this.collect(calendars, from, to, signal)).found;
+  }
+
+  /**
+   * Every occurrence in [from, to) in `calendars`, sorted by start: iCloud's queried live, Work's from the stored
+   * snapshot. An iCloud failure is thrown unless the Work calendar is among `calendars`; then it is returned
+   * alongside the Work events.
+   */
+  async collect(calendars: CalendarInfo[], from: number, to: number, signal?: AbortSignal): Promise<{ found: Found[]; icloudError?: Error }> {
     const zone = this.zone;
-    const perCalendar = await this.icloud(() => Promise.all(calendars.map(async (calendar) => ({ calendar, objects: await this.d.client.query(calendar.url, new Date(from), new Date(to), signal) }))));
+    const icloudCalendars = calendars.filter((c) => c.source !== "intake");
+    const workCalendar = calendars.find((c) => c.source === "intake");
     const out: Found[] = [];
-    for (const { calendar, objects } of perCalendar) {
-      for (const object of objects) {
-        // One unreadable event must not take the whole calendar, the agenda or an overlap check down with it.
-        try {
-          for (const occurrence of expand(parseIcs(object.ics), from, to, zone)) out.push({ calendar, object, occurrence });
-        } catch (e) {
-          this.d.log?.warn(`skipped an event in "${calendar.name}" that could not be read: ${e instanceof Error ? e.message : String(e)}`);
+    let icloudError: Error | undefined;
+    if (icloudCalendars.length) {
+      try {
+        const perCalendar = await this.icloud(() =>
+          Promise.all(icloudCalendars.map(async (calendar) => ({ calendar, objects: await this.d.client.query(calendar.url, new Date(from), new Date(to), signal) }))),
+        );
+        for (const { calendar, objects } of perCalendar) {
+          for (const object of objects) {
+            // One unreadable event must not take the whole calendar, the agenda or an overlap check down with it.
+            try {
+              for (const occurrence of expand(parseIcs(object.ics), from, to, zone)) out.push({ calendar, object, occurrence });
+            } catch (e) {
+              this.d.log?.warn(`skipped an event in "${calendar.name}" that could not be read: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
         }
+      } catch (e) {
+        if (!workCalendar) throw e;
+        icloudError = e instanceof Error ? e : new Error(String(e));
       }
     }
-    return out.sort((a, b) => a.occurrence.startMs - b.occurrence.startMs || a.occurrence.title.localeCompare(b.occurrence.title));
+    if (workCalendar && this.d.work) {
+      for (const occurrence of this.d.work.occurrences(from, to, zone)) {
+        out.push({ calendar: workCalendar, object: { url: `${WORK_URL}#${occurrence.uid}`, etag: "", ics: "" }, occurrence });
+      }
+    }
+    out.sort((a, b) => a.occurrence.startMs - b.occurrence.startMs || a.occurrence.title.localeCompare(b.occurrence.title));
+    return { found: out, ...(icloudError ? { icloudError } : {}) };
   }
 
   /** Why Friday can't change this event, if it can't. */
   readOnlyReason(f: Pick<Found, "calendar" | "occurrence">): string | undefined {
+    if (f.calendar.source === "intake") return WORK_READ_ONLY;
     if (!f.calendar.writable) return `"${f.calendar.name}" is a read-only calendar.`;
     const own = this.cached?.account.addresses ?? [];
     if (isInvitation(f.occurrence, own)) return `It is an invitation from ${f.occurrence.organizer}; change or decline it in the Calendar app.`;
@@ -221,6 +301,7 @@ export class CalendarService {
       recurring: o.recurring,
       readOnly: !!reason,
       ...(reason ? { readOnlyReason: reason } : {}),
+      ...(o.status ? { status: o.status } : {}),
       ...(o.location ? { location: o.location } : {}),
       ...(o.notes ? { notes: o.notes.length > NOTES_MAX ? `${o.notes.slice(0, NOTES_MAX)}…` : o.notes } : {}),
     };
@@ -257,7 +338,8 @@ export class CalendarService {
     if (toMs - fromMs > MAX_RANGE_DAYS * DAY_MS + 2 * 3_600_000) throw new InputError(`The range can be at most ${MAX_RANGE_DAYS} days; ask for a shorter one.`);
 
     const calendars = await this.usedCalendars(present(args.calendar));
-    let found = await this.occurrences(calendars, fromMs, toMs);
+    const collected = await this.collect(calendars, fromMs, toMs);
+    let found = collected.found;
     if (query) {
       const words = query.toLowerCase().split(/\s+/).filter(Boolean);
       found = found.filter(({ occurrence: o }) => {
@@ -266,7 +348,23 @@ export class CalendarService {
       });
     }
     const events = found.slice(0, MAX_RESULTS).map((f) => this.view(f));
-    return { events, ...(found.length > MAX_RESULTS ? { truncated: true, total: found.length } : {}) };
+    const icloudError = collected.icloudError ?? this.icloudError;
+    const coverage = this.coverageNote(calendars, fromMs, toMs);
+    return {
+      events,
+      ...(found.length > MAX_RESULTS ? { truncated: true, total: found.length } : {}),
+      ...(icloudError ? { unavailable: `The iCloud calendars could not be read, so only the Work calendar is included: ${icloudError.message}` } : {}),
+      ...(coverage ? { coverage } : {}),
+    };
+  }
+
+  /** What the Work calendar covers, when it is listed and the range reaches outside that (or nothing arrived yet). */
+  private coverageNote(calendars: CalendarInfo[], fromMs: number, toMs: number): string | undefined {
+    const work = this.d.work;
+    if (!work || !calendars.some((c) => c.source === "intake")) return undefined;
+    const c = work.coverage(this.zone);
+    if (!c) return "No copy of the Work calendar has been received yet, so work events are missing; don't assume the user is free at work.";
+    return fromMs < c.fromMs || toMs > c.toMs ? coverageText(c) : undefined;
   }
 
   // ---- Creating ----------------------------------------------------------------------------------------------
@@ -349,7 +447,8 @@ export class CalendarService {
     if (span.endMs <= span.startMs) return [];
     try {
       const found = await this.occurrences(await this.usedCalendars(), span.startMs, span.endMs);
-      return found.filter((f) => !f.occurrence.allDay && f.object.url !== exceptUrl).map((f) => this.summary(f.occurrence, f.calendar));
+      return found
+        .filter((f) => !f.occurrence.allDay && f.object.url !== exceptUrl && f.occurrence.status !== "free" && f.occurrence.status !== "cancelled").map((f) => this.summary(f.occurrence, f.calendar));
     } catch (e) {
       // The write already happened; a failed overlap check must not turn it into an error.
       if (e instanceof UpstreamError) return [];
@@ -429,6 +528,8 @@ export class CalendarService {
     const id = present(idArg);
     if (!id) throw new InputError("id is required: take it from calendar_list_events.");
     const ref = this.d.handles.get(id);
+    // Refused before anything asks iCloud: work events live in Outlook.
+    if (ref.calendarId === WORK_CALENDAR_ID) throw new ReadOnlyError(`Friday can't change "${ref.occurrence.title}": ${WORK_READ_ONLY}`);
     const calendar = await this.usedCalendar(ref.calendarId);
     if (!calendar) throw new StaleEventError("That event's calendar is no longer available to Friday; list the events again.");
     const object = await this.icloud(() => this.d.client.get(ref.objectUrl));

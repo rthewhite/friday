@@ -19,9 +19,13 @@ type Time = InstanceType<typeof ICAL.Time>;
 /** Expanding a series stops after this many occurrences, whatever the range. */
 const MAX_OCCURRENCES = 50_000;
 
+/** A meeting's standing, for events that carry one (work events from the intake). */
+export type EventStatus = "tentative" | "free" | "cancelled" | "out of office";
+
 export interface Occurrence extends Span {
   uid: string;
   title: string;
+  status?: EventStatus;
   location?: string;
   notes?: string;
   recurring: boolean;

@@ -2,17 +2,17 @@
 
 ## 1. Optional sources and the Work calendar entry
 
-- [ ] 1.1 Make the four keys optional in the manifest and check in `init` that at least one pair is complete. Add `INTAKE_URL` (plain) and `INTAKE_KEY` (secret) with descriptions, and update the module description (design D2). Verify in `test/module.test.ts`:
+- [x] 1.1 Make the four keys optional in the manifest and check in `init` that at least one pair is complete. Add `INTAKE_URL` (plain) and `INTAKE_KEY` (secret) with descriptions, and update the module description (design D2). Verify in `test/module.test.ts`:
   - with no keys, the module fails naming the missing keys and registers no tools;
   - with only the intake keys, it loads with all six tools;
   - with only the iCloud keys, it behaves as before.
-- [ ] 1.2 Add `source` to `CalendarInfo`. Make `account()` return the iCloud calendars (when configured, recording rather than throwing their failure) followed by the Work calendar: id `intake-work`, `Work`, or `Work (Outlook)` on a clash, not writable (design D1). Keep per-source status for iCloud and Work, with the missing key named. Verify in `test/settings.test.ts` and a new `test/work.test.ts`:
+- [x] 1.2 Add `source` to `CalendarInfo`. Make `account()` return the iCloud calendars (when configured, recording rather than throwing their failure) followed by the Work calendar: id `intake-work`, `Work`, or `Work (Outlook)` on a clash, not writable (design D1). Keep per-source status for iCloud and Work, with the missing key named. Verify in `test/settings.test.ts` and a new `test/work.test.ts`:
   - the Work calendar is listed with `writable: false` with and without iCloud;
   - the name clash;
   - Work can't be the default (`PUT settings` returns 400);
   - when iCloud discovery fails, Work is still listed.
-- [ ] 1.3 Add `.env.example` entries for `INTAKE_URL` and `INTAKE_KEY`, commented out, with the one-consumer warning (design D9). Verify that the keys match the manifest.
-- [ ] 1.4 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
+- [x] 1.3 Add `.env.example` entries for `INTAKE_URL` and `INTAKE_KEY`, commented out, with the one-consumer warning (design D9). Verify that the keys match the manifest.
+- [x] 1.4 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
 
 ## 2. Intake client and snapshot
 
