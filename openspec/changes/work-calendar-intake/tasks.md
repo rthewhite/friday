@@ -60,7 +60,7 @@
 
 ## 4. Refresh job and agenda
 
-- [ ] 4.1 Rework `Agenda.refresh()` and the job (design D7):
+- [x] 4.1 Rework `Agenda.refresh()` and the job (design D7):
   - the intake poll and the iCloud fetch each fail on their own;
   - skip a source that isn't configured;
   - the job summary names both;
@@ -70,7 +70,7 @@
   - a failed intake poll still refreshes iCloud, and the other way round;
   - an intake-only module refreshes without iCloud requests;
   - the summary text.
-- [ ] 4.2 Rework `render()`:
+- [x] 4.2 Rework `render()`:
   - Work events come from the snapshot at render time;
   - a neutral header;
   - ` (<status>)` and ` [<calendar>]` when more than one calendar is in the agenda;
@@ -78,7 +78,7 @@
   - nothing about a source that isn't configured.
 
   Verify with the spec scenarios: agenda present, midnight rollover, iCloud unreachable, never fetched (work still listed), work and home together, work snapshot old, intake not configured. Also verify that the 2000-character cut still holds with calendar labels.
-- [ ] 4.3 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
+- [x] 4.3 Run `pnpm --filter @friday/module-calendar test` and `typecheck`.
 
 ## 5. Portal
 

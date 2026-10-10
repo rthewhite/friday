@@ -92,14 +92,13 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
       defineCalendarTools(ctx, service);
       ctx.jobs.schedule({
         name: "refresh",
-        description: "Rediscovers the iCloud calendars and fetches today's and tomorrow's agenda for the prompt.",
+        description: "Takes a new Work calendar copy from the intake, rediscovers the iCloud calendars and fetches today's and tomorrow's agenda for the prompt.",
         everyMs: REFRESH_EVERY_MS,
         timeoutMs: 60_000,
         run: async ({ signal }) => {
           again = false;
           try {
-            const r = await agenda.refresh(signal);
-            return { summary: `${r.events} event${r.events === 1 ? "" : "s"} in ${r.calendars} calendar${r.calendars === 1 ? "" : "s"}` };
+            return await agenda.refresh(signal);
           } finally {
             // After the scheduler has marked this run finished.
             if (again) setTimeout(refresh, 0).unref();
