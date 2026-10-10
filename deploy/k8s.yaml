@@ -45,9 +45,13 @@ spec:
           # GEMINI_API_KEY and FRIDAY_MASTER_KEY are required here. Module config
           # (JELLYFIN_*, HA_*, TOMTOM_API_KEY, ICLOUD_*) and FRIDAY_MODULE_KEYS may also live here as a
           # fallback, but the portal's Settings pages are the primary place now.
+          # The `intake` Secret holds INTAKE_URL and INTAKE_KEY for the Work calendar. Reading the intake
+          # removes what it returns, so this Deployment must be the only place they are set.
           envFrom:
             - secretRef:
                 name: friday-secrets
+            - secretRef:
+                name: intake
           volumeMounts:
             - name: data
               mountPath: /data

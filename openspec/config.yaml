@@ -32,8 +32,19 @@ context: |
   Routing v2; TOMTOM_API_KEY required secret, sent as a query parameter so URLs are never logged; geocodes
   cached in memory (LRU, hits 24h, misses 10 min), routes never; client rebuilt when the key changes, no
   reload needed; offset-less departAt/arriveAt read in FRIDAY_TIMEZONE, past times refused).
-  Calendar: modules/calendar (id calendar) talks CalDAV to one iCloud account (src/caldav.ts, own client over
-  injectable fetch + fast-xml-parser; Basic auth only to https *.icloud.com, redirects followed by hand; required
+  Calendar: modules/calendar (id calendar) has two optional sources and loads when at least one has both keys
+  (checked in init). The Work calendar (src/work.ts, src/intake.ts): INTAKE_URL + secret INTAKE_KEY; the
+  calendar/refresh job POSTs {"subject":"calendar"} with a bearer key (redirects refused, 30 s) to the homelab intake,
+  which returns {messages:[{id, subject, received_at, content}]} and deletes them, so the newest usable delivery
+  (offset date-times required) is stored in ctx.storage "work-snapshot" before use and an empty poll keeps it. Items
+  are Outlook calendar-view occurrences (Power Automate, hourly, 1 month back / 6 ahead = COVERAGE), mapped on read:
+  all-day dates as written, Geannuleerd/Canceled prefix -> status cancelled, showAs -> tentative|free|out of office,
+  links/"Microsoft Teams Meeting" -> "online", rooms without leading "_"; ids from title+start+end. It is one read-only
+  CalendarInfo (source "intake", id intake-work, "Work" or "Work (Outlook)" on a clash) after iCloud's; edits refused
+  before any iCloud request; free/cancelled never overlaps; list adds `coverage` outside the window and `unavailable`
+  when iCloud failed but Work was listed (CalendarService.collect). Only one Friday may hold the intake keys (k8s
+  `intake` Secret). iCloud: CalDAV to one account (src/caldav.ts, own client over
+  injectable fetch + fast-xml-parser; Basic auth only to https *.icloud.com, redirects followed by hand;
   ICLOUD_USERNAME and secret ICLOUD_APP_PASSWORD, an app-specific password, read per request) and ical.js
   (src/ical.ts: expansion with EXDATE/overrides, IANA TZIDs via Intl, edits keep unknown properties, generated
   VTIMEZONE in src/vtimezone.ts). Tools on voice and chat: calendar_list_events (short in-memory ids, 2h, src/handles.ts),
@@ -42,10 +53,13 @@ context: |
   invitations and read-only calendars refused), calendar_confirm (If-Match; 412 -> StaleEventError with the current
   version), calendar_undo (newest tool change of the last 24h). Every write is logged in calendar__changes (whole
   before/after ICS, source, conversation id; 500 kept; undo rows action "undo"). Job calendar/refresh (5 min, also
-  after writes) caches three local days; the prompt provider (src/agenda.ts) renders today and tomorrow at build time,
-  2000 chars. Per-calendar use/inAgenda and the default in ctx.storage "settings". Portal /m/calendar (Overview,
-  Changes); routes status, settings, agenda, changes, changes/:id/undo, refresh. Fake iCloud for tests in
-  test/fake-icloud.ts.
+  after writes) polls the intake and caches three local days of iCloud, each failing on its own (the job fails only
+  when all configured sources did); the prompt provider (src/agenda.ts) renders today and tomorrow at build time
+  (Work from the snapshot; status and [calendar] labels when more than one calendar is in the agenda; per-source
+  unavailable/stale notes, Work stale after 3 h), 2000 chars. Per-calendar use/inAgenda and the default in
+  ctx.storage "settings". Portal /m/calendar (Overview with iCloud and Work rows, Changes); routes status (icloud,
+  work, calendar source), settings, agenda, changes, changes/:id/undo, refresh. Fakes for tests in
+  test/fake-icloud.ts and test/fake-intake.ts (fixtures in test/fixtures/intake).
   Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
   tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
   extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall

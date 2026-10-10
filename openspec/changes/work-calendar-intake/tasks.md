@@ -97,8 +97,8 @@
 
 ## 6. Deploy and docs
 
-- [ ] 6.1 Add `- secretRef: { name: intake }` under `envFrom` in `deploy/k8s.yaml`, and add `INTAKE_*` to the comment that lists module keys. Verify with `kubectl apply --dry-run=client -f deploy/k8s.yaml`, or a YAML parse if no kubectl is available locally.
-- [ ] 6.2 README "Calendar" section:
+- [x] 6.1 Add `- secretRef: { name: intake }` under `envFrom` in `deploy/k8s.yaml`, and add `INTAKE_*` to the comment that lists module keys. Verify with `kubectl apply --dry-run=client -f deploy/k8s.yaml`, or a YAML parse if no kubectl is available locally.
+- [x] 6.2 README "Calendar" section:
   - the Work calendar: where it comes from, read-only, hourly, about 5 minutes of delay, covers 1 month back to 6 months ahead;
   - the destructive read and "configure the intake in one place only";
   - how cancelled, tentative and online meetings show;
