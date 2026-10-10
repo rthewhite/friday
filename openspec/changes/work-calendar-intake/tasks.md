@@ -115,4 +115,4 @@
   - the prompt agenda shows `[Work]` labels.
 
   Record any payload quirk found in design.md.
-- [ ] 7.2 Run the quality gate in the worktree: `pnpm -r build && pnpm -r typecheck && pnpm -r test`, then `/opsx:verify work-calendar-intake`, then `/code-review`, then `/security-review` (this change adds a secret, outbound authenticated requests and route fields). Fix what they confirm and report the results.
+- [x] 7.2 Run the quality gate in the worktree: `pnpm -r build && pnpm -r typecheck && pnpm -r test`, then `/opsx:verify work-calendar-intake`, then `/code-review`, then `/security-review` (this change adds a secret, outbound authenticated requests and route fields). Fix what they confirm and report the results.
