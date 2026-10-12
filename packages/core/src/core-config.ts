@@ -14,6 +14,7 @@ export const CORE_ID = "core";
 export const coreManifest: ModuleManifest = {
   id: CORE_ID,
   label: "Core",
+  description: "Built into Friday",
   config: [
     { key: "GEMINI_API_KEY", secret: true, required: true, description: "Gemini API key for voice sessions and text generation" },
     { key: "FRIDAY_TIMEZONE", description: `IANA zone for cron job schedules (default ${DEFAULT_TIME_ZONE})` },

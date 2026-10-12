@@ -71,14 +71,15 @@ export interface AppDeps {
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
 
-/** In-process modules, then MCP servers, then connected remotes: the shape /api/modules returns. */
+/**
+ * The shape /api/modules returns: core's own entry when core owns tools (so the timer tools show up somewhere), then
+ * in-process modules, MCP servers and connected remotes. The first entry is therefore not always a module.
+ */
 export function moduleListing({ host, mcp, remote, registry }: Pick<AppDeps, "host" | "mcp" | "remote" | "registry">): ApiModuleEntry[] {
-  // Tools core registers itself (owner `core`, e.g. the timer tools) would otherwise show up nowhere.
   const coreTools = registry.names(CORE_ID);
+  const { label, description } = coreManifest;
   return [
-    ...(coreTools.length
-      ? [{ id: CORE_ID, label: coreManifest.label, description: "Built into Friday", status: "loaded" as const, tools: coreTools, ui: false }]
-      : []),
+    ...(coreTools.length ? [{ id: CORE_ID, label, description, status: "loaded" as const, tools: coreTools, ui: false }] : []),
     ...host.loaded(),
     ...mcp.servers().map(({ name, status, error, tools }): ModuleEntry => ({
       id: mcpOwner(name),

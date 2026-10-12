@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { hasPage } from "../lib/modules.js";
 
 export interface ApiModule {
   id: string;
@@ -31,6 +32,7 @@ export async function refreshModules(): Promise<void> {
 
 export function useModules() {
   if (!modules.value.length && !loading.value) void refreshModules();
-  const isEnabled = (id: string) => modules.value.some((m) => m.id === id && m.status === "loaded");
+  /** The module's page can be shown (see hasPage): core's own entry has none. */
+  const isEnabled = (id: string) => modules.value.some((m) => m.id === id && hasPage(m));
   return { modules, loading, error, refreshModules, isEnabled };
 }

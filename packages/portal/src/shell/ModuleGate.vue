@@ -20,6 +20,7 @@ const entry = computed(() => modules.value.find((m) => m.id === moduleId.value))
           <span v-if="!entry"> is not part of this deployment.</span>
           <span v-else-if="entry.status === 'disabled'"> is disabled by <code class="font-mono">FRIDAY_MODULES</code>.</span>
           <span v-else-if="entry.status === 'failed'"> failed to load: <span class="text-f-error">{{ entry.error }}</span></span>
+          <span v-else-if="!entry.ui"> has no page of its own.</span>
           <span v-else> is not enabled.</span>
         </p>
         <RouterLink to="/modules" class="text-f-accent-bright hover:underline">See all modules</RouterLink>

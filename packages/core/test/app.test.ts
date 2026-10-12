@@ -9,13 +9,14 @@ import { defineModule, ToolRegistry } from "@friday/sdk";
 import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
+import { CORE_ID } from "../src/core-config.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 
 async function start(enabled?: string, coreTools: string[] = []) {
   const registry = new ToolRegistry(quiet);
   // Tools core registers itself, as server.ts does for the timer tools.
-  for (const name of coreTools) registry.add("core", { name, description: "", channels: ["voice"], handler: () => ({}) });
+  for (const name of coreTools) registry.add(CORE_ID, { name, description: "", channels: ["voice"], handler: () => ({}) });
   const host = new ModuleHost(registry, { env: {}, log: quiet, enabled });
   const builtin = defineModule({ manifest: { id: "builtin", label: "Builtin" }, init: (ctx) => void ctx.defineTool({ name: "get_current_time", description: "", handler: () => ({}) }) });
   const media = defineModule({

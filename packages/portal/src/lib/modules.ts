@@ -17,5 +17,8 @@ export function moduleKind(m: Entry): ModuleKind {
   return m.status === "connected" ? "remote" : "in-process";
 }
 
+/** The module's page (`/m/<id>`) can be shown: it is loaded and ships a UI. Core's own entry has none. */
+export const hasPage = (m: Pick<ApiModule, "status" | "ui">): boolean => m.status === "loaded" && m.ui === true;
+
 /** Only in-process modules that are loaded or failed reload; core, MCP servers, remotes and disabled modules don't. */
 export const isReloadable = (m: Entry): boolean => moduleKind(m) === "in-process" && m.status !== "disabled";
