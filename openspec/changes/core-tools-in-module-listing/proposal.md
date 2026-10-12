@@ -7,7 +7,7 @@ Since `device-alerts-and-timers`, core registers tools itself (`set_timer`, `lis
 ## What Changes
 
 - `GET /api/modules` lists core as an entry of its own when core owns tools: id `core`, label `Core`, status `loaded`, `tools` with the names of the tools core registered, no UI. It comes first, before the in-process modules.
-- The Modules page shows that row with kind `built in`, its tools in the drawer, and no `Reload` action (core can't be reloaded; `POST /api/modules/core/reload` answers 404 as before).
+- The Modules page shows that row with kind `core`, its tools in the drawer, and no `Reload` action (core can't be reloaded; `POST /api/modules/core/reload` answers 404 as before).
 - Docs: the README's Modules page description and the `openspec/config.yaml` context mention the core entry.
 
 ### Non-goals
@@ -24,7 +24,7 @@ None.
 ### Modified Capabilities
 
 - `http-server`: the module listing endpoint includes a `core` entry for the tools core owns.
-- `portal-shell`: the Modules page shows the `core` row as built in, without a reload action.
+- `portal-shell`: the Modules page shows the `core` row with kind `core`, without a reload action.
 
 ## Impact
 

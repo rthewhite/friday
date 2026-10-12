@@ -7,8 +7,8 @@
 
 ## 2. Modules page
 
-- [x] 2.1 Move the row rules (status tone, kind, reloadable) from `ModulesPage.vue` into `packages/portal/src/lib/modules.ts`, with `core` as kind `built in` and never reloadable, and use them in the page. Verify with `packages/portal/test/modules.test.ts` covering core, in-process (loaded, failed, disabled), MCP and remote rows, plus `pnpm --filter @friday/portal test` and `pnpm --filter @friday/portal typecheck`
+- [x] 2.1 Move the row rules (status tone, kind, reloadable) from `ModulesPage.vue` into `packages/portal/src/lib/modules.ts`, with `core` as kind `core` and never reloadable, and use them in the page. Verify with `packages/portal/test/modules.test.ts` covering core, in-process (loaded, failed, disabled), MCP and remote rows, plus `pnpm --filter @friday/portal test` and `pnpm --filter @friday/portal typecheck`
 
 ## 3. Check
 
-- [ ] 3.1 Run core with a free port and verify `/api/modules` starts with the `core` entry listing the four timer tools, and that the Modules page shows a `Core` row with kind `built in`, its tools in the drawer and no `Reload`
+- [ ] 3.1 Run core with a free port and verify `/api/modules` starts with the `core` entry listing the four timer tools, and that the Modules page shows a `Core` row with kind `core`, its tools in the drawer and no `Reload`
