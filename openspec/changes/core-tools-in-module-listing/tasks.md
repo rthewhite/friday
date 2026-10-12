@@ -2,8 +2,8 @@
 
 ## 1. Core entry in the listing
 
-- [ ] 1.1 Prepend the `core` entry in `moduleListing()` (`packages/core/src/app.ts`) from `registry.names("core")`, labelled from `coreManifest`, only when that list isn't empty. Verify with new cases in `packages/core/test/app.test.ts`: with core-owned tools the first entry is `core` (status `loaded`, those tools, `ui` false) followed by the modules; without them the listing is unchanged, and the existing `/api/modules` tests still pass
-- [ ] 1.2 Mention the core entry in the README's `GET /api/modules` and Modules page sentences and in the `openspec/config.yaml` context, and verify `openspec validate core-tools-in-module-listing --strict` passes
+- [x] 1.1 Prepend the `core` entry in `moduleListing()` (`packages/core/src/app.ts`) from `registry.names("core")`, labelled from `coreManifest`, only when that list isn't empty. Verify with new cases in `packages/core/test/app.test.ts`: with core-owned tools the first entry is `core` (status `loaded`, those tools, `ui` false) followed by the modules; without them the listing is unchanged, and the existing `/api/modules` tests still pass
+- [x] 1.2 Mention the core entry in the README's `GET /api/modules` and Modules page sentences and in the `openspec/config.yaml` context, and verify `openspec validate core-tools-in-module-listing --strict` passes
 
 ## 2. Modules page
 

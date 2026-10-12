@@ -7,8 +7,9 @@ context: |
   ModuleHost, MCP source), modules/* (one package per module, depending only on the sdk).
   A module exports defineModule({ manifest: { id, label, config[] }, init(ctx) }); ctx gives
   defineTool, config (env-backed), log. Core lists in-process modules in packages/core/src/modules.ts,
-  FRIDAY_MODULES narrows them, GET /api/modules reports status. Tools live in one owner-tagged
-  ToolRegistry instance (owner = module id or mcp:<server>); a tool may set channels (voice | chat,
+  FRIDAY_MODULES narrows them, GET /api/modules reports status (first a `core` entry, kind "built in" on the Modules
+  page, when core owns tools itself; moduleListing in app.ts). Tools live in one owner-tagged
+  ToolRegistry instance (owner = module id, mcp:<server>, or core); a tool may set channels (voice | chat,
   both by default; end_conversation and core's timer tools are voice-only); each GeminiSession snapshots
   declarations("voice") at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
