@@ -9,11 +9,14 @@ import { defineModule, ToolRegistry } from "@friday/sdk";
 import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
+import { CORE_ID } from "../src/core-config.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 
-async function start(enabled?: string) {
+async function start(enabled?: string, coreTools: string[] = []) {
   const registry = new ToolRegistry(quiet);
+  // Tools core registers itself, as server.ts does for the timer tools.
+  for (const name of coreTools) registry.add(CORE_ID, { name, description: "", channels: ["voice"], handler: () => ({}) });
   const host = new ModuleHost(registry, { env: {}, log: quiet, enabled });
   const builtin = defineModule({ manifest: { id: "builtin", label: "Builtin" }, init: (ctx) => void ctx.defineTool({ name: "get_current_time", description: "", handler: () => ({}) }) });
   const media = defineModule({
@@ -51,6 +54,29 @@ test("/api/modules reports loaded and failed modules with tools and ui flag", as
     assert.deepEqual(await (await fetch(`${s.base}/health`)).json(), { ok: true, tools: 1 });
     // failed module: its routes are gone
     assert.equal((await fetch(`${s.base}/api/modules/media/search`)).status, 404);
+  } finally {
+    await s.close();
+  }
+});
+
+test("core's own tools come first, as a built-in core entry, followed by the modules unchanged", async () => {
+  const timers = ["set_timer", "list_timers", "cancel_timer", "snooze_alert"];
+  const s = await start(undefined, timers);
+  try {
+    const mods = await (await fetch(`${s.base}/api/modules`)).json();
+    assert.deepEqual(mods[0], { id: "core", label: "Core", description: "Built into Friday", status: "loaded", tools: timers, ui: false });
+    assert.deepEqual(mods.slice(1).map((m: { id: string }) => m.id), ["builtin", "media"]);
+    assert.deepEqual(mods[1].tools, ["get_current_time"], "a module's tools don't include core's");
+  } finally {
+    await s.close();
+  }
+});
+
+test("without tools owned by core there is no core entry", async () => {
+  const s = await start();
+  try {
+    const mods = await (await fetch(`${s.base}/api/modules`)).json();
+    assert.equal(mods.some((m: { id: string }) => m.id === "core"), false);
   } finally {
     await s.close();
   }

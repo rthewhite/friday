@@ -42,7 +42,7 @@ pnpm dev                  # core on :8080 (tsx watch) + Vite dev server on http:
 
 `pnpm dev` builds the workspace first, then runs core and the portal's Vite server side by side. Vite proxies `/api`, `/health` and `/ws` to core, so open http://localhost:5173. For a production-like run, `pnpm build && pnpm start` serves the built portal from core on :8080.
 
-`pnpm test` builds everything and runs every package's tests. `FRIDAY_MODULES=builtin,media` narrows which in-process modules load; `GET /api/modules` shows each module's status and tools.
+`pnpm test` builds everything and runs every package's tests. `FRIDAY_MODULES=builtin,media` narrows which in-process modules load; `GET /api/modules` shows each module's status and tools, starting with a `core` entry for the tools built into core itself (the timer tools).
 
 Browsers only allow the microphone on `localhost` or HTTPS.
 
@@ -134,7 +134,7 @@ A statement that touches anything outside the module's `pantry__` prefix (core's
 
 ## Portal
 
-The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), a `Modules` page (everything `/api/modules` reports, with status and tools), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
+The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), a `Modules` page (everything `/api/modules` reports, with status and tools; core's own tools are the *Core* row, kind *built in*), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
 
 ### Add a module UI
 

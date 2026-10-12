@@ -3,11 +3,13 @@
  * set on, and chat has no device (push notifications to a person are a later target).
  */
 import { Type, type ToolRegistry } from "@friday/sdk";
+import { CORE_ID } from "../core-config.js";
 import type { DeviceLinks } from "../devices/links.js";
 import { AlertNotFound, type AlertService } from "./service.js";
 import type { Alert, AlertLanguage } from "./store.js";
 
-export const TOOL_OWNER = "core";
+/** Core's own id: /api/modules lists the tools of this owner as the `core` entry. */
+export const TOOL_OWNER = CORE_ID;
 export const MAX_TIMER_SECONDS = 86_400;
 export const MAX_LABEL = 60;
 export const MAX_TIMERS_PER_DEVICE = 20;
