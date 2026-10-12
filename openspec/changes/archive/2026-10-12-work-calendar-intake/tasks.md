@@ -108,11 +108,18 @@
 
 ## 7. Integration
 
-- [ ] 7.1 Do an end-to-end check on the homelab after deploying the branch image, with the user's approval to deploy:
+- [x] 7.1 Do an end-to-end check on the homelab after deploying the branch image, with the user's approval to deploy:
   - within 5 minutes of the hourly push, `/m/calendar` shows the Work calendar with a `received_at` and an event count of about 218;
   - in chat, "what meetings do I have on Monday" matches Outlook (times in Amsterdam, cancelled marked);
   - "add a dentist appointment during my standup" reports the standup as an overlap (then undo it);
   - the prompt agenda shows `[Work]` labels.
 
   Record any payload quirk found in design.md.
+
+  Done after merging to `main` (pushing `main` deploys):
+  - The first real copy arrived at 15:32 on 10 October: 218 events, none skipped, covering 10 September 2026 to 10 April 2027. iCloud ("Prive") was still connected.
+  - Chat listed Monday's four work meetings with Amsterdam times, statuses, `online` and room names. The user confirmed they match Outlook.
+  - The agenda showed calendar labels (`[Prive]` on that weekend day).
+  - Overlaps: the model pointed out Monday's 14:00 overlap, and the user saw Friday find a conflict on Tuesday by itself. The create-and-undo write test on the real calendar wasn't needed.
+  - Quirk: some organisers type the location as "MS teams", which stays as written. Only links and "Microsoft Teams Meeting" become `online`. This is a possible follow-up.
 - [x] 7.2 Run the quality gate in the worktree: `pnpm -r build && pnpm -r typecheck && pnpm -r test`, then `/opsx:verify work-calendar-intake`, then `/code-review`, then `/security-review` (this change adds a secret, outbound authenticated requests and route fields). Fix what they confirm and report the results.
