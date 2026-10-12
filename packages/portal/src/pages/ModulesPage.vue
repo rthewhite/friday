@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { PageLayout, Button, DataTable, StatusDot, Badge, Chip, Drawer, Icon, formatDateTime, type Column } from "@friday/portal-ui";
 import { useModules, type ApiModule } from "../composables/useModules.js";
 import { api } from "../composables/useApi.js";
+import { isReloadable, moduleKind, moduleTone } from "../lib/modules.js";
 
 const { modules, loading, error, refreshModules } = useModules();
 onMounted(() => void refreshModules());
@@ -13,9 +14,6 @@ const columns: Column[] = [
   { key: "kind", label: "Kind", hideBelow: "md" },
   { key: "tools", label: "Tools", align: "right", width: "6rem" },
 ];
-const tone = (s: ApiModule["status"]) => (s === "loaded" || s === "connected" ? "success" : s === "failed" ? "error" : "neutral");
-const kind = (m: ApiModule) => (m.id.startsWith("mcp:") ? "MCP server" : m.status === "connected" ? "remote" : "in-process");
-const reloadable = (m: ApiModule) => !m.id.startsWith("mcp:") && m.status !== "connected" && m.status !== "disabled";
 
 const reloading = ref<string | null>(null);
 async function reload(m: ApiModule) {
@@ -38,17 +36,17 @@ function show(m: ApiModule) { selected.value = m; open.value = true; }
     <p v-if="error" class="text-f-error">{{ error }}</p>
 
     <DataTable :columns="columns" :rows="modules as unknown as Record<string, unknown>[]" row-key="id" clickable @row-click="show($event as unknown as ApiModule)">
-      <template #cell-status="{ row }"><StatusDot :tone="tone((row as unknown as ApiModule).status)" :title="(row as unknown as ApiModule).status" /></template>
+      <template #cell-status="{ row }"><StatusDot :tone="moduleTone((row as unknown as ApiModule).status)" :title="(row as unknown as ApiModule).status" /></template>
       <template #cell-label="{ row }">
         <div class="font-medium text-f-text-bright">{{ (row as unknown as ApiModule).label }}</div>
         <div class="text-xs text-f-text-muted">{{ (row as unknown as ApiModule).id }}</div>
       </template>
-      <template #cell-kind="{ row }"><Badge>{{ kind(row as unknown as ApiModule) }}</Badge></template>
+      <template #cell-kind="{ row }"><Badge>{{ moduleKind(row as unknown as ApiModule) }}</Badge></template>
       <template #cell-tools="{ row }">{{ (row as unknown as ApiModule).tools.length }}</template>
       <template #actions="{ row }">
         <div class="flex items-center justify-end gap-2">
           <RouterLink v-if="(row as unknown as ApiModule).ui && (row as unknown as ApiModule).status === 'loaded'" :to="`/m/${(row as unknown as ApiModule).id}`"><Button variant="ghost">Open</Button></RouterLink>
-          <Button v-if="reloadable(row as unknown as ApiModule)" variant="ghost" :disabled="reloading === (row as unknown as ApiModule).id" @click="reload(row as unknown as ApiModule)">{{ reloading === (row as unknown as ApiModule).id ? "Reloading…" : "Reload" }}</Button>
+          <Button v-if="isReloadable(row as unknown as ApiModule)" variant="ghost" :disabled="reloading === (row as unknown as ApiModule).id" @click="reload(row as unknown as ApiModule)">{{ reloading === (row as unknown as ApiModule).id ? "Reloading…" : "Reload" }}</Button>
         </div>
       </template>
     </DataTable>
@@ -56,8 +54,8 @@ function show(m: ApiModule) { selected.value = m; open.value = true; }
     <Drawer v-model:open="open" :title="selected?.label ?? ''" :subtitle="selected?.description">
       <template v-if="selected">
         <div class="flex flex-wrap items-center gap-2">
-          <StatusDot :tone="tone(selected.status)" :label="selected.status" />
-          <Badge>{{ kind(selected) }}</Badge>
+          <StatusDot :tone="moduleTone(selected.status)" :label="selected.status" />
+          <Badge>{{ moduleKind(selected) }}</Badge>
           <Chip>{{ selected.id }}</Chip>
         </div>
         <p v-if="selected.error" class="text-f-error text-sm font-mono">{{ selected.error }}</p>
@@ -70,7 +68,7 @@ function show(m: ApiModule) { selected.value = m; open.value = true; }
       </template>
       <template #footer>
         <RouterLink v-if="selected?.ui && selected.status === 'loaded'" :to="`/m/${selected.id}`"><Button variant="ghost">Open page</Button></RouterLink>
-        <Button v-if="selected && reloadable(selected)" :disabled="reloading === selected.id" @click="reload(selected)">Reload</Button>
+        <Button v-if="selected && isReloadable(selected)" :disabled="reloading === selected.id" @click="reload(selected)">Reload</Button>
       </template>
     </Drawer>
   </PageLayout>
