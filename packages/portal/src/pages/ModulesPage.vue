@@ -39,7 +39,6 @@ function show(m: ApiModule) { selected.value = m; open.value = true; }
       <template #cell-status="{ row }"><StatusDot :tone="moduleTone((row as unknown as ApiModule).status)" :title="(row as unknown as ApiModule).status" /></template>
       <template #cell-label="{ row }">
         <div class="font-medium text-f-text-bright">{{ (row as unknown as ApiModule).label }}</div>
-        <div class="text-xs text-f-text-muted">{{ (row as unknown as ApiModule).id }}</div>
       </template>
       <template #cell-kind="{ row }"><Badge>{{ moduleKind(row as unknown as ApiModule) }}</Badge></template>
       <template #cell-tools="{ row }">{{ (row as unknown as ApiModule).tools.length }}</template>
