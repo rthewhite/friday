@@ -4,8 +4,8 @@ import { hasPage, isReloadable, moduleKind, moduleTone } from "../src/lib/module
 
 const row = (id: string, status: "loaded" | "failed" | "disabled" | "connected") => ({ id, status });
 
-test("core's entry is built in and never reloadable", () => {
-  assert.equal(moduleKind(row("core", "loaded")), "built in");
+test("core's entry has kind core and is never reloadable", () => {
+  assert.equal(moduleKind(row("core", "loaded")), "core");
   assert.equal(isReloadable(row("core", "loaded")), false);
 });
 

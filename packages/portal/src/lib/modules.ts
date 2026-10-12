@@ -6,13 +6,13 @@ type Entry = Pick<ApiModule, "id" | "status">;
 /** Core's own entry: the tools built into Friday. Modules can't use this id. */
 const CORE_ID = "core";
 
-export type ModuleKind = "built in" | "MCP server" | "remote" | "in-process";
+export type ModuleKind = "core" | "MCP server" | "remote" | "in-process";
 
 export const moduleTone = (s: ApiModule["status"]): "success" | "error" | "neutral" =>
   s === "loaded" || s === "connected" ? "success" : s === "failed" ? "error" : "neutral";
 
 export function moduleKind(m: Entry): ModuleKind {
-  if (m.id === CORE_ID) return "built in";
+  if (m.id === CORE_ID) return "core";
   if (m.id.startsWith("mcp:")) return "MCP server";
   return m.status === "connected" ? "remote" : "in-process";
 }

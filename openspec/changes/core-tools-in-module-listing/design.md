@@ -25,7 +25,7 @@ See `proposal.md` for the motivation. `moduleListing()` in `packages/core/src/ap
 
 ### 2. Recognise the row by id in the portal
 
-The page treats id `core` as kind `built in` and never reloadable. The id is reserved for core (modules can't take it), so the check is exact. The kind and reload rules move from `ModulesPage.vue` into a pure function in `packages/portal/src/lib/modules.ts`, tested like `lib/devices.ts`.
+The page treats id `core` as kind `core` and never reloadable. The id is reserved for core (modules can't take it), so the check is exact. The kind and reload rules move from `ModulesPage.vue` into a pure function in `packages/portal/src/lib/modules.ts`, tested like `lib/devices.ts`.
 
 - **Alternative: a `kind` field in the API.** It would be cleaner long term, but means changing every entry's shape; the page already derives kind from id and status.
 
