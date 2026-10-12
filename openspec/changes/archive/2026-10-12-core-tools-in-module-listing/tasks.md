@@ -11,4 +11,4 @@
 
 ## 3. Check
 
-- [ ] 3.1 Run core with a free port and verify `/api/modules` starts with the `core` entry listing the four timer tools, and that the Modules page shows a `Core` row with kind `core`, its tools in the drawer and no `Reload`
+- [x] 3.1 Run core with a free port and verify `/api/modules` starts with the `core` entry listing the four timer tools, and that the Modules page shows a `Core` row with kind `core`, its tools in the drawer and no `Reload`
