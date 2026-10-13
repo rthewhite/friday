@@ -157,7 +157,7 @@ Every event in the snapshot SHALL be one occurrence in the Work calendar, never 
 
 #### Scenario: Timed event
 - **WHEN** it is 2026, an event runs from `2026-09-11T13:00:00+00:00` to `2026-09-11T14:00:00+00:00` and `FRIDAY_TIMEZONE` is `Europe/Amsterdam`
-- **THEN** it is returned with `when: "Fri 11 Sep, 15:00-16:00"`
+- **THEN** it is returned with `when: "Fri 11 Sept, 15:00-16:00"`
 
 #### Scenario: All-day in UTC
 - **WHEN** it is 2026, an all-day event runs from `2026-12-15T00:00:00+00:00` to `2026-12-16T00:00:00+00:00` and `FRIDAY_TIMEZONE` is `America/New_York`

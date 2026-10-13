@@ -2,7 +2,7 @@
 
 ## 1. Compact events
 
-- [ ] 1.1 Split `readOnlyReason()` into a calendar-level reason and an invitation reason, worded so the calendar-level one reads well keyed by calendar name. Make `view()` return the compact `EventView` (design D1, D2, D6):
+- [x] 1.1 Split `readOnlyReason()` into a calendar-level reason and an invitation reason (texts unchanged, see design D2). Make `view()` return the compact `EventView` (design D1, D2, D6):
   - `title` and `when`;
   - `id` only without a reason;
   - `recurring` only when true;
@@ -10,20 +10,20 @@
   - `location`, `status` and `notes` (`NOTES_MAX` 200) when present;
   - no `start`, `end`, `allDay` or `calendar`.
 
-  Verify in `test/tools.test.ts`:
+  Verify in `test/tools.test.ts` (the invitation in `test/confirm.test.ts`, where it is seeded):
   - an all-day event's `when`;
   - a next-year `when`;
   - an editable recurring occurrence has `id` and `recurring: true`;
   - an invitation has no `id` and has its own `readOnly`;
   - notes are cut at 200;
   - no event carries `start`/`end`/`allDay`.
-- [ ] 1.2 Give `create()`'s `created` and `confirm()`'s edited `event` their `calendar` name (design D3). Verify in `test/tools.test.ts` and `test/confirm.test.ts` that both carry `id`, `when` and `calendar`. Update the existing assertions there that read `start`/`end`/`allDay`.
-- [ ] 1.3 Update `test/work.test.ts` for the new shape:
+- [x] 1.2 Give `create()`'s `created` and `confirm()`'s edited `event` their `calendar` name (design D3). Verify in `test/tools.test.ts` and `test/confirm.test.ts` that both carry `id`, `when` and `calendar`. Update the existing assertions there that read `start`/`end`/`allDay`.
+- [x] 1.3 Update `test/work.test.ts` for the new shape:
   - the timed and all-day-in-UTC scenarios assert `when`;
   - Work events have no `id`.
 
   Rewrite the id-across-snapshots test to the reworded scenario: after an unchanged new snapshot, the meeting is listed once, with the same title and `when` and no `id`. Keep any test of the internal uid.
-- [ ] 1.4 Run `pnpm --filter @friday/module-calendar test` and `pnpm --filter @friday/module-calendar typecheck`, both green.
+- [x] 1.4 Run `pnpm --filter @friday/module-calendar test` and `pnpm --filter @friday/module-calendar typecheck`, both green.
 
 ## 2. Listing: one-day default and list-level fields
 

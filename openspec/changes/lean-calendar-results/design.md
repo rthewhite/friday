@@ -43,7 +43,7 @@ Alternatives considered:
 The refusal in `previewUpdate`/`previewDelete` stays, because an id can outlive a change in the calendar's writability or in the account's addresses.
 
 A missing `id` is the signal that the event can't be changed. The reason that goes with it is placed as follows:
-- **Calendar-level reasons** (a Work event, or a calendar that isn't writable) are collected in `list()` into `readOnly: { [calendarName]: reason }`. Each reason is worded without the calendar name, since the name is the key.
+- **Calendar-level reasons** (a Work event, or a calendar that isn't writable) are collected in `list()` into `readOnly: { [calendarName]: reason }`. The reason texts stay as they are, because the refusals in previews use the same texts.
 - **An invitation** keeps `readOnly: "<reason>"` on the event, because the organizer differs per event.
 
 `readOnlyReason()` is split so the caller can tell the two kinds apart: a calendar part and an event part.

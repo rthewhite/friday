@@ -1,5 +1,5 @@
 /** A CalendarService wired to the fake iCloud, a fixed clock and in-memory settings. */
-import { MemoryStorage } from "@friday/sdk";
+import { MemoryStorage, startOfLocalDay } from "@friday/sdk";
 import { lazyDb, openModuleDb } from "@friday/sdk/db";
 import { CalDavClient } from "../src/caldav.js";
 import { ChangeLog } from "../src/changes.js";
@@ -36,6 +36,7 @@ export async function harness(fake = new FakeICloud(), opts: HarnessOptions = {}
   const client = new CalDavClient({ fetch: fake.fetch, credentials: () => ({ username: USERNAME, password: PASSWORD }) });
   let writes = 0;
   const tokens = new TokenStore(now);
+  const handles = new EventHandles(now);
   const database = openModuleDb(":memory:", "calendar");
   database.migrate(migrations, { log() {}, warn() {}, error() {} });
   const db = lazyDb(() => database);
@@ -52,10 +53,20 @@ export async function harness(fake = new FakeICloud(), opts: HarnessOptions = {}
   await work.load();
   const zone = opts.zone ?? ZONE;
   const service = new CalendarService({
-    client, settings, handles: new EventHandles(now), tokens, changes, zone: () => zone, now, onWrite: () => writes++,
+    client, settings, handles, tokens, changes, zone: () => zone, now, onWrite: () => writes++,
     work, icloudMissing: () => (opts.noICloud ? ["ICLOUD_USERNAME", "ICLOUD_APP_PASSWORD"] : []),
   });
-  return { fake, service, settings, tokens, changes, db, clock, now, writes: () => writes, work, env, storage, warnings };
+  /**
+   * An id for the event called `title` on `day`, also for one the tools give no id because Friday can't change it:
+   * previews must still refuse such an event when an id outlived its writability.
+   */
+  const anyId = async (title: string, day: string) => {
+    const from = startOfLocalDay(day, zone)!.getTime();
+    const found = (await service.occurrences(await service.usedCalendars(), from, from + 86_400_000)).find((f) => f.occurrence.title === title);
+    if (!found) throw new Error(`no "${title}" on ${day}`);
+    return handles.idFor({ calendarId: found.calendar.id, objectUrl: found.object.url, occurrence: found.occurrence });
+  };
+  return { fake, service, settings, tokens, handles, anyId, changes, db, clock, now, writes: () => writes, work, env, storage, warnings };
 }
 
 /** Rejects with the error a call threw; fails when it resolved. */
