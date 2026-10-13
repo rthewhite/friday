@@ -60,9 +60,16 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree, all green.
-- [ ] 4.2 Chat check against the fakes or a dev server on a free port (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`). Ask "what does my calendar look like on Monday?" and confirm:
+- [x] 4.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree, all green.
+- [x] 4.2 Chat check against the fakes or a dev server on a free port (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`). Ask "what does my calendar look like on Monday?" and confirm:
   - the recorded `calendar_list_events` call passes Monday's date as `from`, without `{}`;
   - its result has the compact shape.
 
   Stop the dev server afterwards.
+
+  Done against the fakes, not a dev server: the worktree's `.env` has no calendar keys, and the intake must not be read outside production. A scratch script ran the chat model (`gemini-flash-latest`) with the chat prompt, the agenda section and the real tool declarations, on the harness's Saturday 3 October 2026. Results:
+  - "Hoe ziet mijn kalender voor maandag er uit?" (twice): `{"from":"2026-10-05","to":"2026-10-05"}`, 496 characters;
+  - "Is donderdag een drukke dag?": `2026-10-08` only, 360 characters;
+  - "What does my week look like?": `2026-10-05` to `2026-10-11`, 942 characters.
+
+  `get_current_time` was never called.
