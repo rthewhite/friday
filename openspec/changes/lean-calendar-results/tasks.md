@@ -49,14 +49,14 @@
 
 ## 3. Agenda dates
 
-- [ ] 3.1 In `src/agenda.ts`, label today and tomorrow with the year and ISO date, and add the coming-days line for days 2 to 8 after the header (design D5). The line is also present on the early-return path where no source is available. Verify in `test/agenda.test.ts`:
+- [x] 3.1 In `src/agenda.ts`, label today and tomorrow with the year and ISO date, and add the coming-days line for days 2 to 8 after the header (design D5). The line is also present on the early-return path where no source is available. Verify in `test/agenda.test.ts`:
   - on Saturday 3 October 2026 (the harness clock), today reads `Saturday 3 October 2026 (2026-10-03)`;
   - the line runs `Mon 2026-10-05` … `Sun 2026-10-11`;
   - the midnight rollover shifts the line by a day;
   - with every source unavailable the line is still there;
   - when events are cut at 2000 characters, the line survives.
-- [ ] 3.2 Update the README's agenda paragraph to mention the ISO dates and the coming-days line, and the agenda wording in `openspec/config.yaml`'s context. Verify by reading both.
-- [ ] 3.3 Run `pnpm --filter @friday/module-calendar test` and `typecheck`, both green.
+- [x] 3.2 Update the README's agenda paragraph to mention the ISO dates and the coming-days line, and the agenda wording in `openspec/config.yaml`'s context. Verify by reading both.
+- [x] 3.3 Run `pnpm --filter @friday/module-calendar test` and `typecheck`, both green.
 
 ## 4. Integration
 

@@ -59,8 +59,8 @@ context: |
   readOnly (an invitation keeps its own); created/confirmed events always carry calendar. Every write is logged in calendar__changes (whole
   before/after ICS, source, conversation id; 500 kept; undo rows action "undo"). Job calendar/refresh (5 min, also
   after writes) polls the intake and caches three local days of iCloud, each failing on its own (the job fails only
-  when all configured sources did); the prompt provider (src/agenda.ts) renders today and tomorrow at build time
-  (Work from the snapshot; status and [calendar] labels when more than one calendar is in the agenda; per-source
+  when all configured sources did); the prompt provider (src/agenda.ts) renders today and tomorrow at build time,
+  labelled with year and ISO date, plus a "Dates of the coming days" line for days 2-8 that is never cut (Work from the snapshot; status and [calendar] labels when more than one calendar is in the agenda; per-source
   unavailable/stale notes, Work stale after 3 h), 2000 chars. Per-calendar use/inAgenda and the default in
   ctx.storage "settings". Portal /m/calendar (Overview with iCloud and Work rows, Changes); routes status (icloud,
   work, calendar source), settings, agenda, changes, changes/:id/undo, refresh. Fakes for tests in

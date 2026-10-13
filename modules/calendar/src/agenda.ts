@@ -26,6 +26,14 @@ const dayLong = (date: string) => {
   const [y, m, d] = date.split("-").map(Number);
   return DAY_LONG.format(new Date(Date.UTC(y, m - 1, d))).replace(",", "");
 };
+const WEEKDAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" });
+/** "Today, Saturday 10 October 2026 (2026-10-10):" */
+const dayHeading = (label: string, date: string) => `${label}, ${dayLong(date)} ${date.slice(0, 4)} (${date}):`;
+/** The seven days after tomorrow with their dates, so day names in a question can be turned into from/to. */
+const comingDays = (today: string) => {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(today, i + 2));
+  return `Dates of the coming days: ${days.map((d) => `${WEEKDAY.format(new Date(`${d}T00:00:00Z`))} ${d}`).join(", ")}.`;
+};
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -85,6 +93,7 @@ export class Agenda {
     const icloud = this.service.icloudConfigured;
     const work = this.service.work;
     const now = this.now();
+    const today = localDate(now, zone);
     const unavailable: string[] = [];
     if (icloud && !this.cache) {
       unavailable.push("The user's iCloud calendars are unavailable right now (iCloud could not be reached), so don't assume they are free. calendar_list_events tries again.");
@@ -92,9 +101,8 @@ export class Agenda {
     if (work && !work.snapshot) {
       unavailable.push("The user's Work calendar (Outlook) is unavailable right now (no copy has arrived yet), so don't assume they are free at work.");
     }
-    if (!(icloud && this.cache) && !work?.snapshot) return [head, ...unavailable].join("\n");
+    if (!(icloud && this.cache) && !work?.snapshot) return [head, comingDays(today), ...unavailable].join("\n");
 
-    const today = localDate(now, zone);
     const inAgenda = (id: string) => {
       const s = this.settings.of(id);
       return s.use && s.inAgenda;
@@ -111,10 +119,11 @@ export class Agenda {
 
     const lines: { text: string; event: boolean }[] = [
       { text: `${head}\nThe user's calendars for today and tomorrow (times in ${zone}). For other days, or to change an event, use the calendar tools.`, event: false },
+      { text: comingDays(today), event: false },
       ...unavailable.map((text) => ({ text, event: false })),
     ];
     for (const [dayName, date] of [["Today", today], ["Tomorrow", addDays(today, 1)]] as const) {
-      lines.push({ text: `${dayName}, ${dayLong(date)}:`, event: false });
+      lines.push({ text: dayHeading(dayName, date), event: false });
       const start = startOfLocalDay(date, zone)!.getTime();
       const end = startOfLocalDay(addDays(date, 1), zone)!.getTime();
       const day = visible
