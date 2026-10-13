@@ -101,7 +101,10 @@ export class Agenda {
     if (work && !work.snapshot) {
       unavailable.push("The user's Work calendar (Outlook) is unavailable right now (no copy has arrived yet), so don't assume they are free at work.");
     }
-    if (!(icloud && this.cache) && !work?.snapshot) return [head, comingDays(today), ...unavailable].join("\n");
+    if (!(icloud && this.cache) && !work?.snapshot) {
+      // No day headings here, so say what today is: the coming days alone start the day after tomorrow.
+      return [head, `Today is ${dayLong(today)} ${today.slice(0, 4)} (${today}).`, comingDays(today), ...unavailable].join("\n");
+    }
 
     const inAgenda = (id: string) => {
       const s = this.settings.of(id);

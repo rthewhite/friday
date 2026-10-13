@@ -65,7 +65,7 @@ test("before any successful refresh the section says the calendar is unavailable
   await assert.rejects(s.agenda.refresh());
   assert.equal(
     s.agenda.render(),
-    `## Calendar\n${COMING}\nThe user's iCloud calendars are unavailable right now (iCloud could not be reached), so don't assume they are free. calendar_list_events tries again.`,
+    `## Calendar\nToday is Saturday 3 October 2026 (2026-10-03).\n${COMING}\nThe user's iCloud calendars are unavailable right now (iCloud could not be reached), so don't assume they are free. calendar_list_events tries again.`,
   );
 });
 

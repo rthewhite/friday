@@ -49,7 +49,7 @@ context: |
   ICLOUD_USERNAME and secret ICLOUD_APP_PASSWORD, an app-specific password, read per request) and ical.js
   (src/ical.ts: expansion with EXDATE/overrides, IANA TZIDs via Intl, edits keep unknown properties, generated
   VTIMEZONE in src/vtimezone.ts). Tools on voice and chat: calendar_list_events (without `to` one local day, `{}` = today,
-  365 days with a query), calendar_create_event (immediate), calendar_update_event / calendar_delete_event (preview + single-use 5-minute
+  365 days with a query; `covers` names the days searched), calendar_create_event (immediate), calendar_update_event / calendar_delete_event (preview + single-use 5-minute
   token holding the exact conditional request, src/tokens.ts; scope occurrence|series; series only shift time of day;
   invitations and read-only calendars refused), calendar_confirm (If-Match; 412 -> StaleEventError with the current
   version), calendar_undo (newest tool change of the last 24h). Tool events are compact (EventView, view() in
@@ -60,7 +60,7 @@ context: |
   before/after ICS, source, conversation id; 500 kept; undo rows action "undo"). Job calendar/refresh (5 min, also
   after writes) polls the intake and caches three local days of iCloud, each failing on its own (the job fails only
   when all configured sources did); the prompt provider (src/agenda.ts) renders today and tomorrow at build time,
-  labelled with year and ISO date, plus a "Dates of the coming days" line for days 2-8 that is never cut (Work from the snapshot; status and [calendar] labels when more than one calendar is in the agenda; per-source
+  labelled with year and ISO date, plus a "Dates of the coming days" line for days 2-8 that is never cut, and "Today is ..." when no source is available (Work from the snapshot; status and [calendar] labels when more than one calendar is in the agenda; per-source
   unavailable/stale notes, Work stale after 3 h), 2000 chars. Per-calendar use/inAgenda and the default in
   ctx.storage "settings". Portal /m/calendar (Overview with iCloud and Work rows, Changes); routes status (icloud,
   work, calendar source), settings, agenda, changes, changes/:id/undo, refresh. Fakes for tests in

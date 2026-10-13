@@ -40,10 +40,26 @@ test("today's events include all-day and timed ones from used calendars", async 
   assert.deepEqual(Object.keys(swim), ["id", "title", "when"]);
 });
 
-test("an empty result names no calendar", async () => {
+test("an empty result names no calendar, but says which days were searched", async () => {
   const { service } = await seeded();
   const r = (await service.list({ from: "2026-10-04", to: "2026-10-04" })) as Listed;
-  assert.deepEqual(r, { events: [] });
+  assert.deepEqual(r, { covers: "Sun 4 Oct", events: [] });
+  // A range, a default day from a time, and a search into next year.
+  assert.equal(((await service.list({ from: "2026-10-05", to: "2026-10-11" })) as Listed).covers, "Mon 5 Oct - Sun 11 Oct");
+  assert.equal(((await service.list({ from: "2026-10-07T10:00" })) as Listed).covers, "Wed 7 Oct");
+  assert.equal(((await service.list({ query: "dentist" })) as Listed).covers, "Sat 3 Oct - Sat 2 Oct 2027");
+});
+
+test("two calendars with the same name are not taken for one", async () => {
+  const h = await harness(new FakeICloud({ calendars: [
+    { id: "mine", name: "Family", privileges: ["read", "write"] },
+    { id: "shared", name: "Family", privileges: ["read"] },
+  ] }));
+  h.fake.seed("mine", "a", vcalendar(timed("a", "Dinner", "20261003T180000", "20261003T190000")));
+  h.fake.seed("shared", "b", vcalendar(timed("b", "Grandma visits", "20261003T140000", "20261003T160000")));
+  const r = (await h.service.list({})) as Listed;
+  assert.equal(r.calendar, undefined);
+  assert.deepEqual(r.events.map((e) => [e.title, e.calendar, !!e.id]), [["Grandma visits", "Family", false], ["Dinner", "Family", true]]);
 });
 
 test("notes are cut to 200 characters", async () => {
@@ -51,6 +67,10 @@ test("notes are cut to 200 characters", async () => {
   await h.service.create({ title: "Plumber", start: "2026-10-13T09:00", notes: "x".repeat(300) });
   const { events } = (await h.service.list({ from: "2026-10-13", to: "2026-10-13" })) as Listed;
   assert.equal(events[0].notes, `${"x".repeat(200)}…`);
+  // Never through the middle of an emoji.
+  await h.service.create({ title: "Party", start: "2026-10-14T20:00", notes: `${"x".repeat(199)}🎉 and more` });
+  const party = ((await h.service.list({ from: "2026-10-14" })) as Listed).events[0];
+  assert.equal(party.notes, `${"x".repeat(199)}…`);
 });
 
 test("without a range it covers today only", async () => {

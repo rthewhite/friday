@@ -1,4 +1,4 @@
-/** Times as tools return them: local ISO 8601 with the zone's offset, dates, and a short readable `when`. */
+/** Times in the household zone: wall-clock parts, local ISO 8601, day labels, and the readable `when` tools return. */
 import { formatOffset, localDate, offsetMinutes, startOfLocalDay } from "@friday/sdk";
 
 const formats = new Map<string, Intl.DateTimeFormat>();

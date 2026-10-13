@@ -8,7 +8,7 @@ import { localDate, startOfLocalDay, type ModuleLogger, type ToolCallContext } f
 import type { Account, CalDavClient, CalendarInfo, CalendarObject } from "./caldav.js";
 import type { Change, ChangeLog, ChangeSource } from "./changes.js";
 import { InputError, NotUndoableError, PreconditionFailed, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
-import { addDays, endOfLocalDay, whenText, type Span } from "./format.js";
+import { addDays, dayLabel, endOfLocalDay, whenText, type Span } from "./format.js";
 import type { EventHandles } from "./handles.js";
 import { applyEdit, buildEvent, deleteOccurrence, EditRefused, expand, findOccurrence, isInvitation, parseIcs, type EditChanges, type EventStatus, type Occurrence, type ParsedObject, type Repeat } from "./ical.js";
 import type { Settings } from "./settings.js";
@@ -23,6 +23,13 @@ const DAY_MS = 86_400_000;
 const ACCOUNT_MAX_AGE_MS = 10 * 60_000;
 const NOTES_MAX = 200;
 const REPEATS: Repeat[] = ["daily", "weekly", "monthly", "yearly"];
+
+/** Notes cut to NOTES_MAX characters, never through the middle of an emoji (a surrogate pair). */
+function cutNotes(notes: string): string {
+  if (notes.length <= NOTES_MAX) return notes;
+  const code = notes.charCodeAt(NOTES_MAX - 1);
+  return `${notes.slice(0, code >= 0xd800 && code <= 0xdbff ? NOTES_MAX - 1 : NOTES_MAX)}…`;
+}
 
 export interface ConnectionStatus {
   ok: boolean;
@@ -299,30 +306,25 @@ export class CalendarService {
   }
 
   /**
-   * The tool view of an occurrence, without its calendar (see `withCalendar` and `list`). Only an event Friday can
-   * change gets an id, fresh for two hours.
+   * The tool view of an occurrence, with its calendar name only when asked (a list names a shared calendar once).
+   * Only an event Friday can change gets an id, fresh for two hours. A read-only calendar's reason is left to the
+   * list; an invitation's reason, which differs per event, stays on it.
    */
-  view(f: Found): EventView {
+  view(f: Found, opts: { calendar?: boolean } = {}): EventView {
     const o = f.occurrence;
-    const calendarReason = this.calendarReadOnly(f.calendar);
-    const invitation = calendarReason ? undefined : this.invitationReason(o);
-    const editable = !calendarReason && !invitation;
+    const reason = this.readOnlyReason(f);
+    const own = reason && !this.calendarReadOnly(f.calendar) ? reason : undefined;
     return {
-      ...(editable ? { id: this.d.handles.idFor({ calendarId: f.calendar.id, objectUrl: f.object.url, occurrence: o }) } : {}),
+      ...(reason ? {} : { id: this.d.handles.idFor({ calendarId: f.calendar.id, objectUrl: f.object.url, occurrence: o }) }),
       title: o.title,
       when: whenText(o, this.zone, this.d.now()),
+      ...(opts.calendar ? { calendar: f.calendar.name } : {}),
       ...(o.recurring ? { recurring: true as const } : {}),
-      ...(invitation ? { readOnly: invitation } : {}),
+      ...(own ? { readOnly: own } : {}),
       ...(o.status ? { status: o.status } : {}),
       ...(o.location ? { location: o.location } : {}),
-      ...(o.notes ? { notes: o.notes.length > NOTES_MAX ? `${o.notes.slice(0, NOTES_MAX)}…` : o.notes } : {}),
+      ...(o.notes ? { notes: cutNotes(o.notes) } : {}),
     };
-  }
-
-  /** The view of a single event, which always names its calendar. */
-  private withCalendar(f: Found): EventView {
-    const { id, title, when, ...rest } = this.view(f);
-    return { ...(id ? { id } : {}), title, when, calendar: f.calendar.name, ...rest };
   }
 
   summary(s: Span & { title: string; location?: string }, calendar?: CalendarInfo): EventSummary {
@@ -363,19 +365,24 @@ export class CalendarService {
       });
     }
     const shown = found.slice(0, MAX_RESULTS);
-    // The calendar once when every event shares it, and a read-only calendar's reason once rather than per event.
-    const names = new Set(shown.map((f) => f.calendar.name));
-    const single = names.size === 1 ? [...names][0] : undefined;
-    const events = shown.map((f) => (single ? this.view(f) : this.withCalendar(f)));
+    // The calendar once when every event shares it (by id: two calendars may share a name), and a read-only
+    // calendar's reason once rather than per event.
+    const inResult = new Map(shown.map((f) => [f.calendar.id, f.calendar]));
+    const single = inResult.size === 1 ? [...inResult.values()][0].name : undefined;
+    const events = shown.map((f) => this.view(f, { calendar: !single }));
     const readOnly: Record<string, string> = {};
-    for (const f of shown) {
-      const reason = this.calendarReadOnly(f.calendar);
-      if (reason) readOnly[f.calendar.name] = reason;
+    for (const c of inResult.values()) {
+      const reason = this.calendarReadOnly(c);
+      if (reason) readOnly[c.name] = reason;
     }
     // `used` only reports a failed discovery when no calendar was named, so `calendar: "Work"` doesn't depend on iCloud.
     const icloudError = collected.icloudError ?? used.icloudError;
     const coverage = this.coverageNote(calendars, fromMs, toMs);
+    // Which days were searched, so an empty answer to "anything coming up?" isn't read as a free week.
+    const firstDay = localDate(new Date(fromMs), zone), lastDay = localDate(new Date(toMs - 1), zone);
+    const year = today.slice(0, 4);
     return {
+      covers: firstDay === lastDay ? dayLabel(firstDay, year) : `${dayLabel(firstDay, year)} - ${dayLabel(lastDay, year)}`,
       ...(single ? { calendar: single } : {}),
       ...(Object.keys(readOnly).length ? { readOnly } : {}),
       events,
@@ -423,7 +430,7 @@ export class CalendarService {
     const etag = await this.write(calendar, () => this.d.client.put(url, ics, null));
     const object: CalendarObject = { url, etag, ics };
     const [occurrence] = expand(parseIcs(ics), span.startMs, Math.max(span.endMs, span.startMs + 1), zone);
-    const created = this.withCalendar({ calendar, object, occurrence });
+    const created = this.view({ calendar, object, occurrence }, { calendar: true });
     this.afterWrite({ action: "create", calendar, url, uid, title, before: null, after: { ics, etag, summary: this.summary(occurrence, calendar) }, call });
     const overlaps = await this.overlaps(span, url);
     return {
@@ -684,7 +691,7 @@ export class CalendarService {
     let event: EventView | EventSummary = after;
     if (p.scope !== "series" && p.ics !== null && etag !== null) {
       const occurrence = findOccurrence(parseIcs(p.ics), p.occurrence.recurrenceKey, this.zone);
-      if (occurrence) event = this.withCalendar({ calendar, object: { url, etag, ics: p.ics }, occurrence });
+      if (occurrence) event = this.view({ calendar, object: { url, etag, ics: p.ics }, occurrence }, { calendar: true });
     }
     return {
       done: true, action: "update", ...(p.scope ? { scope: p.scope } : {}), event,
