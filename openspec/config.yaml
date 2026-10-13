@@ -48,11 +48,15 @@ context: |
   injectable fetch + fast-xml-parser; Basic auth only to https *.icloud.com, redirects followed by hand;
   ICLOUD_USERNAME and secret ICLOUD_APP_PASSWORD, an app-specific password, read per request) and ical.js
   (src/ical.ts: expansion with EXDATE/overrides, IANA TZIDs via Intl, edits keep unknown properties, generated
-  VTIMEZONE in src/vtimezone.ts). Tools on voice and chat: calendar_list_events (short in-memory ids, 2h, src/handles.ts),
-  calendar_create_event (immediate), calendar_update_event / calendar_delete_event (preview + single-use 5-minute
+  VTIMEZONE in src/vtimezone.ts). Tools on voice and chat: calendar_list_events (without `to` one local day, `{}` = today,
+  365 days with a query), calendar_create_event (immediate), calendar_update_event / calendar_delete_event (preview + single-use 5-minute
   token holding the exact conditional request, src/tokens.ts; scope occurrence|series; series only shift time of day;
   invitations and read-only calendars refused), calendar_confirm (If-Match; 412 -> StaleEventError with the current
-  version), calendar_undo (newest tool change of the last 24h). Every write is logged in calendar__changes (whole
+  version), calendar_undo (newest tool change of the last 24h). Tool events are compact (EventView, view() in
+  src/service.ts): title + when (readable, year outside the current one; no start/end/allDay), location/status/notes
+  (200) and recurring only when they apply, a short in-memory id (2h, src/handles.ts) only when Friday can change the
+  event; a list names its calendar once when all events share it and gives read-only calendars' reasons once under
+  readOnly (an invitation keeps its own); created/confirmed events always carry calendar. Every write is logged in calendar__changes (whole
   before/after ICS, source, conversation id; 500 kept; undo rows action "undo"). Job calendar/refresh (5 min, also
   after writes) polls the intake and caches three local days of iCloud, each failing on its own (the job fails only
   when all configured sources did); the prompt provider (src/agenda.ts) renders today and tomorrow at build time

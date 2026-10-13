@@ -342,9 +342,11 @@ export class CalendarService {
     if (toArg) {
       const to = parseTime(toArg, "to", zone);
       toMs = to.kind === "date" ? endOfLocalDay(to.date, zone).getTime() : to.ms;
+    } else if (query) {
+      toMs = from.kind === "date" ? startOfLocalDay(addDays(from.date, 365), zone)!.getTime() : fromMs + 365 * DAY_MS;
     } else {
-      const days = query ? 365 : 7;
-      toMs = from.kind === "date" ? startOfLocalDay(addDays(from.date, days), zone)!.getTime() : fromMs + days * DAY_MS;
+      // One day: a forgotten `to` must not pull in a week of events for a question about one day.
+      toMs = endOfLocalDay(from.kind === "date" ? from.date : localDate(new Date(from.ms), zone), zone).getTime();
     }
     if (toMs <= fromMs) throw new InputError("to must be after from.");
     if (toMs - fromMs > MAX_RANGE_DAYS * DAY_MS + 2 * 3_600_000) throw new InputError(`The range can be at most ${MAX_RANGE_DAYS} days; ask for a shorter one.`);
@@ -360,11 +362,22 @@ export class CalendarService {
         return words.every((w) => hay.includes(w));
       });
     }
-    const events = found.slice(0, MAX_RESULTS).map((f) => this.withCalendar(f));
+    const shown = found.slice(0, MAX_RESULTS);
+    // The calendar once when every event shares it, and a read-only calendar's reason once rather than per event.
+    const names = new Set(shown.map((f) => f.calendar.name));
+    const single = names.size === 1 ? [...names][0] : undefined;
+    const events = shown.map((f) => (single ? this.view(f) : this.withCalendar(f)));
+    const readOnly: Record<string, string> = {};
+    for (const f of shown) {
+      const reason = this.calendarReadOnly(f.calendar);
+      if (reason) readOnly[f.calendar.name] = reason;
+    }
     // `used` only reports a failed discovery when no calendar was named, so `calendar: "Work"` doesn't depend on iCloud.
     const icloudError = collected.icloudError ?? used.icloudError;
     const coverage = this.coverageNote(calendars, fromMs, toMs);
     return {
+      ...(single ? { calendar: single } : {}),
+      ...(Object.keys(readOnly).length ? { readOnly } : {}),
       events,
       ...(found.length > MAX_RESULTS ? { truncated: true, total: found.length } : {}),
       ...(icloudError ? { unavailable: `The iCloud calendars could not be read, so only the Work calendar is included: ${icloudError.message}` } : {}),

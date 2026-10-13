@@ -6,7 +6,7 @@ import { CAL, FakeICloud, allDay, timed, vcalendar } from "./fake-icloud.js";
 import { FakeIntake } from "./fake-intake.js";
 import { error, harness } from "./harness.js";
 
-type Listed = { events: EventView[]; truncated?: boolean; total?: number };
+type Listed = { events: EventView[]; calendar?: string; readOnly?: Record<string, string>; truncated?: boolean; total?: number };
 
 async function seeded() {
   const h = await harness();
@@ -25,16 +25,25 @@ async function seeded() {
 
 test("today's events include all-day and timed ones from used calendars", async () => {
   const { service } = await seeded();
-  const { events } = (await service.list({ from: "2026-10-03", to: "2026-10-03" })) as Listed;
-  assert.deepEqual(events.map((e) => [e.title, e.when, e.calendar]), [
-    ["Ma's birthday", "Sat 3 Oct, all day", "Home"],
-    ["Swimming lesson", "Sat 3 Oct, 10:00-11:00", "Home"],
+  const r = (await service.list({ from: "2026-10-03", to: "2026-10-03" })) as Listed;
+  assert.deepEqual(r.events.map((e) => [e.title, e.when]), [
+    ["Ma's birthday", "Sat 3 Oct, all day"],
+    ["Swimming lesson", "Sat 3 Oct, 10:00-11:00"],
   ]);
-  const [bday, swim] = events;
+  // Both are in Home, so the calendar is named once.
+  assert.equal(r.calendar, "Home");
+  assert.equal(r.readOnly, undefined);
+  const [bday, swim] = r.events;
   assert.match(swim.id!, /^e[a-z2-9]{4}$/);
   // `when` says it all: no separate times, flags for one-off events, or empty fields.
-  assert.deepEqual(Object.keys(bday), ["id", "title", "when", "calendar"]);
-  assert.deepEqual(Object.keys(swim), ["id", "title", "when", "calendar"]);
+  assert.deepEqual(Object.keys(bday), ["id", "title", "when"]);
+  assert.deepEqual(Object.keys(swim), ["id", "title", "when"]);
+});
+
+test("an empty result names no calendar", async () => {
+  const { service } = await seeded();
+  const r = (await service.list({ from: "2026-10-04", to: "2026-10-04" })) as Listed;
+  assert.deepEqual(r, { events: [] });
 });
 
 test("notes are cut to 200 characters", async () => {
@@ -44,11 +53,19 @@ test("notes are cut to 200 characters", async () => {
   assert.equal(events[0].notes, `${"x".repeat(200)}…`);
 });
 
-test("without a range it covers today and the next 7 days", async () => {
+test("without a range it covers today only", async () => {
   const { service } = await seeded();
   const { events } = (await service.list({})) as Listed;
-  assert.deepEqual(events.map((e) => e.title), ["Ma's birthday", "Swimming lesson", "Standup", "Dentist"]);
-  assert.equal(events[2].when, "Wed 7 Oct, 09:00-09:15");
+  assert.deepEqual(events.map((e) => e.title), ["Ma's birthday", "Swimming lesson"]);
+});
+
+test("without `to` it covers the rest of the day `from` falls on", async () => {
+  const { service } = await seeded();
+  const wed = (await service.list({ from: "2026-10-07" })) as Listed;
+  assert.deepEqual(wed.events.map((e) => [e.title, e.when]), [["Standup", "Wed 7 Oct, 09:00-09:15"]]);
+  // From a time: what overlaps the rest of that day, and nothing of the next.
+  assert.deepEqual(((await service.list({ from: "2026-10-07T10:00" })) as Listed).events, []);
+  assert.deepEqual(((await service.list({ from: "2026-10-08T14:30" })) as Listed).events.map((e) => e.title), ["Dentist"]);
 });
 
 test("a moved occurrence is listed on its new day only", async () => {
@@ -71,18 +88,19 @@ test("a query searches title, location and notes for every word over the next 36
   assert.deepEqual(byPlace.events.map((e) => e.location), ["Kerkstraat 12"]);
 });
 
-test("events in a read-only calendar have no id", async () => {
+test("events in a read-only calendar have no id, and the calendar's reason is given once", async () => {
   const { service } = await seeded();
-  const { events } = (await service.list({ query: "checkup" })) as Listed;
-  assert.equal(events[0].id, undefined);
-  // The reason is the calendar's, not the event's.
-  assert.equal(events[0].readOnly, undefined);
+  const r = (await service.list({ query: "checkup" })) as Listed;
+  assert.equal(r.events[0].id, undefined);
+  assert.equal(r.events[0].readOnly, undefined);
+  assert.deepEqual(Object.keys(r.readOnly!), ["Holidays NL"]);
+  assert.match(r.readOnly!["Holidays NL"], /read-only/);
 });
 
 test("the calendar filter takes a name, and an unknown name lists the calendars", async () => {
   const { service } = await seeded();
-  const { events } = (await service.list({ calendar: "work", from: "2026-10-03", to: "2026-10-10" })) as Listed;
-  assert.deepEqual(events.map((e) => e.calendar), ["Work"]);
+  const r = (await service.list({ calendar: "work", from: "2026-10-03", to: "2026-10-10" })) as Listed;
+  assert.deepEqual([r.calendar, r.events.map((e) => e.title)], ["Work", ["Standup"]]);
   const e = await error(service.list({ calendar: "Gym" }));
   assert.ok(e instanceof InputError);
   assert.match(e.message, /"Home", "Work", "Holidays NL"/);
@@ -219,6 +237,11 @@ test("work and iCloud events are listed together by start, with status and locat
     ["Team Standup", "Work", "Mon 5 Oct, 09:30-09:45", undefined, "online"],
     ["Quarterly planning", "Work", "Mon 5 Oct, 14:00-16:00", "tentative", "online, Video Conference, SkyLounge"],
   ]);
+  // Two calendars: each event names its own, and only Work has a read-only reason.
+  assert.equal(r.calendar, undefined);
+  assert.deepEqual(Object.keys(r.readOnly!), ["Work"]);
+  assert.match(r.readOnly!.Work, /change it in Outlook/);
+  assert.deepEqual(r.events.map((e) => !!e.id), [true, false, false]);
   assert.equal(r.unavailable, undefined);
   assert.equal(r.coverage, undefined);
 });

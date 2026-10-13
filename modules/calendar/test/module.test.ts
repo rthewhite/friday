@@ -38,6 +38,12 @@ test("with both keys the module offers all six tools on voice and chat", async (
   const tools = ["calendar_list_events", "calendar_create_event", "calendar_update_event", "calendar_delete_event", "calendar_confirm", "calendar_undo"];
   assert.deepEqual([...host.tools].sort(), [...tools].sort());
   for (const channel of ["voice", "chat"] as const) assert.deepEqual(host.toolsIn(channel).filter((t) => t.startsWith("calendar_")).sort(), [...tools].sort());
+  // The list tool steers the model to a narrow range and explains missing ids.
+  const list = host.registry.declarations("chat").find((d) => d.name === "calendar_list_events")!;
+  assert.match(String(list.description), /Always pass from and to for the days the user asked about/);
+  assert.match(String(list.description), /only the day from falls on \(today without from\)/);
+  assert.match(String(list.description), /Only events Friday can change have an id/);
+  assert.doesNotMatch(String(list.description), /7 days/);
   await host.dispose();
 });
 

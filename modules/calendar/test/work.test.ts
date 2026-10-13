@@ -251,6 +251,26 @@ test("listed work events carry the mapped title, status and location", async () 
   );
 });
 
+test("a day of only work meetings names the Work calendar and its reason once", async () => {
+  const h = await workHarness(new FakeIntake().load("v3"));
+  await h.work.poll();
+  const r = (await h.service.list({ from: "2026-10-05", to: "2026-10-05", calendar: "Work" })) as { calendar?: string; readOnly?: Record<string, string>; events: View[] };
+  assert.equal(r.calendar, "Work");
+  assert.deepEqual(Object.keys(r.readOnly!), ["Work"]);
+  assert.match(r.readOnly!.Work, /Outlook/);
+  assert.ok(r.events.length > 1);
+  assert.ok(r.events.every((e) => e.calendar === undefined && e.id === undefined && e.readOnly === undefined));
+});
+
+test("work meetings stay small in a list (the result is replayed on every later chat turn)", async () => {
+  const h = await workHarness(new FakeIntake().load("v3"));
+  await h.work.poll();
+  const r = (await h.service.list({ from: "2026-10-05", to: "2026-10-09", calendar: "Work" })) as { events: View[] };
+  assert.ok(r.events.length >= 4);
+  const perEvent = JSON.stringify(r.events).length / r.events.length;
+  assert.ok(perEvent < 150, `${Math.round(perEvent)} characters per event`);
+});
+
 test("an unchanged meeting is listed the same after a new snapshot, and keeps its identity", async () => {
   const intake = new FakeIntake();
   const standup = meeting("Team Standup", "2026-10-05T07:30:00+00:00", "2026-10-05T07:45:00+00:00");
