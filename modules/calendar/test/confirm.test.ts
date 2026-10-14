@@ -18,7 +18,7 @@ async function setup() {
   const id = async (title: string, day: string) => {
     const { events } = (await h.service.list({ from: day, to: day })) as Listed;
     const e = events.find((x) => x.title === title);
-    assert.ok(e, `${title} on ${day}`);
+    assert.ok(e?.id, `${title} on ${day} with an id`);
     return e.id;
   };
   return { ...h, dentistUrl, standupUrl, id };
@@ -68,13 +68,31 @@ test("a series can't move to another day", async () => {
   assert.match(e.message, /only move a whole series to another time of day/);
 });
 
+test("an invitation is listed without an id but with its own reason", async () => {
+  const s = await setup();
+  const { events } = (await s.service.list({ from: "2026-10-09", to: "2026-10-09" })) as Listed;
+  const board = events.find((e) => e.title === "Board meeting")!;
+  assert.equal(board.id, undefined);
+  assert.match(board.readOnly!, /invitation from boss@corp\.example.*Calendar app/);
+});
+
 test("invitations and read-only calendars are refused before a token is issued", async () => {
   const s = await setup();
-  const inv = await error(s.service.previewDelete({ id: await s.id("Board meeting", "2026-10-09") }));
+  // Listing gives them no id; one that outlived the event's writability is still refused.
+  const inv = await error(s.service.previewDelete({ id: await s.anyId("Board meeting", "2026-10-09") }));
   assert.ok(inv instanceof ReadOnlyError);
   assert.match(inv.message, /invitation from boss@corp\.example/);
-  const ro = await error(s.service.previewUpdate({ id: await s.id("Holiday", "2026-10-09"), title: "x" }));
+  const ro = await error(s.service.previewUpdate({ id: await s.anyId("Holiday", "2026-10-09"), title: "x" }));
   assert.match(ro.message, /read-only calendar/);
+});
+
+test("an id is refused once its calendar became read-only", async () => {
+  const s = await setup();
+  const id = await s.id("Dentist", "2026-10-08");
+  s.service.markReadOnly("home");
+  const e = await error(s.service.previewDelete({ id }));
+  assert.ok(e instanceof ReadOnlyError);
+  assert.match(e.message, /"Home" is a read-only calendar/);
 });
 
 test("an edit with nothing to change, or without an id, is refused", async () => {
@@ -91,6 +109,7 @@ test("a confirmed edit is written with If-Match and returns the new event", asyn
   const r = (await s.service.confirm(p.token)) as { done: boolean; event: EventView; say: string };
   assert.equal(r.done, true);
   assert.equal(r.event.when, "Thu 8 Oct, 15:00-16:00");
+  assert.equal(r.event.calendar, "Home");
   assert.equal(r.say, 'Changed "Dentist": now "Dentist (Dr. Bakker)" on Thu 8 Oct, 15:00-16:00.');
   const [put] = s.fake.writes();
   assert.equal(put.headers["if-match"], etag);
@@ -140,7 +159,7 @@ test("deleting one occurrence keeps the others", async () => {
   assert.equal(r.say, 'Deleted "Standup" on Tue 13 Oct, 09:00-09:15 (only this occurrence).');
   assert.equal(s.fake.writes()[0].method, "PUT");
   const { events } = (await s.service.list({ from: "2026-10-06", to: "2026-10-21" })) as Listed;
-  assert.deepEqual(events.filter((e) => e.title === "Standup").map((e) => e.start.slice(0, 10)), ["2026-10-06", "2026-10-20"]);
+  assert.deepEqual(events.filter((e) => e.title === "Standup").map((e) => e.when), ["Tue 6 Oct, 09:00-09:15", "Tue 20 Oct, 09:00-09:15"]);
 });
 
 test("deleting a series or a single event removes the object", async () => {

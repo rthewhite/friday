@@ -182,7 +182,7 @@ test("a delivery of exactly 256 events is flagged as possibly cut off", async ()
 
 // ---- Mapping ------------------------------------------------------------------------------------------------
 
-interface View { id: string; title: string; start: string; end: string; allDay: boolean; status?: string; location?: string; readOnly: boolean; recurring: boolean }
+interface View { id?: string; title: string; when: string; calendar?: string; status?: string; location?: string; readOnly?: string; recurring?: true }
 const list = async (h: Awaited<ReturnType<typeof harness>>, args: Record<string, string>) => ((await h.service.list({ calendar: "Work", ...args })) as { events: View[] }).events;
 const occurrence = (item: Record<string, unknown>, zone = "Europe/Amsterdam") => toOccurrence(item as unknown as IntakeItem, zone);
 
@@ -192,10 +192,10 @@ test("timed events are shown in the household zone", async () => {
   const h = await workHarness(intake);
   await h.work.poll();
   const [e] = await list(h, { from: "2026-09-11", to: "2026-09-11" });
-  assert.equal(e.start, "2026-09-11T15:00:00+02:00");
-  assert.equal(e.end, "2026-09-11T15:20:00+02:00");
-  assert.equal(e.recurring, false);
-  assert.equal(e.readOnly, true);
+  assert.equal(e.when, "Fri 11 Sept, 15:00-15:20");
+  // Never a series, and Friday can't change it: no id.
+  assert.equal(e.recurring, undefined);
+  assert.equal(e.id, undefined);
 });
 
 test("all-day events keep their dates as written, whatever the household zone", async () => {
@@ -204,7 +204,7 @@ test("all-day events keep their dates as written, whatever the household zone", 
   const h = await harness(HOME_FAMILY(), { intake, zone: "America/New_York" });
   await h.work.poll();
   const events = await list(h, { from: "2026-12-14", to: "2026-12-16" });
-  assert.deepEqual(events.map((e) => [e.allDay, e.start, e.end]), [[true, "2026-12-15", "2026-12-15"]]);
+  assert.deepEqual(events.map((e) => e.when), ["Tue 15 Dec, all day"]);
   // An end that isn't after the start still makes one day.
   assert.equal(occurrence(allDayItem("x", "2026-12-15", "2026-12-15")).endDate, "2026-12-16");
 });
@@ -251,15 +251,39 @@ test("listed work events carry the mapped title, status and location", async () 
   );
 });
 
-test("an event's id survives a new snapshot that has it unchanged", async () => {
+test("a day of only work meetings names the Work calendar and its reason once", async () => {
+  const h = await workHarness(new FakeIntake().load("v3"));
+  await h.work.poll();
+  const r = (await h.service.list({ from: "2026-10-05", to: "2026-10-05", calendar: "Work" })) as { calendar?: string; readOnly?: Record<string, string>; events: View[] };
+  assert.equal(r.calendar, "Work");
+  assert.deepEqual(Object.keys(r.readOnly!), ["Work"]);
+  assert.match(r.readOnly!.Work, /Outlook/);
+  assert.ok(r.events.length > 1);
+  assert.ok(r.events.every((e) => e.calendar === undefined && e.id === undefined && e.readOnly === undefined));
+});
+
+test("work meetings stay small in a list (the result is replayed on every later chat turn)", async () => {
+  const h = await workHarness(new FakeIntake().load("v3"));
+  await h.work.poll();
+  const r = (await h.service.list({ from: "2026-10-05", to: "2026-10-09", calendar: "Work" })) as { events: View[] };
+  assert.ok(r.events.length >= 4);
+  const perEvent = JSON.stringify(r.events).length / r.events.length;
+  assert.ok(perEvent < 150, `${Math.round(perEvent)} characters per event`);
+});
+
+test("an unchanged meeting is listed the same after a new snapshot, and keeps its identity", async () => {
   const intake = new FakeIntake();
   const standup = meeting("Team Standup", "2026-10-05T07:30:00+00:00", "2026-10-05T07:45:00+00:00");
   intake.deliver([standup], "2026-10-03T07:00:00Z");
   const h = await workHarness(intake);
   await h.work.poll();
   const [before] = await list(h, { from: "2026-10-05", to: "2026-10-05" });
+  const idBefore = await h.anyId("Team Standup", "2026-10-05");
   intake.deliver([meeting("New meeting", "2026-10-05T09:00:00+00:00", "2026-10-05T10:00:00+00:00"), standup], "2026-10-03T08:00:00Z");
   await h.work.poll();
-  const after = await list(h, { from: "2026-10-05", to: "2026-10-05" });
-  assert.equal(after.find((e) => e.title === "Team Standup")?.id, before.id);
+  const after = (await list(h, { from: "2026-10-05", to: "2026-10-05" })).filter((e) => e.title === "Team Standup");
+  assert.deepEqual(after, [before]);
+  assert.equal(before.id, undefined);
+  // Internally it is still the same event.
+  assert.equal(await h.anyId("Team Standup", "2026-10-05"), idBefore);
 });

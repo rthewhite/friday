@@ -8,8 +8,8 @@ import { localDate, startOfLocalDay, type ModuleLogger, type ToolCallContext } f
 import type { Account, CalDavClient, CalendarInfo, CalendarObject } from "./caldav.js";
 import type { Change, ChangeLog, ChangeSource } from "./changes.js";
 import { InputError, NotUndoableError, PreconditionFailed, ReadOnlyError, StaleEventError, UpstreamError } from "./errors.js";
-import { addDays, endOfLocalDay, localIso, whenText, type Span } from "./format.js";
-import type { EventHandles, EventRef } from "./handles.js";
+import { addDays, dayLabel, endOfLocalDay, whenText, type Span } from "./format.js";
+import type { EventHandles } from "./handles.js";
 import { applyEdit, buildEvent, deleteOccurrence, EditRefused, expand, findOccurrence, isInvitation, parseIcs, type EditChanges, type EventStatus, type Occurrence, type ParsedObject, type Repeat } from "./ical.js";
 import type { Settings } from "./settings.js";
 import { parseTime, present } from "./times.js";
@@ -21,8 +21,15 @@ export const MAX_RANGE_DAYS = 366;
 const DAY_MS = 86_400_000;
 /** Discovery older than this is redone before a tool uses it (the refresh job normally keeps it fresher). */
 const ACCOUNT_MAX_AGE_MS = 10 * 60_000;
-const NOTES_MAX = 500;
+const NOTES_MAX = 200;
 const REPEATS: Repeat[] = ["daily", "weekly", "monthly", "yearly"];
+
+/** Notes cut to NOTES_MAX characters, never through the middle of an emoji (a surrogate pair). */
+function cutNotes(notes: string): string {
+  if (notes.length <= NOTES_MAX) return notes;
+  const code = notes.charCodeAt(NOTES_MAX - 1);
+  return `${notes.slice(0, code >= 0xd800 && code <= 0xdbff ? NOTES_MAX - 1 : NOTES_MAX)}…`;
+}
 
 export interface ConnectionStatus {
   ok: boolean;
@@ -30,18 +37,18 @@ export interface ConnectionStatus {
   error?: string;
 }
 
-/** An event as tools return it. */
+/** An event as tools return it: only what the model needs, since every result stays in the conversation. */
 export interface EventView {
-  id: string;
+  /** Only when Friday can change the event. */
+  id?: string;
   title: string;
-  calendar: string;
-  start: string;
-  end: string;
-  allDay: boolean;
+  /** Days and times, readable; the year is in it outside the current year. */
   when: string;
-  recurring: boolean;
-  readOnly: boolean;
-  readOnlyReason?: string;
+  /** Always on a single created or changed event; in a list only when its events are in more than one calendar. */
+  calendar?: string;
+  recurring?: true;
+  /** Why an invitation can't be changed. A read-only calendar's reason is given once per list instead. */
+  readOnly?: string;
   status?: EventStatus;
   location?: string;
   notes?: string;
@@ -281,40 +288,43 @@ export class CalendarService {
     return { found: out, ...(icloudError ? { icloudError } : {}) };
   }
 
-  /** Why Friday can't change this event, if it can't. */
-  readOnlyReason(f: Pick<Found, "calendar" | "occurrence">): string | undefined {
-    if (f.calendar.source === "intake") return WORK_READ_ONLY;
-    if (!f.calendar.writable) return `"${f.calendar.name}" is a read-only calendar.`;
-    const own = this.cached?.account.addresses ?? [];
-    if (isInvitation(f.occurrence, own)) return `It is an invitation from ${f.occurrence.organizer}; change or decline it in the Calendar app.`;
+  /** Why Friday can't change any event in this calendar, if it can't. */
+  calendarReadOnly(calendar: CalendarInfo): string | undefined {
+    if (calendar.source === "intake") return WORK_READ_ONLY;
+    if (!calendar.writable) return `"${calendar.name}" is a read-only calendar.`;
     return undefined;
   }
 
-  /** The tool view of an occurrence, with a fresh id. */
-  view(f: Found): EventView {
-    const o = f.occurrence;
-    const ref: EventRef = { calendarId: f.calendar.id, objectUrl: f.object.url, occurrence: o };
-    const reason = this.readOnlyReason(f);
-    return {
-      id: this.d.handles.idFor(ref),
-      title: o.title,
-      calendar: f.calendar.name,
-      ...this.times(o),
-      allDay: o.allDay,
-      when: whenText(o, this.zone, this.d.now()),
-      recurring: o.recurring,
-      readOnly: !!reason,
-      ...(reason ? { readOnlyReason: reason } : {}),
-      ...(o.status ? { status: o.status } : {}),
-      ...(o.location ? { location: o.location } : {}),
-      ...(o.notes ? { notes: o.notes.length > NOTES_MAX ? `${o.notes.slice(0, NOTES_MAX)}…` : o.notes } : {}),
-    };
+  /** Why Friday can't change this event, if it can't: its calendar's reason, or that it is an invitation. */
+  readOnlyReason(f: Pick<Found, "calendar" | "occurrence">): string | undefined {
+    return this.calendarReadOnly(f.calendar) ?? this.invitationReason(f.occurrence);
   }
 
-  /** `start`/`end` as tools return them: local date-times, or dates with an inclusive end for all-day events. */
-  times(s: Span): { start: string; end: string } {
-    if (s.allDay) return { start: s.startDate!, end: addDays(s.endDate!, -1) };
-    return { start: localIso(s.startMs, this.zone), end: localIso(s.endMs, this.zone) };
+  private invitationReason(o: Occurrence): string | undefined {
+    const own = this.cached?.account.addresses ?? [];
+    return isInvitation(o, own) ? `It is an invitation from ${o.organizer}; change or decline it in the Calendar app.` : undefined;
+  }
+
+  /**
+   * The tool view of an occurrence, with its calendar name only when asked (a list names a shared calendar once).
+   * Only an event Friday can change gets an id, fresh for two hours. A read-only calendar's reason is left to the
+   * list; an invitation's reason, which differs per event, stays on it.
+   */
+  view(f: Found, opts: { calendar?: boolean } = {}): EventView {
+    const o = f.occurrence;
+    const reason = this.readOnlyReason(f);
+    const own = reason && !this.calendarReadOnly(f.calendar) ? reason : undefined;
+    return {
+      ...(reason ? {} : { id: this.d.handles.idFor({ calendarId: f.calendar.id, objectUrl: f.object.url, occurrence: o }) }),
+      title: o.title,
+      when: whenText(o, this.zone, this.d.now()),
+      ...(opts.calendar ? { calendar: f.calendar.name } : {}),
+      ...(o.recurring ? { recurring: true as const } : {}),
+      ...(own ? { readOnly: own } : {}),
+      ...(o.status ? { status: o.status } : {}),
+      ...(o.location ? { location: o.location } : {}),
+      ...(o.notes ? { notes: cutNotes(o.notes) } : {}),
+    };
   }
 
   summary(s: Span & { title: string; location?: string }, calendar?: CalendarInfo): EventSummary {
@@ -334,9 +344,11 @@ export class CalendarService {
     if (toArg) {
       const to = parseTime(toArg, "to", zone);
       toMs = to.kind === "date" ? endOfLocalDay(to.date, zone).getTime() : to.ms;
+    } else if (query) {
+      toMs = from.kind === "date" ? startOfLocalDay(addDays(from.date, 365), zone)!.getTime() : fromMs + 365 * DAY_MS;
     } else {
-      const days = query ? 365 : 7;
-      toMs = from.kind === "date" ? startOfLocalDay(addDays(from.date, days), zone)!.getTime() : fromMs + days * DAY_MS;
+      // One day: a forgotten `to` must not pull in a week of events for a question about one day.
+      toMs = endOfLocalDay(from.kind === "date" ? from.date : localDate(new Date(from.ms), zone), zone).getTime();
     }
     if (toMs <= fromMs) throw new InputError("to must be after from.");
     if (toMs - fromMs > MAX_RANGE_DAYS * DAY_MS + 2 * 3_600_000) throw new InputError(`The range can be at most ${MAX_RANGE_DAYS} days; ask for a shorter one.`);
@@ -352,11 +364,27 @@ export class CalendarService {
         return words.every((w) => hay.includes(w));
       });
     }
-    const events = found.slice(0, MAX_RESULTS).map((f) => this.view(f));
+    const shown = found.slice(0, MAX_RESULTS);
+    // The calendar once when every event shares it (by id: two calendars may share a name), and a read-only
+    // calendar's reason once rather than per event.
+    const inResult = new Map(shown.map((f) => [f.calendar.id, f.calendar]));
+    const single = inResult.size === 1 ? [...inResult.values()][0].name : undefined;
+    const events = shown.map((f) => this.view(f, { calendar: !single }));
+    const readOnly: Record<string, string> = {};
+    for (const c of inResult.values()) {
+      const reason = this.calendarReadOnly(c);
+      if (reason) readOnly[c.name] = reason;
+    }
     // `used` only reports a failed discovery when no calendar was named, so `calendar: "Work"` doesn't depend on iCloud.
     const icloudError = collected.icloudError ?? used.icloudError;
     const coverage = this.coverageNote(calendars, fromMs, toMs);
+    // Which days were searched, so an empty answer to "anything coming up?" isn't read as a free week.
+    const firstDay = localDate(new Date(fromMs), zone), lastDay = localDate(new Date(toMs - 1), zone);
+    const year = today.slice(0, 4);
     return {
+      covers: firstDay === lastDay ? dayLabel(firstDay, year) : `${dayLabel(firstDay, year)} - ${dayLabel(lastDay, year)}`,
+      ...(single ? { calendar: single } : {}),
+      ...(Object.keys(readOnly).length ? { readOnly } : {}),
       events,
       ...(found.length > MAX_RESULTS ? { truncated: true, total: found.length } : {}),
       ...(icloudError ? { unavailable: `The iCloud calendars could not be read, so only the Work calendar is included: ${icloudError.message}` } : {}),
@@ -402,7 +430,7 @@ export class CalendarService {
     const etag = await this.write(calendar, () => this.d.client.put(url, ics, null));
     const object: CalendarObject = { url, etag, ics };
     const [occurrence] = expand(parseIcs(ics), span.startMs, Math.max(span.endMs, span.startMs + 1), zone);
-    const created = this.view({ calendar, object, occurrence });
+    const created = this.view({ calendar, object, occurrence }, { calendar: true });
     this.afterWrite({ action: "create", calendar, url, uid, title, before: null, after: { ics, etag, summary: this.summary(occurrence, calendar) }, call });
     const overlaps = await this.overlaps(span, url);
     return {
@@ -663,7 +691,7 @@ export class CalendarService {
     let event: EventView | EventSummary = after;
     if (p.scope !== "series" && p.ics !== null && etag !== null) {
       const occurrence = findOccurrence(parseIcs(p.ics), p.occurrence.recurrenceKey, this.zone);
-      if (occurrence) event = this.view({ calendar, object: { url, etag, ics: p.ics }, occurrence });
+      if (occurrence) event = this.view({ calendar, object: { url, etag, ics: p.ics }, occurrence }, { calendar: true });
     }
     return {
       done: true, action: "update", ...(p.scope ? { scope: p.scope } : {}), event,

@@ -43,18 +43,20 @@ Alternatives considered:
 The refusal in `previewUpdate`/`previewDelete` stays, because an id can outlive a change in the calendar's writability or in the account's addresses.
 
 A missing `id` is the signal that the event can't be changed. The reason that goes with it is placed as follows:
-- **Calendar-level reasons** (a Work event, or a calendar that isn't writable) are collected in `list()` into `readOnly: { [calendarName]: reason }`. Each reason is worded without the calendar name, since the name is the key.
+- **Calendar-level reasons** (a Work event, or a calendar that isn't writable) are collected in `list()` into `readOnly: { [calendarName]: reason }`. The reason texts stay as they are, because the refusals in previews use the same texts.
 - **An invitation** keeps `readOnly: "<reason>"` on the event, because the organizer differs per event.
 
 `readOnlyReason()` is split so the caller can tell the two kinds apart: a calendar part and an event part.
 
 ### D3: List-level `calendar`
 
-`list()` first builds the views without `calendar`, then sets it:
-- once at the top when the returned events (after the 50 cut) share one calendar;
+`view(f, { calendar })` adds the calendar name only when asked. `list()` sets it:
+- once at the top when the returned events (after the 50 cut) are in one calendar. That is compared by calendar id, because two calendars can share a name;
 - otherwise on each event.
 
-An empty result gets neither. `create()` and `confirm()` add `calendar` to their single event, as the spec requires.
+An empty result gets neither. `create()` and `confirm()` ask for `calendar` on their single event, as the spec requires.
+
+Read-only reasons are worked out once per calendar in the result. `view()` decides about the id with `readOnlyReason()`, so the rule that refuses previews and the rule that withholds ids can't drift apart.
 
 ### D4: Default range is one local day
 
@@ -62,19 +64,23 @@ Without `to`, `list()` ends at `endOfLocalDay(<local date of from>)`. `from` is 
 
 This keeps `{}` cheap (today, which is already in the prompt), and makes a forgotten `to` cost one day rather than seven.
 
-The tool description changes to match. It says to pass `from` and `to` for the days asked about, and that `{}` gives today only.
+The tool description changes to match. It says to pass `from` and `to` for the days asked about, that `{}` gives today only, and that open questions ("anything coming up?") need a `to` that covers the period.
+
+Every list result also says which days it searched, as `covers` (`Sun 4 Oct`, `Mon 5 Oct - Sun 11 Oct`), built with `dayLabel`. Without it, an empty one-day result would read like a free week. This was found in code review.
 
 ### D5: Coming-days line in the agenda
 
-`render()` gets the year and ISO date in the day labels, for example `Today, Saturday 10 October 2026 (2026-10-10):`. After the header it adds one non-event line, for example `Coming days: Mon 2026-10-12, Tue 2026-10-13, ..., Sun 2026-10-18.`.
+`render()` gets the year and ISO date in the day labels, for example `Today, Saturday 10 October 2026 (2026-10-10):`. After the header it adds one non-event line, for example `Dates of the coming days: Mon 2026-10-12, Tue 2026-10-13, ..., Sun 2026-10-18.`.
 
-This line is built from `localDate(now)` with `addDays`. It is also added on the early-return path, where no source is available. Because `cut()` only drops event lines, it survives the cut on its own.
+This line is built from `localDate(now)` with `addDays`. It is also added on the early-return path, where no source is available. That path has no day headings, so it also says `Today is Saturday 10 October 2026 (2026-10-10).`. Otherwise the coming days, which start the day after tomorrow, would be the only dates in the prompt. Because `cut()` only drops event lines, the line survives the cut on its own.
 
 The line covers days 2 to 8 from today: today and tomorrow are already labelled, and that range gives every weekday exactly once.
 
 ### D6: Notes cut to 200
 
-`NOTES_MAX` goes from 500 to 200. Notes are rare on iCloud events and absent on Work events. This only caps the worst case when notes are long, such as a pasted invite text in a week of events.
+`NOTES_MAX` goes from 500 to 200. Notes are rare on iCloud events and absent on Work events. This only caps the worst case when notes are long, such as a pasted invite text in a week of events. The cut never splits an emoji (a surrogate pair).
+
+The trade-off, raised in code review: a join link or dial-in number past character 200 is lost. That is accepted for now. Work events have no notes, and iCloud notes are short in practice. If it matters later, a detail lookup for one event can return the full notes.
 
 ## Risks / Trade-offs
 

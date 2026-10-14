@@ -6,7 +6,7 @@ import { CAL, FakeICloud, allDay, timed, vcalendar } from "./fake-icloud.js";
 import { FakeIntake } from "./fake-intake.js";
 import { error, harness } from "./harness.js";
 
-type Listed = { events: EventView[]; truncated?: boolean; total?: number };
+type Listed = { events: EventView[]; calendar?: string; readOnly?: Record<string, string>; truncated?: boolean; total?: number };
 
 async function seeded() {
   const h = await harness();
@@ -25,22 +25,67 @@ async function seeded() {
 
 test("today's events include all-day and timed ones from used calendars", async () => {
   const { service } = await seeded();
-  const { events } = (await service.list({ from: "2026-10-03", to: "2026-10-03" })) as Listed;
-  assert.deepEqual(events.map((e) => [e.title, e.when, e.calendar]), [
-    ["Ma's birthday", "Sat 3 Oct, all day", "Home"],
-    ["Swimming lesson", "Sat 3 Oct, 10:00-11:00", "Home"],
+  const r = (await service.list({ from: "2026-10-03", to: "2026-10-03" })) as Listed;
+  assert.deepEqual(r.events.map((e) => [e.title, e.when]), [
+    ["Ma's birthday", "Sat 3 Oct, all day"],
+    ["Swimming lesson", "Sat 3 Oct, 10:00-11:00"],
   ]);
-  const [bday, swim] = events;
-  assert.deepEqual([bday.start, bday.end, bday.allDay], ["2026-10-03", "2026-10-03", true]);
-  assert.deepEqual([swim.start, swim.end], ["2026-10-03T10:00:00+02:00", "2026-10-03T11:00:00+02:00"]);
-  assert.match(swim.id, /^e[a-z2-9]{4}$/);
+  // Both are in Home, so the calendar is named once.
+  assert.equal(r.calendar, "Home");
+  assert.equal(r.readOnly, undefined);
+  const [bday, swim] = r.events;
+  assert.match(swim.id!, /^e[a-z2-9]{4}$/);
+  // `when` says it all: no separate times, flags for one-off events, or empty fields.
+  assert.deepEqual(Object.keys(bday), ["id", "title", "when"]);
+  assert.deepEqual(Object.keys(swim), ["id", "title", "when"]);
 });
 
-test("without a range it covers today and the next 7 days", async () => {
+test("an empty result names no calendar, but says which days were searched", async () => {
+  const { service } = await seeded();
+  const r = (await service.list({ from: "2026-10-04", to: "2026-10-04" })) as Listed;
+  assert.deepEqual(r, { covers: "Sun 4 Oct", events: [] });
+  // A range, a default day from a time, and a search into next year.
+  assert.equal(((await service.list({ from: "2026-10-05", to: "2026-10-11" })) as Listed).covers, "Mon 5 Oct - Sun 11 Oct");
+  assert.equal(((await service.list({ from: "2026-10-07T10:00" })) as Listed).covers, "Wed 7 Oct");
+  assert.equal(((await service.list({ query: "dentist" })) as Listed).covers, "Sat 3 Oct - Sat 2 Oct 2027");
+});
+
+test("two calendars with the same name are not taken for one", async () => {
+  const h = await harness(new FakeICloud({ calendars: [
+    { id: "mine", name: "Family", privileges: ["read", "write"] },
+    { id: "shared", name: "Family", privileges: ["read"] },
+  ] }));
+  h.fake.seed("mine", "a", vcalendar(timed("a", "Dinner", "20261003T180000", "20261003T190000")));
+  h.fake.seed("shared", "b", vcalendar(timed("b", "Grandma visits", "20261003T140000", "20261003T160000")));
+  const r = (await h.service.list({})) as Listed;
+  assert.equal(r.calendar, undefined);
+  assert.deepEqual(r.events.map((e) => [e.title, e.calendar, !!e.id]), [["Grandma visits", "Family", false], ["Dinner", "Family", true]]);
+});
+
+test("notes are cut to 200 characters", async () => {
+  const h = await harness();
+  await h.service.create({ title: "Plumber", start: "2026-10-13T09:00", notes: "x".repeat(300) });
+  const { events } = (await h.service.list({ from: "2026-10-13", to: "2026-10-13" })) as Listed;
+  assert.equal(events[0].notes, `${"x".repeat(200)}…`);
+  // Never through the middle of an emoji.
+  await h.service.create({ title: "Party", start: "2026-10-14T20:00", notes: `${"x".repeat(199)}🎉 and more` });
+  const party = ((await h.service.list({ from: "2026-10-14" })) as Listed).events[0];
+  assert.equal(party.notes, `${"x".repeat(199)}…`);
+});
+
+test("without a range it covers today only", async () => {
   const { service } = await seeded();
   const { events } = (await service.list({})) as Listed;
-  assert.deepEqual(events.map((e) => e.title), ["Ma's birthday", "Swimming lesson", "Standup", "Dentist"]);
-  assert.equal(events[2].when, "Wed 7 Oct, 09:00-09:15");
+  assert.deepEqual(events.map((e) => e.title), ["Ma's birthday", "Swimming lesson"]);
+});
+
+test("without `to` it covers the rest of the day `from` falls on", async () => {
+  const { service } = await seeded();
+  const wed = (await service.list({ from: "2026-10-07" })) as Listed;
+  assert.deepEqual(wed.events.map((e) => [e.title, e.when]), [["Standup", "Wed 7 Oct, 09:00-09:15"]]);
+  // From a time: what overlaps the rest of that day, and nothing of the next.
+  assert.deepEqual(((await service.list({ from: "2026-10-07T10:00" })) as Listed).events, []);
+  assert.deepEqual(((await service.list({ from: "2026-10-08T14:30" })) as Listed).events.map((e) => e.title), ["Dentist"]);
 });
 
 test("a moved occurrence is listed on its new day only", async () => {
@@ -49,27 +94,33 @@ test("a moved occurrence is listed on its new day only", async () => {
   assert.equal(tue.events.length, 0);
   const wed = (await service.list({ from: "2026-10-07", to: "2026-10-07" })) as Listed;
   assert.deepEqual(wed.events.map((e) => [e.title, e.recurring]), [["Standup", true]]);
+  // A recurring occurrence Friday can change has an id.
+  assert.match(wed.events[0].id!, /^e[a-z2-9]{4}$/);
 });
 
 test("a query searches title, location and notes for every word over the next 365 days", async () => {
   const { service } = await seeded();
   const { events } = (await service.list({ query: "dentist" })) as Listed;
   assert.deepEqual(events.map((e) => e.title), ["Dentist", "Dentist checkup"]);
+  // Outside the current year, `when` has the year.
+  assert.equal(events[1].when, "Mon 1 Mar 2027, 09:00-10:00");
   const byPlace = (await service.list({ query: "KERKSTRAAT dentist" })) as Listed;
   assert.deepEqual(byPlace.events.map((e) => e.location), ["Kerkstraat 12"]);
 });
 
-test("read-only calendars are marked, with a reason", async () => {
+test("events in a read-only calendar have no id, and the calendar's reason is given once", async () => {
   const { service } = await seeded();
-  const { events } = (await service.list({ query: "checkup" })) as Listed;
-  assert.equal(events[0].readOnly, true);
-  assert.match(events[0].readOnlyReason!, /Holidays NL.*read-only/);
+  const r = (await service.list({ query: "checkup" })) as Listed;
+  assert.equal(r.events[0].id, undefined);
+  assert.equal(r.events[0].readOnly, undefined);
+  assert.deepEqual(Object.keys(r.readOnly!), ["Holidays NL"]);
+  assert.match(r.readOnly!["Holidays NL"], /read-only/);
 });
 
 test("the calendar filter takes a name, and an unknown name lists the calendars", async () => {
   const { service } = await seeded();
-  const { events } = (await service.list({ calendar: "work", from: "2026-10-03", to: "2026-10-10" })) as Listed;
-  assert.deepEqual(events.map((e) => e.calendar), ["Work"]);
+  const r = (await service.list({ calendar: "work", from: "2026-10-03", to: "2026-10-10" })) as Listed;
+  assert.deepEqual([r.calendar, r.events.map((e) => e.title)], ["Work", ["Standup"]]);
   const e = await error(service.list({ calendar: "Gym" }));
   assert.ok(e instanceof InputError);
   assert.match(e.message, /"Home", "Work", "Holidays NL"/);
@@ -143,14 +194,14 @@ test("a weekly event repeats until the given day", async () => {
   const h = await harness();
   await h.service.create({ title: "Piano", start: "2026-10-06T16:00", repeat: "weekly", repeatUntil: "2026-10-20" });
   const r = (await h.service.list({ from: "2026-10-01", to: "2026-11-30" })) as Listed;
-  assert.deepEqual(r.events.map((e) => e.start.slice(0, 10)), ["2026-10-06", "2026-10-13", "2026-10-20"]);
-  assert.ok(r.events.every((e) => e.recurring));
+  assert.deepEqual(r.events.map((e) => e.when), ["Tue 6 Oct, 16:00-17:00", "Tue 13 Oct, 16:00-17:00", "Tue 20 Oct, 16:00-17:00"]);
+  assert.ok(r.events.every((e) => e.recurring === true));
 });
 
 test("an all-day event takes dates with an inclusive end", async () => {
   const h = await harness();
   const r = (await h.service.create({ title: "Holiday", start: "2026-10-12", end: "2026-10-16" })) as { created: EventView };
-  assert.deepEqual([r.created.allDay, r.created.start, r.created.end, r.created.when], [true, "2026-10-12", "2026-10-16", "Mon 12 Oct - Fri 16 Oct, all day"]);
+  assert.deepEqual(r.created, { id: r.created.id, title: "Holiday", when: "Mon 12 Oct - Fri 16 Oct, all day", calendar: "Home" });
   assert.match(h.fake.writes()[0].body!, /DTEND;VALUE=DATE:20261017/);
 });
 
@@ -206,6 +257,11 @@ test("work and iCloud events are listed together by start, with status and locat
     ["Team Standup", "Work", "Mon 5 Oct, 09:30-09:45", undefined, "online"],
     ["Quarterly planning", "Work", "Mon 5 Oct, 14:00-16:00", "tentative", "online, Video Conference, SkyLounge"],
   ]);
+  // Two calendars: each event names its own, and only Work has a read-only reason.
+  assert.equal(r.calendar, undefined);
+  assert.deepEqual(Object.keys(r.readOnly!), ["Work"]);
+  assert.match(r.readOnly!.Work, /change it in Outlook/);
+  assert.deepEqual(r.events.map((e) => !!e.id), [true, false, false]);
   assert.equal(r.unavailable, undefined);
   assert.equal(r.coverage, undefined);
 });
@@ -266,14 +322,14 @@ test("nothing can be created in the Work calendar", async () => {
   assert.equal(h.fake.writes().length, 0);
 });
 
-test("work events are read-only and can't be previewed for an edit or deletion, without asking iCloud", async () => {
+test("work events have no id, and can't be previewed for an edit or deletion, without asking iCloud", async () => {
   const h = await withWork();
   const { events } = (await h.service.list({ from: "2026-10-05", to: "2026-10-05", calendar: "Work" })) as Listed;
-  const standup = events[0];
-  assert.equal(standup.readOnly, true);
-  assert.match(String(standup.readOnlyReason), /change it in Outlook/);
+  assert.equal(events[0].id, undefined);
+  // An id from elsewhere is still refused.
+  const id = await h.anyId("Team Standup", "2026-10-05");
   const before = h.fake.requests.length;
-  for (const p of [h.service.previewUpdate({ id: standup.id, title: "Renamed" }), h.service.previewDelete({ id: standup.id })]) {
+  for (const p of [h.service.previewUpdate({ id, title: "Renamed" }), h.service.previewDelete({ id })]) {
     const e = await error(p);
     assert.ok(e instanceof ReadOnlyError);
     assert.match(e.message, /Friday can't change "Team Standup".*Outlook/);

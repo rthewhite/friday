@@ -10,8 +10,11 @@ export function defineCalendarTools(ctx: ModuleContext, service: CalendarService
     description:
       "List events from the user's calendar, with recurring events expanded. Use it for questions about the schedule " +
       "beyond today and tomorrow (those are already in your context), to search for an event, and always before " +
-      "editing or deleting one: edits and deletions take an id from this result. Without from it starts today; without " +
-      "to it covers 7 days, or 365 days when a query is given. At most 366 days and 50 events per call.",
+      "editing or deleting one. Always pass from and to for the days the user asked about (your context maps the " +
+      "coming days to their dates). Without to it covers only the day from falls on (today without from), or 365 days " +
+      "when a query is given; for open questions like what's coming up, pass a to that covers the period, and read " +
+      "covers in the result to see which days were searched. At most 366 days and 50 events per call. Only events Friday can change have an id, which " +
+      "edits and deletions take; readOnly says why the others can't be changed.",
     parameters: {
       type: Type.OBJECT,
       properties: {

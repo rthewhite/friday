@@ -8,6 +8,9 @@ import { FakeICloud, PASSWORD, USERNAME, allDay, timed, vcalendar } from "./fake
 import { FakeIntake, INTAKE_KEY, INTAKE_URL, meeting } from "./fake-intake.js";
 import { harness, NOW } from "./harness.js";
 
+/** The coming-days line on Saturday 3 October 2026, the harness's today: Monday to Sunday of the next week. */
+const COMING = "Dates of the coming days: Mon 2026-10-05, Tue 2026-10-06, Wed 2026-10-07, Thu 2026-10-08, Fri 2026-10-09, Sat 2026-10-10, Sun 2026-10-11.";
+
 async function setup() {
   const h = await harness();
   h.fake.seed("home", "swim", vcalendar(timed("swim", "Swimming lesson", "20261003T100000", "20261003T110000", ["LOCATION:De Mirandabad"])));
@@ -26,11 +29,12 @@ test("the agenda lists today and tomorrow, all-day events first, and says when a
     [
       "## Calendar",
       "The user's calendars for today and tomorrow (times in Europe/Amsterdam). For other days, or to change an event, use the calendar tools.",
-      "Today, Saturday 3 October:",
+      COMING,
+      "Today, Saturday 3 October 2026 (2026-10-03):",
       "- all day: Ma's birthday [Home]",
       "- 10:00-11:00: Swimming lesson (De Mirandabad) [Home]",
       "- 17:00-17:30: Report due [Work]",
-      "Tomorrow, Sunday 4 October:",
+      "Tomorrow, Sunday 4 October 2026 (2026-10-04):",
       "- nothing planned",
     ].join("\n"),
   );
@@ -42,8 +46,10 @@ test("today and tomorrow are worked out when the prompt is built, not when the e
   await s.agenda.refresh();
   s.clock.t = new Date("2026-10-04T22:01:00Z").getTime(); // 00:01 on Monday
   const text = s.agenda.render();
-  assert.match(text, /Today, Monday 5 October:\n- 09:00-10:00: Dentist/);
-  assert.match(text, /Tomorrow, Tuesday 6 October:\n- nothing planned/);
+  assert.match(text, /Today, Monday 5 October 2026 \(2026-10-05\):\n- 09:00-10:00: Dentist/);
+  assert.match(text, /Tomorrow, Tuesday 6 October 2026 \(2026-10-06\):\n- nothing planned/);
+  // The coming days start the day after tomorrow, worked out at build time too.
+  assert.match(text, /Dates of the coming days: Wed 2026-10-07, .*, Tue 2026-10-13\./);
 });
 
 test("calendars with inAgenda off are left out", async () => {
@@ -59,7 +65,7 @@ test("before any successful refresh the section says the calendar is unavailable
   await assert.rejects(s.agenda.refresh());
   assert.equal(
     s.agenda.render(),
-    "## Calendar\nThe user's iCloud calendars are unavailable right now (iCloud could not be reached), so don't assume they are free. calendar_list_events tries again.",
+    `## Calendar\nToday is Saturday 3 October 2026 (2026-10-03).\n${COMING}\nThe user's iCloud calendars are unavailable right now (iCloud could not be reached), so don't assume they are free. calendar_list_events tries again.`,
   );
 });
 
@@ -93,7 +99,9 @@ test("the section is cut to 2000 characters, saying how many events were left ou
   const text = s.agenda.render();
   assert.ok(text.length <= AGENDA_MAX_CHARS, String(text.length));
   assert.match(text, /\(\d+ more events left out; use calendar_list_events\.\)$/);
-  assert.match(text, /Today, Saturday 3 October:/);
+  assert.match(text, /Today, Saturday 3 October 2026 \(2026-10-03\):/);
+  // Only event lines are dropped: the dates survive the cut.
+  assert.ok(text.includes(COMING));
 });
 
 test("events across midnight read as until and from", async () => {
@@ -102,7 +110,7 @@ test("events across midnight read as until and from", async () => {
   await s.agenda.refresh();
   const text = s.agenda.render();
   assert.match(text, /- from 22:00: Party/);
-  assert.match(text, /Tomorrow, Sunday 4 October:\n- until 02:00: Party/);
+  assert.match(text, /Tomorrow, Sunday 4 October 2026 \(2026-10-04\):\n- until 02:00: Party/);
 });
 
 test("with a single calendar in the agenda, events carry no calendar name", async () => {
@@ -139,10 +147,11 @@ test("work and home events are listed together, with status and calendar", async
     [
       "## Calendar",
       "The user's calendars for today and tomorrow (times in Europe/Amsterdam). For other days, or to change an event, use the calendar tools.",
-      "Today, Saturday 3 October:",
+      COMING,
+      "Today, Saturday 3 October 2026 (2026-10-03):",
       "- 10:00-11:00: Swimming lesson [Home]",
       "- 10:30-10:45: MASH Standup (online) (tentative) [Work]",
-      "Tomorrow, Sunday 4 October:",
+      "Tomorrow, Sunday 4 October 2026 (2026-10-04):",
       "- 14:00-14:30: Vendor call (cancelled) [Work]",
     ].join("\n"),
   );
@@ -201,7 +210,7 @@ test("before iCloud ever answered, the section says so and still lists the work 
   s.fake.failWith = 0;
   await s.agenda.refresh();
   const text = s.agenda.render();
-  assert.match(text, /^## Calendar\nThe user's calendars for today and tomorrow.*\nThe user's iCloud calendars are unavailable right now/);
+  assert.match(text, /^## Calendar\nThe user's calendars for today and tomorrow.*\nDates of the coming days: .*\nThe user's iCloud calendars are unavailable right now/);
   assert.match(text, /- 10:30-10:45: MASH Standup \(online\) \(tentative\)/);
 });
 
