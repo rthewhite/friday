@@ -1,11 +1,11 @@
 /**
- * Alerts in friday.db: timers (and later alarms) with a due time and a target. The store only keeps rows; when and
+ * Alerts in friday.db: timers and alarms with a due time and a target. The store only keeps rows; when and
  * how an alert rings is AlertService's business. Ids are short so the model can say them back ("timer k3f9").
  */
 import { randomInt } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-export type AlertKind = "timer";
+export type AlertKind = "timer" | "alarm";
 export type AlertLanguage = "nl" | "en";
 export type AlertState = "scheduled" | "ringing" | "acknowledged" | "cancelled" | "missed";
 export type FinalState = Extract<AlertState, "acknowledged" | "cancelled" | "missed">;

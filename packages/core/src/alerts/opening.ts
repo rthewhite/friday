@@ -22,8 +22,11 @@ function describe(a: Alert, now: Date, zone: string): string {
   const due = new Date(a.dueAt);
   // A snooze moves the due time: from then on it's "snoozed for N minutes", not a timer of the whole span.
   const from = new Date(a.snoozedAt ?? a.createdAt);
-  const what = a.snoozedAt ? `snoozed for ${spokenDuration(due.getTime() - from.getTime())} at ${clock(from, zone)}` : `${spokenDuration(due.getTime() - from.getTime())}, set at ${clock(from, zone)}`;
-  let s = `the ${a.kind} "${a.label}" (${what}) went off at ${clock(due, zone)}`;
+  let s: string;
+  if (a.snoozedAt) s = `the ${a.kind} "${a.label}" (snoozed for ${spokenDuration(due.getTime() - from.getTime())} at ${clock(from, zone)}) went off at ${clock(due, zone)}`;
+  // An alarm is for a time of day: how long ago it was set doesn't matter.
+  else if (a.kind === "alarm") s = `the alarm "${a.label}" for ${clock(due, zone)} went off`;
+  else s = `the ${a.kind} "${a.label}" (${spokenDuration(due.getTime() - from.getTime())}, set at ${clock(from, zone)}) went off at ${clock(due, zone)}`;
   const lateMin = Math.floor((now.getTime() - due.getTime()) / 60_000);
   if (lateMin >= 1) s += `, ${plural(lateMin, "minute")} ago`;
   return s;

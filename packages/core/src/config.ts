@@ -47,6 +47,8 @@ export function alertSettings(env: Record<string, string | undefined>) {
     alertRingIntervalMs: positive("FRIDAY_ALERT_RING_INTERVAL_MS", 60_000),
     /** No ring starts later than this after an alert's due time; an alert still waiting then is missed. */
     alertGraceMs: positive("FRIDAY_ALERT_GRACE_MS", 600_000),
+    /** An alarm rings until someone reacts, but no ring starts later than this many minutes after its due time. */
+    alarmRingMinutes: positive("FRIDAY_ALARM_RING_MINUTES", 30),
   };
 }
 
@@ -136,7 +138,7 @@ export const settings = {
   ...chatSettings(process.env),
   /** promptContextMaxChars. */
   ...promptSettings(process.env),
-  /** alertRings, alertRingIntervalMs, alertGraceMs. */
+  /** alertRings, alertRingIntervalMs, alertGraceMs, alarmRingMinutes. */
   ...alertSettings(process.env),
   /** The Live session's instruction: the shared base plus the voice part. */
   systemPrompt: `${prompts.base}\n\n${prompts.voice}`,

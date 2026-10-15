@@ -52,7 +52,7 @@ if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the la
 // Cron's zone resolves like core's other keys (core scope, global, env) and re-plans when saved (followTimezone).
 const jobs = new Scheduler({ store: jobStore, timezone: () => coreKey("FRIDAY_TIMEZONE"), catchupDelayMs: settings.jobCatchupDelayMs });
 const conversations = new ConversationStore(db, { quietMinutes: settings.conversationQuietMinutes });
-// Alerts (timers) ring a device over its control connection; announcements use the household zone.
+// Alerts (timers and alarms) ring a device over its control connection; announcements use the household zone.
 const householdZone = () => resolveTimeZone(coreKey("FRIDAY_TIMEZONE")).zone;
 const alerts = new AlertService({
   store: new AlertStore(db),
@@ -62,6 +62,7 @@ const alerts = new AlertService({
   rings: settings.alertRings,
   ringIntervalMs: settings.alertRingIntervalMs,
   graceMs: settings.alertGraceMs,
+  alarmWindowMs: settings.alarmRingMinutes * 60_000,
 });
 
 const registry = new ToolRegistry();

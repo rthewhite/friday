@@ -29,7 +29,7 @@ function setup(opts: { online?: boolean; db?: DatabaseSync; clock?: FakeClock; r
   const store = new AlertStore(db, { now: () => new Date(clock.now()) });
   const links = new DeviceLinks();
   const sessions = new DeviceSessions();
-  const service = new AlertService({ store, links, sessions, clock, log: quiet, timezone: () => "Europe/Amsterdam", rings: 5, ringIntervalMs: opts.ringIntervalMs ?? MIN, graceMs: 10 * MIN });
+  const service = new AlertService({ store, links, sessions, clock, log: quiet, timezone: () => "Europe/Amsterdam", rings: 5, ringIntervalMs: opts.ringIntervalMs ?? MIN, graceMs: 10 * MIN, alarmWindowMs: 30 * MIN });
   const device = new FakeSocket();
   if (opts.online ?? true) links.add(KITCHEN, device);
   const timer = (over: Partial<NewAlert> = {}) =>
@@ -444,5 +444,136 @@ test("cancelDevice cancels the deleted device's alerts", async () => {
   assert.equal(t.state(a.id), "cancelled");
   await t.clock.advance(10 * MIN);
   assert.deepEqual(t.device.rings(), []);
+  t.service.stop();
+});
+
+// Alarms: setup() gives them a 30-minute window; t.timer(alarm) is due at 12:05 local.
+const alarm = { kind: "alarm" as const, label: "wekker" };
+
+test("an alarm keeps ringing past the fifth unanswered ring, a minute after each, and is acknowledged at +10", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(alarm);
+  await t.clock.advance(5 * MIN);
+  for (let ring = 1; ring <= 7; ring++) {
+    assert.equal(t.device.rings().length, ring);
+    t.service.claim(KITCHEN, a.id)!.closed();
+    assert.equal(t.state(a.id), "ringing", `still ringing after ${ring} unanswered rings`);
+    await t.clock.advance(MIN);
+  }
+  assert.equal(t.device.rings().length, 8);
+  await t.clock.advance(2 * MIN); // 10 minutes after due: the device rings again and is answered
+  assert.equal(t.device.rings().length, 9);
+  const claim = t.service.claim(KITCHEN, a.id)!;
+  claim.acknowledge();
+  claim.closed();
+  assert.equal(t.state(a.id), "acknowledged");
+  await t.clock.advance(30 * MIN);
+  assert.equal(t.device.rings().length, 9);
+  t.service.stop();
+});
+
+test("an alarm nobody answers is missed when its window ends, and rings no more", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(alarm);
+  await t.clock.advance(5 * MIN); // due
+  // The device never opens a session: a ring every 15 s answer timeout + 1 minute interval.
+  await t.clock.advance(30 * MIN - 1);
+  assert.equal(t.state(a.id), "ringing");
+  assert.ok(t.device.rings().length > 20, `${t.device.rings().length} rings in the window`);
+  // One more ring may start at the very limit, and is not cut off.
+  await t.clock.advance(2 * MIN);
+  assert.equal(t.state(a.id), "missed");
+  const rings = t.device.rings().length;
+  assert.equal(rings, 25, "a ring every 75 seconds, from due up to and including the limit");
+  await t.clock.advance(30 * MIN);
+  assert.equal(t.device.rings().length, rings);
+  t.service.stop();
+});
+
+test("after an outage an alarm within its window rings at once and one past it is missed, while a timer is long missed", async () => {
+  const first = setup();
+  first.service.start();
+  const a = first.timer(alarm);
+  const early = first.timer({ ...alarm, label: "early", dueAt: new Date(first.clock.now() - 35 * MIN) });
+  const eggs = first.timer();
+  first.service.stop();
+  await first.clock.advance(20 * MIN); // a and eggs due 15 minutes ago, early 55
+  const t = setup({ db: first.db, clock: first.clock });
+  t.service.start();
+  assert.deepEqual(t.device.rings(), [a.id]);
+  assert.match(t.service.claim(KITCHEN, a.id)!.text, /15 minutes ago/);
+  assert.equal(t.state(early.id), "missed");
+  assert.equal(t.state(eggs.id), "missed", "a timer's grace is 10 minutes");
+  t.service.stop();
+});
+
+test("a snoozed alarm's window counts from its new due time", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(alarm);
+  await t.clock.advance(5 * MIN); // due, rings
+  await t.clock.advance(20 * MIN); // unanswered rings until 20 minutes after due
+  const ringing = t.device.rings().length;
+  await t.clock.advance(ANSWER_TIMEOUT_MS + MIN); // the next ring
+  assert.equal(t.device.rings().length, ringing + 1);
+  const claim = t.service.claim(KITCHEN, a.id)!;
+  claim.acknowledge();
+  t.service.snooze(KITCHEN, 20);
+  claim.closed();
+  const due = Date.parse(t.store.get(a.id)!.dueAt);
+  await t.clock.advance(due - t.clock.now() + 25 * MIN); // ~66 minutes after the first due time
+  assert.equal(t.state(a.id), "ringing", "still ringing, 25 minutes into its new window");
+  t.service.stop();
+});
+
+test("an alarm's local tone running out is one more unanswered ring, and it rings again a minute later", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(alarm);
+  await t.clock.advance(5 * MIN);
+  t.service.deviceReport(KITCHEN, "ringing_locally", a.id);
+  await t.clock.advance(5 * MIN);
+  assert.equal(t.device.rings().length, 1);
+  t.service.deviceReport(KITCHEN, "unanswered", a.id);
+  const now = t.store.get(a.id)!;
+  assert.deepEqual({ state: now.state, local: now.local, rings: now.rings }, { state: "ringing", local: false, rings: 1 });
+  await t.clock.advance(MIN);
+  assert.equal(t.device.rings().length, 2);
+  t.service.stop();
+});
+
+test("an alarm's local tone running out after its window makes it missed", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(alarm);
+  await t.clock.advance(5 * MIN + 28 * MIN);
+  t.service.deviceReport(KITCHEN, "ringing_locally", a.id);
+  await t.clock.advance(5 * MIN); // the device's ring_limit: 33 minutes after due
+  const rings = t.device.rings().length;
+  t.service.deviceReport(KITCHEN, "unanswered", a.id);
+  await t.clock.advance(MIN);
+  assert.equal(t.state(a.id), "missed");
+  assert.equal(t.device.rings().length, rings);
+  t.service.stop();
+});
+
+test("reschedule: a moved alert rings at its new time, not the old one; a ringing or unknown one is refused", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(alarm); // due at 10:05Z
+  await t.clock.advance(MIN);
+  const moved = t.service.reschedule(a.id, new Date(t.clock.now() + 10 * MIN));
+  assert.deepEqual(
+    { id: moved.id, state: moved.state, dueAt: moved.dueAt, nextRingAt: moved.nextRingAt, rings: moved.rings },
+    { id: a.id, state: "scheduled", dueAt: "2026-10-08T10:11:00.000Z", nextRingAt: "2026-10-08T10:11:00.000Z", rings: 0 },
+  );
+  await t.clock.advance(10 * MIN - 1);
+  assert.deepEqual(t.device.rings(), [], "not at the old time");
+  await t.clock.advance(1);
+  assert.deepEqual(t.device.rings(), [a.id]);
+  assert.throws(() => t.service.reschedule(a.id, new Date(t.clock.now() + MIN)), AlertConflict);
+  assert.throws(() => t.service.reschedule("nope", new Date()), AlertNotFound);
   t.service.stop();
 });
