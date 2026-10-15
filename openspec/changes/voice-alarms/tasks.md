@@ -31,6 +31,6 @@
 
 ## 6. Integration
 
-- [ ] 6.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify it is green
+- [x] 6.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify it is green
 - [ ] 6.2 With a dev server on a free port and the reSpeaker pointed at it (or after deploy, with the user's approval), say "maak me morgen om half acht wakker", then "nee, om acht uur", then "dus je maakt me om acht uur wakker?". Verify on the Alerts page that one alarm exists for 08:00, and that the replies named 08:00 from `when`
 - [ ] 6.3 Set an alarm two minutes ahead and leave it unanswered. Verify it keeps ringing past the fifth ring, and that saying "I'm up" acknowledges it
