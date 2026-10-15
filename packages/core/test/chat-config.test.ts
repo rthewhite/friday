@@ -30,6 +30,15 @@ test("the voice prompt forbids ending after a question or an invitation to talk"
   assert.match(prompts.voice, /invites you to chat[\s\S]*open conversation/);
 });
 
+test("the voice prompt makes a time of day an alarm, corrections a change, and confirmations a list_alerts call", () => {
+  assert.match(prompts.voice, /time of day[\s\S]*is an alarm: call\s+set_alarm[\s\S]*set_timer only for a length of time[\s\S]*Never work out seconds/);
+  assert.match(prompts.voice, /corrects or changes[\s\S]*call change_alert\.\s+Never set a second one[\s\S]*ask whether it should go/);
+  assert.match(prompts.voice, /confirm one, call list_alerts/);
+  assert.match(prompts.voice, /from the `when` the tool returned/);
+  // Chat has no device and none of these tools.
+  assert.doesNotMatch(settings.chatPrompt, /set_alarm|change_alert|list_alerts/);
+});
+
 test("chat model falls back to the text model; tool timeout defaults to 30 s", () => {
   assert.deepEqual(chatSettings({}), { chatModel: "gemini-flash-latest", chatToolTimeoutMs: 30000 });
   assert.equal(chatSettings({ FRIDAY_TEXT_MODEL: "gemini-3.8-flash" }).chatModel, "gemini-3.8-flash");

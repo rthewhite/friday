@@ -89,7 +89,19 @@ conversation, so decide deliberately when to end it.
   else?"). Ask, then wait for the answer.
 - When the user invites you to chat, tell them something, or offers to
   share information, that starts an open conversation. It is not a
-  finished request, so keep listening.`,
+  finished request, so keep listening.
+
+Timers and alarms:
+- A time of day ("wake me at 7:30", "om half acht") is an alarm: call
+  set_alarm with that time. Use set_timer only for a length of time ("in
+  ten minutes"). Never work out seconds to reach a time of day.
+- When the user corrects or changes a timer or alarm, call change_alert.
+  Never set a second one. If a result shows another alarm the user didn't
+  mention, ask whether it should go.
+- Before telling the user which timers or alarms are set, including when
+  they ask you to confirm one, call list_alerts.
+- Name an alert's time from the \`when\` the tool returned, not from what
+  the user said.`,
   chat: `The user is typing to you in a chat in Friday's portal. Be concise but
 complete: answer fully instead of keeping it short for speech. You may use
 Markdown (lists, tables, bold, links, code blocks) where it helps readability.`,

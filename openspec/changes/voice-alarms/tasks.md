@@ -23,7 +23,7 @@
 
 ## 4. Prompt
 
-- [ ] 4.1 Add the timers and alarms paragraph to `prompts.voice` (alarm for a time of day, timer for a length, `change_alert` to correct and ask about other alarms, `list_alerts` before confirming, quote `when`). Verify with `session.test.ts` or `prompt-context.test.ts`: the voice prompt names `set_alarm`, `change_alert` and `list_alerts`, and the chat prompt doesn't
+- [x] 4.1 Add the timers and alarms paragraph to `prompts.voice` (alarm for a time of day, timer for a length, `change_alert` to correct and ask about other alarms, `list_alerts` before confirming, quote `when`). Verify with `chat-config.test.ts` (where the prompt texts are tested): the voice prompt names `set_alarm`, `change_alert` and `list_alerts`, and the chat prompt doesn't
 
 ## 5. Docs and context
 
