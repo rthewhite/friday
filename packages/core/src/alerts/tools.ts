@@ -65,9 +65,10 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
       return `This device can't ring yet: it has no control connection to Friday, so its firmware may need an update. No ${kind} was set.`;
     return undefined;
   };
-  const fullError = (kind: AlertKind, device: string): string | undefined => {
+  /** Why another alert of `kind` doesn't fit next to the `scheduled` ones of its device, if it doesn't. */
+  const fullError = (kind: AlertKind, scheduled: number): string | undefined => {
     const max = kind === "alarm" ? MAX_ALARMS_PER_DEVICE : MAX_TIMERS_PER_DEVICE;
-    return scheduledOn(device, kind).length >= max ? `This device already has ${max} ${kind}s set; cancel one first.` : undefined;
+    return scheduled >= max ? `This device already has ${max} ${kind}s set; cancel one first.` : undefined;
   };
   const scheduledOn = (device: string, kind: AlertKind) => opts.alerts.active().filter((a) => a.kind === kind && a.state === "scheduled" && a.target.id === device);
   const parseLabel = (raw: unknown, fallback: string): { label: string } | { error: string } => {
@@ -79,9 +80,10 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
 
   /**
    * The one scheduled or ringing alert the arguments pick: by id, else every one that agrees with each of label,
-   * due and kind given. Anything else is an error listing the alerts, so the model can ask which one.
+   * due and kind given, else (none given) the alerts of the calling device only, so "cancel it" in the kitchen can't
+   * reach the bedroom's alarm. Anything else is an error listing the alerts, so the model can ask which one.
    */
-  const pick = (args: { id?: unknown; label?: unknown; due?: unknown; kind?: unknown }, verb: string): { alert: Alert } | { error: string; alerts?: unknown[] } => {
+  const pick = (args: { id?: unknown; label?: unknown; due?: unknown; kind?: unknown }, call: ToolCallContext, verb: string): { alert: Alert } | { error: string; alerts?: unknown[] } => {
     const all = opts.alerts.active();
     const id = typeof args.id === "string" ? args.id.trim().toLowerCase() : "";
     const label = typeof args.label === "string" ? args.label.trim().toLowerCase() : "";
@@ -95,7 +97,9 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
     if (kind && !KINDS.includes(kind as AlertKind)) return { error: "kind must be timer or alarm" };
     const matches = id
       ? all.filter((a) => a.id === id)
-      : all.filter((a) => (!label || a.label.toLowerCase() === label) && (!at || due(a) === at) && (!kind || a.kind === kind));
+      : label || at || kind
+        ? all.filter((a) => (!label || a.label.toLowerCase() === label) && (!at || due(a) === at) && (!kind || a.kind === kind))
+        : all.filter((a) => a.target.id === call.device);
     if (matches.length === 1) return { alert: matches[0] };
     const why = !all.length ? "No timer or alarm is set." : matches.length ? "Several alerts match; say which one." : "No alert matches.";
     return { error: `${why} Nothing was ${verb}.`, alerts: viewAll(all) };
@@ -105,7 +109,7 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
     id: { type: Type.STRING, description: "The alert's id, from list_alerts or the tool that set it" },
     label: { type: Type.STRING, description: "The alert's label" },
     due: { type: Type.STRING, description: 'The alert\'s current due time as HH:MM, e.g. "08:30" for "the 8:30 alarm"' },
-    kind: { type: Type.STRING, enum: [...KINDS], description: "timer or alarm" },
+    kind: { type: Type.STRING, enum: [...KINDS], description: "timer or alarm: pass it whenever the user says which" },
   };
 
   registry.add(TOOL_OWNER, {
@@ -131,7 +135,7 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
       const label = parseLabel(args.label, "timer");
       if ("error" in label) return label;
       if (!validLanguage(language)) return { error: "language must be nl or en" };
-      const refused = deviceError("timer", call) ?? fullError("timer", call.device!);
+      const refused = deviceError("timer", call) ?? fullError("timer", scheduledOn(call.device!, "timer").length);
       if (refused) return { error: refused };
       const a = opts.alerts.create({
         kind: "timer",
@@ -178,7 +182,7 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
       const existing = others.find((a) => Date.parse(a.dueAt) === at.at.getTime());
       if (existing)
         return { ...brief(existing), in: spokenDuration(at.at.getTime() - now()), already_set: true, others: others.filter((a) => a !== existing).map(brief) };
-      const full = fullError("alarm", device);
+      const full = fullError("alarm", others.length);
       if (full) return { error: full };
       const a = opts.alerts.create({
         kind: "alarm",
@@ -208,7 +212,7 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
     description:
       "Move a timer or alarm that is set: an alarm to another time of day (time, and date only for another day), a timer to a new length " +
       "from now (seconds). Use this whenever the user corrects or changes one, never set a second one. Pick it by id, label, its current " +
-      "due time or kind; without any, it changes the only one there is. When it can't tell which one is meant, it changes nothing and lists " +
+      "due time or kind; without any, it changes the only one on this device. When it can't tell which one is meant, it changes nothing and lists " +
       "them so you can ask. " +
       WHEN_RULE,
     parameters: {
@@ -221,8 +225,8 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
       },
     },
     channels: ["voice"],
-    handler: (args: { id?: unknown; label?: unknown; due?: unknown; kind?: unknown; time?: unknown; date?: unknown; seconds?: unknown }) => {
-      const picked = pick(args, "changed");
+    handler: (args: { id?: unknown; label?: unknown; due?: unknown; kind?: unknown; time?: unknown; date?: unknown; seconds?: unknown }, call) => {
+      const picked = pick(args, call, "changed");
       if ("error" in picked) return picked;
       const a = picked.alert;
       if (a.state !== "scheduled") return { error: `The ${a.kind} "${a.label}" is ringing; snooze or cancel it instead. Nothing was changed.` };
@@ -231,6 +235,9 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
         if (args.seconds !== undefined) return { error: "An alarm is moved with time (and date), not seconds. Nothing was changed." };
         const at = alarmTime(args.time, args.date, new Date(now()), zone());
         if ("error" in at) return { error: `${at.error}. Nothing was changed.` };
+        // set_alarm refuses a second alarm at the same moment on a device; moving one there would make it anyway.
+        const clash = scheduledOn(a.target.id, "alarm").find((x) => x.id !== a.id && Date.parse(x.dueAt) === at.at.getTime());
+        if (clash) return { error: `The alarm "${clash.label}" (${clash.id}) is already set for ${when(clash)}; cancel this one instead. Nothing was changed.` };
         dueAt = at.at;
       } else {
         if (args.time !== undefined || args.date !== undefined) return { error: "A timer is changed with seconds from now, not a time of day. Nothing was changed." };
@@ -247,12 +254,12 @@ export function registerAlertTools(registry: ToolRegistry, opts: AlertToolsOptio
     name: "cancel_alert",
     description:
       "Cancel a timer or alarm that is set or ringing. Pick it by id, label, its due time (\"the 8:30 alarm\": due 08:30) or kind; " +
-      "without any, it cancels the only one there is. When it can't tell which one is meant, it cancels nothing and lists them so you can ask. " +
+      "without any, it cancels the only one on this device. When it can't tell which one is meant, it cancels nothing and lists them so you can ask. " +
       WHEN_RULE,
     parameters: { type: Type.OBJECT, properties: selectors },
     channels: ["voice"],
-    handler: (args: { id?: unknown; label?: unknown; due?: unknown; kind?: unknown }) => {
-      const picked = pick(args, "cancelled");
+    handler: (args: { id?: unknown; label?: unknown; due?: unknown; kind?: unknown }, call) => {
+      const picked = pick(args, call, "cancelled");
       if ("error" in picked) return picked;
       const a = picked.alert;
       const was = brief(a);

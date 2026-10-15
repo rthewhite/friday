@@ -68,3 +68,16 @@ test("winter time: 02:30 on 25 October 2026 happens twice in Amsterdam, and the 
   assert.equal(at("02:30", "2026-10-25", "2026-10-24T12:00:00Z"), "2026-10-25T00:30:00.000Z");
   assert.equal(at("07:30", "2026-10-25", "2026-10-24T12:00:00Z"), "2026-10-25T06:30:00.000Z"); // CET after the change
 });
+
+test("winter time: once the first 02:30 has passed, the second one that night is still the next 02:30", () => {
+  // 02:45 CEST, the first time round: 02:30 CET comes 45 minutes later, not tomorrow.
+  assert.equal(at("02:30", undefined, "2026-10-25T00:45:00Z"), "2026-10-25T01:30:00.000Z");
+  assert.equal(at("02:30", "2026-10-25", "2026-10-25T00:45:00Z"), "2026-10-25T01:30:00.000Z");
+  assert.match(error("02:30", "2026-10-25", "2026-10-25T01:45:00Z"), /already passed/);
+});
+
+test("errors end without a full stop, so the tools can append theirs", () => {
+  for (const e of [error("02:30", "2026-03-29", "2026-03-28T12:00:00Z"), error("7:30", undefined, "2026-10-13T12:00:00Z"), error("07:00", "2026-10-21", "2026-10-13T08:00:00Z")]) {
+    assert.doesNotMatch(e, /\.$/, e);
+  }
+});

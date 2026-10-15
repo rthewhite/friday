@@ -151,14 +151,16 @@ export class AlertService {
   }
 
   /**
-   * Move a scheduled alert to `dueAt`: scheduled again with no unanswered rings. Throws AlertNotFound for an unknown
-   * alert and AlertConflict for one that isn't scheduled (a ringing alert is snoozed or cancelled, not moved).
+   * Move a scheduled alert to `dueAt`, with no unanswered rings. A timer then counts from now, as if set again; an
+   * alarm is just for its new time. Throws AlertNotFound for an unknown alert and AlertConflict for one that isn't
+   * scheduled (a ringing alert is snoozed or cancelled, not moved).
    */
   reschedule(id: string, dueAt: Date): Alert {
     const a = this.opts.store.get(id);
     if (!a) throw new AlertNotFound(`no alert ${id}`);
     if (a.state !== "scheduled") throw new AlertConflict(`alert ${id} is ${a.state}`);
-    const out = this.opts.store.update(id, { state: "scheduled", dueAt, nextRingAt: dueAt, rings: 0, local: false })!;
+    const snoozedAt = a.kind === "timer" ? this.now() : null;
+    const out = this.opts.store.update(id, { dueAt, nextRingAt: dueAt, rings: 0, snoozedAt })!;
     this.log.log(`alerts: ${a.kind} ${id} "${a.label}" moved from ${a.dueAt} to ${out.dueAt}`);
     this.tick();
     return out;
@@ -306,7 +308,8 @@ export class AlertService {
           list.push(a);
           due.set(a.target.id, list);
         } else if (t >= deadline) {
-          this.log.log(`alerts: ${a.id} "${a.label}" missed (${free ? "unanswered" : "device offline or busy"} until its grace limit)`);
+          const limit = a.kind === "alarm" ? "ring window" : "grace limit";
+          this.log.log(`alerts: ${a.id} "${a.label}" missed (${free ? "unanswered" : "device offline or busy"} until its ${limit})`);
           this.finish(a, "missed");
         } else waiting.push(a);
       }

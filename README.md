@@ -425,7 +425,7 @@ An alert rings on the device it was set on. Several alerts due at once are annou
   - `cancel_alert`: cancels one alert.
   - `snooze_alert` (1-60 minutes, only in the session that announces it).
 
-  `change_alert` and `cancel_alert` pick the alert by `id`, or by `label`, `due` (its due time, e.g. `08:30`) and `kind` together; when they can't tell which, they change nothing and list the alerts. Timers and alarms need a voice device with current firmware: on the Talk page, in chat or on a device without a control connection `set_timer` and `set_alarm` explain why they can't.
+  `change_alert` and `cancel_alert` pick the alert by `id`, or by `label`, `due` (its due time, e.g. `08:30`) and `kind` together, and without any of those only from the device you're talking to; `change_alert` won't move an alarm onto another alarm's time on the same device. When they can't tell which, they change nothing and list the alerts. Timers and alarms need a voice device with current firmware: on the Talk page, in chat or on a device without a control connection `set_timer` and `set_alarm` explain why they can't.
 - **Settings > Alerts** lists running timers and alarms with the time left and a *Cancel* action, and finished ones with their outcome; missed alerts stand out.
 - **API.** `GET /api/alerts` (`{ alerts }`: active first, then finished newest first, each with `id`, `kind`, `label`, `dueAt`, `target` `{ kind, id, label }`, `state`, `createdAt`, `finishedAt`, `rings`), `DELETE /api/alerts/:id` (cancel: 204, 404 unknown, 409 already finished).
 - **Firmware.** Ringing needs the current `friday_client` on the device (see the device sections below). Older firmware keeps working for conversations; the device just shows as offline and can't have timers or alarms.

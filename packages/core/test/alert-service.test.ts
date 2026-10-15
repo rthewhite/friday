@@ -577,3 +577,31 @@ test("reschedule: a moved alert rings at its new time, not the old one; a ringin
   assert.throws(() => t.service.reschedule("nope", new Date()), AlertNotFound);
   t.service.stop();
 });
+
+test("a moved timer is announced as set again at the move, not with its whole span since it was set", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(); // 12:00, 5 minutes
+  await t.clock.advance(3 * MIN);
+  t.service.reschedule(a.id, new Date(t.clock.now() + 20 * MIN)); // 12:03, now 20 minutes
+  await t.clock.advance(20 * MIN);
+  assert.match(t.service.claim(KITCHEN, a.id)!.text, /the timer "eggs" \(set again for 20 minutes at 12:03\) went off at 12:23\./);
+  t.service.stop();
+});
+
+test("an alarm snoozed earlier and then moved is announced for its new time, not as snoozed", async () => {
+  const t = setup();
+  t.service.start();
+  const a = t.timer(alarm); // due 12:05
+  await t.clock.advance(5 * MIN);
+  const claim = t.service.claim(KITCHEN, a.id)!;
+  claim.acknowledge();
+  t.service.snooze(KITCHEN, 5);
+  claim.closed();
+  assert.ok(t.store.get(a.id)!.snoozedAt);
+  t.service.reschedule(a.id, new Date("2026-10-08T18:00:00Z")); // 20:00 local
+  assert.equal(t.store.get(a.id)!.snoozedAt, null);
+  await t.clock.to("2026-10-08T18:00:00Z");
+  assert.match(t.service.claim(KITCHEN, a.id)!.text, /^Alert: the alarm "wekker" for 20:00 went off\./);
+  t.service.stop();
+});

@@ -2,6 +2,7 @@
  * The turn an alert session opens with: what went off, when, how late, and in which language to say it. It is an
  * instruction to the model, not something the user said, so it is never recorded.
  */
+import { localTime as clock } from "./clock-time.js";
 import type { Alert, AlertLanguage } from "./store.js";
 
 const LANGUAGES: Record<AlertLanguage, string> = { nl: "Dutch", en: "English" };
@@ -16,14 +17,12 @@ export function spokenDuration(ms: number): string {
   return parts.length ? parts.join(" ") : "0 seconds";
 }
 
-const clock = (at: Date, zone: string) => at.toLocaleTimeString("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" });
-
 function describe(a: Alert, now: Date, zone: string): string {
   const due = new Date(a.dueAt);
-  // A snooze moves the due time: from then on it's "snoozed for N minutes", not a timer of the whole span.
+  // A snooze or a changed timer sets the due time again: from then on it's "set again for N minutes", not the whole span.
   const from = new Date(a.snoozedAt ?? a.createdAt);
   let s: string;
-  if (a.snoozedAt) s = `the ${a.kind} "${a.label}" (snoozed for ${spokenDuration(due.getTime() - from.getTime())} at ${clock(from, zone)}) went off at ${clock(due, zone)}`;
+  if (a.snoozedAt) s = `the ${a.kind} "${a.label}" (set again for ${spokenDuration(due.getTime() - from.getTime())} at ${clock(from, zone)}) went off at ${clock(due, zone)}`;
   // An alarm is for a time of day: how long ago it was set doesn't matter.
   else if (a.kind === "alarm") s = `the alarm "${a.label}" for ${clock(due, zone)} went off`;
   else s = `the ${a.kind} "${a.label}" (${spokenDuration(due.getTime() - from.getTime())}, set at ${clock(from, zone)}) went off at ${clock(due, zone)}`;

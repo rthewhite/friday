@@ -24,7 +24,7 @@ export const migrations: Migration[] = [
     name: "alerts",
     // Timers (and later alarms) that ring a target. next_ring_at is when the service next tries (or, while the device
     // rings it with its own tone, since when), so a restart resumes the ring cycle; rings counts unanswered rings;
-    // local is set while the device rings it itself; snoozed_at is the last snooze.
+    // local is set while the device rings it itself; snoozed_at is when the due time was last set again (a snooze or a changed timer).
     sql: `
       CREATE TABLE alerts (
         id TEXT PRIMARY KEY,

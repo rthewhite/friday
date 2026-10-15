@@ -150,7 +150,7 @@ The descriptions of `set_timer`, `set_alarm`, `change_alert`, `list_alerts` and 
 
 ### Requirement: set_alarm
 
-The tool `set_alarm` SHALL take `time` (24-hour `HH:MM`, from `00:00` to `23:59`), an optional `date` (`YYYY-MM-DD`), an optional `label` (up to 60 characters, `alarm` when omitted or blank) and `language` (`nl` or `en`, the language the user is speaking). Core SHALL work out the due time in `FRIDAY_TIMEZONE`: without `date`, the next moment that clock time occurs after now (today when it is still ahead, else tomorrow); with `date`, that time on that date, which SHALL be in the future and at most 7 days ahead. A clock time that does not occur on that date (skipped by a change to summer time) SHALL return an error; a clock time that occurs twice (a change to winter time) SHALL mean the first. It SHALL create an `alarm` alert targeting the device whose session the call comes from, and return at once with the alarm's id, label, due time `HH:MM`, its `when`, how long until it rings, and the other `scheduled` alarms of that device (each with id, label and `when`). Setting an alarm when a `scheduled` alarm of the same device is already due at that moment SHALL create nothing and return the existing alarm, saying it was already set.
+The tool `set_alarm` SHALL take `time` (24-hour `HH:MM`, from `00:00` to `23:59`), an optional `date` (`YYYY-MM-DD`), an optional `label` (up to 60 characters, `alarm` when omitted or blank) and `language` (`nl` or `en`, the language the user is speaking). Core SHALL work out the due time in `FRIDAY_TIMEZONE`: without `date`, the next moment that clock time occurs after now (today when it is still ahead, else tomorrow); with `date`, that time on that date, which SHALL be in the future and at most 7 days ahead. A clock time that does not occur on that date (skipped by a change to summer time) SHALL return an error; a clock time that occurs twice (a change to winter time) SHALL mean the first of the two that is still ahead. It SHALL create an `alarm` alert targeting the device whose session the call comes from, and return at once with the alarm's id, label, due time `HH:MM`, its `when`, how long until it rings, and the other `scheduled` alarms of that device (each with id, label and `when`). Setting an alarm when a `scheduled` alarm of the same device is already due at that moment SHALL create nothing and return the existing alarm, saying it was already set.
 
 The description SHALL say it is for a time of day ("wake me at 7:30", "om half acht"), that the model passes the time as the user said it and never works out seconds, and that a wrong or changed alarm is moved with `change_alert` rather than set again. It SHALL be available only in the `voice` channel, with the same errors as `set_timer` for a session without a device and a device without an open control connection, and SHALL NOT create the alarm in those cases. A device SHALL have at most 20 `scheduled` alarms; setting another SHALL return an error. A `time` or `date` in another form, a date in the past or more than 7 days ahead SHALL return an error and create nothing.
 
@@ -192,7 +192,7 @@ The description SHALL say it is for a time of day ("wake me at 7:30", "om half a
 
 ### Requirement: Alert tools pick an alert by id, label, due time or kind
 
-`list_alerts` aside, the alert tools that act on one alert (`change_alert`, `cancel_alert`) SHALL take an optional `id`, `label`, `due` (24-hour `HH:MM`, the alert's due time in `FRIDAY_TIMEZONE`) and `kind` (`timer` or `alarm`), and SHALL consider the `scheduled` and `ringing` alerts of every device. With `id`, only the alert with that id SHALL match. Otherwise an alert SHALL match when it agrees with each of `label` (compared without regard to letter case), `due` and `kind` that is given; with none of them given, every alert matches. When exactly one alert matches, the tool SHALL act on it. When none or several match, the tool SHALL change nothing and return an error with every `scheduled` and `ringing` alert (id, kind, label, device, `when`), so the model can ask which one.
+`list_alerts` aside, the alert tools that act on one alert (`change_alert`, `cancel_alert`) SHALL take an optional `id`, `label`, `due` (24-hour `HH:MM`, the alert's due time in `FRIDAY_TIMEZONE`) and `kind` (`timer` or `alarm`), and SHALL consider the `scheduled` and `ringing` alerts of every device. With `id`, only the alert with that id SHALL match. Otherwise an alert SHALL match when it agrees with each of `label` (compared without regard to letter case), `due` and `kind` that is given; with none of them given, the alerts of the device the call comes from match, so a request on one device never acts on another device's alert by default. When exactly one alert matches, the tool SHALL act on it. When none or several match, the tool SHALL change nothing and return an error with every `scheduled` and `ringing` alert (id, kind, label, device, `when`), so the model can ask which one.
 
 #### Scenario: By due time
 - **WHEN** alarms are scheduled for 07:30 and 08:30 and the user says "remove the 8:30 alarm"
@@ -201,6 +201,10 @@ The description SHALL say it is for a time of day ("wake me at 7:30", "om half a
 #### Scenario: Label shared by kind
 - **WHEN** a timer `pasta` and an alarm `wekker` are scheduled and `cancel_alert` is called with `kind: "alarm"`
 - **THEN** the alarm `wekker` is cancelled
+
+#### Scenario: No selector on another device
+- **WHEN** the only alert is an alarm on `friday-bedroom` and `cancel_alert` is called without arguments from `friday-kitchen`
+- **THEN** nothing is cancelled and the error lists the bedroom alarm
 
 #### Scenario: Due time matches nothing
 - **WHEN** alarms are scheduled for 09:30 and 10:30 and `cancel_alert` is called with `due: "08:30"`
@@ -240,7 +244,7 @@ The tool `cancel_alert` SHALL cancel the one `scheduled` or `ringing` timer or a
 
 ### Requirement: change_alert
 
-The tool `change_alert` SHALL move the one `scheduled` timer or alarm picked as specified in "Alert tools pick an alert by id, label, due time or kind". For an alarm it SHALL take `time` and optionally `date`, with the same rules and errors as `set_alarm`. For a timer it SHALL take `seconds`, with the same range as `set_timer`, counted from now. The alert SHALL keep its id, kind, label, language and device, and SHALL be `scheduled` at the new due time with no unanswered rings. It SHALL return the alert's id, kind, label, new due time, new `when` and previous `when`. A `ringing` alert SHALL NOT be changed: the tool SHALL return an error saying it is ringing and can be snoozed or cancelled. `seconds` for an alarm, or `time`/`date` for a timer, SHALL return an error and change nothing. Its description SHALL say that correcting or moving an alert is done with this tool, never by setting another one. It SHALL be available only in the `voice` channel.
+The tool `change_alert` SHALL move the one `scheduled` timer or alarm picked as specified in "Alert tools pick an alert by id, label, due time or kind". For an alarm it SHALL take `time` and optionally `date`, with the same rules and errors as `set_alarm`. For a timer it SHALL take `seconds`, with the same range as `set_timer`, counted from now. The alert SHALL keep its id, kind, label, language and device, and SHALL be `scheduled` at the new due time with no unanswered rings. It SHALL return the alert's id, kind, label, new due time, new `when` and previous `when`. A `ringing` alert SHALL NOT be changed: the tool SHALL return an error saying it is ringing and can be snoozed or cancelled. `seconds` for an alarm, or `time`/`date` for a timer, SHALL return an error and change nothing. Moving an alarm to the moment another `scheduled` alarm of the same device is due SHALL return an error naming that alarm and change nothing, as `set_alarm` makes no second alarm at one moment either. A moved timer SHALL be announced as set again for its new length at the moment it was changed, and a moved alarm as the alarm for its new time. Its description SHALL say that correcting or moving an alert is done with this tool, never by setting another one. It SHALL be available only in the `voice` channel.
 
 #### Scenario: Correct the alarm time
 - **WHEN** an alarm for 08:30 is scheduled and the user says "no, the alarm should be at 7:30"
@@ -253,6 +257,10 @@ The tool `change_alert` SHALL move the one `scheduled` timer or alarm picked as 
 #### Scenario: Ringing alarm
 - **WHEN** an alarm is ringing and `change_alert` is called for it
 - **THEN** it returns an error saying it is ringing, and the alarm keeps ringing
+
+#### Scenario: Onto another alarm
+- **WHEN** alarms `wekker` at 07:00 and `pills` at 07:30 are set on one device and the user says "move the 7:30 one to seven"
+- **THEN** `change_alert` returns an error naming `wekker` at 07:00, and `pills` stays at 07:30
 
 #### Scenario: Wrong field for the kind
 - **WHEN** `change_alert` is called with `seconds` for an alarm

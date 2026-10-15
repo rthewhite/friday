@@ -223,6 +223,24 @@ test("cancel_alert: ambiguous, unknown or a due time nobody has cancels nothing 
   assert.equal(t.store.active().length, 2);
 });
 
+test("cancel_alert without arguments only reaches the calling device: 'cancel the timer' in the kitchen spares the bedroom alarm", async () => {
+  const t = setup(NIGHT);
+  const alarm = await t.call("set_alarm", { time: "07:00", label: "wekker", language: "nl" }, "friday-hall");
+  const none = await t.call("cancel_alert", {});
+  assert.match(none.error, /No alert matches\. Nothing was cancelled/);
+  assert.deepEqual(none.alerts.map((x: { id: string }) => x.id), [alarm.id]);
+  assert.equal(t.store.get(alarm.id)!.state, "scheduled");
+  assert.match((await t.call("change_alert", { time: "08:00" })).error, /No alert matches\. Nothing was changed/);
+  assert.equal((await t.call("cancel_alert", {}, "friday-hall")).cancelled.id, alarm.id, "on its own device it is the only one");
+});
+
+test("the skipped-time error reaches the model with one full stop", async () => {
+  const t = setup("2026-03-28T12:00:00Z");
+  const r = await t.call("set_alarm", { time: "02:30", date: "2026-03-29", language: "en" });
+  assert.match(r.error, /ask for another time\. No alarm was set\.$/);
+  assert.doesNotMatch(r.error, /\.\./);
+});
+
 test("cancel_alert stops a ringing alert", async () => {
   const t = setup();
   const a = await t.call("set_timer", { seconds: 60, label: "eggs", language: "en" });
@@ -243,6 +261,17 @@ test("change_alert: 'no, the alarm should be at 7:30' moves the 08:30 alarm, kee
   });
   assert.equal(t.store.active().length, 1);
   assert.equal(t.store.get(first.id)!.dueAt, "2026-10-14T05:30:00.000Z");
+});
+
+test("change_alert won't move an alarm onto another alarm of the same device", async () => {
+  const t = setup(NIGHT);
+  const wekker = await t.call("set_alarm", { time: "07:00", label: "wekker", language: "nl" });
+  const pills = await t.call("set_alarm", { time: "07:30", label: "pills", language: "nl" });
+  const r = await t.call("change_alert", { label: "pills", time: "07:00" });
+  assert.match(r.error, new RegExp(`"wekker" \\(${wekker.id}\\) is already set for morgen, woensdag 14 oktober, om 07:00; cancel this one instead\\. Nothing was changed\\.`));
+  assert.equal(t.store.get(pills.id)!.dueAt, "2026-10-14T05:30:00.000Z");
+  await t.call("set_alarm", { time: "07:00", language: "nl" }, "friday-hall");
+  assert.ok((await t.call("change_alert", { label: "wekker", time: "07:15" })).changed, "another device's 07:00 is no clash");
 });
 
 test("change_alert: a timer gets a new length from now", async () => {
