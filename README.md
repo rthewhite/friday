@@ -6,7 +6,7 @@ Voice assistant on **Gemini 3.8 Live** (TypeScript / Node) built as a small core
 browser portal (Vue)   ── WebSocket PCM ──┐
                                           ├─► core ── Gemini Live (PCM 16k in / 24k out)
 ESP32 / Voice PE       ── WebSocket PCM ──┘    │
-ESP32 / Voice PE       ◄─ /ws/device (ring) ───┤   alerts: timers that ring their device
+ESP32 / Voice PE       ◄─ /ws/device (ring) ───┤   alerts: timers and alarms that ring
 portal Chat page       ── /api/chat (SSE) ────►├── Gemini text model (chat turns, streamed, with tools)
                                                ├─► modules/builtin   time, end_conversation
                                                ├─► modules/media     Jellyfin + Apple TV
@@ -22,7 +22,7 @@ The repo is a pnpm workspace:
 | Package | Path | What |
 |---|---|---|
 | `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
-| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `/ws/device`, `GeminiSession`, alerts and the timer tools, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `/ws/device`, `GeminiSession`, alerts and the timer and alarm tools, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
 | `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Chat, Conversations, Modules, and module pages |
 | `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `end_conversation` |
@@ -42,7 +42,7 @@ pnpm dev                  # core on :8080 (tsx watch) + Vite dev server on http:
 
 `pnpm dev` builds the workspace first, then runs core and the portal's Vite server side by side. Vite proxies `/api`, `/health` and `/ws` to core, so open http://localhost:5173. For a production-like run, `pnpm build && pnpm start` serves the built portal from core on :8080.
 
-`pnpm test` builds everything and runs every package's tests. `FRIDAY_MODULES=builtin,media` narrows which in-process modules load; `GET /api/modules` shows each module's status and tools, starting with a `core` entry for the tools built into core itself (the timer tools).
+`pnpm test` builds everything and runs every package's tests. `FRIDAY_MODULES=builtin,media` narrows which in-process modules load; `GET /api/modules` shows each module's status and tools, starting with a `core` entry for the tools built into core itself (the timer and alarm tools).
 
 Browsers only allow the microphone on `localhost` or HTTPS.
 
@@ -51,7 +51,7 @@ Browsers only allow the microphone on `localhost` or HTTPS.
 The session closes itself in two ways:
 
 - Friday calls the `end_conversation` tool once a request is fully handled and it has no follow-up question, or when you say "goodbye", "thanks", "that's all", etc. The session closes after its final words. If those words end with a question (`?`, `？`, `؟` or Greek `;`, also when followed by `!`, `.` or `…`), the session ignores the request and keeps listening so you can answer. If you don't answer, the idle timeout below closes it with `ended: no follow-up (end after question)`.
-- If you stay silent for `FRIDAY_IDLE_TIMEOUT_MS` (default 8000) after Friday finishes a turn, the session closes. Set to `0` to disable. The timer is paused while a tool is still running. A session Friday opened to announce an alert (a timer going off) can't be ended by the model before you've said something: silence closes it with `ended: no answer`, after 8 seconds even when the timeout is disabled, and the alert rings again.
+- If you stay silent for `FRIDAY_IDLE_TIMEOUT_MS` (default 8000) after Friday finishes a turn, the session closes. Set to `0` to disable. The timer is paused while a tool is still running. A session Friday opened to announce an alert (a timer or alarm going off) can't be ended by the model before you've said something: silence closes it with `ended: no answer`, after 8 seconds even when the timeout is disabled, and the alert rings again.
 
 Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturing but finish playing queued audio.
 
@@ -92,7 +92,7 @@ const h = await createTestHost(weather, { env: { WEATHER_API_KEY: "x" } });
 await h.call("get_weather", { city: "Utrecht" });   // -> { result, scheduling }
 ```
 
-`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `end_conversation` and the timer tools are voice-only, because a chat turn has no microphone to close and no device to ring. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
+`scheduling` controls how Gemini surfaces the result: `INTERRUPT` (default), `WHEN_IDLE`, or `SILENT`; a handler can override it per call by returning a `scheduling` key. Returning an `endConversation: "<reason>"` key asks the session to close after the model's turn (this is how `end_conversation` works). Both keys are stripped before the result reaches Gemini. Calls run in the background so audio keeps flowing during slow tools. A tool is offered in voice and in chat unless it sets `channels` (`["voice"]` or `["chat"]`); `end_conversation` and the timer and alarm tools are voice-only, because a chat turn has no microphone to close and no device to ring. Modules whose `required` config is missing fail to load with a clear error while the rest of Friday starts; see `packages/sdk/README.md` for the full contract.
 
 A module that keeps relational data declares `migrations` and uses `ctx.db`, a synchronous handle on its own tables in `friday.db`. It can also add what it knows to Friday's system prompts with `ctx.prompt.addContext`:
 
@@ -408,21 +408,29 @@ Keys are stored as SHA-256 hashes; the fingerprint is the first 8 hex characters
 
 ## Timers and alerts
 
-"Set a timer for five minutes for the eggs" on a voice device sets a timer and the conversation ends as usual; no Gemini session stays open while it counts down. When the timer is due, Friday starts talking on its own:
+"Set a timer for five minutes for the eggs" on a voice device sets a timer, and "wake me tomorrow at half past seven" sets an alarm; the conversation ends as usual and no Gemini session stays open while it waits. An alarm takes the time of day as you said it: Friday works out the day and the moment in `FRIDAY_TIMEZONE` (summer and winter time included), so the model never counts seconds. Every tool result says when the alert is due in words ("morgen, woensdag 14 oktober, om 07:30"), and Friday is told to repeat exactly that. "No, make it eight" moves the alarm instead of setting a second one, and "so you'll wake me at eight?" makes Friday check the alarms before answering. When an alert is due, Friday starts talking on its own:
 
 1. **Ring.** Friday sends `ring` over the device's control connection (`/ws/device`). The device opens an alert session (`/ws/audio?device=<id>&alert=<id>`), as if its wake word had been spoken.
-2. **Announce.** The session opens with a short tone, then Friday says what went off ("your eggs timer is done"), in the language you set it in, and listens. Answer anything ("thanks", "stop") and the timer is done; "give me five more minutes" snoozes it. Friday can't end the session before you've reacted.
-3. **Ring again.** If nobody answers, the session closes with `ended: no answer` and Friday rings again after `FRIDAY_ALERT_RING_INTERVAL_MS` (default 60000), up to `FRIDAY_ALERT_RINGS` times (default 5). After that the timer counts as *missed*.
-4. **Fallback tone.** When the alert session can't open (Gemini unreachable, a bad key) or the device is muted, the device rings with its own tone until you press its button (the Mute button on the reSpeaker, which then leaves mute as it was), and gives up after five minutes.
+2. **Announce.** The session opens with a short tone, then Friday says what went off ("your eggs timer is done"), in the language you set it in, and listens. Answer anything ("thanks", "stop", "I'm up") and the alert is done; "give me five more minutes" snoozes it. Friday can't end the session before you've reacted.
+3. **Ring again.** If nobody answers, the session closes with `ended: no answer` and Friday rings again after `FRIDAY_ALERT_RING_INTERVAL_MS` (default 60000). A timer rings up to `FRIDAY_ALERT_RINGS` times (default 5) and then counts as *missed*. An alarm has no ring limit: it keeps ringing until you answer, for up to `FRIDAY_ALARM_RING_MINUTES` (default 30) after its due time, and only then counts as *missed*.
+4. **Fallback tone.** When the alert session can't open (Gemini unreachable, a bad key) or the device is muted, the device rings with its own tone until you press its button (the Mute button on the reSpeaker, which then leaves mute as it was), and gives up after five minutes. For an alarm that's one more unanswered ring: Friday rings it again a minute later while its 30 minutes last.
 
-A timer rings on the device it was set on. Several timers due at once are announced together. If the device is in a conversation, the ring waits until it ends; if it is offline (or Friday was down), it rings as soon as it can, but no ring starts later than `FRIDAY_ALERT_GRACE_MS` (default 600000) after the due time, and a timer that couldn't ring by then is *missed*. Timers are stored in `friday.db`, so they survive a restart.
+An alert rings on the device it was set on. Several alerts due at once are announced together. If the device is in a conversation, the ring waits until it ends; if it is offline (or Friday was down), it rings as soon as it can, but no ring of a timer starts later than `FRIDAY_ALERT_GRACE_MS` (default 600000) after the due time, nor of an alarm later than `FRIDAY_ALARM_RING_MINUTES`, and an alert that couldn't ring by then is *missed*. Alerts are stored in `friday.db`, so they survive a restart.
 
-- **Tools** (voice only, owned by core): `set_timer` (`seconds` 1-86400, `label`, `language` `nl`/`en`), `list_timers` (every device's timers with the seconds left), `cancel_timer` (by id or label; when it can't tell which, it cancels nothing and lists them) and `snooze_alert` (1-60 minutes, only in the session that announces it). A timer needs a voice device with current firmware: on the Talk page, in chat or on a device without a control connection `set_timer` explains why it can't.
-- **Settings > Alerts** lists running timers with the time left and a *Cancel* action, and finished ones with their outcome; missed timers stand out.
+- **Tools** (voice only, owned by core; every alert in a result has `when`):
+  - `set_timer` (`seconds` 1-86400, `label`, `language` `nl`/`en`), for a length of time.
+  - `set_alarm` (`time` `HH:MM`, optional `date` `YYYY-MM-DD` up to 7 days ahead, `label`, `language`), for a time of day: the next time the clock shows it, or that day. A time skipped by summer time is refused; one that occurs twice means the first. The result lists the device's other alarms, and setting the same alarm twice returns the one already set.
+  - `list_alerts`: every device's timers and alarms with `when` and the seconds left.
+  - `change_alert`: moves one alert, an alarm to a new `time`/`date` or a timer to new `seconds` from now, keeping its id and label (not while it rings).
+  - `cancel_alert`: cancels one alert.
+  - `snooze_alert` (1-60 minutes, only in the session that announces it).
+
+  `change_alert` and `cancel_alert` pick the alert by `id`, or by `label`, `due` (its due time, e.g. `08:30`) and `kind` together, and without any of those only from the device you're talking to; `change_alert` won't move an alarm onto another alarm's time on the same device. When they can't tell which, they change nothing and list the alerts. Timers and alarms need a voice device with current firmware: on the Talk page, in chat or on a device without a control connection `set_timer` and `set_alarm` explain why they can't.
+- **Settings > Alerts** lists running timers and alarms with the time left and a *Cancel* action, and finished ones with their outcome; missed alerts stand out.
 - **API.** `GET /api/alerts` (`{ alerts }`: active first, then finished newest first, each with `id`, `kind`, `label`, `dueAt`, `target` `{ kind, id, label }`, `state`, `createdAt`, `finishedAt`, `rings`), `DELETE /api/alerts/:id` (cancel: 204, 404 unknown, 409 already finished).
-- **Firmware.** Ringing needs the current `friday_client` on the device (see the device sections below). Older firmware keeps working for conversations; the device just shows as offline and can't have timers.
+- **Firmware.** Ringing needs the current `friday_client` on the device (see the device sections below). Older firmware keeps working for conversations; the device just shows as offline and can't have timers or alarms.
 
-Recurring alarms (a weekday wake-up with a morning briefing) and phone notifications for timers set without a device are planned, not built.
+Repeating alarms (a weekday wake-up with a morning briefing) and phone notifications for alerts set without a device are planned, not built.
 
 ## Voice Preview Edition (ESP32)
 

@@ -42,7 +42,7 @@ async function cancel(a: AlertRecord) {
   finally { cancelling.value = null; await load(); }
 }
 
-// The time left ticks every second; the list itself reloads every 15 s, so a timer set by voice shows up on its own.
+// The time left ticks every second; the list itself reloads every 15 s, so an alert set by voice shows up on its own.
 let tick: ReturnType<typeof setInterval> | undefined;
 let poll: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
@@ -56,7 +56,7 @@ const row = (r: unknown) => r as AlertRecord;
 </script>
 
 <template>
-  <PageLayout eyebrow="System" title="Alerts" subtitle="Timers Friday rings on your voice devices, and what became of them.">
+  <PageLayout eyebrow="System" title="Alerts" subtitle="Timers and alarms Friday rings on your voice devices, and what became of them.">
     <template #actions>
       <Button variant="ghost" :disabled="loading" @click="load"><Icon name="refresh" />Refresh</Button>
     </template>
@@ -64,7 +64,7 @@ const row = (r: unknown) => r as AlertRecord;
 
     <section class="flex flex-col gap-2">
       <h2 class="text-sm font-medium text-f-text-bright">Running</h2>
-      <DataTable :columns="activeColumns" :rows="lists.active" row-key="id" empty="No timers running">
+      <DataTable :columns="activeColumns" :rows="lists.active" row-key="id" empty="No timers or alarms set">
         <template #cell-status="{ row: r }"><StatusDot :tone="stateTone[row(r).state]" :title="row(r).state" /></template>
         <template #cell-label="{ row: r }">
           <span class="font-medium text-f-text-bright">{{ row(r).label }}</span>

@@ -60,7 +60,7 @@ test("/api/modules reports loaded and failed modules with tools and ui flag", as
 });
 
 test("core's own tools come first, as a built-in core entry, followed by the modules unchanged", async () => {
-  const timers = ["set_timer", "list_timers", "cancel_timer", "snooze_alert"];
+  const timers = ["set_timer", "set_alarm", "list_alerts", "change_alert", "cancel_alert", "snooze_alert"];
   const s = await start(undefined, timers);
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();

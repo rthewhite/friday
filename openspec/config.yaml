@@ -10,7 +10,7 @@ context: |
   FRIDAY_MODULES narrows them, GET /api/modules reports status (first a `core` entry, kind "core" on the Modules
   page, when core owns tools itself; moduleListing in app.ts). Tools live in one owner-tagged
   ToolRegistry instance (owner = module id, mcp:<server>, or core); a tool may set channels (voice | chat,
-  both by default; end_conversation and core's timer tools are voice-only); each GeminiSession snapshots
+  both by default; end_conversation and core's timer and alarm tools are voice-only); each GeminiSession snapshots
   declarations("voice") at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
   before reaching Gemini (and ignored in chat). Handlers get a second argument, the call context { channel?,
@@ -129,17 +129,21 @@ context: |
   (label, its Home Assistant area as the default for requests naming no room, notes), from the snapshot taken at
   accept, via systemPrompt(context, "voice", device). Connections without ?device= (the Talk page) need no key.
   Device auth is shared by /ws/audio and /ws/device (transports/device-auth.ts).
-  Alerts (packages/core/src/alerts/, migration 8: alerts): timers that ring a device. Each device keeps a control
+  Alerts (packages/core/src/alerts/, migration 8: alerts): timers and alarms (kind timer|alarm) that ring a device. Each device keeps a control
   connection at /ws/device (transports/device-ws.ts; DeviceLinks in devices/links.ts, one per device, a newer one
   closes the older with 4409; "online" in /api/devices) carrying ring/stop to the device and ringing_locally/
   acknowledged/unanswered back. AlertService (service.ts) wakes on one re-planned timer, rings a device only while it
   is online and has no audio session (DeviceSessions.onIdle / DeviceLinks.onOnline re-check), counts unanswered rings
-  (FRIDAY_ALERT_RINGS, FRIDAY_ALERT_RING_INTERVAL_MS) and misses alerts no ring could start for within
-  FRIDAY_ALERT_GRACE_MS. The device answers with /ws/audio?device=&alert=<id>: AlertService.claim() (4410 alert gone
+  (FRIDAY_ALERT_RING_INTERVAL_MS; a timer is missed after FRIDAY_ALERT_RINGS, an alarm rings on) and misses alerts no
+  ring could start for within their limit (timers FRIDAY_ALERT_GRACE_MS, alarms FRIDAY_ALARM_RING_MINUTES, which also
+  turns an alarm's local `unanswered` into another ring; policy(kind) in service.ts; reschedule() moves one). The device answers with /ws/audio?device=&alert=<id>: AlertService.claim() (4410 alert gone
   when not ringing) makes it an alert session, GeminiSession options opening (tone.ts PCM, then an unrecorded
   opening.ts turn) and awaitUser (end requests dropped and idle close "ended: no answer" until the user's first input,
-  which acknowledges). Core-owned voice tools set_timer (needs call.device with an open control connection, language
-  nl|en), list_timers, cancel_timer, snooze_alert (the device's open claim) in alerts/tools.ts; /api/alerts and
+  which acknowledges). Core-owned voice tools set_timer, set_alarm (HH:MM + optional date, resolved in FRIDAY_TIMEZONE by
+  clock-time.ts alarmTime: next occurrence, 7 days max, DST gap refused, overlap = first), list_alerts, change_alert,
+  cancel_alert (pick by id, else label+due HH:MM+kind; ambiguous changes nothing) and snooze_alert (the device's open
+  claim) in alerts/tools.ts; both set_* need call.device with an open control connection and language nl|en; every
+  alert in a result has `when` (when.ts spokenWhen, nl/en, today/tomorrow/weekday) and the voice prompt says to quote it; /api/alerts and
   Settings > Alerts. Firmware: friday_client's second websocket client for /ws/device and the ringing state.
   Clients: browser and ESP32 satellites (esphome/) on the same WebSocket protocol: the Voice PE
   (friday-voice-pe.yaml) and the reSpeaker XVF3800 (friday-respeaker.yaml), both on the friday_client

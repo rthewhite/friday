@@ -40,6 +40,7 @@ async function world() {
     rings: 3,
     ringIntervalMs: 200,
     graceMs: 60_000,
+    alarmWindowMs: 120_000,
     log: quiet,
   });
   // Gemini: remembers what it was sent; the test plays its side through session.handle().

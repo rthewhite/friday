@@ -39,7 +39,7 @@ For an alarm, `windowMs = FRIDAY_ALARM_RING_MINUTES × 60 000` (default 30) does
 A new pure module `alerts/clock-time.ts`:
 - validates `HH:MM` and `YYYY-MM-DD` strictly,
 - picks the date: the given one, else today's local date (`localDate`), moving to tomorrow when that instant is not after `now`,
-- builds the instant with `parseDateTime(`${date}T${time}`, zone)`, then **checks the round trip**: formatting the instant back in `zone` must give the same `HH:MM`. A mismatch means the time was skipped by summer time, which is an error. For a time that occurs twice, `parseDateTime`'s first guess is the earlier offset. A test pins this for Europe/Amsterdam's last Sunday of October,
+- builds the instant from every offset the zone has within a day of that wall-clock time (`offsetMinutes`), keeping the candidates that **read back** as the same local date and `HH:MM`. No candidate means the time was skipped by summer time, which is an error. Two candidates means the hour the clock goes back, and the earlier one is taken. `parseDateTime` is not used: in that hour its offset guess gives the later instant. Tests pin both 2026 transitions for Europe/Amsterdam,
 - refuses a date in the past or more than 7 local days ahead.
 
 It returns `{ instant } | { error }`. `change_alert` uses it too.

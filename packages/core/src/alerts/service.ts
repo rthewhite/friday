@@ -6,8 +6,10 @@
  *
  * Ring outcomes: the user reacting in the alert session (or the button) acknowledges; snooze schedules again; an
  * unanswered ring (no session within ANSWER_TIMEOUT_MS, or a session that closed without either) rings again after
- * the ring interval, until the ring limit makes it missed. A device that rings an alert with its own tone reports
- * the outcome itself. No ring starts after an alert's grace limit; a ring in progress is never cut off.
+ * the ring interval, until the ring limit makes a timer missed; an alarm has no ring limit and rings on through its
+ * ring window instead. A device that rings an alert with its own tone reports the outcome itself; for an alarm, a
+ * local tone that ran out is one more unanswered ring. No ring starts after an alert's limit (a timer's grace, an
+ * alarm's window); a ring in progress is never cut off.
  *
  * A device's own ring is trusted only while the device can tell us about it: when its control connection comes back
  * the service forgets which alerts it rang locally and rings them again (a device still ringing says so again), and
@@ -18,7 +20,7 @@ import type { DeviceLinks } from "../devices/links.js";
 import type { DeviceSessions } from "../devices/sessions.js";
 import type { DeviceReport } from "../transports/device-ws.js";
 import { openingText } from "./opening.js";
-import type { Alert, AlertStore, FinalState, NewAlert } from "./store.js";
+import type { Alert, AlertKind, AlertStore, FinalState, NewAlert } from "./store.js";
 
 /** How long a device has to open an alert session after a ring. */
 export const ANSWER_TIMEOUT_MS = 15_000;
@@ -49,9 +51,13 @@ export interface AlertServiceOptions {
   sessions: Pick<DeviceSessions, "connected" | "onIdle">;
   /** Household zone for the opening text (FRIDAY_TIMEZONE, resolved). */
   timezone: () => string;
+  /** Unanswered rings before a timer is missed. */
   rings: number;
   ringIntervalMs: number;
+  /** No ring of a timer starts later than this after its due time. */
   graceMs: number;
+  /** An alarm's ring window: no ring of it starts later than this after its due time, however often it rang. */
+  alarmWindowMs: number;
   clock?: Clock;
   log?: Pick<Console, "log" | "error">;
 }
@@ -59,6 +65,12 @@ export interface AlertServiceOptions {
 interface Ring {
   ids: string[];
   timer: unknown;
+}
+
+/** How long an alert of a kind may ring, and how often. */
+interface RingPolicy {
+  maxRings: number;
+  windowMs: number;
 }
 
 interface OpenClaim {
@@ -134,6 +146,22 @@ export class AlertService {
     if (!a) throw new AlertNotFound(`no alert ${id}`);
     if (a.state !== "scheduled" && a.state !== "ringing") throw new AlertConflict(`alert ${id} is already ${a.state}`);
     const out = this.finish(a, "cancelled");
+    this.tick();
+    return out;
+  }
+
+  /**
+   * Move a scheduled alert to `dueAt`, with no unanswered rings. A timer then counts from now, as if set again; an
+   * alarm is just for its new time. Throws AlertNotFound for an unknown alert and AlertConflict for one that isn't
+   * scheduled (a ringing alert is snoozed or cancelled, not moved).
+   */
+  reschedule(id: string, dueAt: Date): Alert {
+    const a = this.opts.store.get(id);
+    if (!a) throw new AlertNotFound(`no alert ${id}`);
+    if (a.state !== "scheduled") throw new AlertConflict(`alert ${id} is ${a.state}`);
+    const snoozedAt = a.kind === "timer" ? this.now() : null;
+    const out = this.opts.store.update(id, { dueAt, nextRingAt: dueAt, rings: 0, snoozedAt })!;
+    this.log.log(`alerts: ${a.kind} ${id} "${a.label}" moved from ${a.dueAt} to ${out.dueAt}`);
     this.tick();
     return out;
   }
@@ -224,8 +252,15 @@ export class AlertService {
       if (claim?.ids.includes(a.id)) this.acknowledgeClaim(deviceId, claim);
       else this.finish(a, "acknowledged");
     } else if (type === "unanswered") {
-      this.log.log(`alerts: ${a.id} "${a.label}" missed (the device's own ring ran out)`);
-      this.finish(a, "missed");
+      if (a.kind === "alarm") {
+        // An alarm outlives the device's tone: one more unanswered ring, rung again while its window lasts.
+        this.log.log(`alerts: ${a.id} "${a.label}": the device's own ring ran out, ringing again`);
+        this.opts.store.update(a.id, { local: false });
+        this.unanswered([a.id]);
+      } else {
+        this.log.log(`alerts: ${a.id} "${a.label}" missed (the device's own ring ran out)`);
+        this.finish(a, "missed");
+      }
     }
     this.tick();
   }
@@ -266,14 +301,15 @@ export class AlertService {
           } else waiting.push(a);
           continue;
         }
-        const deadline = new Date(a.dueAt).getTime() + this.opts.graceMs;
+        const deadline = new Date(a.dueAt).getTime() + this.policy(a.kind).windowMs;
         const free = this.free(a.target.id);
         if (free && new Date(a.nextRingAt).getTime() <= t && t <= deadline) {
           const list = due.get(a.target.id) ?? [];
           list.push(a);
           due.set(a.target.id, list);
         } else if (t >= deadline) {
-          this.log.log(`alerts: ${a.id} "${a.label}" missed (${free ? "unanswered" : "device offline or busy"} until its grace limit)`);
+          const limit = a.kind === "alarm" ? "ring window" : "grace limit";
+          this.log.log(`alerts: ${a.id} "${a.label}" missed (${free ? "unanswered" : "device offline or busy"} until its ${limit})`);
           this.finish(a, "missed");
         } else waiting.push(a);
       }
@@ -304,7 +340,7 @@ export class AlertService {
       const a = this.opts.store.get(id);
       if (!a || a.state !== "ringing" || a.local) continue;
       const rings = a.rings + 1;
-      if (rings >= this.opts.rings) {
+      if (rings >= this.policy(a.kind).maxRings) {
         this.log.log(`alerts: ${a.id} "${a.label}" missed after ${rings} unanswered rings`);
         this.opts.store.update(id, { rings });
         this.finish(this.opts.store.get(id)!, "missed");
@@ -327,7 +363,7 @@ export class AlertService {
     for (const a of waiting) {
       if (a.local) next = Math.min(next, new Date(a.nextRingAt).getTime() + LOCAL_RING_MAX_MS);
       else {
-        const deadline = new Date(a.dueAt).getTime() + this.opts.graceMs;
+        const deadline = new Date(a.dueAt).getTime() + this.policy(a.kind).windowMs;
         next = Math.min(next, deadline, this.free(a.target.id) ? new Date(a.nextRingAt).getTime() : Infinity);
       }
     }
@@ -354,6 +390,11 @@ export class AlertService {
       this.log.error("alerts: could not update alerts, trying again shortly", e);
       if (!this.stopped) this.schedule(RETRY_MS);
     }
+  }
+
+  /** Timers ring a few times within their grace; alarms ring until someone reacts, within their window. */
+  private policy(kind: AlertKind): RingPolicy {
+    return kind === "alarm" ? { maxRings: Infinity, windowMs: this.opts.alarmWindowMs } : { maxRings: this.opts.rings, windowMs: this.opts.graceMs };
   }
 
   /** A ring was sent for it, or an alert session announces it. */

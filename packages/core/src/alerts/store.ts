@@ -1,11 +1,11 @@
 /**
- * Alerts in friday.db: timers (and later alarms) with a due time and a target. The store only keeps rows; when and
+ * Alerts in friday.db: timers and alarms with a due time and a target. The store only keeps rows; when and
  * how an alert rings is AlertService's business. Ids are short so the model can say them back ("timer k3f9").
  */
 import { randomInt } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-export type AlertKind = "timer";
+export type AlertKind = "timer" | "alarm";
 export type AlertLanguage = "nl" | "en";
 export type AlertState = "scheduled" | "ringing" | "acknowledged" | "cancelled" | "missed";
 export type FinalState = Extract<AlertState, "acknowledged" | "cancelled" | "missed">;
@@ -32,7 +32,7 @@ export interface Alert {
   local: boolean;
   createdAt: string;
   conversationId: string | null;
-  /** When it was last snoozed; its due time then counts from here, not from createdAt. */
+  /** When its due time was last set again (a snooze, or a timer changed); it then counts from here, not from createdAt. */
   snoozedAt: string | null;
   finishedAt: string | null;
 }
@@ -52,7 +52,8 @@ export interface AlertPatch {
   nextRingAt?: Date;
   rings?: number;
   local?: boolean;
-  snoozedAt?: Date;
+  /** null clears it (an alarm moved to another time of day counts from nothing). */
+  snoozedAt?: Date | null;
 }
 
 interface AlertRow {
@@ -134,7 +135,7 @@ export class AlertStore {
         patch.nextRingAt?.toISOString() ?? current.nextRingAt,
         patch.rings ?? current.rings,
         (patch.local ?? current.local) ? 1 : 0,
-        patch.snoozedAt?.toISOString() ?? current.snoozedAt,
+        patch.snoozedAt === undefined ? current.snoozedAt : (patch.snoozedAt?.toISOString() ?? null),
         finishedAt,
         id,
       );

@@ -25,7 +25,9 @@ export function splitAlerts(alerts: AlertRecord[]): { active: AlertRecord[]; fin
 export function timeLeft(dueAt: string, now: number): string {
   const s = Math.ceil((Date.parse(dueAt) - now) / 1000);
   if (s <= 0) return "ringing";
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const d = Math.floor(s / 86_400), h = Math.floor((s % 86_400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  // An alarm can be days away: days and hours are enough then.
+  if (d) return h ? `${d} d ${h} h` : `${d} d`;
   if (h) return m ? `${h} h ${m} min` : `${h} h`;
   if (m) return sec ? `${m} min ${sec} s` : `${m} min`;
   return `${sec} s`;

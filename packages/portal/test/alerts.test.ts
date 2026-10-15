@@ -28,6 +28,9 @@ test("time left reads naturally, and a due alert is ringing", () => {
   assert.equal(timeLeft(due, at("2026-10-08T10:00:00Z")), "5 min");
   assert.equal(timeLeft(due, at("2026-10-08T10:04:15Z")), "45 s");
   assert.equal(timeLeft("2026-10-08T11:05:00.000Z", at("2026-10-08T10:00:00Z")), "1 h 5 min");
+  assert.equal(timeLeft("2026-10-14T05:30:00.000Z", at("2026-10-13T21:41:00Z")), "7 h 49 min");
+  assert.equal(timeLeft("2026-10-16T04:45:00.000Z", at("2026-10-13T21:41:00Z")), "2 d 7 h");
+  assert.equal(timeLeft("2026-10-15T10:00:00.000Z", at("2026-10-14T10:00:00Z")), "1 d");
   assert.equal(timeLeft(due, at("2026-10-08T10:05:00Z")), "ringing");
 });
 

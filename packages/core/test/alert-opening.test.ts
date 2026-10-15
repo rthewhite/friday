@@ -72,9 +72,23 @@ test("several alerts are listed in one text, in the first alert's language", () 
   );
 });
 
-test("a snoozed timer is announced as snoozed, with the snooze's length rather than the whole span", () => {
+test("a snoozed (or changed) timer is announced as set again, with that length rather than the whole span", () => {
   const snoozed = alert({ dueAt: "2026-10-08T10:10:00.000Z", snoozedAt: "2026-10-08T10:05:00.000Z" });
-  assert.match(openingText([snoozed], new Date("2026-10-08T10:10:00Z"), zone), /^Alert: the timer "eggs" \(snoozed for 5 minutes at 12:05\) went off at 12:10\./);
+  assert.match(openingText([snoozed], new Date("2026-10-08T10:10:00Z"), zone), /^Alert: the timer "eggs" \(set again for 5 minutes at 12:05\) went off at 12:10\./);
+});
+
+test("an alarm is announced as the alarm for its time, without how long ago it was set", () => {
+  const wekker = alert({ kind: "alarm", label: "wekker", createdAt: "2026-10-13T21:41:00.000Z", dueAt: "2026-10-14T05:30:00.000Z" });
+  assert.equal(
+    openingText([wekker], new Date("2026-10-14T05:30:05Z"), zone),
+    'Alert: the alarm "wekker" for 07:30 went off. Tell the user briefly, in Dutch, and wait for their answer. If they want more time, call snooze_alert.',
+  );
+  assert.match(openingText([wekker], new Date("2026-10-14T05:42:00Z"), zone), /the alarm "wekker" for 07:30 went off, 12 minutes ago\./);
+});
+
+test("a snoozed alarm is announced as set again, like a timer", () => {
+  const snoozed = alert({ kind: "alarm", label: "wekker", dueAt: "2026-10-14T05:39:00.000Z", snoozedAt: "2026-10-14T05:30:00.000Z" });
+  assert.match(openingText([snoozed], new Date("2026-10-14T05:39:00Z"), zone), /^Alert: the alarm "wekker" \(set again for 9 minutes at 07:30\) went off at 07:39\./);
 });
 
 test("an opening needs an alert", () => {
