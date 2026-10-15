@@ -2,8 +2,8 @@
 
 ## 1. Clock time and spoken due time
 
-- [ ] 1.1 Add `alerts/clock-time.ts` with `alarmTime(time, date, now, zone)`: strict `HH:MM`/`YYYY-MM-DD`, next occurrence without a date, the 7-day limit, the round-trip check that refuses a time skipped by summer time, the earlier instant for a time that occurs twice. Verify with `packages/core/test/alert-clock-time.test.ts`: 23:41 → 07:30 the next day in Europe/Amsterdam (not UTC), later today, already passed today, a given date, past and day 8 refused, bad formats, both DST transitions of 2026 (29 March 02:30 refused, 25 October 02:30 the first one)
-- [ ] 1.2 Add `alerts/when.ts` with `spokenWhen(due, now, zone, language)` for today / tomorrow / later in `nl` and `en`. Verify with `packages/core/test/alert-when.test.ts`: `morgen, woensdag 14 oktober, om 07:30`, `today at 12:05`, `Friday 16 October at 07:30`, and a 05:30 UTC instant in summer time naming 07:30
+- [x] 1.1 Add `alerts/clock-time.ts` with `alarmTime(time, date, now, zone)`: strict `HH:MM`/`YYYY-MM-DD`, next occurrence without a date, the 7-day limit, the round-trip check that refuses a time skipped by summer time, the earlier instant for a time that occurs twice. Verify with `packages/core/test/alert-clock-time.test.ts`: 23:41 → 07:30 the next day in Europe/Amsterdam (not UTC), later today, already passed today, a given date, past and day 8 refused, bad formats, both DST transitions of 2026 (29 March 02:30 refused, 25 October 02:30 the first one)
+- [x] 1.2 Add `alerts/when.ts` with `spokenWhen(due, now, zone, language)` for today / tomorrow / later in `nl` and `en`. Verify with `packages/core/test/alert-when.test.ts`: `morgen, woensdag 14 oktober, om 07:30`, `today at 12:05`, `Friday 16 October at 07:30`, and a 05:30 UTC instant in summer time naming 07:30
 
 ## 2. Alarm kind and ring policy
 
