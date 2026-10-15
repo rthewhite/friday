@@ -27,7 +27,7 @@
 
 ## 5. Docs and context
 
-- [ ] 5.1 Update README's Alerts section (alarms, the 30-minute window, the six tools), `.env.example` (`FRIDAY_ALARM_RING_MINUTES`), and the Alerts paragraph of `openspec/config.yaml` (alarm kind, `clock-time.ts`/`when.ts`, tool names). Leave `deploy/k8s.yaml` as is (default value). Verify by reading the diff and running `pnpm --filter @friday/core test` (the `.env.example` check)
+- [x] 5.1 Update README's Alerts section (alarms, the 30-minute window, the six tools), `.env.example` (`FRIDAY_ALARM_RING_MINUTES`), and the Alerts paragraph of `openspec/config.yaml` (alarm kind, `clock-time.ts`/`when.ts`, tool names). On the Alerts page, say "timers and alarms" and show days in the time left for alarms days away. Leave `deploy/k8s.yaml` as is (default value). Verify by reading the diff and running `pnpm --filter @friday/core test` (the `.env.example` check) and `pnpm --filter @friday/portal test` (time left in days)
 
 ## 6. Integration
 
