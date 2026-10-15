@@ -107,11 +107,11 @@ No ring of a timer SHALL start later than `FRIDAY_ALERT_GRACE_MS` (default 60000
 
 ### Requirement: set_timer
 
-The tool `set_timer` SHALL take `seconds` (an integer from 1 to 86400), an optional `label` (up to 60 characters, `timer` when omitted or blank) and `language` (`nl` or `en`, the language the user is speaking). It SHALL create a `timer` alert due `seconds` from now, targeting the device whose session the call comes from, and return at once with the timer's id, label, due time in `FRIDAY_TIMEZONE`, its `when` (see "Tool results say when an alert is due") and length. Its description SHALL say it is for a length of time, and that a time of day is an alarm (`set_alarm`). It SHALL be available only in the `voice` channel. A call from a session without a device (the portal's Talk page) SHALL return an error saying that timers can only be set on a voice device for now. A call from a device without an open control connection SHALL return an error saying that the device can't ring and may need a firmware update, and SHALL NOT create the timer. A device SHALL have at most 20 `scheduled` timers; setting another SHALL return an error.
+The tool `set_timer` SHALL take `seconds` (an integer from 1 to 86400), an optional `label` (up to 60 characters, `timer` when omitted or blank) and `language` (`nl` or `en`, the language the user is speaking). It SHALL create a `timer` alert due `seconds` from now, targeting the device whose session the call comes from, and return at once with the timer's id, label, due time `HH:MM` in `FRIDAY_TIMEZONE`, its `when` (see "Tool results say when an alert is due") and length. Its description SHALL say it is for a length of time, and that a time of day is an alarm (`set_alarm`). It SHALL be available only in the `voice` channel. A call from a session without a device (the portal's Talk page) SHALL return an error saying that timers can only be set on a voice device for now. A call from a device without an open control connection SHALL return an error saying that the device can't ring and may need a firmware update, and SHALL NOT create the timer. A device SHALL have at most 20 `scheduled` timers; setting another SHALL return an error.
 
 #### Scenario: Kitchen timer
 - **WHEN** the user says "set a timer for 5 minutes for the eggs" on `friday-kitchen` at 12:00:00
-- **THEN** `set_timer` is called with `seconds: 300, label: "eggs"`, returns at once with the due time 12:05:00 and `when` `today at 12:05`, and the session ends normally
+- **THEN** `set_timer` is called with `seconds: 300, label: "eggs"`, returns at once with the due time `12:05` and `when` `today at 12:05`, and the session ends normally
 
 #### Scenario: No device
 - **WHEN** `set_timer` is called in a Talk page session
