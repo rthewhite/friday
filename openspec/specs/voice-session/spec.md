@@ -200,6 +200,12 @@ The voice part SHALL say that speech recognition sometimes takes Dutch for anoth
 
 The voice part SHALL instruct the model to keep spoken answers short, call `end_conversation` in the same turn as its final confirmation or goodbye, and NOT end while awaiting user input or a pending tool result. It SHALL also state that the model must never call `end_conversation` in a turn whose reply ends with a question or invites the user to talk, and that an invitation to chat, tell something or share information starts an open conversation rather than completing a request.
 
+The voice part SHALL instruct the model, for timers and alarms:
+- to use `set_alarm` for a time of day ("wake me at 7:30", "om half acht") and `set_timer` only for a length of time ("in ten minutes"), and never to work out seconds to reach a time of day,
+- to correct or move an alert with `change_alert`, never by setting another one, and when a result shows another alarm the user didn't mention, to ask whether it should go,
+- to call `list_alerts` before telling the user which alerts are set, including when the user asks to confirm one,
+- to name an alert's time from the `when` the tool returned, not from what the user said.
+
 The device block SHALL:
 - name the device's label,
 - when the device has an area, state that the user is in that Home Assistant area and that requests which name no room, area or floor (such as turning on "the lights") apply to that area,
@@ -268,6 +274,18 @@ The device block SHALL:
 #### Scenario: Device edited during a session
 - **WHEN** a device's area is changed while it has a session open
 - **THEN** the open session keeps its device block, and the next session uses the new area
+
+#### Scenario: Time of day is an alarm
+- **WHEN** the user says "wake me tomorrow at 7:30"
+- **THEN** the model is instructed to call `set_alarm` with `07:30`, not `set_timer`
+
+#### Scenario: Correcting an alarm
+- **WHEN** the user says the alarm Friday just set should be at another time
+- **THEN** the model is instructed to call `change_alert`, not to set a second alarm
+
+#### Scenario: Confirming an alarm
+- **WHEN** the user asks "so you'll wake me at 7:30?"
+- **THEN** the model is instructed to call `list_alerts` first and answer with the `when` it returns
 
 ### Requirement: The session records its conversation
 
