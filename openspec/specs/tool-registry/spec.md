@@ -44,7 +44,7 @@ A tool SHALL have a unique `name`, a `description`, either a Gemini `parameters`
 
 ### Requirement: Calls are dispatched by name with scheduling resolution
 
-`callTool` SHALL invoke the handler with the given args (empty object if none) and a call context, and return `{ result, scheduling, endConversation? }`. The call context SHALL carry the `channel` and `conversationId` passed in `callTool`'s options, each absent when not given. A voice session SHALL pass channel `voice` and a chat turn SHALL pass channel `chat`, each with the id of the conversation the call is recorded in once that conversation is stored, and without one before. Tools served by MCP servers and remote modules SHALL NOT receive the call context. Scheduling SHALL be resolved in order: a `scheduling` key in the handler's returned object (which is then stripped from the result), the tool's default `scheduling`, then `INTERRUPT`. Valid values are `INTERRUPT`, `WHEN_IDLE`, `SILENT`. If the handler's returned object has a string `endConversation` key, it SHALL be stripped from the result and returned as `endConversation`.
+`callTool` SHALL invoke the handler with the given args (empty object if none) and a call context, and return `{ result, scheduling, endConversation? }`. The call context SHALL carry the `channel`, `conversationId` and `device` passed in `callTool`'s options, each absent when not given. A voice session SHALL pass channel `voice` and a chat turn SHALL pass channel `chat`, each with the id of the conversation the call is recorded in once that conversation is stored, and without one before. A voice session of a registered voice device SHALL also pass that device's id as `device`; other sessions and chat turns SHALL NOT pass one. Tools served by MCP servers and remote modules SHALL NOT receive the call context. Scheduling SHALL be resolved in order: a `scheduling` key in the handler's returned object (which is then stripped from the result), the tool's default `scheduling`, then `INTERRUPT`. Valid values are `INTERRUPT`, `WHEN_IDLE`, `SILENT`. If the handler's returned object has a string `endConversation` key, it SHALL be stripped from the result and returned as `endConversation`.
 
 #### Scenario: Default scheduling
 - **WHEN** a tool without `scheduling` returns a plain result
@@ -78,9 +78,17 @@ A tool SHALL have a unique `name`, a `description`, either a Gemini `parameters`
 - **WHEN** the model calls a tool in the first exchange of a voice session, before anything of it is stored
 - **THEN** the handler's call context has channel `voice` and no conversationId
 
+#### Scenario: Handler sees its device
+- **WHEN** the model calls a tool in a voice session of device `friday-kitchen`
+- **THEN** the handler's call context has channel `voice` and device `friday-kitchen`
+
+#### Scenario: Talk page has no device
+- **WHEN** the model calls a tool in a voice session opened by the portal's Talk page
+- **THEN** the handler's call context has channel `voice` and no device
+
 #### Scenario: No context given
 - **WHEN** `callTool("get_current_time", {})` is invoked without options
-- **THEN** the handler runs, and its call context has no channel and no conversationId
+- **THEN** the handler runs, and its call context has no channel, no conversationId and no device
 
 #### Scenario: Handlers that ignore the context
 - **WHEN** a tool's handler takes only its args

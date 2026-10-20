@@ -92,11 +92,11 @@ The `Modules` route SHALL list every entry from `/api/modules` as one table row 
 
 ### Requirement: Settings section
 
-The sidebar's `System` section SHALL contain `Configuration`, `Voice devices`, `Remote modules` and `Jobs`, routing to `/settings/config`, `/settings/devices`, `/settings/keys` and `/settings/jobs`.
+The sidebar's `System` section SHALL contain `Configuration`, `Voice devices`, `Alerts`, `Remote modules` and `Jobs`, routing to `/settings/config`, `/settings/devices`, `/settings/alerts`, `/settings/keys` and `/settings/jobs`.
 
 #### Scenario: Navigation
 - **WHEN** the portal loads
-- **THEN** `System` shows all four pages and they route to `/settings/config`, `/settings/devices`, `/settings/keys` and `/settings/jobs`
+- **THEN** `System` shows all five pages and they route to `/settings/config`, `/settings/devices`, `/settings/alerts`, `/settings/keys` and `/settings/jobs`
 
 ### Requirement: Reload action on the Modules page
 
