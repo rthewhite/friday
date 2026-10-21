@@ -267,7 +267,7 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
           </label>
         </div>
         <p class="text-xs text-f-text-muted">
-          {{ draft.channels.length ? "Agent only keeps a server, and the token in its headers, out of voice and chat." : "Choose at least one." }}
+          {{ draft.channels.length ? "Untick voice and chat to give only agents this server's tools (and the token in its headers)." : "Choose at least one." }}
         </p>
       </div>
 
