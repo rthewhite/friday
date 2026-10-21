@@ -27,6 +27,6 @@
 
 ## 6. Integration
 
-- [ ] 6.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify it is green
-- [ ] 6.2 With a dev server on a free port, call `sonos_list_speakers` from portal chat against the real Home Assistant. Verify the Arc, Playbar and One SL are listed with their areas and models, and `all_speakers` and `office_sonos` are not
+- [x] 6.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify it is green
+- [x] 6.2 With a dev server on a free port, call `sonos_list_speakers` from portal chat against the real Home Assistant. Verify the Arc, Playbar and One SL are listed with their areas and models, and `all_speakers` and `office_sonos` are not
 - [ ] 6.3 Device test at home (after merge is fine, before archive): from chat, play a track, an album, a playlist and an `open.spotify.com` link on the Arc; play on "Living Room" and "Hobby Room" together; pause, resume and set volume; ungroup. Verify each by ear and in `sonos_list_speakers`, and that the Arc led the group. If HA behaves differently from the design (share links, `enqueue: add`, join timing), fix the code and specs in this change before archiving
