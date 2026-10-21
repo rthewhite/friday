@@ -33,7 +33,7 @@ None. The module uses the existing module, tool and configuration contracts unch
 ## Impact
 
 - New `modules/sonos` (index, a Home Assistant client with a template call, speaker resolution, tools) with tests against a fake Home Assistant.
-- `packages/core/src/modules.ts` and `packages/core/package.json`: register the module. `pnpm-lock.yaml`.
+- `packages/core/src/modules.ts`, `packages/core/package.json` and its module-list test: register the module. `Dockerfile` (copy the package manifest before install). `pnpm-lock.yaml`.
 - Docs: README (modules table, overview, a Sonos section), `.env.example` (HA keys now shared by `media` and `sonos`), the `deploy/k8s.yaml` secret comment, `openspec/config.yaml` context.
 - No migration, no new environment variables, no new dependencies.
 - Runs alongside the Spotify port and the `agents` change. Both add to the same lists (`modules.ts`, README, `.env.example`, `openspec/config.yaml`), so conflicts are mechanical. Whichever merges second rebases.

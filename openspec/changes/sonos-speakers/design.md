@@ -29,15 +29,18 @@ All control goes through HA services: `media_player.join`/`unjoin`, `play_media`
 `POST /api/template` renders a Jinja template that returns JSON, so one request gives everything the tools need:
 
 ```jinja
-[{% for e in integration_entities('sonos') | select('match', 'media_player\.') %}
+{% set ns = namespace(items=[]) %}
+{% for e in integration_entities('sonos') if e.startswith('media_player.') %}
   {% set d = device_id(e) %}
-  {{ {"entity": e, "name": state_attr(e, 'friendly_name'), "area": area_name(e),
-      "model": device_attr(d, 'model') if d else none, "state": states(e),
-      "volume": state_attr(e, 'volume_level'), "group": state_attr(e, 'group_members'),
-      "title": state_attr(e, 'media_title'), "artist": state_attr(e, 'media_artist')} | tojson }}
-  {{ "," if not loop.last }}
-{% endfor %}]
+  {% set ns.items = ns.items + [{'entity': e, 'name': state_attr(e, 'friendly_name'), 'area': area_name(e),
+      'model': device_attr(d, 'model') if d else none, 'state': states(e),
+      'volume': state_attr(e, 'volume_level'), 'group': state_attr(e, 'group_members'),
+      'title': state_attr(e, 'media_title'), 'artist': state_attr(e, 'media_artist')}] %}
+{% endfor %}
+{{ ns.items | tojson }}
 ```
+
+(`SPEAKERS_TEMPLATE` in `src/speakers.ts`, checked read-only against the household's HA on 2026-10-21: it returns the three speakers and nothing else.)
 
 The REST state API has no areas or device models, and `integration_entities('sonos')` excludes group entities and other integrations for free. The template lives in one constant and is parsed defensively (non-array or malformed entries count as a failed lookup). Nothing is cached: it's one LAN request (well under a second), and a fresh read means groups and states are never stale. Jarvis needed a cache because SSDP takes 10 s. The template API needs a token that may render templates. The long-lived token Friday already uses does.
 
@@ -55,13 +58,14 @@ The named speakers become exactly one group (spec: sonos_play). Jarvis only join
 resolve speakers + validate URIs            (no HA writes yet)
 one speaker:  grouped with others? -> unjoin it
 several:      leader = first home theatre (by model) else first named
-              unjoin members of leader's group that aren't named
+              leader is a member of another speaker's group? -> unjoin the leader
+              else unjoin members of leader's group that aren't named
               join leader with the other named speakers (one call)
 play_media(leader, uris[0], enqueue: replace)
 play_media(leader, uris[i], enqueue: add)   for i = 1..n-1, in order
 ```
 
-The leader rule comes from Jarvis (home-theatre setups must lead). It is applied by model name, because HA has no speaker-type attribute. The models are Arc, Arc Ultra, Beam, Ray, Playbar, Playbase and Amp, matched case-insensitively against `model`. `media_content_type` is `music`. HA's Sonos integration turns Spotify URIs and `open.spotify.com` links into queue items itself, which replaces Jarvis's flush/queue/selectQueue/play sequence.
+The leader rule comes from Jarvis (home-theatre setups must lead). It is applied by model name, because HA has no speaker-type attribute. The models are Arc, Arc Ultra, Beam, Ray, Playbar, Playbase and Amp. Each is matched as a prefix of the normalized `model` (letters and digits, lowercase), so variants such as "Beam (Gen 2)" count too. Speakers already in the leader's group aren't joined again. `media_content_type` is `music`. HA's Sonos integration turns Spotify URIs and `open.spotify.com` links into queue items itself, which replaces Jarvis's flush/queue/selectQueue/play sequence.
 
 ### Spotify artists are refused
 

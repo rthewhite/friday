@@ -37,6 +37,19 @@ test("sonos_list_speakers returns an empty list when the integration has no enti
   assert.deepEqual((await h.call("sonos_list_speakers")).result, { speakers: [] });
 });
 
+test("an unreachable Home Assistant fails as a speaker lookup error without the token", async () => {
+  const down = (async () => {
+    throw new TypeError("fetch failed");
+  }) as typeof fetch;
+  const h = await createTestHost(createSonosModule({ fetch: down }), { env });
+  for (const [tool, args] of [["sonos_list_speakers", {}], ["sonos_pause", { speakers: ["Bedroom"] }]] as const) {
+    const r = await h.call(tool, args);
+    assert.match(String(r.result.error), /Sonos speaker lookup failed: home assistant template failed: fetch failed/);
+    assert.doesNotMatch(String(r.result.error), /ha-secret-token/);
+    assert.equal(r.scheduling, "INTERRUPT");
+  }
+});
+
 test("the module registers exactly the seven sonos tools", async () => {
   const h = await createTestHost(createSonosModule({ fetch: fakeHa().fetch }), { env });
   assert.deepEqual(h.tools, ["sonos_list_speakers", "sonos_play", "sonos_pause", "sonos_resume", "sonos_stop", "sonos_set_volume", "sonos_ungroup"]);

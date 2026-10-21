@@ -44,6 +44,12 @@ test("ungrouping without speakers takes every member out of its group", async ()
   assert.deepEqual(ha.calls, [{ service: "media_player.unjoin", data: { entity_id: [PLAYBAR, ONE_SL] } }]);
 });
 
+test("an empty speakers list ungroups everything, like leaving it out", async () => {
+  const { ha, h } = await host(grouped(household(), ARC, ONE_SL));
+  assert.deepEqual((await h.call("sonos_ungroup", { speakers: [] })).result, { ungrouped: [ONE_SL_NAME] });
+  assert.deepEqual(ha.calls, [{ service: "media_player.unjoin", data: { entity_id: [ONE_SL] } }]);
+});
+
 test("ungrouping when nothing is grouped calls nothing", async () => {
   const { ha, h } = await host();
   assert.deepEqual((await h.call("sonos_ungroup", {})).result, { ungrouped: [] });
