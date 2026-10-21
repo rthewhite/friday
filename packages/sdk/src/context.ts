@@ -11,6 +11,7 @@ import type { ModuleStorage } from "./storage.js";
 import type { ModuleConversations } from "./conversations.js";
 import type { ModuleDb } from "./db.js";
 import type { ModulePrompt } from "./prompt.js";
+import { noOAuth, type ModuleOAuth } from "./oauth.js";
 import type { Tool } from "./tool.js";
 
 export type Env = Record<string, string | undefined>;
@@ -74,6 +75,8 @@ export interface ContextOptions {
   db?: ModuleDb;
   /** The module's prompt context; defaults to one whose `addContext` throws (hosts without prompt assembly). */
   prompt?: ModulePrompt;
+  /** OAuth tokens for this module; defaults to one that rejects with `not_connected` (hosts without connections). */
+  oauth?: ModuleOAuth;
 }
 
 export function createContext(manifest: ModuleManifest, o: ContextOptions): ModuleContext {
@@ -96,6 +99,7 @@ export function createContext(manifest: ModuleManifest, o: ContextOptions): Modu
     conversations: o.conversations ?? noConversations(manifest.id),
     db: o.db ?? noDb(manifest.id),
     prompt: o.prompt ?? { addContext: () => { throw new Error(`${manifest.id}: prompt context is not available in this host`); } },
+    oauth: o.oauth ?? noOAuth,
   };
 }
 

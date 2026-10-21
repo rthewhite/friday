@@ -9,5 +9,6 @@ export * from "./llm.js";
 export * from "./conversations.js";
 export * from "./conversation-search.js";
 export * from "./prompt.js";
+export * from "./oauth.js";
 export type { ModuleDb, ModuleMigration } from "./db.js";
 export * from "./time.js";

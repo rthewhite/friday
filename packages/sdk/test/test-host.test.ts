@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
-import { defineModule, LlmError, Type, type ModuleContext } from "../src/index.js";
+import { defineModule, LlmError, OAuthError, Type, type ModuleContext } from "../src/index.js";
 import { createTestHost } from "../src/test.js";
 
 const hello = defineModule({
@@ -195,4 +195,47 @@ test("promptContext renders the module's providers per channel, and dispose drop
   assert.deepEqual(errors, ["prompt context provider of brain failed: broken", "prompt context provider of brain failed: broken"]);
   await h.dispose();
   assert.equal(h.promptContext("voice"), "");
+});
+
+const music = defineModule({
+  manifest: { id: "music", label: "Music", oauth: [{ provider: "spotify", scopes: ["playlist-read-private"] }] },
+  init(ctx) {
+    ctx.defineTool<{ provider: string }>({
+      name: "token_for",
+      description: "",
+      parameters: { type: Type.OBJECT, properties: { provider: { type: Type.STRING } }, required: ["provider"] },
+      handler: async ({ provider }) => {
+        try {
+          return { token: await ctx.oauth.token(provider) };
+        } catch (e) {
+          return { kind: (e as OAuthError).kind, message: (e as Error).message };
+        }
+      },
+    });
+  },
+});
+
+test("a fake OAuth token reaches the module", async () => {
+  const host = await createTestHost(music, { oauth: { spotify: "t0ken" } });
+  assert.deepEqual((await host.call("token_for", { provider: "spotify" })).result, { token: "t0ken" });
+});
+
+test("a fake OAuthError is thrown as is, and a function is called on every call", async () => {
+  let n = 0;
+  const host = await createTestHost(music, { oauth: { spotify: () => (++n === 1 ? new OAuthError("not_granted", "grant it") : `t${n}`) } });
+  assert.deepEqual((await host.call("token_for", { provider: "spotify" })).result, { kind: "not_granted", message: "grant it" });
+  assert.deepEqual((await host.call("token_for", { provider: "spotify" })).result, { token: "t2" });
+  assert.deepEqual(host.oauthCalls, { spotify: 2 });
+});
+
+test("a provider the manifest does not request is not_granted, a requested one without a fake is not_connected", async () => {
+  const host = await createTestHost(music, { oauth: { github: "gh" } });
+  assert.deepEqual((await host.call("token_for", { provider: "github" })).result, { kind: "not_granted", message: "music does not request access to github" });
+  assert.deepEqual((await host.call("token_for", { provider: "spotify" })).result, { kind: "not_connected", message: "spotify is not connected in this test host" });
+  assert.deepEqual(host.oauthCalls, { github: 1, spotify: 1 });
+});
+
+test("an invalid oauth request rejects createTestHost as the host would", async () => {
+  const bad = defineModule({ manifest: { id: "bad", label: "Bad", oauth: [{ provider: "acme", scopes: [], authUrl: "https://a.example/x" }] }, init() {} });
+  await assert.rejects(createTestHost(bad), /module bad: oauth request for acme: authUrl and tokenUrl go together/);
 });
