@@ -116,6 +116,7 @@ test("conversations: ?channel= filters, keeps the filter when paging, and reject
   const s = await start();
   try {
     for (let i = 0; i < 60; i++) s.conversations.create({ channel: i % 2 ? "chat" : "voice" });
+    const run = s.conversations.create({ channel: "agent" });
     const first = await (await s.j("/api/conversations?channel=chat&limit=20")).json();
     assert.equal(first.conversations.length, 20);
     const second = await (await s.j(`/api/conversations?channel=chat&limit=20&before=${encodeURIComponent(first.next)}`)).json();
@@ -124,6 +125,8 @@ test("conversations: ?channel= filters, keeps the filter when paging, and reject
     assert.ok([...first.conversations, ...second.conversations].every((c: any) => c.channel === "chat"));
     const voice = await (await s.j("/api/conversations?channel=voice")).json();
     assert.equal(voice.conversations.length, 30);
+    const agent = await (await s.j("/api/conversations?channel=agent")).json();
+    assert.deepEqual(agent.conversations.map((c: any) => c.id), [run]);
     assert.equal((await s.j("/api/conversations?channel=email")).status, 400);
   } finally {
     await s.close();

@@ -1,7 +1,7 @@
 /** Shapes of `/api/conversations`, shared by the Conversations and Chat pages. */
 export interface Summary extends Record<string, unknown> {
   id: string;
-  channel: "voice" | "chat";
+  channel: "voice" | "chat" | "agent";
   device: string | null;
   startedAt: string;
   lastActivityAt: string;

@@ -12,7 +12,7 @@ import type { ConversationChannel } from "./conversations.js";
 import { MemoryStorage } from "./storage.js";
 import { MemoryConversations } from "./conversations.js";
 import { lazyDb, openModuleDb, type ModuleDatabase, type ModuleDb } from "./db.js";
-import { PromptContext } from "./prompt.js";
+import { PromptContext, type PromptChannel } from "./prompt.js";
 
 export interface TestHostOptions {
   /** Configuration the module sees. Defaults to an empty environment, not `process.env`. */
@@ -76,7 +76,7 @@ export interface TestHost {
    */
   db: ModuleDb;
   /** The module's prompt context for a channel, rendered as core would (empty when it adds none). */
-  promptContext(channel: ConversationChannel): string;
+  promptContext(channel: PromptChannel): string;
   dispose(): Promise<void>;
 }
 

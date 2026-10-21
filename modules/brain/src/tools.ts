@@ -89,7 +89,7 @@ export function defineBrainTools(ctx: ModuleContext, store: BrainStore, today: (
         query: { type: Type.STRING, description: "Words to look for, e.g. \"film\" or \"boiler service\"" },
         since: { type: Type.STRING, description: "First day to search, YYYY-MM-DD" },
         until: { type: Type.STRING, description: "Last day to search, YYYY-MM-DD" },
-        channel: { type: Type.STRING, enum: ["voice", "chat"], description: "Only voice or only chat conversations" },
+        channel: { type: Type.STRING, enum: ["voice", "chat", "agent"], description: "Only voice, chat or agent-run conversations (agent: what Friday's agents reported)" },
       },
     },
     handler: (args, call) => recallConversations(ctx.conversations, args, zone(), call.conversationId),

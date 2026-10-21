@@ -134,7 +134,7 @@ const subtitle = computed(() => (selected.value ? `${formatDateTime(selected.val
         <p v-if="drawerError" class="text-sm text-f-error">{{ drawerError }}</p>
 
         <ol class="flex flex-col gap-3">
-          <TranscriptEntry v-for="e in selected.entries" :key="e.seq" :entry="e" :markdown="selected.channel === 'chat'" />
+          <TranscriptEntry v-for="e in selected.entries" :key="e.seq" :entry="e" :markdown="selected.channel !== 'voice'" />
         </ol>
         <p v-if="!selected.entries.length" class="text-sm text-f-text-muted">No entries.</p>
       </template>

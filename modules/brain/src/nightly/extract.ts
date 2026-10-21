@@ -59,6 +59,8 @@ const WATERMARK = "extract:watermark";
 const seenKey = (id: string) => `extract:seen:${id}`;
 const retryKey = (id: string) => `extract:retry:${id}`;
 const EPOCH = new Date(0).toISOString();
+/** Pages of quiet conversations one run lists at most while passing over agent runs. */
+const MAX_LIST_PAGES = 20;
 
 interface Retry {
   attempts: number;
@@ -113,20 +115,33 @@ export async function runExtract(deps: ExtractDeps, signal: AbortSignal): Promis
     if (c.state === "quiet") retries.push({ c, retry: (await deps.storage.get<Retry>(key)) ?? { attempts: 0, lastError: "" } });
   }
   retries.sort((a, b) => (a.c.quietAt ?? "").localeCompare(b.c.quietAt ?? ""));
-  const queue: { id: string; quietAt?: string; listed: boolean }[] = retries.slice(0, max).map((r) => ({ id: r.c.id, listed: false }));
+  // `pass`: an agent run, never read; only the watermark moves past it.
+  const queue: { id: string; quietAt?: string; listed: boolean; pass?: boolean }[] = retries.slice(0, max).map((r) => ({ id: r.c.id, listed: false }));
 
   // 2. Conversations that went quiet since the watermark, in list order. The watermark is a cursor
   // (quietAt plus the ids already handled at exactly that time): several conversations can go quiet in
   // the same millisecond, and a bare timestamp with core's strict `>` would lose the ones after a cut.
-  const room = max - queue.length;
+  // Agent runs are passed over: their text comes from tools and instructions, not from the user. They
+  // don't take room, so listing pages on until the room is filled or the list runs out.
+  let room = max - queue.length;
   let cursor = await readWatermark(deps.storage);
-  if (room > 0) {
-    const since = cursor ? new Date(Date.parse(cursor.quietAt) - 1).toISOString() : EPOCH;
-    const listed = await deps.conversations.list({ quietSince: since, limit: room + (cursor?.ids.length ?? 0) });
-    const fresh = listed.filter((s) => !(cursor && s.quietAt === cursor.quietAt && cursor.ids.includes(s.id)));
+  let at = cursor;
+  for (let page = 0; room > 0 && page < MAX_LIST_PAGES; page++) {
+    const since = at ? new Date(Date.parse(at.quietAt) - 1).toISOString() : EPOCH;
+    const limit = room + (at?.ids.length ?? 0);
+    const listed = await deps.conversations.list({ quietSince: since, limit });
+    const seen = at;
+    const fresh = listed.filter((s) => !(seen && s.quietAt === seen.quietAt && seen.ids.includes(s.id)));
     // A listed conversation that is also a retry keeps its list position, so the watermark never
     // moves past a conversation that wasn't handled yet.
-    for (const s of fresh.slice(0, room)) queue.push({ id: s.id, quietAt: s.quietAt!, listed: true });
+    for (const s of fresh) {
+      if (room === 0) break;
+      const pass = s.channel === "agent";
+      queue.push({ id: s.id, quietAt: s.quietAt!, listed: true, pass });
+      if (!pass) room--;
+      at = at && at.quietAt === s.quietAt ? { quietAt: s.quietAt, ids: [...at.ids, s.id] } : { quietAt: s.quietAt!, ids: [s.id] };
+    }
+    if (listed.length < limit) break;
   }
 
   // 3. Handle each; a stop (model unavailable, cancelled) leaves the current conversation for next time.
@@ -136,7 +151,7 @@ export async function runExtract(deps: ExtractDeps, signal: AbortSignal): Promis
       out.stopped = "cancelled";
       break;
     }
-    if (!handled.has(q.id)) {
+    if (!handled.has(q.id) && !q.pass) {
       const status = await handle(deps, q.id, signal, out);
       if (status === "stop") break;
       handled.add(q.id);

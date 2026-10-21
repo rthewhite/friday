@@ -513,9 +513,9 @@ export class CalendarService {
 
   // ---- Undo --------------------------------------------------------------------------------------------------
 
-  /** `calendar_undo`: reverts the newest tool change of the last 24 hours that wasn't undone. */
+  /** `calendar_undo`: reverts the newest tool change of the last 24 hours that wasn't undone (agents: their own). */
   async undoLast(call: ToolCallContext = {}): Promise<Record<string, unknown>> {
-    const change = this.d.changes.lastToolChange();
+    const change = this.d.changes.lastToolChange(call.channel === "agent" ? "agents" : "people");
     if (!change) return { nothing: true, say: "There is nothing to undo: Friday made no calendar change in the last 24 hours that is still in place." };
     const { say, undo } = await this.undo(change, call.channel ?? "chat", call.conversationId);
     return { undone: true, action: change.action, ...(change.scope ? { scope: change.scope } : {}), title: change.title, change: undo.id, say };

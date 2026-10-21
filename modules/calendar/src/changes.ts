@@ -6,7 +6,7 @@ export const MAX_CHANGES = 500;
 export const TOOL_UNDO_WINDOW_MS = 24 * 60 * 60_000;
 
 export type ChangeAction = "create" | "update" | "delete" | "undo";
-export type ChangeSource = "voice" | "chat" | "portal";
+export type ChangeSource = "voice" | "chat" | "agent" | "portal";
 
 export interface NewChange {
   action: ChangeAction;
@@ -109,11 +109,15 @@ export class ChangeLog {
     return (this.db.prepare("SELECT * FROM calendar__changes ORDER BY id DESC LIMIT ?").all(limit) as unknown as Row[]).map(toChange);
   }
 
-  /** The newest change a tool made in the last 24 hours that isn't an undo and wasn't undone. */
-  lastToolChange(): Change | undefined {
+  /**
+   * The newest change a tool made in the last 24 hours that isn't an undo and wasn't undone: among agent changes
+   * for `agents`, among voice and chat changes otherwise, so an agent and the user never undo each other's work.
+   */
+  lastToolChange(by: "people" | "agents" = "people"): Change | undefined {
     const since = new Date(this.now().getTime() - TOOL_UNDO_WINDOW_MS).toISOString();
+    const sources = by === "agents" ? "('agent')" : "('voice', 'chat')";
     const r = this.db
-      .prepare(`SELECT * FROM calendar__changes WHERE source IN ('voice', 'chat') AND action <> 'undo' AND undone_by IS NULL AND at >= ? ORDER BY id DESC LIMIT 1`)
+      .prepare(`SELECT * FROM calendar__changes WHERE source IN ${sources} AND action <> 'undo' AND undone_by IS NULL AND at >= ? ORDER BY id DESC LIMIT 1`)
       .get(since) as Row | undefined;
     return r ? toChange(r) : undefined;
   }

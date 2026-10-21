@@ -31,6 +31,7 @@ Out of scope, each for a later change: an async channel that delivers approvals 
 - `mcp-tools`: an MCP server definition may set `channels`, applied to all its tools.
 - `brain-maintenance`: extraction skips `agent` conversations.
 - `brain`: `brain_recall_conversations` accepts `agent` as a channel filter, so Friday can say what an agent reported.
+- `calendar`: changes record source `agent`, and `calendar_undo` keeps voice/chat changes and agent changes apart.
 - `portal-shell`: the sidebar's `Assistant` section gains `Agents`.
 - `module-llm`: agent runs hold at most one of the shared concurrency slots at a time.
 

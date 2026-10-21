@@ -87,11 +87,34 @@ test("handler receives an empty object when args are undefined", async () => {
   assert.deepEqual((await r.callTool("echo", undefined)).result, { args: {} });
 });
 
-test("tools without channels are offered in both channels", () => {
+test("tools without channels are offered in every channel", () => {
   const r = new ToolRegistry(quiet);
   r.add("a", { name: "t", description: "", handler: () => ({}) });
   assert.deepEqual(r.declarations("voice").map((d) => d.name), ["t"]);
   assert.deepEqual(r.declarations("chat").map((d) => d.name), ["t"]);
+  assert.deepEqual(r.declarations("agent").map((d) => d.name), ["t"]);
+});
+
+test("agent-only tools stay out of voice and chat, voice-only tools out of agents", () => {
+  const r = new ToolRegistry(quiet);
+  r.add("mcp:github", { name: "github__list_repos", description: "", channels: ["agent"], handler: () => ({}) });
+  r.add("core", { name: "set_timer", description: "", channels: ["voice"], handler: () => ({}) });
+  assert.deepEqual(r.declarations("agent").map((d) => d.name), ["github__list_repos"]);
+  assert.deepEqual(r.declarations("voice").map((d) => d.name), ["set_timer"]);
+  assert.deepEqual(r.declarations("chat"), []);
+});
+
+test("remove takes out one tool whatever its owner, notifying once", () => {
+  const r = new ToolRegistry(quiet);
+  r.add("core", { name: "run_agent", description: "", handler: () => ({}) });
+  r.add("core", { name: "set_timer", description: "", handler: () => ({}) });
+  let n = 0;
+  r.onChange(() => n++);
+  assert.equal(r.remove("run_agent"), true);
+  assert.deepEqual(r.names(), ["set_timer"]);
+  assert.equal(n, 1);
+  assert.equal(r.remove("nothing"), false);
+  assert.equal(n, 1);
 });
 
 test("declarations narrow to a channel; without one they list every tool", () => {

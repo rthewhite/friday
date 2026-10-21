@@ -107,6 +107,25 @@ test("an undo is logged, marks the change, and is never itself a target", async 
   await assert.rejects(s.service.undo(s.changes.get(b.id)!, "portal"), /already undone/);
 });
 
+test("agents and people never undo each other's changes", async () => {
+  const s = await setup();
+  await s.service.create({ title: "Dentist visit", start: "2026-10-13T09:00" }, { channel: "voice" });
+  await s.service.create({ title: "Gym", start: "2026-10-13T18:00" }, { channel: "agent", conversationId: "run-1" });
+  assert.deepEqual([s.changes.list(1)[0].source, s.changes.list(1)[0].conversationId], ["agent", "run-1"]);
+
+  const byVoice = (await s.service.undoLast({ channel: "voice" })) as { title: string };
+  assert.equal(byVoice.title, "Dentist visit");
+  assert.deepEqual(await s.titles("2026-10-13", "2026-10-13"), ["Standup Tue 13 Oct, 09:00-09:15", "Gym Tue 13 Oct, 18:00-19:00"]);
+
+  await s.service.create({ title: "Plumber", start: "2026-10-14T09:00" }, { channel: "chat" });
+  const byAgent = (await s.service.undoLast({ channel: "agent", conversationId: "run-2" })) as { title: string };
+  assert.equal(byAgent.title, "Gym");
+  assert.equal(s.changes.list(1)[0].source, "agent");
+  const nothingLeft = (await s.service.undoLast({ channel: "agent" })) as { nothing?: boolean };
+  assert.equal(nothingLeft.nothing, true);
+  assert.deepEqual(await s.titles("2026-10-14", "2026-10-14"), ["Plumber Wed 14 Oct, 09:00-10:00"]);
+});
+
 test("the tool only undoes tool changes from the last 24 hours", async () => {
   const s = await setup();
   await s.service.create({ title: "Old", start: "2026-10-13T12:00" }, { channel: "voice" });

@@ -6,9 +6,12 @@ import type { ConversationChannel } from "./conversations.js";
 import type { ModuleLogger } from "./module.js";
 import { isThenable } from "./thenable.js";
 
+/** The prompts module context goes into. Agent runs never include module context. */
+export type PromptChannel = Exclude<ConversationChannel, "agent">;
+
 export interface PromptContextInfo {
   /** The prompt being built: `voice` when a Live session opens, `chat` when a chat turn starts. */
-  channel: ConversationChannel;
+  channel: PromptChannel;
 }
 
 /**
@@ -71,7 +74,7 @@ export class PromptContext {
   }
 
   /** Module context for `channel`: each module's non-empty output, capped, separated by blank lines. */
-  render(channel: ConversationChannel): string {
+  render(channel: PromptChannel): string {
     const blocks: string[] = [];
     for (const [owner, providers] of this.owners) {
       const parts: string[] = [];
@@ -90,7 +93,7 @@ export class PromptContext {
     return blocks.join("\n\n");
   }
 
-  private call(owner: string, fn: PromptContextProvider, channel: ConversationChannel): string | undefined {
+  private call(owner: string, fn: PromptContextProvider, channel: PromptChannel): string | undefined {
     const started = this.now();
     try {
       const out: unknown = fn({ channel });

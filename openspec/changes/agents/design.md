@@ -47,7 +47,7 @@ A new `packages/core/src/llm/tool-loop.ts` holds the loop: stream a round, colle
 `CHANNELS` becomes `["voice", "chat", "agent"]` and `ConversationChannel` gains `agent`. Every place that branches on it:
 - Registry: no code change. A tool without `channels` is offered everywhere, so all module tools (brain, calendar, travel, media) and MCP and remote tools are available to agents, subject to each agent's list. Voice-only tools stay voice-only.
 - Prompt context: providers get a narrower `PromptChannel = "voice" | "chat"`, because agents don't use module context (Non-Goals). This keeps providers that test `channel === "voice"` from silently treating `agent` as chat.
-- Calendar: `ChangeSource` gains `agent`, and the Changes tab shows it. `calendar_undo` keeps undoing only `voice`/`chat` changes, so a user saying "undo that" never reverts an agent's change. Agent changes are undone from the portal.
+- Calendar: `ChangeSource` gains `agent`, and the Changes tab shows it. `calendar_undo` has no `channels`, so agents are offered it too. `lastToolChange` takes the sources to consider: `voice`/`chat` on those channels and `agent` in an agent run. A user saying "undo that" never reverts an agent's change, and an agent's undo never reverts the user's. (Found during apply: without this, an agent's `calendar_undo` would have reverted the user's newest voice change.)
 - Brain: the `channel` enum of `brain_recall_conversations` gains `agent`. Nightly extraction filters `agent` out (decision 9).
 - Portal: the conversation types and the Conversations page show `agent`.
 

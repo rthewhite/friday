@@ -208,6 +208,39 @@ test("BRAIN_NIGHTLY_MAX_CONVERSATIONS sets the per-run limit", async () => {
   assert.equal(t.extractions.length, 2);
 });
 
+test("agent runs are passed over: no model call, not counted, not taking room, and never considered again", async () => {
+  const t = await host(undefined, { BRAIN_NIGHTLY_MAX_CONVERSATIONS: "2" });
+  const agentRun = (id: string, quietAt: string) =>
+    t.h.conversations.seed({
+      id, channel: "agent", startedAt: quietAt, lastActivityAt: quietAt, quietAt,
+      entries: [
+        { kind: "user", input: "text", text: "Start your run now and check what is new in the family wiki" },
+        { kind: "tool", name: "fetch_page", args: { url: "https://wiki.example/family" }, result: { text: "the user's sister is called Anouk" } },
+        { kind: "assistant", text: "The user's sister is called Anouk and her birthday is on 3 November." },
+      ],
+    });
+  agentRun("a1", "2026-09-01T00:00:00.000Z");
+  agentRun("a2", "2026-09-02T00:00:00.000Z");
+  quietConversation(t.h, "c1", "the garden shed needs a new roof this autumn", "2026-09-03T00:00:00.000Z");
+  agentRun("a3", "2026-09-04T00:00:00.000Z");
+  quietConversation(t.h, "c2", "we are repainting the kitchen in October", "2026-09-05T00:00:00.000Z");
+  quietConversation(t.h, "c3", "my bike is being repaired at the shop", "2026-09-06T00:00:00.000Z");
+
+  const first = await t.run();
+  assert.equal(t.extractions.length, 2, "two user conversations, the agent runs took no room");
+  assert.ok(t.extractions.every((r) => !r.prompt!.includes("Anouk")));
+  assert.match(first.summary!, /^2 conversations/);
+  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: "2026-09-05T00:00:00.000Z", ids: ["c2"] });
+  assert.equal(await t.h.storage.get("extract:seen:a1"), undefined);
+
+  await t.run();
+  assert.equal(t.extractions.length, 3);
+  assert.ok(t.extractions[2]!.prompt!.includes("bike"));
+  await t.run();
+  assert.equal(t.extractions.length, 3, "nothing left, agent runs are not reconsidered");
+  assert.equal(t.body("Anouk"), undefined);
+});
+
 test("a resumed conversation extracts only its new entries, with the old ones as context", async () => {
   const t = await host();
   quietConversation(t.h, "c1", "the first thing I said about the garden shed", "2026-09-28T10:00:00Z");
