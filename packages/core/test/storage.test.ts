@@ -15,7 +15,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
   const search = ["conversation_search", "conversation_search_config", "conversation_search_data", "conversation_search_docsize", "conversation_search_idx"];
-  assert.deepEqual(tables, ["agent_actions", "agent_runs", "agents", "alerts", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
+  assert.deepEqual(tables, ["agent_actions", "agent_runs", "agents", "alerts", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "oauth_connections", "oauth_grants", "schema_version"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -214,6 +214,26 @@ test("a version-7 database gains the empty alerts table and keeps its devices", 
   assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM alerts").get() }, { n: 0 });
   const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='alerts' AND sql IS NOT NULL ORDER BY name").all() as { name: string }[]).map((i) => i.name);
   assert.deepEqual(indexes, ["alerts_target_state"]);
+  assert.deepEqual({ ...db.prepare("SELECT id FROM devices").get() }, { id: "friday-kitchen" });
+  db.close();
+});
+
+test("a version-9 database gains the empty OAuth tables, and grants cascade with their connection", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  migrate(old, migrations.filter((m) => m.version <= 9), quiet);
+  old.exec("INSERT INTO devices (id, label, key_hash, created_at) VALUES ('friday-kitchen', 'Kitchen', 'h', 't')");
+  old.close();
+
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM oauth_connections").get() }, { n: 0 });
+  db.exec(`
+    INSERT INTO oauth_connections (provider, client_id, created_at, updated_at) VALUES ('spotify', 'id', 't', 't');
+    INSERT INTO oauth_grants (provider, module_id, granted_at) VALUES ('spotify', 'spotify', 't');
+    DELETE FROM oauth_connections WHERE provider = 'spotify';
+  `);
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM oauth_grants").get() }, { n: 0 });
   assert.deepEqual({ ...db.prepare("SELECT id FROM devices").get() }, { id: "friday-kitchen" });
   db.close();
 });

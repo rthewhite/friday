@@ -384,6 +384,18 @@ test("core requests FRIDAY_TIMEZONE as a plain, optional key", async () => {
   }
 });
 
+test("core requests FRIDAY_PUBLIC_URL as a plain, optional key", async () => {
+  const s = await start();
+  try {
+    const entry = (await (await s.j("/api/config")).json()).entries.find((e: any) => e.key === "FRIDAY_PUBLIC_URL");
+    assert.equal(entry.secret, false);
+    assert.equal(entry.required, false);
+    assert.deepEqual(entry.modules, [{ id: "core", required: false }]);
+  } finally {
+    await s.close();
+  }
+});
+
 test("a stored or deleted config value is reported to onConfigChange; a rejected write is not", async () => {
   const changes: string[] = [];
   const s = await start({ onConfigChange: (scope, key) => void changes.push(`${scope}/${key}`) });

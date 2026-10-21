@@ -13,6 +13,7 @@ import {
   type ModuleLlm,
   type ModuleConversations,
   type ModuleLogger,
+  type ModuleOAuth,
   type ModuleStorage,
   type PromptContext,
   type ToolRegistry,
@@ -58,6 +59,8 @@ export interface ModuleHostOptions {
   database?: string;
   /** Registry the modules' prompt context providers join. Without it `ctx.prompt` is unavailable. */
   prompt?: PromptContext;
+  /** Per-module OAuth tokens (`tokens.forModule`). Defaults to one that rejects with `not_connected`. */
+  oauth?: (moduleId: string) => ModuleOAuth;
 }
 
 interface Entry {
@@ -120,7 +123,7 @@ export class ModuleHost {
       }
       const db = this.opts.database ? lazyDb(() => this.databaseOf(entry)) : undefined;
       const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id), conversations: this.conversationsFor(id), db, prompt: this.opts.prompt?.forOwner(id) }));
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id), conversations: this.conversationsFor(id), db, prompt: this.opts.prompt?.forOwner(id), oauth: this.opts.oauth?.(id) }));
       entry.status = "loaded";
       entry.error = undefined;
       const routeList = routes.list().map((r) => `${r.method} ${r.path}`);

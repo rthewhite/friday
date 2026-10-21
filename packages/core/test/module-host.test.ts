@@ -11,6 +11,11 @@ import { JobStore } from "../src/jobs/store.js";
 import { Scheduler } from "../src/jobs/scheduler.js";
 import { FakeClock } from "./fake-clock.js";
 import { LlmService } from "../src/llm/service.js";
+import { randomBytes } from "node:crypto";
+import { OAuthError } from "@friday/sdk";
+import { OAuthStore } from "../src/oauth/store.js";
+import { enabledManifests, OAuthRequests } from "../src/oauth/requests.js";
+import { OAuthTokens } from "../src/oauth/tokens.js";
 
 function logger() {
   const lines: string[] = [];
@@ -300,4 +305,28 @@ test("dispose closes the modules' connections, and they do not reopen", async (t
   db!.exec("INSERT INTO m__t VALUES (1)");
   await h.dispose();
   assert.throws(() => db!.exec("INSERT INTO m__t VALUES (2)"), /m: database is closed/);
+});
+
+test("a granted in-process module gets the token through ctx.oauth; a revoke applies to the next call without a reload", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, migrations, { log() {} });
+  const store = new OAuthStore(db, randomBytes(32), { error() {} });
+  let ctx: ModuleContext | undefined;
+  const music = defineModule({ manifest: { id: "music", label: "Music", oauth: [{ provider: "spotify", scopes: ["playlist-read-private"] }] }, init: (c) => void (ctx = c) });
+  const other = defineModule({ manifest: { id: "other", label: "Other" }, init() {} });
+  let host!: ModuleHost;
+  const tokens = new OAuthTokens({ store, requests: new OAuthRequests(() => enabledManifests(host)), redirectUri: () => "https://friday.example/cb" });
+  host = new ModuleHost(new ToolRegistry(logger().log), { log: logger().log, oauth: (id) => tokens.forModule(id), enabled: "music" });
+  await host.load([music, other]);
+  assert.deepEqual(enabledManifests(host).map((m) => m.id), ["music"], "modules FRIDAY_MODULES leaves out are not listed");
+
+  await assert.rejects(ctx!.oauth.token("spotify"), (e) => e instanceof OAuthError && e.kind === "not_connected", "loaded before Spotify is set up");
+  store.upsert({ provider: "spotify", clientId: "id", clientSecret: "s" });
+  store.storeTokens("spotify", { accessToken: "AT-1", refreshToken: "RT-1", expiresAt: new Date(Date.now() + 3600_000) });
+  store.grant("spotify", "music");
+  assert.equal(await ctx!.oauth.token("spotify"), "AT-1");
+  store.revoke("spotify", "music");
+  await assert.rejects(ctx!.oauth.token("spotify"), (e) => e instanceof OAuthError && e.kind === "not_granted");
+  await host.dispose();
 });

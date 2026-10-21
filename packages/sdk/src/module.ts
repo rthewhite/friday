@@ -5,6 +5,7 @@ import type { ModuleStorage } from "./storage.js";
 import type { ModuleConversations } from "./conversations.js";
 import type { ModuleDb, ModuleMigration } from "./db.js";
 import type { ModulePrompt } from "./prompt.js";
+import { validateOAuthRequests, type ModuleOAuth, type OAuthRequest } from "./oauth.js";
 import type { Tool } from "./tool.js";
 
 /** A configuration value the module reads through `ctx.config`. */
@@ -23,6 +24,8 @@ export interface ModuleManifest {
   label: string;
   description?: string;
   config?: ConfigKey[];
+  /** Providers the module needs OAuth tokens for; the user grants access per module in the portal. */
+  oauth?: OAuthRequest[];
   /** True when the module package ships a portal UI (`friday.ui` in its package.json). */
   ui?: boolean;
 }
@@ -57,6 +60,8 @@ export interface ModuleContext {
   db: ModuleDb;
   /** Adds text to Friday's voice and chat system prompts. Not available to remote modules. */
   prompt: ModulePrompt;
+  /** Access tokens for the providers the manifest requests and the user granted. Rejects in remote modules. */
+  oauth: ModuleOAuth;
 }
 
 export interface FridayModule {
@@ -80,4 +85,5 @@ export function validateManifest(m: ModuleManifest): void {
   if (!m || typeof m.id !== "string" || !MODULE_ID.test(m.id)) throw new Error(`invalid module id ${JSON.stringify(m?.id)}`);
   if (RESERVED_IDS.includes(m.id)) throw new Error(`module id "${m.id}" is reserved`);
   if (typeof m.label !== "string" || !m.label) throw new Error(`module ${m.id}: label is required`);
+  validateOAuthRequests(m.id, m.oauth);
 }

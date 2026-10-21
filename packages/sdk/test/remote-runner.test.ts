@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { WebSocketServer, type WebSocket } from "ws";
-import { defineModule, LlmError, type ModuleContext } from "../src/index.js";
+import { defineModule, LlmError, OAuthError, type ModuleContext } from "../src/index.js";
 import { runRemote, CloseCode } from "../src/remote/index.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
@@ -88,6 +88,22 @@ test("ctx.llm is unavailable to remote modules", async () => {
     assert.ok(e instanceof LlmError);
     assert.equal(e.kind, "unavailable");
     assert.equal(e.message, "text generation is not available in this host");
+    return true;
+  });
+  await h.stop();
+  core.close();
+});
+
+test("ctx.oauth rejects in remote modules with not_connected", async () => {
+  let ctx: ModuleContext | undefined;
+  const m = defineModule({ manifest: { id: "m", label: "M", oauth: [{ provider: "spotify", scopes: [] }] }, init: (c) => void (ctx = c) });
+  const core = await fakeCore((ws) => ws.send(JSON.stringify({ type: "welcome", id: "m" })));
+  const h = runRemote(m, { url: core.url, key: "k", log: quiet, env: {} });
+  await h.connected();
+  await assert.rejects(ctx!.oauth.token("spotify"), (e) => {
+    assert.ok(e instanceof OAuthError);
+    assert.equal(e.kind, "not_connected");
+    assert.equal(e.message, "OAuth connections are not available in this host");
     return true;
   });
   await h.stop();

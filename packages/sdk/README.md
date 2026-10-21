@@ -46,6 +46,7 @@ export default defineModule({
 | `conversations` | Read access to recorded conversations: `list`, `get`, `search`, `onQuiet`. In-process modules only; see [Conversations](#conversations). |
 | `db` | Synchronous access to the module's own tables: `prepare`, `exec`, `transaction`. In-process modules only; see [Tables](#tables). |
 | `prompt.addContext(provider)` | Adds text to Friday's voice and chat system prompts. Returns an unsubscribe function. In-process modules only; see [Prompt context](#prompt-context). |
+| `oauth.token(provider)` | A fresh access token for a provider the manifest requests and the user granted. In-process modules only; see [OAuth](#oauth). |
 
 Mark credentials and tokens with `secret: true`. Secrets are stored encrypted and never displayed in the portal; plain keys are shown and edited inline. Retrieval is identical for both: `ctx.config.get` / `require`.
 
@@ -244,6 +245,25 @@ init(ctx) {
 - Declare `FRIDAY_TIMEZONE` in your manifest's `config` when the module depends on it, so the portal lists the module among the key's users.
 - `resolveTimeZone(name)` gives `{ zone, valid }` for a zone that doesn't come from config. It's pure `Intl`, so remote modules can use all of this too.
 
+### OAuth
+
+A module that calls an OAuth API lists the provider in its manifest and asks core for a token on every call:
+
+```ts
+manifest: {
+  id: "spotify",
+  label: "Spotify",
+  oauth: [{ provider: "spotify", scopes: ["playlist-read-private"], description: "Read your playlists" }],
+},
+// in a handler:
+const token = await ctx.oauth.token("spotify");
+```
+
+- `provider` is a catalogue id (`spotify`, `google`, `github`, ...) or a kebab-case id for a generic OAuth2 provider. For a generic one the request may carry `authUrl` and `tokenUrl` (both https, together), which pre-fill the connection in the portal. A manifest lists each provider once; a malformed request fails the module.
+- The user connects the provider and grants the module access under Settings > Connections. Until then the module loads normally and `token` rejects with an `OAuthError` (exported from `@friday/sdk`): `not_connected` (no connection, not logged in, or no master key), `not_granted` (no grant, or the manifest doesn't request the provider) or `refresh_failed` (the login needs a reconnect, or the provider couldn't be reached). The message is written for the user, so a tool can fail with it as is.
+- `token` refreshes a token that expires within a minute. Ask for it in each call rather than keeping it: grants, revokes and reconnects apply to the next call.
+- Never log or return the token. Remote modules get a `ctx.oauth` that always rejects with `not_connected`.
+
 ## Text generation
 
 `ctx.llm.generate` runs a one-shot text model call outside any voice session, for background work such as summaries, classification or extraction. Core owns the provider (Gemini), the key and the model; a module picks a tier, never a model name or credentials. Remote modules get a `ctx.llm` that always rejects with `unavailable`.
@@ -335,6 +355,13 @@ h.db.prepare("INSERT INTO notes__notes (text, created_at) VALUES (?, ?)").run("B
 await h.call("add_note", { text: "Call the plumber", tags: ["house"] });
 assert.deepEqual(h.db.prepare("SELECT tag FROM notes__tags").all().map((r) => r.tag), ["house"]);
 assert.equal(h.promptContext("voice"), "## Notes\nThe user has 2 notes; use notes_by_tag to look them up.");
+```
+
+`oauth` fakes `ctx.oauth.token` per provider: a token, an `OAuthError` to reject with, or a function returning either, called on every call. As in core, a provider the manifest does not request rejects with `not_granted`; a requested provider missing from the option rejects with `not_connected`. `host.oauthCalls` counts the calls per provider:
+
+```ts
+const h = await createTestHost(spotify, { oauth: { spotify: "t0ken" } });
+const denied = await createTestHost(spotify, { oauth: { spotify: new OAuthError("not_granted", "Grant it under Settings > Connections.") } });
 ```
 
 Inject fakes (like `fetch`) through a factory function in your module, as `modules/media` does with `createMediaModule({ fetch })`.

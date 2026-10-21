@@ -42,6 +42,9 @@ spec:
               value: "8080"
             - name: FRIDAY_DATA_DIR
               value: /data
+            # OAuth redirect URIs (Settings > Connections) are built from this, not from forwarded headers.
+            - name: FRIDAY_PUBLIC_URL
+              value: https://friday.thewhite.nl
           # GEMINI_API_KEY and FRIDAY_MASTER_KEY are required here. Module config
           # (JELLYFIN_*, HA_*, TOMTOM_API_KEY, ICLOUD_*) and FRIDAY_MODULE_KEYS may also live here as a
           # fallback, but the portal's Settings pages are the primary place now.

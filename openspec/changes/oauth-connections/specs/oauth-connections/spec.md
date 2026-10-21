@@ -100,7 +100,7 @@ The scopes Friday requests when authorizing SHALL be the union of the scopes req
 
 ### Requirement: Authorization flow
 
-`GET /api/oauth/:provider/authorize` SHALL require an existing connection (404 otherwise), create a random `state` value, store it with the redirect URI and, when the provider uses PKCE, a code verifier, for 10 minutes, set it in an `HttpOnly`, `SameSite=Lax` cookie scoped to `/api/oauth`, and redirect the browser to the provider's authorization URL with the scopes from the grants. `GET /api/oauth/:provider/callback` SHALL reject a missing or unknown `state`, a `state` that differs from the cookie, a `state` issued for another provider, or an expired `state`, without contacting the provider. A valid callback SHALL exchange the code using the stored redirect URI and verifier, store the tokens, the expiry and the granted scopes, set the state to `connected`, and clear the error. A `state` SHALL be usable once. Every outcome SHALL redirect to `/settings/connections?provider=<id>` with `connected=1`, or with `error=<message>` and, when the provider was contacted, the connection in state `error` with that message. An `error` parameter from the provider, such as the user declining, SHALL be shown the same way without changing a connected connection's tokens.
+`GET /api/oauth/:provider/authorize` SHALL require an existing connection (404 otherwise). When the redirect URI's base (see Redirect URI) has another origin than the request, it SHALL first redirect the browser to the same path on that base, so the state cookie is set on the host the provider returns to; a request that already made that move SHALL proceed rather than redirect again. It SHALL then create a random `state` value, store it with the redirect URI and, when the provider uses PKCE, a code verifier, for 10 minutes, set it in an `HttpOnly`, `SameSite=Lax` cookie scoped to `/api/oauth`, and redirect the browser to the provider's authorization URL with the scopes from the grants. `GET /api/oauth/:provider/callback` SHALL reject a missing or unknown `state`, a `state` that differs from the cookie, a `state` issued for another provider, or an expired `state`, without contacting the provider. A valid callback SHALL exchange the code using the stored redirect URI and verifier, store the tokens, the expiry and the granted scopes, set the state to `connected`, and clear the error. Only the client secret SHALL be read for a login, so tokens that cannot be decrypted do not block the login that replaces them. A callback for a connection saved with another client id since the login started SHALL be refused, and its tokens discarded. A `state` SHALL be usable once. Every outcome SHALL redirect to `/settings/connections?provider=<id>` with `connected=1`, or with `error=<message>`. When the provider was contacted and failed, a connection without a working login SHALL show state `error` with that message; a connected connection SHALL keep its tokens and state, so a failed Reconnect does not break a working login. An `error` parameter from the provider, such as the user declining, SHALL be shown the same way without changing a connected connection's tokens.
 
 #### Scenario: Connect Spotify
 - **WHEN** the user clicks `Connect` on Spotify, logs in at Spotify and approves
@@ -119,12 +119,24 @@ The scopes Friday requests when authorizing SHALL be the union of the scopes req
 - **THEN** the portal shows the error and the stored tokens still work
 
 #### Scenario: Code exchange fails
-- **WHEN** the provider rejects the code
+- **WHEN** the provider rejects the code for a connection that is not connected
 - **THEN** the connection shows `error` with the provider's message
+
+#### Scenario: Reconnect fails
+- **WHEN** Spotify is connected, the user clicks `Reconnect` and the code exchange fails
+- **THEN** the portal shows the error and Spotify stays `connected` with its tokens
+
+#### Scenario: Opened at another address
+- **WHEN** `FRIDAY_PUBLIC_URL` is `https://friday.thewhite.nl` and the user clicks `Connect` in the portal opened at `http://192.168.1.81:8080`
+- **THEN** the browser goes to `https://friday.thewhite.nl/api/oauth/spotify/authorize` first, and the state cookie is set there
+
+#### Scenario: Unreadable token
+- **WHEN** the stored access token cannot be decrypted and the user clicks `Reconnect`
+- **THEN** the login proceeds and its tokens replace the unreadable ones
 
 ### Requirement: Redirect URI
 
-The redirect URI SHALL be `<base>/api/oauth/<provider>/callback`, where `<base>` is core's `FRIDAY_PUBLIC_URL` without a trailing slash, or, when it is unset, the origin of the request, using `X-Forwarded-Proto` and `X-Forwarded-Host` when present. The connections listing SHALL include each connection's redirect URI as computed for the listing request, so the user can register it with the provider.
+The redirect URI SHALL be `<base>/api/oauth/<provider>/callback`, where `<base>` is core's `FRIDAY_PUBLIC_URL` without a trailing slash, or, when it is unset, the origin of the request, using `X-Forwarded-Proto` and `X-Forwarded-Host` when present. A `FRIDAY_PUBLIC_URL` that is not an absolute `http` or `https` URL SHALL be ignored with a logged warning. The connections listing SHALL include the base as `redirectBase` and each connection's redirect URI, as computed for the listing request, so the user can register it with the provider.
 
 #### Scenario: Public URL set
 - **WHEN** `FRIDAY_PUBLIC_URL` is `https://friday.thewhite.nl/`
@@ -138,6 +150,10 @@ The redirect URI SHALL be `<base>/api/oauth/<provider>/callback`, where `<base>`
 - **WHEN** the portal is opened at `http://127.0.0.1:5173`
 - **THEN** the listed redirect URI is `http://127.0.0.1:5173/api/oauth/spotify/callback`
 
+#### Scenario: Public URL without a scheme
+- **WHEN** `FRIDAY_PUBLIC_URL` is `friday.thewhite.nl`
+- **THEN** a warning is logged and redirect URIs use the request's origin
+
 ### Requirement: Access tokens for modules
 
 `ctx.oauth.token(provider)` SHALL resolve to an access token when the calling module requests the provider in its manifest, holds a grant, and the connection is `connected`. It SHALL reject with an `OAuthError` of kind:
@@ -145,7 +161,7 @@ The redirect URI SHALL be `<base>/api/oauth/<provider>/callback`, where `<base>`
 - `not_connected` when no connection exists, the connection is `disconnected`, or the master key is missing;
 - `refresh_failed` when the connection is in state `error` or a needed refresh fails.
 
-Each message SHALL name the provider and what the user can do, under Settings > Connections, so a tool can pass it on to the user. When the access token expires within 60 seconds, the call SHALL refresh it first. Concurrent calls SHALL share one refresh per connection. A refresh response without a refresh token SHALL keep the stored one. A refresh that the provider rejects SHALL set the connection to `error` with the provider's message. A network failure or a provider server error SHALL reject the call with `refresh_failed` and leave the state unchanged. A connection whose provider cannot refresh, or that has no refresh token, SHALL set the state to `error` when its token expires. Tokens SHALL never be returned by the HTTP API or written to logs.
+Each message SHALL name the provider and what the user can do, under Settings > Connections, so a tool can pass it on to the user. When the access token expires within 60 seconds, the call SHALL refresh it first. Concurrent calls SHALL share one refresh per connection. A refresh response without a refresh token SHALL keep the stored one. A refresh that the provider rejects SHALL set the connection to `error` with the provider's message. A network failure or a provider server error SHALL reject the call with `refresh_failed` and leave the state unchanged. A refresh that finishes after the connection was saved with another client, or deleted, SHALL discard its outcome and reject with `not_connected`. A connection whose provider cannot refresh, or that has no refresh token, SHALL set the state to `error` when its token expires. Tokens SHALL never be returned by the HTTP API or written to logs.
 
 #### Scenario: Fresh token
 - **WHEN** the stored access token expires in 30 minutes
@@ -174,12 +190,12 @@ Each message SHALL name the provider and what the user can do, under Settings > 
 ### Requirement: Connections API
 
 Core SHALL expose:
-- `GET /api/oauth/connections`: `{ secretsEnabled, connections }` with one entry per provider that has a connection or a request: `provider`, `name`, `configured`, `generic`, `clientId`, `hasClientSecret`, `authUrl` and `tokenUrl` (generic only, from the connection or the first request's defaults), `extraScopes`, `requestedScopes` (the union from the grants), `grantedScopes`, `missingScopes` (each `{ scope, modules }`), `requesters` (each `{ module, scopes, description, granted }`), `state`, `error`, `expiresAt`, `redirectUri`, `updatedAt`. Entries SHALL never include the client secret or a token.
-- `PUT /api/oauth/connections/:provider` with `{ clientId, clientSecret?, extraScopes?, authUrl?, tokenUrl? }`: create or update. A new connection starts `disconnected`. Changing the client id, client secret or a URL SHALL clear the tokens and set `disconnected`. Leaving `clientSecret` out SHALL keep the stored one. Changing only `extraScopes` SHALL keep the tokens.
+- `GET /api/oauth/connections`: `{ secretsEnabled, redirectBase, connections }` with one entry per provider that has a connection or a request: `provider`, `name`, `configured`, `generic`, `clientId`, `hasClientSecret`, `authUrl` and `tokenUrl` (generic only, from the connection or the first request's defaults), `extraScopes`, `requestedScopes` (the union from the grants), `grantedScopes`, `missingScopes` (each `{ scope, modules }`), `requesters` (each `{ module, scopes, description, granted }`), `state`, `error`, `expiresAt`, `redirectUri`, `updatedAt`. Entries SHALL never include the client secret or a token.
+- `PUT /api/oauth/connections/:provider` with `{ clientId, clientSecret?, extraScopes?, authUrl?, tokenUrl? }`: create or update. A new connection starts `disconnected`. Changing the client id, client secret or a URL SHALL clear the tokens and set `disconnected`. Leaving `clientSecret` out SHALL keep the stored one, except that changing a URL of a connection with a stored client secret SHALL require the secret again (400 otherwise), so the stored secret is never sent to a new token URL. Changing only `extraScopes` SHALL keep the tokens.
 - `DELETE /api/oauth/connections/:provider`: delete the connection, its tokens and grants; 404 when absent.
 - `PUT` and `DELETE /api/oauth/connections/:provider/grants/:module`: grant and revoke.
 
-Provider ids SHALL be kebab-case. Invalid bodies SHALL be answered with 400 and a message.
+Provider ids SHALL be kebab-case and SHALL NOT be `connections` or `providers`, which name the API's own paths. Invalid bodies SHALL be answered with 400 and a message.
 
 #### Scenario: Listing hides secrets
 - **WHEN** Spotify is connected and the connections are listed
@@ -192,6 +208,10 @@ Provider ids SHALL be kebab-case. Invalid bodies SHALL be answered with 400 and 
 #### Scenario: Extra scope added
 - **WHEN** the user adds an extra scope to a connected connection
 - **THEN** the tokens are kept and the scope is listed as missing
+
+#### Scenario: Reserved provider id
+- **WHEN** a connection is saved with provider id `connections`
+- **THEN** the response is 400
 
 #### Scenario: Delete
 - **WHEN** the user deletes the Spotify connection

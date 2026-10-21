@@ -57,7 +57,13 @@ context: |
   episode/show URIs or open.spotify.com links, artists refused; the named speakers become exactly one group via
   unjoin/join, home-theatre model leads; play_media enqueue replace then add), sonos_pause/resume/stop (once per group
   leader), sonos_set_volume (per speaker), sonos_ungroup; actions SILENT, a partly failed queue WHEN_IDLE. Spotify
-  search is not here: the model chains a search tool's URIs into sonos_play.
+  search is not here: the model chains search_spotify's URIs into sonos_play.
+  Spotify (modules/spotify, id spotify, no config keys): manifest oauth request for provider spotify (playlist-read-private,
+  playlist-read-collaborative); search_spotify (/v1/search, track,artist,album, limit 10 = Spotify's max; compact
+  name/artist/album/year/uri) and list_spotify_playlists (/v1/me/playlists?limit=50; count from `items.total`, the
+  deprecated `tracks.total` as fallback); ctx.oauth.token on every call, OAuthError message passed on as the tool's
+  error; src/spotify.ts client over injectable fetch, 10 s timeout, SpotifyError per status (401 reconnect, 403 scope
+  or development-mode allowlist, 429 Retry-After, else unavailable), token never in messages.
   Calendar: modules/calendar (id calendar) has two optional sources and loads when at least one has both keys
   (checked in init). The Work calendar (src/work.ts, src/intake.ts): INTAKE_URL + secret INTAKE_KEY; the
   calendar/refresh job POSTs {"subject":"calendar"} with a bearer key (redirects refused, 30 s) to the homelab intake,
@@ -142,6 +148,26 @@ context: |
   the key, global first, plain values only, so module overrides are visible and clearable) and the portal's Settings >
   Configuration edits them; POST /api/modules/:id/reload re-initializes a module. Remote module keys are issued
   in the portal (/api/keys, hashed in module_keys) with FRIDAY_MODULE_KEYS as fallback (CompositeKeyStore).
+  OAuth (packages/core/src/oauth/, migration 10: oauth_connections + oauth_grants): one connection per provider, client
+  secret and tokens AES-256-GCM sealed (AAD oauth:<provider>/<field>), client id plain; a changed URL needs the client
+  secret again; catalogue clients get a null secret when none is stored (Arctic's public client). A manifest's `oauth` requests
+  (provider, scopes, description, generic authUrl/tokenUrl) are read from core's module list per call (requests.ts),
+  never stored; the user grants per module; ctx.oauth.token(provider) (tokens.ts) is the only way a token leaves core:
+  request + grant + state checked every call (one RequestSet snapshot per call), refresh when expiring within 60 s,
+  single-flight per provider, OAuth2RequestError -> state error, network/5xx transient, a refresh whose connection got
+  a new client meanwhile discarded; OAuthError kinds not_connected|not_granted|refresh_failed
+  (@friday/sdk; remote hosts reject with not_connected). Scopes asked for = granted modules' scopes + extras; missing =
+  that union minus what the provider granted -> Reconnect. Catalogue (catalogue.ts): Jarvis's table of Arctic 3.7
+  classes by name (auth pattern, refresh, public client, scope quirks, Google offline/consent), state added where a
+  class sets none, generic = OAuth2Client with PKCE S256; oauth-catalogue.test.ts checks every entry's arity against
+  the installed Arctic and fails on unlisted Arctic providers. /api/oauth: providers, connections (listing joins
+  connections, requests, grants; never secrets), PUT/DELETE connections/:provider and .../grants/:module, GET
+  :provider/authorize (first 302 to the public base when opened at another origin, ?moved=1 stops loops; state in
+  memory 10 min + HttpOnly SameSite=Lax cookie on /api/oauth, PKCE; reads only the client secret) and
+  :provider/callback (state checked before the provider is contacted, single use, refused if the client id changed,
+  a failed exchange sets error only without a working login; redirects to /settings/connections?provider=&connected=1
+  or &error=). Redirect URI <FRIDAY_PUBLIC_URL (core key; ignored with a warning unless absolute http(s)) or the
+  forwarded origin>/api/oauth/<provider>/callback; the listing returns it as redirectBase.
   Env vars are documented in .env.example. Keep the total tool count modest (Gemini caps at 512).
   Voice devices (packages/core/src/devices/, migration 7: devices + device_attempts) are onboarded by trust on
   first use: the device generates its own key (NVS), /ws/audio?device=<id> must send Authorization: Bearer <key>,

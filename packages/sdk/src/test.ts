@@ -6,7 +6,8 @@ import { assertConfig, createContext, prefixedLogger, type Env } from "./context
 import { RouteTable, type HttpMethod, type RouteRequest, type RouteResponse } from "./http.js";
 import { validateJob, type JobOutcome, type JobSpec, type JobTrigger } from "./jobs.js";
 import { checkRequest, LlmError, parseOutput, type LlmRequest, type ModuleLlm } from "./llm.js";
-import type { FridayModule, ModuleLogger } from "./module.js";
+import { validateManifest, type FridayModule, type ModuleLogger } from "./module.js";
+import { OAuthError, type ModuleOAuth } from "./oauth.js";
 import { ToolRegistry, type CallOptions, type CallResult } from "./registry.js";
 import type { ConversationChannel } from "./conversations.js";
 import { MemoryStorage } from "./storage.js";
@@ -26,7 +27,16 @@ export interface TestHostOptions {
   llm?: FakeLlm;
   /** Conversations the module sees as `ctx.conversations`; seed before init when the module reads them there. */
   conversations?: MemoryConversations;
+  /**
+   * Fake OAuth tokens behind `ctx.oauth`, per provider: a token, an `OAuthError` to reject with, or a function
+   * returning either, called on every `ctx.oauth.token` call. A provider the manifest does not request rejects
+   * with `not_granted`, as in core; a requested provider missing here rejects with `not_connected`.
+   */
+  oauth?: Record<string, FakeOAuth>;
 }
+
+export type FakeOAuthValue = string | OAuthError;
+export type FakeOAuth = FakeOAuthValue | (() => FakeOAuthValue | Promise<FakeOAuthValue>);
 
 export type FakeLlm = (request: LlmRequest) => string | Promise<string>;
 
@@ -75,6 +85,8 @@ export interface TestHost {
    * tables here; the prefix rules apply as in core.
    */
   db: ModuleDb;
+  /** `ctx.oauth.token` calls per provider, including rejected ones. */
+  oauthCalls: Record<string, number>;
   /** The module's prompt context for a channel, rendered as core would (empty when it adds none). */
   promptContext(channel: PromptChannel): string;
   dispose(): Promise<void>;
@@ -85,6 +97,7 @@ const silent: ModuleLogger = { log() {}, warn() {}, error() {} };
 export async function createTestHost(module: FridayModule, opts: TestHostOptions = {}): Promise<TestHost> {
   const env = opts.env ?? {};
   const log = opts.log ?? silent;
+  validateManifest(module.manifest);
   assertConfig(module.manifest, env);
   const registry = new ToolRegistry(log);
   const table = new RouteTable();
@@ -127,7 +140,9 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   if (module.migrations?.length) open().migrate(module.migrations, prefixedLogger(id, log));
   const db = lazyDb(open);
   const prompts = new PromptContext({ log });
-  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm, db, prompt: prompts.forOwner(id) }));
+  const oauthCalls: Record<string, number> = {};
+  const oauth = fakeOAuth(module, opts.oauth ?? {}, oauthCalls);
+  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm, db, prompt: prompts.forOwner(id), oauth }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args, opts) => registry.callTool(name, args, opts),
@@ -165,6 +180,7 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
     jobs,
     runJob: (name) => runJob(name, "manual"),
     db,
+    oauthCalls,
     promptContext: (channel) => prompts.render(channel),
     dispose: async () => {
       conversations.clearSubscriptions();
@@ -172,6 +188,23 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
       await module.dispose?.();
       database?.close();
       database = undefined;
+    },
+  };
+}
+
+/** Core's request rule (only providers the manifest requests), then the test's fake per provider. */
+function fakeOAuth(module: FridayModule, fakes: Record<string, FakeOAuth>, calls: Record<string, number>): ModuleOAuth {
+  const id = module.manifest.id;
+  const requested = new Set((module.manifest.oauth ?? []).map((r) => r.provider));
+  return {
+    async token(provider) {
+      calls[provider] = (calls[provider] ?? 0) + 1;
+      if (!requested.has(provider)) throw new OAuthError("not_granted", `${id} does not request access to ${provider}`);
+      const fake = fakes[provider];
+      if (fake === undefined) throw new OAuthError("not_connected", `${provider} is not connected in this test host`);
+      const value = typeof fake === "function" ? await fake() : fake;
+      if (value instanceof OAuthError) throw value;
+      return value;
     },
   };
 }

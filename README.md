@@ -12,6 +12,7 @@ portal Chat page       ── /api/chat (SSE) ────►├── Gemini te
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► modules/travel    driving time with traffic (TomTom)
+                                               ├─► modules/spotify   Spotify search and playlists (OAuth)
                                                ├─► modules/calendar  iCloud calendar (CalDAV), Work calendar (intake)
                                                ├─► modules/sonos     Sonos speakers via Home Assistant
                                                ├─► MCP servers       configured in the portal (HTTP)
@@ -30,6 +31,7 @@ The repo is a pnpm workspace:
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, `brain_recall_conversations`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
+| `@friday/module-spotify` | `modules/spotify` | `search_spotify` and `list_spotify_playlists` through the Spotify connection (see [Spotify](#spotify)) |
 | `@friday/module-calendar` | `modules/calendar` | The iCloud calendar over CalDAV (list, create, and confirmed edits/deletes with undo) plus a read-only Work calendar from the intake, today's agenda in the prompt, and the `/m/calendar` page (see [Calendar](#calendar-icloud-and-work)) |
 | `@friday/module-sonos` | `modules/sonos` | Spotify playback, multi-room grouping and volume on the Sonos speakers via Home Assistant (see [Sonos](#sonos-via-home-assistant)) |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
@@ -314,6 +316,52 @@ llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok in=1834 out=212 think=640
 llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok in=1834 out=212 think=640 41.9s (2 attempts: 429 wait 39s)
 ```
 
+## OAuth connections
+
+Services like Spotify, Google and GitHub need an OAuth login in a browser and tokens that expire. Core keeps one connection per provider in `friday.db`. The client secret and both tokens are encrypted with `FRIDAY_MASTER_KEY`, so without it connections can't be saved or used. A module asks for access in its manifest and reads a fresh access token through `ctx.oauth`:
+
+```ts
+export default defineModule({
+  manifest: {
+    id: "spotify",
+    label: "Spotify",
+    oauth: [{ provider: "spotify", scopes: ["playlist-read-private"], description: "Read your playlists" }],
+  },
+  init(ctx) {
+    ctx.defineTool({
+      name: "list_spotify_playlists",
+      description: "The user's Spotify playlists",
+      handler: async () => {
+        const token = await ctx.oauth.token("spotify"); // refreshed first when it expires within a minute
+        // ... fetch with Authorization: Bearer <token>
+      },
+    });
+  },
+});
+```
+
+- **Grants.** A request alone gets a module nothing. You grant access per module on the connection, and only granted modules get the token. Granting, revoking and connecting apply to the next `ctx.oauth.token` call without a reload, and a module loads whether or not its provider is connected. `ctx.oauth.token` rejects with an `OAuthError` (exported from `@friday/sdk`) of kind `not_connected`, `not_granted` or `refresh_failed`. Its message says what to do under Settings > Connections, so a tool can pass it on.
+- **Scopes.** Friday asks the provider for the scopes the granted modules request, plus any extra scopes you add. When a newly granted module needs a scope the stored login lacks, the connection lists it as missing and offers `Reconnect`. There is one token per provider, so a granted module can use every scope the token carries.
+- **Providers.** Every Arctic provider with a plain client-id/secret constructor is in the catalogue (`GET /api/oauth/providers`), with its quirks handled by Arctic. Anything else that speaks standard OAuth2 connects as a generic provider with its authorization and token URLs (https, PKCE). A module can name those URLs in its request to pre-fill the connection. Providers that need a domain or tenant (Auth0, GitLab, Okta, ...) connect as generic providers.
+- **Redirect URI.** `<base>/api/oauth/<provider>/callback`, where the base is `FRIDAY_PUBLIC_URL` (core key, also settable in the portal) or, unset, the address the portal is opened at. Register exactly that URI with the provider; the connection's side panel shows it.
+- **Tokens stay in core.** No HTTP endpoint returns a token or a client secret. Remote modules have no `ctx.oauth`; they bring their own credentials.
+
+Settings > Connections lists every provider that has a connection or that a module requests, with a status dot (`connected`, `disconnected`, `error`, or not set up), the requesting modules (✓ when granted) and whether scopes are missing. To set one up:
+
+1. Create an app (OAuth client) at the provider and register the redirect URI the side panel shows, exactly as shown. Locally, open the portal at `http://127.0.0.1:<port>` rather than `localhost`: Spotify, for one, refuses `http://localhost` redirect URIs.
+2. Open the provider's row, enter the client id and secret, and `Save`. For a provider no module requests, use `New connection`; pick `Generic OAuth2` for one outside the catalogue and enter its URLs.
+3. Turn on the grant for each module that may use it, then `Connect`. Friday sends you to the provider's login and back to the same panel, which shows `connected` or the provider's error.
+
+When a granted module later needs a scope the login lacks, the row says it needs a reconnect and the panel names the scope and the module; `Reconnect` logs in again with the new set. A failed Reconnect leaves the working login as it was. With `FRIDAY_PUBLIC_URL` set, `Connect` from another address (the LAN IP, a port-forward) first moves to the public URL, because that's where the provider sends you back. Changing the client id or secret clears the stored login; changing a generic provider's URLs needs the client secret again. `Delete` forgets the connection, its tokens and its grants (remove Friday's access at the provider too if you want that). Without `FRIDAY_MASTER_KEY` the page shows a banner and nothing can be saved.
+
+The login is `GET /api/oauth/<provider>/authorize`, which redirects to the provider with a one-time state (and PKCE where the provider supports it). The provider redirects back to the callback, which checks the state against an `HttpOnly` cookie, exchanges the code and returns to the portal. A login left for more than 10 minutes, or interrupted by a restart, has to be started again. Over HTTP:
+
+```sh
+curl -s localhost:8080/api/oauth/connections                                    # connections, requests, grants, missing scopes
+curl -s -X PUT localhost:8080/api/oauth/connections/spotify -d '{"clientId":"…","clientSecret":"…"}'
+curl -s -X PUT localhost:8080/api/oauth/connections/spotify/grants/spotify      # grant; DELETE revokes
+```
+
 ## Remote modules
 
 A module does not have to run inside Friday. `runRemote` from `@friday/sdk/remote` runs the same `defineModule` on another machine, dials `ws(s)://<friday>/ws/modules`, authenticates with a key, and serves its tools over MCP on that socket. While the connection is up its tools are registered as `<id>__<tool>` and listed under `/api/modules` with status `connected`; when the process stops or the network drops, they are removed. The remote reconnects with backoff (1 s to 30 s) and only gives up when Friday rejects the key.
@@ -361,7 +409,7 @@ The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 
 Speakers are named by room ("Bedroom"), name or entity id, matched without regard to case or punctuation. A room means every Sonos speaker in it that is online (an offline one doesn't block the rest), accents don't matter ("Kuche" finds "Küche"), and a voice device's own area works too, so "play this here" needs no list call first. The speaker list is read from Home Assistant on every call with one template request (`POST /api/template`), so groups and states are never stale. Only `media_player` entities of the `sonos` integration count: Home Assistant group entities and Sonos devices from other integrations are left out. Successful actions are `SILENT`, so Friday doesn't talk over the music.
 
-Setup: the Sonos integration in Home Assistant, with each speaker in its area. The module uses the same `HA_URL` and `HA_TOKEN` as `media`. Set them globally (Settings > Configuration, global scope, or the environment) so both modules see them. The module is `failed` until both are set; leave it out with `FRIDAY_MODULES` if you don't want it. There is no Spotify search here yet: the model passes URIs it has, e.g. from a Spotify module's search.
+Setup: the Sonos integration in Home Assistant, with each speaker in its area. The module uses the same `HA_URL` and `HA_TOKEN` as `media`. Set them globally (Settings > Configuration, global scope, or the environment) so both modules see them. The module is `failed` until both are set; leave it out with `FRIDAY_MODULES` if you don't want it. There is no Spotify search here: the model passes URIs it has, typically from [`search_spotify`](#spotify) or `list_spotify_playlists`.
 
 ## Travel time (TomTom)
 
@@ -373,6 +421,21 @@ Setup: the Sonos integration in Home Assistant, with each speaker in its area. T
 - Place lookups are cached for 24 hours (a lookup that found nothing for 10 minutes); routes never are.
 
 Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
+
+## Spotify
+
+`modules/spotify` (ported from Jarvis) has two tools on voice and chat:
+
+- `search_spotify` (`query`): up to 10 tracks (name, artist, album, URI), artists (name, URI) and albums (name, artist, year, URI). It finds things and their URIs; it doesn't play anything.
+- `list_spotify_playlists`: up to 50 of your playlists, your own and followed ones, with owner, track count and URI.
+
+The module has no configuration keys. It requests the `spotify` connection (scopes `playlist-read-private` and `playlist-read-collaborative`) and loads whether or not that is set up; until it is, the tools answer with what to do. Setup:
+
+1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) with the Web API. Add the redirect URI from Settings > Connections > Spotify: `https://friday.thewhite.nl/api/oauth/spotify/callback` in production, `http://127.0.0.1:<port>/api/oauth/spotify/callback` locally (Spotify refuses `localhost`).
+2. A new app is in development mode: add your own Spotify account under the app's *Users and Access*, or Spotify answers 403.
+3. In Settings > Connections, open Spotify, enter the app's client id and secret, `Save`, turn on the grant for `spotify`, and `Connect`.
+
+Spotify errors are explained in the tool's answer: 401 means reconnect, 403 a missing permission or an account the app doesn't allow, 429 a rate limit (with the wait Spotify asked for). Requests time out after 10 seconds. The token is never logged or returned.
 
 ## Calendar (iCloud and Work)
 

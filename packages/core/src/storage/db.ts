@@ -20,6 +20,45 @@ const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE($
 
 export const migrations: Migration[] = [
   {
+    // agents merged first with 9, so this change took 10 at its rebase.
+    version: 10,
+    name: "oauth-connections",
+    // One OAuth connection per provider. The client secret and both tokens are AES-256-GCM sealed (ciphertext, iv,
+    // tag; AAD oauth:<provider> / <field>); the client id is plain. auth_url/token_url only for generic providers.
+    // granted_scopes_json is what the provider reported at the last authorization. A grant lets one module get the
+    // token; module_id has no foreign key so a grant survives a module leaving core's list.
+    sql: `
+      CREATE TABLE oauth_connections (
+        provider TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        client_secret_ct BLOB,
+        client_secret_iv BLOB,
+        client_secret_tag BLOB,
+        auth_url TEXT,
+        token_url TEXT,
+        extra_scopes_json TEXT NOT NULL DEFAULT '[]',
+        access_token_ct BLOB,
+        access_token_iv BLOB,
+        access_token_tag BLOB,
+        refresh_token_ct BLOB,
+        refresh_token_iv BLOB,
+        refresh_token_tag BLOB,
+        expires_at TEXT,
+        granted_scopes_json TEXT,
+        state TEXT NOT NULL DEFAULT 'disconnected',
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE oauth_grants (
+        provider TEXT NOT NULL REFERENCES oauth_connections (provider) ON DELETE CASCADE,
+        module_id TEXT NOT NULL,
+        granted_at TEXT NOT NULL,
+        PRIMARY KEY (provider, module_id)
+      );
+    `,
+  },
+  {
     version: 9,
     name: "agents",
     // Agent definitions, their runs, and the calls parked for the user's approval (exact tool and arguments).

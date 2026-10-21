@@ -24,7 +24,7 @@ An in-process module with id `spotify` SHALL register `search_spotify` and `list
 
 ### Requirement: Search
 
-`search_spotify` SHALL take a required `query` and return the first 10 matches of each kind: `tracks` (`name`, `artist`, `album`, `uri`), `artists` (`name`, `uri`) and `albums` (`name`, `artist`, `year`, `uri`). `artist` SHALL be the first listed artist. An empty or whitespace-only query SHALL be refused without calling Spotify. No matches SHALL be an empty list per kind, not an error. The description SHALL say the tool is for finding things and their URIs, and that Friday cannot play music through it.
+`search_spotify` SHALL take a required `query` and return the first 10 matches of each kind: `tracks` (`name`, `artist`, `album`, `uri`), `artists` (`name`, `uri`) and `albums` (`name`, `artist`, `year`, `uri`). `artist` SHALL be the first listed artist. An empty or whitespace-only query SHALL be refused without calling Spotify. No matches SHALL be an empty list per kind, not an error. The description SHALL say the tool is for finding things and their URIs, that it does not play music, and that a URI can be passed to a playback tool to play it.
 
 #### Scenario: Search an artist
 - **WHEN** called with `query: "Radiohead"`

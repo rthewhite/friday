@@ -12,15 +12,17 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@friday/sdk": "workspace:*",
     "@friday/module-brain": "workspace:*",
     "@friday/module-builtin": "workspace:*",
     "@friday/module-calendar": "workspace:*",
     "@friday/module-media": "workspace:*",
     "@friday/module-sonos": "workspace:*",
+    "@friday/module-spotify": "workspace:*",
     "@friday/module-travel": "workspace:*",
+    "@friday/sdk": "workspace:*",
     "@google/genai": "^2.24.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "arctic": "~3.7.0",
     "dotenv": "^18.0.2",
     "ws": "^8.21.3"
   },

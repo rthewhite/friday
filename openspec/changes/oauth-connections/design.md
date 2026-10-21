@@ -13,7 +13,7 @@ Friday has the pieces this builds on:
 - `module-host.ts`: builds each module's context through the SDK's `createContext`. Unset capabilities get facades that throw "not available in this host" (`packages/sdk/src/context.ts`), which is how the remote runner rejects `ctx.db` and `ctx.prompt`.
 - Core routes go on the router in `app.ts`. The CSRF guard only affects non-GET `/api/` requests.
 - Portal settings pages are routed in `packages/portal/src/router.ts`.
-- The latest migration on `main` is 8. `agents` claims 9.
+- The latest migration on `main` is 9 (`agents`, see decision 3).
 
 ## Goals / Non-Goals
 
@@ -49,9 +49,11 @@ Grants need every module's manifest and the encrypted store, and modules may onl
 
 Port Jarvis's `PROVIDER_REGISTRY` as is: the same ids, display names and `authPattern`/`hasRefresh`/`ctorParams`. Check it against Arctic's current exports when porting, so providers added to Arctic since 3.7 can come along. Arctic's classes handle non-standard providers (Basic auth for Reddit and Notion, TikTok's `client_key`, Withings' wrapped response), which a generic client cannot.
 
-Two changes from Jarvis:
+Changes from Jarvis:
 - **Each entry records whether it uses PKCE**, derived from `authPattern`. The listing reports it, and the flow only stores a verifier when one is needed.
-- **A catalogue test** iterates over every entry. It looks up the class in Arctic's exports and constructs it with dummy credentials. It builds an authorization URL and checks that it parses, that it carries `state` when the pattern has one, and that it carries `code_challenge` when the entry uses PKCE. A renamed class or a changed signature then fails `pnpm -r test`.
+- **Every authorization URL carries Friday's `state`.** Two Arctic classes build URLs without one (Naver: no arguments; DonationAlerts: scopes only), so `buildClient` adds it when the class didn't. The callback check then holds for every provider.
+- **Arguments Jarvis's table missed.** StartGG passes the scopes again when exchanging the code and refreshing, and DonationAlerts when refreshing (`validateWithScopes`, `refreshWithScopes`). Google gets `access_type=offline&prompt=consent` (`authParams`), because without it Google returns no refresh token.
+- **Catalogue tests** in `oauth-catalogue.test.ts`. For every entry, the class must exist in Arctic's exports, and its constructor, `createAuthorizationURL`, `validateAuthorizationCode` and `refreshAccessToken` arities must match the entry. Every entry builds an authorization URL with `state`, and with `code_challenge` exactly when it uses PKCE. A third test fails when Arctic exports a provider that is neither in the catalogue nor on the excluded list (constructors that need a domain, tenant or key), so a new Arctic provider is noticed. A renamed class or a changed signature then fails `pnpm -r test`.
 
 The reflection stays. It is the only way to cover the whole catalogue without one adapter per provider, and the test is what makes it safe.
 
@@ -71,7 +73,9 @@ oauth_grants       provider -> oauth_connections ON DELETE CASCADE, module_id, g
 
 `*_` columns are three BLOBs (ciphertext, iv, tag). They are encrypted with `crypto.ts` with AAD scope `oauth:<provider>` and the field name as the key, so a ciphertext copied to another row or field fails to decrypt. A grant for a module that is not in the module list stays in the table and applies again when the module comes back. `module_id` therefore has no foreign key.
 
-If `agents` merges first this is 10, otherwise 9 and `agents` renumbers. This follows the CLAUDE.md rule that a migration number is claimed at merge.
+The branch used 9, then the next free number on `main`. `agents` merged first with 9, so following the CLAUDE.md rule that a migration number is claimed at merge, this change took 10 at its rebase. A branch must never skip a number ahead of merge. The runner skips every migration at or below the stored version, so a deployed 10 would make a later 9 never run.
+
+Changing a URL of a connection that has a stored client secret requires the secret again (400 otherwise). Without that, anyone who can reach the portal could point a generic token URL at their own server and receive the stored secret at the next code exchange.
 
 ### 4. Requests come from manifests and are never stored
 
@@ -80,27 +84,30 @@ If `agents` merges first this is 10, otherwise 9 and `agents` renumbers. This fo
 ### 5. Authorization flow
 
 `authorize`:
-1. Load the connection.
-2. Compute the scopes from the grants plus the extras.
-3. Build the redirect URI (decision 6).
-4. Create a 32-byte random `state` and, when the provider uses PKCE, a verifier.
-5. Keep `{ provider, verifier, redirectUri, expiresAt }` in an in-memory map for 10 minutes, with expired entries swept on access.
-6. Set the cookie `friday_oauth_state=<state>; HttpOnly; SameSite=Lax; Path=/api/oauth; Max-Age=600`, plus `Secure` when the redirect URI is https.
-7. Answer 302 to the provider.
+1. If the redirect base (decision 6) has another origin than the request, answer 302 to `<base>/api/oauth/<id>/authorize?moved=1` and stop. The cookie has to be set on the host the provider sends the browser back to. Otherwise a portal opened at the LAN IP, with `FRIDAY_PUBLIC_URL` set, could never complete a login. `moved=1` stops a redirect loop behind a proxy that hides the public host.
+2. Load the connection and read only its client secret. Unreadable tokens (after a master key change) must not block the login that replaces them.
+3. Compute the scopes from the grants plus the extras.
+4. Build the redirect URI (decision 6).
+5. Create a 32-byte random `state` and, when the provider uses PKCE, a verifier.
+6. Keep `{ provider, clientId, verifier, redirectUri, expiresAt }` in an in-memory map for 10 minutes, with expired entries swept on access.
+7. Set the cookie `friday_oauth_state=<state>; HttpOnly; SameSite=Lax; Path=/api/oauth; Max-Age=600`, plus `Secure` when the redirect URI is https.
+8. Answer 302 to the provider.
 
 `callback`:
 1. Take `state` from the query and check it against the cookie and the map: same provider, not expired.
 2. Delete the entry, so a state works once.
 3. Clear the cookie.
 4. Handle the provider's `error` parameter, if there is one.
-5. Otherwise exchange the code with the stored redirect URI and verifier, then store the tokens, `accessTokenExpiresAt()`, and `scopes()` when the provider reports them (else the requested ones).
-6. Answer 302 to `/settings/connections?provider=<id>&connected=1` or `&error=`.
+5. Refuse it if the connection now has another client id than the login started with. Check this again after the exchange, since the user can save while the code is being exchanged.
+6. Otherwise exchange the code with the stored redirect URI and verifier, then store the tokens, `accessTokenExpiresAt()`, and `scopes()` when the provider reports them (else the requested ones).
+7. If the exchange fails, set `error` only on a connection without a working login. A failed Reconnect, for example to add a scope, leaves a connected connection as it was.
+8. Answer 302 to `/settings/connections?provider=<id>&connected=1` or `&error=`.
 
 Both endpoints are GET, so the CSRF guard doesn't apply. That matters, because the callback is a cross-site top-level navigation from the provider. The cookie is `Lax` so it is sent on that navigation, and the `state`/cookie pair is what stops forged callbacks (login CSRF). A third-party site linking to `authorize` can only start a login with Friday's own client, which the user still has to approve at the provider.
 
 ### 6. Redirect URI
 
-`FRIDAY_PUBLIC_URL` (core key, read per use through `coreConfig`) gives the base. Without it, the base is the request's origin, using `X-Forwarded-Proto` and `X-Forwarded-Host` as Traefik sets them. The listing computes it from its own request, so what the portal shows is exactly what `authorize` sends when started from the same address. Headers can be spoofed, but that only affects the redirect URI in the user's own authorization request, and the provider refuses URIs that aren't registered.
+`FRIDAY_PUBLIC_URL` (core key, read per use through `coreConfig`) gives the base, if it parses as an absolute http(s) URL. Any other value is ignored, with one warning per value, rather than producing redirect URIs no provider accepts. The listing returns the base as `redirectBase`, so the portal shows the right URI even for a connection it is only creating. Without a valid public URL, the base is the request's origin, using `X-Forwarded-Proto` and `X-Forwarded-Host` as Traefik sets them. The listing computes it from its own request, so what the portal shows is exactly what `authorize` sends when started from the same address. Headers can be spoofed, but that only affects the redirect URI in the user's own authorization request, and the provider refuses URIs that aren't registered.
 
 Spotify only accepts `https` redirect URIs or a loopback IP, not `localhost`. The README tells local developers to open the portal at `http://127.0.0.1:<port>`.
 
@@ -116,7 +123,7 @@ Refresh errors are classified with Arctic's error types:
 - `OAuth2RequestError` (the provider answered with an OAuth error such as `invalid_grant`) sets `error` with the provider's description.
 - `ArcticFetchError` and unexpected responses (5xx, non-JSON) are transient. They reject the call and leave the state as it is.
 
-A response without a refresh token keeps the old one. Providers without refresh, or a connection without a refresh token, move to `error` ("expired, reconnect") once the token expires.
+A refresh whose connection was saved with another client (tokens cleared) or deleted while it was out discards its outcome. It neither writes the old client's tokens back nor sets `error` on the new connection. A response without a refresh token keeps the old one. Providers without refresh, or a connection without a refresh token, move to `error` ("expired, reconnect") once the token expires.
 
 The SDK gets `OAuthError extends Error { kind }`, next to `LlmError`. `ModuleContext.oauth` is `{ token(provider: string): Promise<string> }`. `module-host.ts` passes `oauth: tokens.forModule(id)`. `createContext`'s default rejects with `not_connected` ("OAuth connections are not available in this host"), which covers the remote runner.
 
