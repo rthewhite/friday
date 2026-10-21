@@ -30,7 +30,7 @@
   - the source fallbacks (first selected copy, then `entry.scope`, then the first stored);
   - `null` for an empty value when nothing is stored or every selected scope has a copy;
   - `null` for an empty selection.
-- [x] 2.2 In `ConfigurationPage.vue`, replace the scope `<select>` with checkbox chips: one per requester, plus `global (all modules)`.
+- [x] 2.2 In `ConfigurationPage.vue`, replace the scope `<select>` with checkboxes: one per requester, plus `global (all modules)`.
   - The drawer preselects with `defaultScopes`.
   - `Save` runs the `savePlan` writes in order. `Save and reload` reloads every selected module (not `global`/`core`) and is labelled with their names.
   - The "Copies the value stored for X" hint appears when the plan copies.
