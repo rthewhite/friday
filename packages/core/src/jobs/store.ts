@@ -86,6 +86,16 @@ export class JobStore {
     this.db.prepare("INSERT INTO job_state (job_id, last_due_at) VALUES (?, ?) ON CONFLICT(job_id) DO UPDATE SET last_due_at = excluded.last_due_at").run(jobId, iso(due));
   }
 
+  /** Forget a job's last due time, so registering it again plans from now without a catch-up run. */
+  clearState(jobId: string): void {
+    this.db.prepare("DELETE FROM job_state WHERE job_id = ?").run(jobId);
+  }
+
+  /** Delete a job's recorded runs (the job is gone for good, e.g. its agent was deleted). */
+  deleteRuns(jobId: string): void {
+    this.db.prepare("DELETE FROM job_runs WHERE job_id = ? AND outcome != 'running'").run(jobId);
+  }
+
   /** At startup: runs still `running` were interrupted by a crash or kill. Returns how many. */
   markInterrupted(at: number): number {
     return Number(this.db.prepare("UPDATE job_runs SET outcome = 'cancelled', finished_at = ?, error = 'interrupted by restart' WHERE outcome = 'running'").run(iso(at)).changes);
