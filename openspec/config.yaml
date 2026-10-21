@@ -140,7 +140,7 @@ context: |
   offsetMinutes/formatOffset). Core declares it too; the scheduler
   resolves it like core's keys (core scope, global, env) and refreshTimezone() re-plans cron jobs when the config
   API saves or clears it (AppDeps.onConfigChange → followTimezone). The portal drawer ticks several scopes at once
-  (global excludes the requesters): defaultScopes() preselects every requester holding a copy, else global when
+  (global excludes the requesters): defaultScopes() preselects every requester holding a copy (plain: only copies equal to the shown value), else global when
   stored there, else the sole requester, else global; savePlan() turns the ticks into one PUT per scope, and an
   empty value copies a stored one server-side with PUT /api/config/:scope/:key { from } (ConfigStore.copy
   re-encrypts a secret under the target's AAD; the value never reaches the browser)
