@@ -11,7 +11,7 @@
 
 ## 2. MCP server channels
 
-- [ ] 2.1 Add migration 9's `mcp_servers.channels_json` column, `channels` in `ServerInput`/`parseServerInput` (non-empty, distinct, known; all three stored as unset), and pass it to `registry.add` in `McpSource`. Verify with `mcp-store.test.ts` (round trip, `[]` and `["email"]` refused, all three stored as unset), `mcp.test.ts` (an agent-only server's tools are absent from `declarations("voice")` and `declarations("chat")`) and `mcp-api.test.ts` (400 on invalid channels)
+- [x] 2.1 Add migration 9's `mcp_servers.channels_json` column, `channels` in `ServerInput`/`parseServerInput` (non-empty, distinct, known; all three stored as unset), and pass it to `registry.add` in `McpSource`. Verify with `mcp-store.test.ts` (round trip, `[]` and `["email"]` refused, all three stored as unset), `mcp.test.ts` (an agent-only server's tools are absent from `declarations("voice")` and `declarations("chat")`) and `mcp-api.test.ts` (400 on invalid channels)
 - [ ] 2.2 Add the voice/chat/agent checkboxes to `McpServersTab.vue` and show the channels in the server list. Verify with `pnpm --filter @friday/portal typecheck` and by making a server agent-only in the dev portal and seeing its tools leave the Chat page's tool list
 
 ## 3. Shared model loop

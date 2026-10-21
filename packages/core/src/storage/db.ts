@@ -20,6 +20,14 @@ const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE($
 
 export const migrations: Migration[] = [
   {
+    version: 9,
+    name: "agents",
+    // An MCP server's channels (JSON list; NULL = every channel), so a server can serve agents only.
+    sql: `
+      ALTER TABLE mcp_servers ADD COLUMN channels_json TEXT;
+    `,
+  },
+  {
     version: 8,
     name: "alerts",
     // Timers (and later alarms) that ring a target. next_ring_at is when the service next tries (or, while the device

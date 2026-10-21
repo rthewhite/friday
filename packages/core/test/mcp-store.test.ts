@@ -36,6 +36,10 @@ test("parseServerInput rejects each invalid field with a 400-class error", () =>
     ["entry value not a string", http({ headers: [{ name: "X-A", value: 1 }] }), /must be a string/],
     ["header value with a newline", http({ headers: [{ name: "Authorization", value: "Bearer abc\n", secret: true }] }), /header "Authorization" contains a line break/],
     ["header value with CR", http({ headers: [{ name: "X-A", value: "a\rb" }] }), /line break or control character/],
+    ["no channels", http({ channels: [] }), /channels must be a non-empty list/],
+    ["unknown channel", http({ channels: ["email"] }), /channels must be/],
+    ["repeated channel", http({ channels: ["agent", "agent"] }), /distinct/],
+    ["channels not a list", http({ channels: "agent" }), /channels must be/],
   ];
   for (const [label, body, re] of bad) {
     assert.throws(() => parseServerInput(body), (e: unknown) => e instanceof McpInputError && re.test(e.message), label);
@@ -53,6 +57,17 @@ test("parseServerInput treats empty lists and strings as unset and keeps a blank
   assert.deepEqual(parseServerInput(http({ include: [], exclude: [], scheduling: "", prefix: "", transport: "http" })), { name: "home", enabled: true, url: "https://ha.example/api/mcp", headers: [] });
   assert.deepEqual(parseServerInput(http({ enabled: false, url: " http://x/mcp ", scheduling: "SILENT", prefix: "ha", include: ["a"] })), { name: "home", enabled: false, url: "http://x/mcp", headers: [], include: ["a"], scheduling: "SILENT", prefix: "ha" });
   assert.deepEqual(parseServerInput(http({ headers: [{ name: "Authorization", value: "", secret: true }] })).headers, [{ name: "Authorization", secret: true }]);
+});
+
+test("channels round-trip in a stable order, and all three are stored as unset", () => {
+  const store = new McpServerStore(memDb(), key);
+  assert.deepEqual(parseServerInput(http({ channels: ["voice", "chat", "agent"] })).channels, undefined);
+  const created = store.create(parseServerInput(http({ channels: ["agent"] })));
+  assert.deepEqual(created.channels, ["agent"]);
+  assert.deepEqual(store.resolve("home")!.channels, ["agent"]);
+  assert.deepEqual(store.update(parseServerInput(http({ channels: ["chat", "voice"] }), "home"))!.channels, ["voice", "chat"]);
+  assert.equal(store.update(parseServerInput(http({ channels: ["agent", "voice", "chat"] }), "home"))!.channels, undefined);
+  assert.equal("channels" in store.get("home")!, false);
 });
 
 test("create stores secrets as ciphertext, lists them without values, and resolves the plaintext", () => {

@@ -2,11 +2,13 @@
 /** Settings > Configuration > MCP servers: table of stored HTTP MCP servers and an edit drawer (see the secret-management spec). */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button, Input, DataTable, StatusDot, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
+import { Badge, Button, Input, DataTable, StatusDot, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
 
 interface ApiHeader { name: string; secret: boolean; value?: string }
+type Channel = "voice" | "chat" | "agent";
+const CHANNELS: Channel[] = ["voice", "chat", "agent"];
 interface Server extends Record<string, unknown> {
   name: string;
   enabled: boolean;
@@ -16,6 +18,8 @@ interface Server extends Record<string, unknown> {
   exclude?: string[];
   scheduling?: "INTERRUPT" | "WHEN_IDLE" | "SILENT";
   prefix?: string;
+  /** Unset: every channel. */
+  channels?: Channel[];
   status: "loaded" | "failed" | "disabled";
   error?: string;
   tools: string[];
@@ -51,9 +55,11 @@ const columns: Column[] = [
   { key: "status", label: "", width: "3rem", align: "center" },
   { key: "name", label: "Name" },
   { key: "url", label: "URL", hideBelow: "md" },
+  { key: "channels", label: "Channels", hideBelow: "md" },
   { key: "tools", label: "Tools", width: "6rem" },
   { key: "updatedAt", label: "Updated", hideBelow: "lg", width: "11rem" },
 ];
+const channelsOf = (s: Server): Channel[] => s.channels ?? CHANNELS;
 const tone = (s: Server["status"]) => (s === "loaded" ? "success" : s === "failed" ? "error" : "neutral");
 
 // ---- drawer ---------------------------------------------------------------
@@ -71,6 +77,7 @@ const blank = () => ({
   exclude: "",
   scheduling: "" as "" | NonNullable<Server["scheduling"]>,
   prefix: "",
+  channels: [...CHANNELS],
 });
 const draft = ref(blank());
 
@@ -90,6 +97,7 @@ function fill(s: Server) {
     exclude: (s.exclude ?? []).join("\n"),
     scheduling: s.scheduling ?? "",
     prefix: s.prefix ?? "",
+    channels: [...channelsOf(s)],
   };
 }
 function openServer(s: Server) {
@@ -129,10 +137,14 @@ function body() {
     exclude: lines(d.exclude),
     scheduling: d.scheduling || undefined,
     prefix: d.prefix.trim() || undefined,
+    // All three are stored as unset (every channel) by the server.
+    channels: CHANNELS.filter((c) => d.channels.includes(c)),
   };
 }
 
-const canSave = computed(() => (adding.value ? draft.value.name.trim() !== "" : true) && draft.value.url.trim() !== "" && !draft.value.headers.some(needsValue));
+const canSave = computed(
+  () => (adding.value ? draft.value.name.trim() !== "" : true) && draft.value.url.trim() !== "" && !draft.value.headers.some(needsValue) && draft.value.channels.length > 0,
+);
 
 async function save() {
   await run("save", async () => {
@@ -183,6 +195,9 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
       <template #cell-status="{ row }"><StatusDot :tone="tone((row as Server).status)" :title="(row as Server).status" /></template>
       <template #cell-name="{ row }"><code class="font-mono text-f-text-bright">{{ (row as Server).name }}</code></template>
       <template #cell-url="{ row }"><span class="font-mono text-xs text-f-text-muted break-all">{{ (row as Server).url }}</span></template>
+      <template #cell-channels="{ row }">
+        <span class="flex flex-wrap gap-1"><Badge v-for="c in channelsOf(row as Server)" :key="c">{{ c }}</Badge></span>
+      </template>
       <template #cell-tools="{ row }"><span class="text-f-text-muted">{{ (row as Server).tools.length }}</span></template>
       <template #cell-updatedAt="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ formatDateTime((row as Server).updatedAt) }}</span></template>
     </DataTable>
@@ -243,6 +258,18 @@ async function run(kind: NonNullable<typeof busy.value>, f: () => Promise<void>)
         </select>
       </label>
       <Input v-model="draft.prefix" label="Tool name prefix" :placeholder="draft.name || 'defaults to the name'" />
+      <div class="flex flex-col gap-1 text-sm">
+        <span class="text-f-text-muted">Offer its tools in</span>
+        <div class="flex flex-wrap gap-4">
+          <label v-for="c in CHANNELS" :key="c" class="flex items-center gap-2">
+            <input v-model="draft.channels" type="checkbox" :value="c" class="accent-f-accent" />
+            <span>{{ c }}</span>
+          </label>
+        </div>
+        <p class="text-xs text-f-text-muted">
+          {{ draft.channels.length ? "Agent only keeps a server, and the token in its headers, out of voice and chat." : "Choose at least one." }}
+        </p>
+      </div>
 
       <template #footer>
         <Button v-if="selected" variant="danger" :disabled="busy !== null" @click="remove">{{ busy === "delete" ? "Deleting…" : confirmDelete ? "Confirm delete" : "Delete" }}</Button>

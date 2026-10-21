@@ -114,10 +114,29 @@ test("include, exclude, prefix and scheduling shape the registered tools", async
     assert.equal(registry.get("ha__turn_on")!.scheduling, "SILENT");
     assert.equal(registry.get("a__turn_on")!.scheduling, undefined);
     assert.equal(registry.get("a__turn_on")!.description, "turn_on tool");
-    // MCP tools carry no channels, so both voice and chat are offered them.
+    // MCP tools of a server without channels are offered in every channel.
     assert.equal(registry.get("a__turn_on")!.channels, undefined);
     assert.deepEqual(registry.declarations("chat").map((d) => d.name), registry.declarations("voice").map((d) => d.name));
+    assert.deepEqual(registry.declarations("agent").map((d) => d.name), registry.declarations("voice").map((d) => d.name));
     assert.equal(registry.declarations("chat").length, 3);
+  } finally {
+    await src.close();
+    await f.close();
+  }
+});
+
+test("an agent-only server's tools stay out of voice and chat", async () => {
+  const f = await startMcpFixture(["list_repos", "create_pull_request"]);
+  const { src, registry, add } = setup();
+  try {
+    add({ name: "github", transport: "http", url: f.url, channels: ["agent"] });
+    add({ name: "home", transport: "http", url: f.url, include: ["list_repos"] });
+    await src.load();
+    assert.deepEqual(registry.get("github__list_repos")!.channels, ["agent"]);
+    assert.deepEqual(registry.declarations("voice").map((d) => d.name), ["home__list_repos"]);
+    assert.deepEqual(registry.declarations("chat").map((d) => d.name), ["home__list_repos"]);
+    assert.deepEqual(registry.declarations("agent").map((d) => d.name).sort(), ["github__create_pull_request", "github__list_repos", "home__list_repos"]);
+    assert.deepEqual((await registry.callTool("github__list_repos", {}, { channel: "chat" })).result, { error: "unknown tool github__list_repos" });
   } finally {
     await src.close();
     await f.close();

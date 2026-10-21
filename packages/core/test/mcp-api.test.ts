@@ -100,6 +100,10 @@ test("invalid writes get 400, a duplicate 409, and a secret without a master key
     const noUrl = await s.call("POST", "/api/mcp/servers", { name: "x", transport: "http" });
     assert.equal(noUrl.status, 400);
     assert.match(noUrl.json.error, /a url is required/);
+    const noChannels = await s.call("POST", "/api/mcp/servers", home(f, { channels: [] }));
+    assert.equal(noChannels.status, 400);
+    assert.match(noChannels.json.error, /channels must be/);
+    assert.equal((await s.call("POST", "/api/mcp/servers", home(f, { channels: ["email"] }))).status, 400);
     assert.equal((await s.call("POST", "/api/mcp/servers", home(f))).status, 201);
     assert.equal((await s.call("POST", "/api/mcp/servers", home(f))).status, 409);
 

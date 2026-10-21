@@ -210,7 +210,7 @@ test("a version-7 database gains the empty alerts table and keeps its devices", 
   old.close();
 
   const db = openDatabase(dir, "friday.db", quiet);
-  assert.equal(schemaVersion(db), 8);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM alerts").get() }, { n: 0 });
   const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='alerts' AND sql IS NOT NULL ORDER BY name").all() as { name: string }[]).map((i) => i.name);
   assert.deepEqual(indexes, ["alerts_target_state"]);
