@@ -48,7 +48,7 @@
 
 ## 9. Docs and context
 
-- [ ] 9.1 Update the README (an Agents section: definitions, tool patterns and modes, `approve` for anything that writes or sends, the `agent` channel and agent-only MCP servers, budgets, `run_agent`, sharing the LLM slots and `FRIDAY_LLM_CONCURRENCY=1`, rolling back with agent-only servers), `.env.example`, and `openspec/config.yaml` context (agents paragraph, the channel list, the MCP `channels` setting, migration 9). Leave `deploy/k8s.yaml` as is unless a value is set there. Verify by reading the diff and running `pnpm --filter @friday/core test` (the `.env.example` check)
+- [x] 9.1 Update the README (an Agents section: definitions, tool patterns and modes, `approve` for anything that writes or sends, the `agent` channel and agent-only MCP servers, budgets, `run_agent`, sharing the LLM slots and `FRIDAY_LLM_CONCURRENCY=1`, rolling back with agent-only servers), `.env.example`, and `openspec/config.yaml` context (agents paragraph, the channel list, the MCP `channels` setting, migration 9). Leave `deploy/k8s.yaml` as is unless a value is set there. Verify by reading the diff and running `pnpm --filter @friday/core test` (the `.env.example` check)
 
 ## 10. Integration
 

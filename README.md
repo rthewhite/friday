@@ -23,8 +23,8 @@ The repo is a pnpm workspace:
 | Package | Path | What |
 |---|---|---|
 | `@friday/sdk` | `packages/sdk` | The module contract (`defineModule`, `ModuleContext`, `ToolRegistry`) and a test host |
-| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `/ws/device`, `GeminiSession`, alerts and the timer and alarm tools, the chat engine (`/api/chat`), module host, MCP servers, serves the portal |
-| `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Chat, Conversations, Modules, and module pages |
+| `@friday/core` | `packages/core` | HTTP server, `/ws/audio`, `/ws/device`, `GeminiSession`, alerts and the timer and alarm tools, the chat engine (`/api/chat`), agents (`/api/agents`, `run_agent`), module host, MCP servers, serves the portal |
+| `@friday/portal` | `packages/portal` | Vue 3 + Vite + Tailwind shell: Talk, Chat, Conversations, Agents, Modules, and module pages |
 | `@friday/portal-ui` | `packages/portal-ui` | Design tokens, base components, `defineModuleUi` |
 | `@friday/module-builtin` | `modules/builtin` | `get_current_time`, `end_conversation` |
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
@@ -136,7 +136,7 @@ A statement that touches anything outside the module's `pantry__` prefix (core's
 
 ## Portal
 
-The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), a `Modules` page (everything `/api/modules` reports, with status and tools; core's own tools are the *Core* row, kind *core*), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
+The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), an `Agents` page (see [Agents](#agents)), a `Modules` page (everything `/api/modules` reports, with status and tools; core's own tools are the *Core* row, kind *core*), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
 
 ### Add a module UI
 
@@ -227,6 +227,30 @@ Over HTTP, `POST /api/chat` takes `{ "text": "...", "conversationId": "<optional
 ```sh
 curl -sN -X POST localhost:8080/api/chat -H 'content-type: application/json' -d '{"text":"What time is it in Tokyo?"}'
 ```
+
+## Agents
+
+An agent is a task written in text that Friday runs unattended over tools it already has: "every Sunday at 18:00, look at next week's calendar and message me what stands out". You make one on the portal's `Agents` page (under Assistant), without writing a module. A definition has:
+
+- **name** (kebab-case), a one-line **description**, and **instructions** in markdown;
+- an optional **schedule** (five-field cron in `FRIDAY_TIMEZONE`). It runs as the core job `agent-<name>` on the Jobs page, and catches up once after downtime like other jobs. Changing the schedule never causes a catch-up run;
+- **enabled** (a disabled agent doesn't run on its schedule or by voice; `Run now` still works, so you can try a draft) and **startable** (may be started by voice and chat, off by default);
+- **tools**: entries that are an exact tool name or a pattern with `*` (`calendar_*`, `github__get_*`), each `auto` or `approve`. An agent only gets the tools its entries match, and a call to any other tool is refused. When a tool matches several entries, `approve` wins. A pattern that matches nothing (a server is down, say) is allowed and marked;
+- **budgets**: tool calls (default 30, up to 200), input plus output tokens (default 200 000, up to 2 000 000) and minutes (default 10, up to 60) per run. A run that would cross one stops as `budget exceeded`.
+
+**Approvals.** A call to an `approve` tool doesn't run. Friday stores the exact tool and arguments on the run, tells the model it was queued, and the run carries on. On the run's page you approve it, and Friday then executes exactly that call (no model involved), or reject it. Pending actions expire after 7 days. Use `approve` for anything that writes or sends: an agent reads tool output (web pages, issues, mail) that may try to steer it, and the tool list and `approve` are what limit what it can do.
+
+**Runs.** A run's prompt is a short preamble (the agent's name, the local date and time, that it runs unattended, how approvals work) followed by your instructions; it gets no module context (brain profile, agenda), so it calls `brain_recall` or `calendar_list_events` when its instructions say so. Its first message is the request you gave, or "Start your run now.". It runs on `FRIDAY_TEXT_MODEL` with the tools of its list as they are when it starts, one run per agent at a time. Each run is recorded with its trigger (`schedule`, `portal`, `voice`, `chat`), outcome, tool calls, tokens and the model's final answer as summary, and as a conversation on the `agent` channel on the Conversations page. The 50 most recent runs per agent are kept. Results reach you through tools in its list (a notify tool from an MCP server, for example); the runtime adds no output of its own. "What did the weekly review say?" works too: `brain_recall_conversations` can search agent runs, and the nightly brain pass never learns from them.
+
+**Starting one.** Besides its schedule and `Run now`, the core tool `run_agent` lets voice and chat start an agent marked startable: "run the weekly review for this week". It answers at once; the run happens in the background. Agents can't start agents.
+
+**Sharing the model.** Agent model calls hold at most one of the `FRIDAY_LLM_CONCURRENCY` slots at a time, so with the default of 2, chat and modules always have one free. With `FRIDAY_LLM_CONCURRENCY=1` agents and chat take turns.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FRIDAY_AGENT_TOOL_TIMEOUT_MS` | `60000` | Longest wait for one tool call of a run, or an approved action. |
+
+Over HTTP: `GET/POST /api/agents`, `GET/PUT/DELETE /api/agents/:name`, `POST /api/agents/:name/run` (`{ "request": "..." }`, 409 while running), `GET /api/agents/:name/runs`, `GET /api/agents/runs/:id` (with its actions), `POST /api/agents/runs/:id/cancel`, `POST /api/agents/actions/:id/approve` and `/reject`, and `GET /api/agents/tools` (the tools agents can be given).
 
 ## Configuration, storage and keys
 
@@ -551,6 +575,7 @@ Add MCP servers under **Settings > Configuration > MCP servers**. They are store
 - **Transport**: streamable HTTP only (a `url` plus headers). Friday does not start MCP server processes; run a stdio-only server behind an HTTP bridge and add it by URL.
 - **Tokens**: mark a header as *secret* (for example `Authorization: Bearer …` for Home Assistant). Secret values are encrypted with `FRIDAY_MASTER_KEY`, never shown again, and kept when you leave them blank while editing. Without a master key only plain values can be saved.
 - **Tools** are registered as `<prefix>__<tool>` (the prefix defaults to the server name; owner `mcp:<server>` in `/api/modules`). Use the include and exclude lists to trim large servers, and scheduling to control how Gemini surfaces results.
+- **Channels**: a server's tools are offered in voice, chat and to agents. Untick voice and chat to make a server agent-only, for example a GitHub server with its own narrow token that you don't want reachable by voice. If you roll back to an image without agents, such a server shows up in voice and chat again, so disable it first.
 - **API**: `GET/POST /api/mcp/servers`, `PUT/DELETE /api/mcp/servers/:name`, `POST /api/mcp/servers/:name/reconnect`. Secret values are never returned.
 
 The portal has no login, so keep it on a trusted network: anyone who can reach it can add or change servers. Friday refuses API writes from other origins, so a web page you visit cannot do that through your browser.
