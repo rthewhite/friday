@@ -5,7 +5,7 @@
  * `resolve()`, which the MCP source uses to connect.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { SCHEDULINGS, type Scheduling } from "@friday/sdk";
+import { CHANNELS, SCHEDULINGS, type ConversationChannel, type Scheduling } from "@friday/sdk";
 import { decrypt, encrypt } from "../secrets/crypto.js";
 
 /** A header as written. A secret without `value` keeps the stored value. */
@@ -24,6 +24,8 @@ export interface ServerInput {
   exclude?: string[];
   scheduling?: Scheduling;
   prefix?: string;
+  /** Channels the server's tools are offered in; every channel when unset. */
+  channels?: ConversationChannel[];
 }
 
 /** A header as listed: plain headers carry their value, secret headers never do. */
@@ -104,7 +106,18 @@ export function parseServerInput(body: unknown, name?: string): ServerInput {
     if (typeof b.prefix !== "string") throw new McpInputError("prefix must be a string");
     out.prefix = b.prefix;
   }
+  const channels = channelList(b.channels);
+  if (channels) out.channels = channels;
   return out;
+}
+
+/** A non-empty list of distinct known channels; all of them, like none given, means unset. */
+function channelList(v: unknown): ConversationChannel[] | undefined {
+  if (v === undefined || v === null) return undefined;
+  const valid = Array.isArray(v) && v.length > 0 && v.every((c) => CHANNELS.includes(c)) && new Set(v).size === v.length;
+  if (!valid) throw new McpInputError(`channels must be a non-empty list of distinct values from ${CHANNELS.join(", ")}`);
+  const list = CHANNELS.filter((c) => (v as unknown[]).includes(c));
+  return list.length === CHANNELS.length ? undefined : list;
 }
 
 function stringList(v: unknown, field: string): string[] | undefined {
@@ -145,6 +158,7 @@ interface ServerRow {
   exclude_json: string | null;
   scheduling: Scheduling | null;
   prefix: string | null;
+  channels_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -193,7 +207,7 @@ export class McpServerStore {
     const now = new Date().toISOString();
     this.tx(() => {
       this.db
-        .prepare("INSERT INTO mcp_servers (name, enabled, url, include_json, exclude_json, scheduling, prefix, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .prepare("INSERT INTO mcp_servers (name, enabled, url, include_json, exclude_json, scheduling, prefix, channels_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run(input.name, ...this.columns(input), now, now);
       this.insertHeaders(input.name, rows);
     });
@@ -212,7 +226,7 @@ export class McpServerStore {
     const rows = this.headerRows(input, stored);
     this.tx(() => {
       this.db
-        .prepare("UPDATE mcp_servers SET enabled = ?, url = ?, include_json = ?, exclude_json = ?, scheduling = ?, prefix = ?, updated_at = ? WHERE name = ?")
+        .prepare("UPDATE mcp_servers SET enabled = ?, url = ?, include_json = ?, exclude_json = ?, scheduling = ?, prefix = ?, channels_json = ?, updated_at = ? WHERE name = ?")
         .run(...this.columns(input), new Date().toISOString(), input.name);
       this.db.prepare("DELETE FROM mcp_server_headers WHERE server = ?").run(input.name);
       this.insertHeaders(input.name, rows);
@@ -277,7 +291,7 @@ export class McpServerStore {
 
   private columns(i: ServerInput) {
     const json = (v: string[] | undefined) => (v ? JSON.stringify(v) : null);
-    return [i.enabled ? 1 : 0, i.url, json(i.include), json(i.exclude), i.scheduling ?? null, i.prefix ?? null] as const;
+    return [i.enabled ? 1 : 0, i.url, json(i.include), json(i.exclude), i.scheduling ?? null, i.prefix ?? null, json(i.channels)] as const;
   }
 
   private row(name: string): ServerRow | undefined {
@@ -295,6 +309,7 @@ export class McpServerStore {
     if (r.exclude_json !== null) s.exclude = JSON.parse(r.exclude_json);
     if (r.scheduling !== null) s.scheduling = r.scheduling;
     if (r.prefix !== null) s.prefix = r.prefix;
+    if (r.channels_json !== null) s.channels = JSON.parse(r.channels_json);
     return s;
   }
 

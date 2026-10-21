@@ -30,6 +30,10 @@ import { GeminiTextModel } from "./llm/gemini.js";
 import { LlmService } from "./llm/service.js";
 import { ChatEngine } from "./chat/engine.js";
 import { createPromptContext, systemPrompt } from "./prompt-context.js";
+import { AgentRunStore, AgentStore } from "./agents/store.js";
+import { AgentRuntime } from "./agents/runtime.js";
+import { AgentTriggers, jobName } from "./agents/triggers.js";
+import { CORE_ID } from "./core-config.js";
 
 const db = openDatabase(settings.dataDir);
 const masterKey = parseMasterKey(settings.masterKey);
@@ -100,6 +104,23 @@ registerAlertTools(registry, {
 });
 await host.load(modules);
 await mcp.load();
+// Agents: runs over their own tools (FRIDAY_TEXT_MODEL, one LLM slot at a time), started by their job or run_agent.
+const agentStore = new AgentStore(db);
+const agentRuns = new AgentRunStore(db);
+const interruptedRuns = agentRuns.failInterrupted();
+if (interruptedRuns) console.warn(`agents: ${interruptedRuns} run(s) or approved action(s) interrupted by the last shutdown marked failed`);
+const agentRuntime = new AgentRuntime({
+  agents: agentStore,
+  runs: agentRuns,
+  registry,
+  conversations,
+  llm,
+  model: settings.textModel,
+  timezone: householdZone,
+  toolTimeoutMs: settings.agentToolTimeoutMs,
+});
+new AgentTriggers({ agents: agentStore, runtime: agentRuntime, registry, scheduler: jobs, jobs: jobStore, timezone: householdZone }).start();
+const agentJob = (name: string) => `${CORE_ID}/${jobName(name)}`;
 if (!geminiKey()) console.warn("GEMINI_API_KEY is not set (Settings > Configuration > Secrets, or the environment)");
 console.log(`tools (${registry.names().length}):`, registry.names().join(", "));
 conversations.start();
@@ -114,7 +135,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
     conversations.stop();
     alerts.stop();
     // host.dispose() also closes the modules' own connections, before core's.
-    void remote.closeAll().then(() => jobs.stop()).then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
+    void remote.closeAll().then(() => agentRuntime.stop()).then(() => jobs.stop()).then(() => host.dispose()).then(() => mcp.close()).finally(() => { db.close(); process.exit(0); });
   });
 }
 
@@ -127,7 +148,8 @@ const chat = new ChatEngine({
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 
-const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs) }));
+const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs),
+  agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) } }));
 attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts });
 attachDeviceWs(server, { devices, links: deviceLinks, onReport: (id, type, alert) => alerts.deviceReport(id, type, alert) });
 remote.attach(server);

@@ -484,6 +484,58 @@ test("removeOwner only affects that owner's jobs", async () => {
   await s.stop();
 });
 
+test("unregister removes one job; the owner's other jobs keep running", async () => {
+  const { clock, s } = setup("2026-09-28T12:00:00Z");
+  let x = 0, y = 0;
+  s.register("core", { name: "agent-x", everyMs: 1000, run: () => void x++ });
+  s.register("core", { name: "agent-y", everyMs: 1000, run: () => void y++ });
+  await clock.advance(1000);
+  assert.equal(s.unregister("core/agent-x"), true);
+  assert.equal(s.unregister("core/agent-x"), false);
+  await clock.advance(2000);
+  assert.deepEqual([x, y], [1, 3]);
+  assert.deepEqual(s.list().map((j) => j.id), ["core/agent-y"]);
+  assert.deepEqual(s.runNow("core/agent-x"), { status: "unknown" });
+  assert.equal(s.nextRunAt("core/agent-y"), s.list()[0].nextRunAt);
+  assert.equal(s.nextRunAt("core/agent-x"), null);
+  await s.stop();
+});
+
+test("unregister leaves a run in progress alone, and a re-registered job cannot overlap it", async () => {
+  const { clock, s, store } = setup("2026-09-28T12:00:00Z");
+  let release!: () => void;
+  s.register("core", { name: "agent-x", everyMs: 1000, run: () => new Promise<void>((r) => (release = r)) });
+  await clock.advance(1000);
+  s.unregister("core/agent-x");
+  s.register("core", { name: "agent-x", everyMs: 5000, run: () => {} });
+  assert.deepEqual(s.runNow("core/agent-x"), { status: "running" });
+  release();
+  await clock.advance(0);
+  assert.equal(store.runs("core/agent-x")[0].outcome, "ok");
+  await s.stop();
+});
+
+test("a job registered again after clearState plans from now, without a catch-up for an old due time", async () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const old = new JobStore(db);
+  old.setLastDue("core/agent-weekly-review", Date.parse("2026-09-20T16:00:00Z"));
+  old.clearState("core/agent-weekly-review");
+  const { clock, s, store } = setup("2026-09-29T12:00:00Z", { db });
+  let runs = 0;
+  // Sunday 18:00 weekly became daily 07:00: the Monday and Tuesday 07:00 slots must not count as missed.
+  s.register("core", { name: "agent-weekly-review", cron: "0 7 * * *", run: () => void runs++ });
+  await clock.advance(60_000);
+  assert.equal(runs, 0);
+  assert.equal(s.list()[0].nextRunAt, "2026-09-30T05:00:00.000Z");
+  assert.equal(store.lastDue("core/agent-weekly-review"), Date.parse("2026-09-29T12:00:00Z"));
+
+  store.finishRun(store.startRun("core/agent-weekly-review", "manual", Date.parse("2026-09-29T12:01:00Z")), Date.parse("2026-09-29T12:02:00Z"), "ok");
+  store.deleteRuns("core/agent-weekly-review");
+  assert.deepEqual(store.runs("core/agent-weekly-review"), []);
+  await s.stop();
+});
+
 test("settings defaults for jobs", async () => {
   for (const k of ["FRIDAY_JOB_HISTORY", "FRIDAY_JOB_CATCHUP_DELAY_MS"]) delete process.env[k];
   const { settings } = await import("../src/config.js");

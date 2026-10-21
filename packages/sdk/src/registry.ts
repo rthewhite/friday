@@ -58,6 +58,13 @@ export class ToolRegistry {
     return n;
   }
 
+  /** Unregister one tool, whatever its owner; returns whether there was one. */
+  remove(name: string): boolean {
+    if (!this.tools.delete(name)) return false;
+    this.emit();
+    return true;
+  }
+
   has(name: string): boolean {
     return this.tools.has(name);
   }

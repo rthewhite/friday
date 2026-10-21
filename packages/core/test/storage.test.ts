@@ -15,7 +15,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
   const search = ["conversation_search", "conversation_search_config", "conversation_search_data", "conversation_search_docsize", "conversation_search_idx"];
-  assert.deepEqual(tables, ["alerts", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
+  assert.deepEqual(tables, ["agent_actions", "agent_runs", "agents", "alerts", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "schema_version"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -210,7 +210,7 @@ test("a version-7 database gains the empty alerts table and keeps its devices", 
   old.close();
 
   const db = openDatabase(dir, "friday.db", quiet);
-  assert.equal(schemaVersion(db), 8);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM alerts").get() }, { n: 0 });
   const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='alerts' AND sql IS NOT NULL ORDER BY name").all() as { name: string }[]).map((i) => i.name);
   assert.deepEqual(indexes, ["alerts_target_state"]);

@@ -10,7 +10,8 @@ import {
   type SearchConversationsOptions,
 } from "./conversation-search.js";
 
-export type ConversationChannel = "voice" | "chat";
+/** `agent` conversations are agent runs (core's agents runtime), not a person talking. */
+export type ConversationChannel = "voice" | "chat" | "agent";
 /** `speech` is Gemini's transcription of audio (noisy); `text` was typed (exact). */
 export type ConversationInput = "speech" | "text";
 

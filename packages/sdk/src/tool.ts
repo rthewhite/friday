@@ -55,7 +55,7 @@ export interface Tool<A = any> {
   parametersJsonSchema?: unknown;
   /** Default scheduling for this tool's results. */
   scheduling?: Scheduling;
-  /** Conversation channels the tool is offered in; both when omitted. */
+  /** Conversation channels the tool is offered in; every channel when omitted. */
   channels?: ConversationChannel[];
   handler: (args: A, call: ToolCallContext) => ToolResult | Promise<ToolResult>;
 }
@@ -69,4 +69,4 @@ export interface FunctionDeclaration {
 }
 
 export const SCHEDULINGS: readonly Scheduling[] = ["INTERRUPT", "WHEN_IDLE", "SILENT"];
-export const CHANNELS: readonly ConversationChannel[] = ["voice", "chat"];
+export const CHANNELS: readonly ConversationChannel[] = ["voice", "chat", "agent"];

@@ -34,6 +34,15 @@ export function chatSettings(env: Record<string, string | undefined>) {
   };
 }
 
+/** Agent runs. A function of the environment so the default is testable; invalid values fall back. */
+export function agentSettings(env: Record<string, string | undefined>) {
+  const timeout = Number(env.FRIDAY_AGENT_TOOL_TIMEOUT_MS);
+  return {
+    /** An agent's tool call (or an approved action) that has not settled after this long is answered with a timeout error. */
+    agentToolTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 60000,
+  };
+}
+
 /** How alerts ring. A function of the environment so the defaults are testable; invalid values fall back. */
 export function alertSettings(env: Record<string, string | undefined>) {
   const positive = (key: string, fallback: number) => {
@@ -105,7 +114,29 @@ Timers and alarms:
   chat: `The user is typing to you in a chat in Friday's portal. Be concise but
 complete: answer fully instead of keeping it short for speech. You may use
 Markdown (lists, tables, bold, links, code blocks) where it helps readability.`,
+  /** An agent run's preamble; {name} and {now} are filled in at run start (agentPrompt). */
+  agent: `You are "{name}", an agent of Friday, a household's personal assistant. It is now {now}.
+
+You run unattended: nobody reads what you write until the run is over, so don't
+ask questions and don't wait for answers. Do what your instructions below say,
+using only the tools you have. Use tools instead of guessing.
+
+Some tools need the user's approval. Calling one of them doesn't run it: the
+result says the call was queued for the user's approval. Carry on without that
+call's result and don't call it again for the same thing.
+
+When you are done, answer with a short summary for the user of what you found
+and did, including anything queued for approval. That answer is the run's
+summary.
+
+Your instructions:`,
 } as const;
+
+/** An agent run's system prompt: the preamble with its name and the local time, then its instructions. */
+export function agentPrompt(name: string, instructions: string, now: Date, zone: string): string {
+  const when = new Intl.DateTimeFormat("en-GB", { timeZone: zone, weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+  return `${prompts.agent.replace("{name}", name).replace("{now}", `${when} (${zone})`)}\n\n${instructions}`;
+}
 
 export const settings = {
   apiKey: process.env.GEMINI_API_KEY ?? "",
@@ -150,6 +181,8 @@ export const settings = {
   ...chatSettings(process.env),
   /** promptContextMaxChars. */
   ...promptSettings(process.env),
+  /** agentToolTimeoutMs. */
+  ...agentSettings(process.env),
   /** alertRings, alertRingIntervalMs, alertGraceMs, alarmRingMinutes. */
   ...alertSettings(process.env),
   /** The Live session's instruction: the shared base plus the voice part. */

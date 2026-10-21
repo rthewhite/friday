@@ -7,6 +7,8 @@ export function createPortalRouter(uis: ModuleUi[]) {
     // `/chat/:id` is a child so the `/chat` nav item stays active on every thread.
     { path: "/chat", name: "chat", component: () => import("./pages/ChatPage.vue"), children: [{ path: ":id", name: "chat-thread", component: { render: () => null } }] },
     { path: "/conversations", name: "conversations", component: () => import("./pages/ConversationsPage.vue") },
+    // `/agents/:name` (and `/agents/new`) is a child for the same reason; AgentsPage shows the editor for it.
+    { path: "/agents", name: "agents", component: () => import("./pages/AgentsPage.vue"), children: [{ path: ":name", name: "agent", component: { render: () => null } }] },
     { path: "/modules", name: "modules", component: () => import("./pages/ModulesPage.vue") },
     { path: "/settings/config", name: "settings-config", component: () => import("./pages/settings/ConfigurationPage.vue") },
     { path: "/settings/devices", name: "settings-devices", component: () => import("./pages/settings/VoiceDevicesPage.vue") },

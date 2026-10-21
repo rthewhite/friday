@@ -9,8 +9,9 @@ context: |
   defineTool, config (env-backed), log. Core lists in-process modules in packages/core/src/modules.ts,
   FRIDAY_MODULES narrows them, GET /api/modules reports status (first a `core` entry, kind "core" on the Modules
   page, when core owns tools itself; moduleListing in app.ts). Tools live in one owner-tagged
-  ToolRegistry instance (owner = module id, mcp:<server>, or core); a tool may set channels (voice | chat,
-  both by default; end_conversation and core's timer and alarm tools are voice-only); each GeminiSession snapshots
+  ToolRegistry instance (owner = module id, mcp:<server>, or core; remove(name) drops one tool); a tool may set channels
+  (voice | chat | agent, all by default; end_conversation and core's timer and alarm tools are voice-only, run_agent
+  voice and chat; prompt context providers only ever see voice | chat, PromptChannel); each GeminiSession snapshots
   declarations("voice") at open (Gemini binds tools then). Tool results may carry reserved keys
   scheduling (INTERRUPT | WHEN_IDLE | SILENT) and endConversation (reason string), both stripped
   before reaching Gemini (and ignored in chat). Handlers get a second argument, the call context { channel?,
@@ -20,10 +21,24 @@ context: |
   runs one turn per message on the text model (FRIDAY_CHAT_MODEL, else FRIDAY_TEXT_MODEL) through
   LlmService.streamCall, replaying the thread's whole stored history (tool entries as function
   call/response pairs), a tool loop over declarations("chat") (FRIDAY_CHAT_TOOL_TIMEOUT_MS, 10 rounds),
-  recorded as a `chat` conversation, streamed as server-sent events. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
+  recorded as a `chat` conversation, streamed as server-sent events. The loop itself (stream a round, run its calls,
+  send results back with parts verbatim; beforeRound/beforeCalls stop hooks, `around` for a gate) is
+  packages/core/src/llm/tool-loop.ts, shared with agents. Agents (packages/core/src/agents/, migration 9: agents,
+  agent_runs, agent_actions): definitions validated by parseAgent (definition.ts; names tools/runs/actions/new
+  reserved), tool entries `{ pattern (* glob), mode auto|approve }` resolved against declarations("agent") with
+  approve winning (resolveTools), budgets maxToolCalls/maxTokens/maxMinutes. AgentRuntime (runtime.ts) runs one run
+  per agent on FRIDAY_TEXT_MODEL behind a Semaphore(1) gate (agents hold at most one LLM slot), prompt agentPrompt()
+  in config.ts plus the instructions, no module context, first message the request or "Start your run now.", tool
+  calls with channel agent (FRIDAY_AGENT_TOOL_TIMEOUT_MS), recorded as an `agent` conversation; approve calls are
+  parked as exact calls (agent_actions) and executed once on approval (pending -> approving -> executed|failed,
+  expired after 7 days, lazily). AgentTriggers (triggers.ts) registers core job agent-<name> per enabled scheduled
+  agent (Scheduler.unregister, JobStore.clearState on a schedule change) and the core tool run_agent for enabled
+  startable agents. /api/agents (routes.ts) and the portal's /agents page (AgentsPage.vue, AgentEditor.vue). Calendar
+  changes made by agents have source agent and calendar_undo keeps voice/chat and agent changes apart; the brain's
+  nightly extraction passes over agent conversations. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
   transport-agnostic GeminiSession; a ?device= connection gets only audio and interrupted/turn_complete/closed, the
   browser also gets transcripts and tool events. MCP servers (streamable HTTP only, no stdio) are stored in friday.db (mcp_servers; secret header
-  values encrypted like config secrets), managed via /api/mcp/servers and Settings > Configuration > MCP servers, and
+  values encrypted like config secrets; optional channels, e.g. agent-only), managed via /api/mcp/servers and Settings > Configuration > MCP servers, and
   connected per server by packages/core/src/tools/mcp.ts (store: mcp-store.ts). Remote modules (remote/*,
   e.g. simracing on the gaming PC) run the same module via runRemote from @friday/sdk/remote: they dial
   /ws/modules, authenticate with FRIDAY_MODULE_KEYS, serve MCP over the socket; core registers their tools

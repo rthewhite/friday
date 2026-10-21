@@ -178,6 +178,19 @@ export class Scheduler {
     return { status: "started", runId: this.start(job, trigger) };
   }
 
+  /**
+   * Unregister one job: no timer, no pending catch-up. A run in progress is not cancelled; it finishes and keeps
+   * the job id from starting another run until then. Returns whether the job was registered.
+   */
+  unregister(jobId: string): boolean {
+    const job = this.jobs.get(jobId);
+    if (!job) return false;
+    this.jobs.delete(jobId);
+    if (job.timer !== undefined) this.clock.clearTimeout(job.timer);
+    if (job.catchup !== undefined) this.clock.clearTimeout(job.catchup);
+    return true;
+  }
+
   /** Unregister an owner's jobs and cancel their in-flight runs, waiting up to the grace period. */
   async removeOwner(owner: string): Promise<void> {
     await this.cancel([...this.jobs.values()].filter((j) => j.owner === owner), `${owner} was unloaded`);
@@ -190,6 +203,12 @@ export class Scheduler {
 
   has(jobId: string): boolean {
     return this.jobs.has(jobId);
+  }
+
+  /** A registered job's next due time, or null (unknown job, or no further due time). */
+  nextRunAt(jobId: string): string | null {
+    const due = this.jobs.get(jobId)?.nextDue;
+    return due === undefined || due === null ? null : new Date(due).toISOString();
   }
 
   list(): JobInfo[] {

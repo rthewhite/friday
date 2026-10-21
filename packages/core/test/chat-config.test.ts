@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatSettings, prompts, settings } from "../src/config.js";
+import { readFileSync } from "node:fs";
+import { agentPrompt, agentSettings, chatSettings, prompts, settings } from "../src/config.js";
 
 test("voice and chat prompts share the base; only voice mentions end_conversation", () => {
   assert.ok(settings.systemPrompt.startsWith(prompts.base));
@@ -37,6 +38,28 @@ test("the voice prompt makes a time of day an alarm, corrections a change, and c
   assert.match(prompts.voice, /from the `when` the tool returned/);
   // Chat has no device and none of these tools.
   assert.doesNotMatch(settings.chatPrompt, /set_alarm|change_alert|list_alerts/);
+});
+
+test("an agent's prompt names it, the local weekday, date, time and zone, the unattended and approval rules, then its instructions", () => {
+  // 17:30 UTC on Sunday 25 October 2026 is 18:30 in Amsterdam (winter time from that morning).
+  const p = agentPrompt("weekly-review", "Look at this week's calendar.", new Date("2026-10-25T17:30:00Z"), "Europe/Amsterdam");
+  assert.match(p, /^You are "weekly-review", an agent of Friday/);
+  assert.ok(p.includes("It is now Sunday, 25 October 2026 at 18:30 (Europe/Amsterdam)."));
+  assert.match(p, /You run unattended: nobody reads what you write until the run is over/);
+  assert.match(p, /queued for the user's approval\. Carry on without that\s+call's result/);
+  assert.match(p, /That answer is the run's\s+summary/);
+  assert.ok(p.endsWith("Your instructions:\n\nLook at this week's calendar."));
+  // Agents are not Friday's voice or chat persona.
+  assert.doesNotMatch(p, /end_conversation|Markdown/);
+});
+
+test("agent tool calls time out after 60 s unless FRIDAY_AGENT_TOOL_TIMEOUT_MS says otherwise; it is documented", () => {
+  assert.deepEqual(agentSettings({}), { agentToolTimeoutMs: 60000 });
+  assert.equal(agentSettings({ FRIDAY_AGENT_TOOL_TIMEOUT_MS: "5000" }).agentToolTimeoutMs, 5000);
+  assert.equal(agentSettings({ FRIDAY_AGENT_TOOL_TIMEOUT_MS: "0" }).agentToolTimeoutMs, 60000);
+  assert.equal(agentSettings({ FRIDAY_AGENT_TOOL_TIMEOUT_MS: "nope" }).agentToolTimeoutMs, 60000);
+  const example = readFileSync(new URL("../../../.env.example", import.meta.url), "utf8");
+  assert.ok(example.includes("FRIDAY_AGENT_TOOL_TIMEOUT_MS=60000"));
 });
 
 test("chat model falls back to the text model; tool timeout defaults to 30 s", () => {

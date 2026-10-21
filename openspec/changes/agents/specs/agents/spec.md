@@ -9,7 +9,7 @@ Lets the user write agents in text: instructions, a schedule, a narrow set of to
 ### Requirement: Agents are stored definitions
 
 Core SHALL store agent definitions in `friday.db`. A definition SHALL have:
-- a `name`: kebab-case (`^[a-z][a-z0-9-]*$`), at most 40 characters, unique, and never changed after creation,
+- a `name`: kebab-case (`^[a-z][a-z0-9-]*$`), at most 40 characters, unique, never changed after creation, and not one of `tools`, `runs`, `actions` or `new` (paths of the API and the portal),
 - a `description`: one line of 1 to 200 characters,
 - `instructions`: markdown of 1 to 20000 characters,
 - an optional `schedule`: a five-field cron expression, evaluated in `FRIDAY_TIMEZONE` as background jobs are,
@@ -26,6 +26,10 @@ Every definition SHALL be checked by the same validation when it is created or u
 #### Scenario: Invalid definition
 - **WHEN** a definition has the name `Weekly Review`, an empty description, or the schedule `every sunday`
 - **THEN** it is refused with a message naming the problem and nothing is stored
+
+#### Scenario: Reserved name
+- **WHEN** a definition is named `tools`
+- **THEN** it is refused, since `/api/agents/tools` lists the tools agents can use
 
 #### Scenario: Budget out of range
 - **WHEN** a definition sets `maxMinutes: 120`

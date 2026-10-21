@@ -400,3 +400,23 @@ test("search: forOwner gives modules the same results", async () => {
   const id = converse(store, [["user", "boiler"]]);
   assert.deepEqual(ids(await store.forOwner("brain").search({ query: "boiler" })), [id]);
 });
+
+test("agent runs are a channel of their own: listed, searched and live like the others", () => {
+  const { store } = setup();
+  converse(store, [["user", "boiler questions"]]);
+  const rec = store.recorder({ channel: "agent" });
+  rec.user("Start your run now.", "text");
+  rec.commitUser();
+  rec.tool("calendar_list_events", { query: "boiler" }).result({ events: [] });
+  rec.assistant("No boiler service planned.");
+  rec.turnComplete();
+  const id = rec.conversationId!;
+  assert.deepEqual(store.list({ channel: "agent" }).map((c) => c.id), [id]);
+  assert.equal(store.channelOf(id), "agent");
+  assert.deepEqual(ids(store.search({ query: "boiler", channel: "agent" })), [id]);
+  assert.equal(store.search({ query: "boiler" }).length, 2);
+  assert.equal(store.delete(id), "live");
+  rec.release();
+  assert.equal(store.delete(id), "deleted");
+  assert.throws(() => store.search({ query: "boiler", channel: "email" as never }), /invalid channel/);
+});

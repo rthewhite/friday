@@ -214,12 +214,13 @@ test("brain_remember's description routes a fact to the entity it is about, also
   assert.match(d, /"profile" only for facts about the user themselves or the household as a whole/);
 });
 
-test("the module's tools are brain_remember, brain_recall and brain_recall_conversations, in both channels", async () => {
+test("the module's tools are brain_remember, brain_recall and brain_recall_conversations, in every channel", async () => {
   const { h } = await host();
   const all = ["brain_remember", "brain_recall", "brain_recall_conversations"];
   assert.deepEqual(h.tools, all);
   assert.deepEqual(h.toolsIn("voice"), all);
   assert.deepEqual(h.toolsIn("chat"), all);
+  assert.deepEqual(h.toolsIn("agent"), all);
 });
 
 // ---- 3.1 brain_recall_conversations ----
@@ -366,10 +367,13 @@ test("an until whose next day is past year 9999 is a date error, not a crash", a
   assert.deepEqual(await recallConversations({ until: "9999-12-31" }), { error: 'until must be a date as YYYY-MM-DD, got "9999-12-31"' });
 });
 
-test("the channel parameter narrows to voice or chat", async () => {
+test("the channel parameter narrows to voice, chat or agent runs", async () => {
   const { ids, recallConversations } = await conversations(
     { channel: "voice", entries: [said("user", "boiler", "2026-09-28T10:00:00.000Z")] },
     { channel: "chat", entries: [said("user", "boiler", "2026-09-28T10:00:00.000Z")] },
+    { channel: "agent", entries: [said("assistant", "The boiler service is booked for Tuesday.", "2026-09-28T10:00:00.000Z")] },
   );
-  assert.deepEqual((await recallConversations({ query: "boiler", channel: "chat" })).conversations.map((c: { id: string }) => c.id), [ids[1]]);
+  const found = async (channel: string) => (await recallConversations({ query: "boiler", channel })).conversations.map((c: { id: string }) => c.id);
+  assert.deepEqual(await found("chat"), [ids[1]]);
+  assert.deepEqual(await found("agent"), [ids[2]]);
 });

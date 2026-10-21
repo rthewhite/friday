@@ -8,6 +8,7 @@ import { mcpOwner, type McpSource } from "./tools/mcp.js";
 import { McpInputError, McpServerExists, McpStoreDisabled, parseServerInput, type McpServerStore, type StoredServer } from "./tools/mcp-store.js";
 import type { RemoteEntry, RemoteHost } from "./remote/host.js";
 import { adaptRequest, adaptResponse, readBody, Router, sendJson } from "./router.js";
+import { mountAgentRoutes, type AgentsApi } from "./agents/routes.js";
 import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/config-store.js";
 import { statusOf } from "./secrets/resolver.js";
 import type { SqliteKeyStore } from "./remote/key-store.js";
@@ -65,6 +66,8 @@ export interface AppDeps {
   chat?: ChatEngine;
   /** Interval of the chat stream's keep-alive comments (tests shorten it). */
   chatHeartbeatMs?: number;
+  /** Agents; without it `/api/agents` answers 503. */
+  agents?: AgentsApi;
   /** Called after a configuration value is stored or deleted through the API. */
   onConfigChange?: (scope: string, key: string) => void;
 }
@@ -489,6 +492,8 @@ export function createApp(deps: AppDeps) {
     }
     return true;
   };
+
+  mountAgentRoutes(router, deps.agents);
 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://x");

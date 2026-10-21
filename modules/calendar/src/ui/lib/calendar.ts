@@ -70,7 +70,7 @@ export interface Summary {
 export interface ChangeRow {
   id: number;
   at: string;
-  source: "voice" | "chat" | "portal";
+  source: "voice" | "chat" | "agent" | "portal";
   conversationId?: string;
   action: "create" | "update" | "delete" | "undo";
   scope?: "occurrence" | "series";

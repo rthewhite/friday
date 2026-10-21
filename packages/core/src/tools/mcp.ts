@@ -150,6 +150,7 @@ export class McpSource {
           description: t.description ?? t.name,
           parametersJsonSchema: t.inputSchema,
           scheduling: sc.scheduling,
+          ...(sc.channels ? { channels: sc.channels } : {}),
           handler: async (args: Record<string, unknown>) => toResult(await client.callTool({ name: t.name, arguments: args })),
         });
       }
