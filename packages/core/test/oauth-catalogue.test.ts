@@ -67,6 +67,26 @@ test("a generic client uses PKCE S256 and space-separated scopes against the con
   assert.equal(url.searchParams.get("state"), "st4te");
 });
 
+test("a catalogue client without a secret is a public client: client_id in the body, no Basic auth", async () => {
+  const seen: { auth: string | null; body: URLSearchParams }[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: Request | string | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    seen.push({ auth: req.headers.get("authorization"), body: new URLSearchParams(await req.text()) });
+    return new Response(JSON.stringify({ access_token: "AT", token_type: "Bearer", expires_in: 3600 }), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    const verifier = arctic.generateCodeVerifier();
+    await buildClient({ provider: "spotify", clientId: "public-id" }, REDIRECT).exchange("code", verifier, []);
+    await buildClient({ provider: "spotify", clientId: "id", clientSecret: "s3cret" }, REDIRECT).exchange("code", verifier, []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(seen[0]!.auth, null);
+  assert.equal(seen[0]!.body.get("client_id"), "public-id");
+  assert.equal(seen[1]!.auth, `Basic ${Buffer.from("id:s3cret").toString("base64")}`);
+});
+
 test("a generic client without URLs cannot be built", () => {
   assert.throws(() => buildClient({ provider: "acme", clientId: "id" }, REDIRECT), /acme: a generic provider needs an authorization URL and a token URL/);
 });

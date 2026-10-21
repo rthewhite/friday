@@ -4,7 +4,7 @@
  * token service. The listing never carries them.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { PROVIDER_ID } from "@friday/sdk";
+import { httpsUrl, PROVIDER_ID } from "@friday/sdk";
 import { decrypt, encrypt, type Encrypted } from "../secrets/crypto.js";
 import { catalogueEntry } from "./catalogue.js";
 
@@ -94,14 +94,6 @@ interface Row {
 
 const aadScope = (provider: string) => `oauth:${provider}`;
 
-const httpsUrl = (v: string): boolean => {
-  try {
-    return new URL(v).protocol === "https:";
-  } catch {
-    return false;
-  }
-};
-
 /** Validates an API body for `PUT /api/oauth/connections/:provider`. @throws OAuthInputError */
 export function parseConnectionInput(provider: string, body: unknown): ConnectionInput {
   if (!PROVIDER_ID.test(provider)) throw new OAuthInputError(`provider must be kebab-case, got ${JSON.stringify(provider)}`);
@@ -159,12 +151,17 @@ export class OAuthStore {
   /**
    * Create or update. A new connection starts `disconnected`. A changed client id, a new client secret or a changed
    * URL clears the tokens (they belong to the old client) and sets `disconnected`; extra scopes alone keep them.
-   * @throws OAuthStoreDisabled
+   * A changed URL needs the client secret again when one is stored, so a repointed token URL is never sent the old one.
+   * @throws OAuthStoreDisabled, OAuthInputError
    */
   upsert(input: ConnectionInput): StoredConnection {
     if (!this.masterKey) throw new OAuthStoreDisabled();
     const now = this.now().toISOString();
     const prev = this.row(input.provider);
+    const urlChanged = prev !== undefined && ((input.authUrl ?? null) !== prev.auth_url || (input.tokenUrl ?? null) !== prev.token_url);
+    if (urlChanged && prev.client_secret_ct !== null && input.clientSecret === undefined) {
+      throw new OAuthInputError("changing the authorization or token URL needs the client secret again");
+    }
     const secret = input.clientSecret !== undefined ? this.seal(input.provider, "client_secret", input.clientSecret) : undefined;
     if (!prev) {
       this.db
@@ -174,8 +171,7 @@ export class OAuthStore {
           input.authUrl ?? null, input.tokenUrl ?? null, JSON.stringify(input.extraScopes ?? []), now, now);
       return this.get(input.provider)!;
     }
-    const newClient = input.clientId !== prev.client_id || secret !== undefined
-      || (input.authUrl ?? null) !== prev.auth_url || (input.tokenUrl ?? null) !== prev.token_url;
+    const newClient = input.clientId !== prev.client_id || secret !== undefined || urlChanged;
     this.tx(() => {
       this.db
         .prepare("UPDATE oauth_connections SET client_id = ?, auth_url = ?, token_url = ?, extra_scopes_json = ?, updated_at = ? WHERE provider = ?")
@@ -200,18 +196,36 @@ export class OAuthStore {
    * @throws OAuthStoreDisabled, OAuthDecryptError
    */
   secrets(provider: string): ConnectionSecrets {
+    return this.read(provider, ["client_secret", "access_token", "refresh_token"]);
+  }
+
+  /**
+   * Only the client secret, for a login: unreadable tokens must not block the login that replaces them.
+   * @throws OAuthStoreDisabled, OAuthDecryptError
+   */
+  clientSecret(provider: string): string | undefined {
+    return this.read(provider, ["client_secret"]).clientSecret;
+  }
+
+  /** True when the connection still holds tokens (a new client clears them). */
+  hasTokens(provider: string): boolean {
+    return this.db.prepare("SELECT 1 FROM oauth_connections WHERE provider = ? AND access_token_ct IS NOT NULL").get(provider) !== undefined;
+  }
+
+  private read(provider: string, fields: Field[]): ConnectionSecrets {
     const row = this.row(provider);
     if (!row) return {};
     if (!this.masterKey) throw new OAuthStoreDisabled();
     const out: ConnectionSecrets = {};
-    const fields: [Field, keyof ConnectionSecrets][] = [["client_secret", "clientSecret"], ["access_token", "accessToken"], ["refresh_token", "refreshToken"]];
-    for (const [field, key] of fields) {
+    const keys: Record<Field, keyof ConnectionSecrets> = { client_secret: "clientSecret", access_token: "accessToken", refresh_token: "refreshToken" };
+    for (const field of fields) {
       const sealed = sealedField(row, field);
       if (!sealed) continue;
       try {
-        out[key] = decrypt(this.masterKey, aadScope(provider), field, sealed);
+        out[keys[field]] = decrypt(this.masterKey, aadScope(provider), field, sealed);
       } catch {
-        const message = `the stored ${field.replace("_", " ")} cannot be decrypted; wrong FRIDAY_MASTER_KEY? Save the connection again and reconnect`;
+        const fix = field === "client_secret" ? "Enter the client secret again and save" : "Reconnect";
+        const message = `the stored ${field.replace("_", " ")} cannot be decrypted; wrong FRIDAY_MASTER_KEY? ${fix}`;
         this.log.error(`oauth: ${provider}: ${message}`);
         this.setError(provider, message);
         throw new OAuthDecryptError(message);

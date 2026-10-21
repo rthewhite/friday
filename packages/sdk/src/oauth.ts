@@ -41,7 +41,8 @@ export interface ModuleOAuth {
 /** What a provider id looks like (kebab-case). */
 export const PROVIDER_ID = /^[a-z][a-z0-9-]*$/;
 
-function httpsUrl(value: unknown): boolean {
+/** True for an absolute https URL. */
+export function httpsUrl(value: unknown): boolean {
   if (typeof value !== "string") return false;
   try {
     return new URL(value).protocol === "https:";

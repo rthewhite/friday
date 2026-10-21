@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { readBody, sendJson, type Router } from "../router.js";
 import { catalogueEntry, providerListing, providerName } from "./catalogue.js";
 import { OAuthFlowError, STATE_TTL_MS, type OAuthFlow } from "./flow.js";
-import { requestBase, redirectUri } from "./redirect.js";
+import { requestBase, requestOrigin, redirectUri } from "./redirect.js";
 import type { MissingScope, OAuthRequests } from "./requests.js";
 import { OAuthInputError, OAuthStoreDisabled, parseConnectionInput, type ConnectionState, type OAuthStore } from "./store.js";
 
@@ -45,8 +45,9 @@ export interface ConnectionEntry {
 }
 
 /** One entry per provider that has a connection or a request, by provider name. */
-export function connectionListing({ store, requests }: Pick<OAuthDeps, "store" | "requests">, base: string): ConnectionEntry[] {
-  const byProvider = requests.byProvider();
+export function connectionListing({ store, requests: all }: Pick<OAuthDeps, "store" | "requests">, base: string): ConnectionEntry[] {
+  const requests = all.snapshot();
+  const byProvider = requests.byProvider;
   const stored = new Map(store.list().map((c) => [c.provider, c]));
   const providers = [...new Set([...stored.keys(), ...byProvider.keys()])];
   return providers
@@ -126,7 +127,8 @@ export function addOAuthRoutes(router: Router, deps: OAuthDeps | undefined): voi
     .add("GET", "/api/oauth/connections", (req, res) => {
       const d = need(res);
       if (!d) return;
-      sendJson(res, { secretsEnabled: d.store.secretsEnabled, connections: connectionListing(d, baseOf(d, req)) });
+      const base = baseOf(d, req);
+      sendJson(res, { secretsEnabled: d.store.secretsEnabled, redirectBase: base, connections: connectionListing(d, base) });
     })
     .add("PUT", "/api/oauth/connections/:provider", async (req, res, { provider }) => {
       const d = need(res);
@@ -156,7 +158,7 @@ export function addOAuthRoutes(router: Router, deps: OAuthDeps | undefined): voi
       const d = need(res);
       if (!d) return;
       if (!d.store.get(provider)) return sendJson(res, { error: `no connection for ${provider}` }, 404);
-      if (!d.requests.forModule(provider, module)) return sendJson(res, { error: `module ${module} does not request ${provider}` }, 404);
+      if (!d.requests.snapshot().forModule(provider, module)) return sendJson(res, { error: `module ${module} does not request ${provider}` }, 404);
       d.store.grant(provider, module);
       noContent(res);
     })
@@ -167,10 +169,17 @@ export function addOAuthRoutes(router: Router, deps: OAuthDeps | undefined): voi
       d.store.revoke(provider, module);
       noContent(res);
     })
-    .add("GET", "/api/oauth/:provider/authorize", (req, res, { provider }) => {
+    .add("GET", "/api/oauth/:provider/authorize", (req, res, { provider }, url) => {
       const d = need(res);
       if (!d) return;
       const base = baseOf(d, req);
+      // The state cookie must be set on the host the provider sends the browser back to. Opened at another address
+      // (the LAN IP, a port-forward), go to the public base first; the marker stops a loop behind a proxy that hides
+      // the public host.
+      const own = requestOrigin(req.headers, (req.socket as { encrypted?: boolean } | undefined)?.encrypted === true);
+      if (new URL(base).origin !== new URL(own).origin && !url.searchParams.has("moved")) {
+        return redirect(res, `${base}/api/oauth/${encodeURIComponent(provider)}/authorize?moved=1`);
+      }
       let started: { url: URL; state: string };
       try {
         started = d.flow.start(provider, base);

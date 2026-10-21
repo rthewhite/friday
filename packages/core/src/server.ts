@@ -38,7 +38,7 @@ import { OAuthStore } from "./oauth/store.js";
 import { enabledManifests, OAuthRequests } from "./oauth/requests.js";
 import { OAuthTokens } from "./oauth/tokens.js";
 import { OAuthFlow } from "./oauth/flow.js";
-import { FALLBACK_BASE, redirectUri } from "./oauth/redirect.js";
+import { FALLBACK_BASE, publicBase, redirectUri } from "./oauth/redirect.js";
 
 const db = openDatabase(settings.dataDir);
 const masterKey = parseMasterKey(settings.masterKey);
@@ -88,7 +88,7 @@ const llm = new LlmService({
 const oauthStore = new OAuthStore(db, masterKey);
 const oauthRequests = new OAuthRequests(() => enabledManifests(host));
 const publicUrl = () => coreKey("FRIDAY_PUBLIC_URL");
-const oauthTokens = new OAuthTokens({ store: oauthStore, requests: oauthRequests, redirectUri: (p) => redirectUri(publicUrl() ?? FALLBACK_BASE, p) });
+const oauthTokens = new OAuthTokens({ store: oauthStore, requests: oauthRequests, redirectUri: (p) => redirectUri(publicBase(publicUrl()) ?? FALLBACK_BASE, p) });
 const host = new ModuleHost(registry, {
   enabled: process.env.FRIDAY_MODULES,
   oauth: (id) => oauthTokens.forModule(id),

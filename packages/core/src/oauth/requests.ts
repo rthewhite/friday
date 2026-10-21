@@ -1,7 +1,8 @@
 /**
  * OAuth requests come from the in-process modules' manifests and are never stored: per provider, which modules ask
  * for it, with which scopes. Everything derived from them (the scopes to ask the provider for, the missing ones, the
- * generic URL defaults) is computed per call, so nothing goes stale when a manifest changes between deployments.
+ * generic URL defaults) is computed from a snapshot taken per call, so nothing goes stale when a manifest changes
+ * between deployments, and one call reads the manifests once.
  */
 import { validateOAuthRequests, type ModuleManifest } from "@friday/sdk";
 import type { ModuleHost } from "../module-host.js";
@@ -24,32 +25,32 @@ export interface MissingScope {
   modules: string[];
 }
 
-export class OAuthRequests {
-  /** `manifests` lists core's modules in load order (after FRIDAY_MODULES), failed ones included. */
-  constructor(private readonly manifests: () => ModuleManifest[]) {}
-
-  /** Requests per provider, modules in load order. Manifests with malformed requests are skipped (they fail to load). */
-  byProvider(): Map<string, ProviderRequest[]> {
-    const out = new Map<string, ProviderRequest[]>();
-    for (const m of this.manifests()) {
-      try {
-        validateOAuthRequests(m.id, m.oauth);
-      } catch {
-        continue;
-      }
-      for (const r of m.oauth ?? []) {
-        const req: ProviderRequest = { module: m.id, scopes: [...r.scopes] };
-        if (r.description !== undefined) req.description = r.description;
-        if (r.authUrl !== undefined) req.authUrl = r.authUrl;
-        if (r.tokenUrl !== undefined) req.tokenUrl = r.tokenUrl;
-        out.set(r.provider, [...(out.get(r.provider) ?? []), req]);
-      }
+/** Requests per provider, modules in load order. Manifests with malformed requests are skipped (they fail to load). */
+function collect(manifests: ModuleManifest[]): Map<string, ProviderRequest[]> {
+  const out = new Map<string, ProviderRequest[]>();
+  for (const m of manifests) {
+    try {
+      validateOAuthRequests(m.id, m.oauth);
+    } catch {
+      continue;
     }
-    return out;
+    for (const r of m.oauth ?? []) {
+      const req: ProviderRequest = { module: m.id, scopes: [...r.scopes] };
+      if (r.description !== undefined) req.description = r.description;
+      if (r.authUrl !== undefined) req.authUrl = r.authUrl;
+      if (r.tokenUrl !== undefined) req.tokenUrl = r.tokenUrl;
+      out.set(r.provider, [...(out.get(r.provider) ?? []), req]);
+    }
   }
+  return out;
+}
+
+/** The requests as they are at one moment. */
+export class RequestSet {
+  constructor(readonly byProvider: Map<string, ProviderRequest[]>) {}
 
   of(provider: string): ProviderRequest[] {
-    return this.byProvider().get(provider) ?? [];
+    return this.byProvider.get(provider) ?? [];
   }
 
   forModule(provider: string, moduleId: string): ProviderRequest | undefined {
@@ -81,5 +82,39 @@ export class OAuthRequests {
   genericDefaults(provider: string): { authUrl: string; tokenUrl: string } | undefined {
     const r = this.of(provider).find((x) => x.authUrl && x.tokenUrl);
     return r ? { authUrl: r.authUrl!, tokenUrl: r.tokenUrl! } : undefined;
+  }
+}
+
+export class OAuthRequests {
+  /** `manifests` lists core's modules in load order (after FRIDAY_MODULES), failed ones included. */
+  constructor(private readonly manifests: () => ModuleManifest[]) {}
+
+  /** Read the manifests once; take one per call that asks several questions. */
+  snapshot(): RequestSet {
+    return new RequestSet(collect(this.manifests()));
+  }
+
+  byProvider(): Map<string, ProviderRequest[]> {
+    return this.snapshot().byProvider;
+  }
+
+  of(provider: string): ProviderRequest[] {
+    return this.snapshot().of(provider);
+  }
+
+  forModule(provider: string, moduleId: string): ProviderRequest | undefined {
+    return this.snapshot().forModule(provider, moduleId);
+  }
+
+  requestedScopes(provider: string, grants: string[], extras: string[]): string[] {
+    return this.snapshot().requestedScopes(provider, grants, extras);
+  }
+
+  missingScopes(provider: string, grants: string[], extras: string[], grantedScopes: string[] | undefined): MissingScope[] {
+    return this.snapshot().missingScopes(provider, grants, extras, grantedScopes);
+  }
+
+  genericDefaults(provider: string): { authUrl: string; tokenUrl: string } | undefined {
+    return this.snapshot().genericDefaults(provider);
   }
 }

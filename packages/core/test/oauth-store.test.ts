@@ -103,6 +103,29 @@ test("a new connection starts disconnected; a new client id, secret or URL clear
   assert.equal(store.upsert({ provider: "acme", clientId: "a", authUrl: "https://acme.example/a", tokenUrl: "https://acme.example/t2" }).state, "disconnected", "a new URL clears");
 });
 
+test("a changed URL needs the client secret again when one is stored, so the old one is never sent to a new token URL", () => {
+  const store = new OAuthStore(memDb(), key, quiet);
+  const acme = { provider: "acme", clientId: "a", clientSecret: "acme-secret", authUrl: "https://acme.example/a", tokenUrl: "https://acme.example/t" };
+  store.upsert(acme);
+  assert.throws(() => store.upsert({ provider: "acme", clientId: "a", authUrl: "https://acme.example/a", tokenUrl: "https://evil.example/t" }), (e) => e instanceof OAuthInputError && /needs the client secret again/.test(e.message));
+  assert.equal(store.get("acme")!.tokenUrl, "https://acme.example/t", "nothing was written");
+  assert.equal(store.upsert({ ...acme, tokenUrl: "https://acme.example/t2", clientSecret: "new" }).tokenUrl, "https://acme.example/t2");
+  // Without a stored secret (a public client) there is nothing to protect.
+  store.upsert({ provider: "pub", clientId: "p", authUrl: "https://pub.example/a", tokenUrl: "https://pub.example/t" });
+  assert.equal(store.upsert({ provider: "pub", clientId: "p", authUrl: "https://pub.example/a", tokenUrl: "https://pub.example/t2" }).tokenUrl, "https://pub.example/t2");
+});
+
+test("clientSecret() reads only the client secret, so unreadable tokens don't block it", () => {
+  const db = memDb();
+  const store = new OAuthStore(db, key, quiet);
+  store.upsert(spotify);
+  store.storeTokens("spotify", tokens);
+  db.prepare("UPDATE oauth_connections SET access_token_tag = ? WHERE provider = 'spotify'").run(randomBytes(16));
+  assert.equal(store.clientSecret("spotify"), "sh-secret");
+  assert.equal(store.hasTokens("spotify"), true);
+  assert.throws(() => store.secrets("spotify"), (e) => e instanceof OAuthDecryptError && /access token cannot be decrypted.*Reconnect/.test(e.message));
+});
+
 test("a refresh without a new refresh token keeps the old one; an error is cleared by new tokens", () => {
   const db = memDb();
   const store = new OAuthStore(db, key, quiet);

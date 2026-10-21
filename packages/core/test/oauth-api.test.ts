@@ -187,11 +187,41 @@ test("the user declining keeps the stored tokens; a failed exchange sets error",
     assert.equal(s.store.secrets("spotify").accessToken, "AT-0");
 
     const b = await s.authorize();
-    const failed = await s.callback("spotify", { code: "bad", state: b.location!.searchParams.get("state")! }, b.cookie);
-    assert.match(failed.location.searchParams.get("error")!, /refused: invalid_grant: Invalid authorization code/);
+    const failedReconnect = await s.callback("spotify", { code: "bad", state: b.location!.searchParams.get("state")! }, b.cookie);
+    assert.match(failedReconnect.location.searchParams.get("error")!, /refused: invalid_grant: Invalid authorization code/);
+    assert.equal((await s.entry("spotify")).state, "connected", "a failed Reconnect leaves a working login as it was");
+    assert.equal(s.store.secrets("spotify").accessToken, "AT-0");
+
+    // Without a working login, the failure shows on the connection.
+    await s.call("PUT", "/api/oauth/connections/spotify", { clientId: "client-2", clientSecret: SECRET });
+    const c = await s.authorize();
+    await s.callback("spotify", { code: "bad", state: c.location!.searchParams.get("state")! }, c.cookie);
     const e = await s.entry("spotify");
     assert.equal(e.state, "error");
     assert.match(e.error, /invalid_grant: Invalid authorization code/);
+  } finally {
+    s.close();
+  }
+});
+
+test("an unreadable token does not block the Reconnect that replaces it; a client changed mid-login refuses the callback", async () => {
+  const s = await start();
+  try {
+    await s.setUp();
+    s.store.storeTokens("spotify", { accessToken: "AT-0", refreshToken: "RT-0", expiresAt: new Date(Date.now() + 3600_000) });
+    const db = (s.store as unknown as { db: DatabaseSync }).db;
+    db.prepare("UPDATE oauth_connections SET access_token_tag = ? WHERE provider = 'spotify'").run(randomBytes(16));
+    const a = await s.authorize();
+    assert.equal(a.status, 302, "authorize reads only the client secret");
+    const cb = await s.callback("spotify", { code: "c", state: a.location!.searchParams.get("state")! }, a.cookie);
+    assert.equal(cb.location.searchParams.get("connected"), "1");
+    assert.equal(s.store.secrets("spotify").accessToken, "AT-1", "the new login replaced the unreadable token");
+
+    const b = await s.authorize();
+    await s.call("PUT", "/api/oauth/connections/spotify", { clientId: "client-2" });
+    const changed = await s.callback("spotify", { code: "c", state: b.location!.searchParams.get("state")! }, b.cookie);
+    assert.match(changed.location.searchParams.get("error")!, /changed during the login/);
+    assert.equal(s.exchanges.length, 1, "the old client's code was not exchanged");
   } finally {
     s.close();
   }
@@ -224,11 +254,27 @@ test("the redirect URI comes from FRIDAY_PUBLIC_URL, else the forwarded origin, 
   try {
     await pub.setUp();
     assert.equal((await pub.entry("spotify")).redirectUri, "https://friday.thewhite.nl/api/oauth/spotify/callback");
-    const a = await pub.authorize();
+    assert.equal((await pub.listing()).redirectBase, "https://friday.thewhite.nl");
+    // Opened at another address: authorize first moves to the public base, so the cookie lands where the callback does.
+    const moved = await pub.authorize();
+    assert.equal(moved.status, 302);
+    assert.equal(moved.location!.toString(), "https://friday.thewhite.nl/api/oauth/spotify/authorize?moved=1");
+    assert.equal(moved.setCookie, "", "no state is issued on the wrong host");
+    const a = await pub.authorize("spotify", { "x-forwarded-proto": "https", "x-forwarded-host": "friday.thewhite.nl" });
     assert.equal(a.location!.searchParams.get("redirect_uri"), "https://friday.thewhite.nl/api/oauth/spotify/callback");
     assert.match(a.setCookie, /; Secure$/, "the cookie is Secure on https");
+    // Behind a proxy that hides the public host, the marker stops a redirect loop.
+    const marked = await pub.call("GET", "/api/oauth/spotify/authorize?moved=1");
+    assert.equal(new URL(marked.headers.get("location")!).origin, "https://accounts.example");
   } finally {
     pub.close();
+  }
+  const invalid = await start({ publicUrl: "friday.thewhite.nl" });
+  try {
+    await invalid.setUp();
+    assert.equal((await invalid.entry("spotify")).redirectUri, `${invalid.base}/api/oauth/spotify/callback`, "a public URL without a scheme is ignored");
+  } finally {
+    invalid.close();
   }
   const s = await start();
   try {
@@ -250,7 +296,8 @@ test("a public URL saved later applies to the next listing and authorization wit
     assert.equal((await s.entry("spotify")).redirectUri, `${s.base}/api/oauth/spotify/callback`);
     saved = "https://friday.thewhite.nl";
     assert.equal((await s.entry("spotify")).redirectUri, "https://friday.thewhite.nl/api/oauth/spotify/callback");
-    assert.equal((await s.authorize()).location!.searchParams.get("redirect_uri"), "https://friday.thewhite.nl/api/oauth/spotify/callback");
+    const a = await s.authorize("spotify", { "x-forwarded-proto": "https", "x-forwarded-host": "friday.thewhite.nl" });
+    assert.equal(a.location!.searchParams.get("redirect_uri"), "https://friday.thewhite.nl/api/oauth/spotify/callback");
   } finally {
     s.close();
   }

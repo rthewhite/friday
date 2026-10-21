@@ -5,7 +5,7 @@
  */
 import * as arctic from "arctic";
 import { OAuthError, type ModuleOAuth } from "@friday/sdk";
-import { buildClient as defaultBuildClient, providerName, type BuildClient } from "./catalogue.js";
+import { buildClient as defaultBuildClient, clientConfig, providerName, type BuildClient } from "./catalogue.js";
 import type { OAuthRequests } from "./requests.js";
 import { OAuthDecryptError, type OAuthStore, type StoredConnection } from "./store.js";
 
@@ -58,7 +58,8 @@ export class OAuthTokens {
   }
 
   async token(provider: string, moduleId: string): Promise<string> {
-    const { store, requests } = this.o;
+    const { store } = this.o;
+    const requests = this.o.requests.snapshot();
     const name = providerName(provider);
     if (!requests.forModule(provider, moduleId)) {
       throw new OAuthError("not_granted", `${moduleId} does not request access to ${name}; its manifest must list ${provider} under oauth`);
@@ -80,7 +81,8 @@ export class OAuthTokens {
 
     let refresh = this.inflight.get(provider);
     if (!refresh) {
-      refresh = this.refresh(conn, name, secrets.clientSecret, secrets.refreshToken).finally(() => this.inflight.delete(provider));
+      const scopes = requests.requestedScopes(provider, store.grants(provider), conn.extraScopes);
+      refresh = this.refresh(conn, name, secrets.clientSecret, secrets.refreshToken, scopes).finally(() => this.inflight.delete(provider));
       this.inflight.set(provider, refresh);
     }
     return refresh;
@@ -95,22 +97,23 @@ export class OAuthTokens {
     }
   }
 
-  private async refresh(conn: StoredConnection, name: string, clientSecret: string | undefined, refreshToken: string | undefined): Promise<string> {
-    const { store, requests } = this.o;
+  private async refresh(conn: StoredConnection, name: string, clientSecret: string | undefined, refreshToken: string | undefined, scopes: string[]): Promise<string> {
+    const { store } = this.o;
     const provider = conn.provider;
-    const client = this.buildClient(
-      { provider, clientId: conn.clientId, ...(clientSecret !== undefined && { clientSecret }), ...(conn.authUrl !== undefined && { authUrl: conn.authUrl }), ...(conn.tokenUrl !== undefined && { tokenUrl: conn.tokenUrl }) },
-      this.o.redirectUri(provider),
-    );
+    const client = this.buildClient(clientConfig(conn, clientSecret), this.o.redirectUri(provider));
     if (!client.refresh || !refreshToken) {
       const message = client.refresh ? "the login expired and no refresh token was stored" : `the login expired and ${name} does not refresh logins`;
       store.setError(provider, message);
       throw needsReconnect(name, message);
     }
+    // Saved with another client (tokens cleared) or deleted while the refresh was out: its outcome belongs to nobody.
+    const changed = () => store.get(provider)?.clientId !== conn.clientId || !store.hasTokens(provider);
+    const changedError = () => new OAuthError("not_connected", `${name} was changed while its login was being refreshed. Connect it ${WHERE}.`);
     let tokens: arctic.OAuth2Tokens;
     try {
-      tokens = await client.refreshToken(refreshToken, requests.requestedScopes(provider, store.grants(provider), conn.extraScopes));
+      tokens = await client.refreshToken(refreshToken, scopes);
     } catch (e) {
+      if (changed()) throw changedError();
       if (e instanceof arctic.OAuth2RequestError) {
         const message = `refreshing the login was refused: ${providerMessage(e)}`;
         store.setError(provider, message);
@@ -120,6 +123,7 @@ export class OAuthTokens {
       this.log.warn(`oauth: ${provider}: refresh failed: ${errorSummary(e)}`);
       throw new OAuthError("refresh_failed", `${name} could not be reached to refresh the login (${errorSummary(e)}). Try again in a moment.`, { cause: e });
     }
+    if (changed()) throw changedError();
     const accessToken = tokens.accessToken();
     const expiresAt = tokenExpiry(tokens, this.now());
     const grantedScopes = reportedScopes(tokens);

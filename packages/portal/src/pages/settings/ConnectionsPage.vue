@@ -35,13 +35,16 @@ const router = useRouter();
 const connections = ref<Connection[]>([]);
 const providers = ref<Provider[]>([]);
 const secretsEnabled = ref(true);
+/** What redirect URIs start with: FRIDAY_PUBLIC_URL, or the address the portal is opened at. */
+const redirectBase = ref(location.origin);
 const error = ref<string | null>(null);
 const busy = ref<null | "save" | "connect" | "delete" | "grant">(null);
 
 async function load() {
   try {
-    const r = await api<{ secretsEnabled: boolean; connections: Connection[] }>("/api/oauth/connections");
+    const r = await api<{ secretsEnabled: boolean; redirectBase: string; connections: Connection[] }>("/api/oauth/connections");
     secretsEnabled.value = r.secretsEnabled;
+    redirectBase.value = r.redirectBase;
     connections.value = r.connections;
     error.value = null;
   } catch (e) {
@@ -88,11 +91,6 @@ const isGeneric = computed(() => (selected.value ? selected.value.generic : draf
 /** The connection's provider id: the entry's, the chosen catalogue provider, or the id typed for a generic one. */
 const providerId = computed(() => selected.value?.provider ?? (draft.value.provider === "generic" ? draft.value.genericId.trim() : draft.value.provider));
 const configured = computed(() => selected.value?.configured === true);
-/** Redirect URIs share one base; take it from the listing (it honours FRIDAY_PUBLIC_URL), else this page's origin. */
-const redirectBase = computed(() => {
-  const any = connections.value[0];
-  return any ? any.redirectUri.replace(/\/api\/oauth\/[^/]+\/callback$/, "") : location.origin;
-});
 const redirectUri = computed(() => (providerId.value ? `${redirectBase.value}/api/oauth/${encodeURIComponent(providerId.value)}/callback` : ""));
 const hasTokens = computed(() => selected.value?.state === "connected" || selected.value?.grantedScopes !== undefined);
 

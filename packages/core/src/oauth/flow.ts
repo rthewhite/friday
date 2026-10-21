@@ -5,7 +5,7 @@
  * stores the tokens. A restart during a login drops it; the user clicks Connect again.
  */
 import * as arctic from "arctic";
-import { buildClient as defaultBuildClient, generateCodeVerifier, generateState, providerName, type BuildClient } from "./catalogue.js";
+import { buildClient as defaultBuildClient, clientConfig, generateCodeVerifier, generateState, providerName, type BuildClient } from "./catalogue.js";
 import type { OAuthRequests } from "./requests.js";
 import { OAuthDecryptError, OAuthStoreDisabled, type OAuthStore } from "./store.js";
 import { providerMessage, reportedScopes, tokenExpiry } from "./tokens.js";
@@ -15,6 +15,8 @@ export const STATE_TTL_MS = 10 * 60_000;
 
 interface Pending {
   provider: string;
+  /** The client the login was started with; a connection saved with another one meanwhile refuses the callback. */
+  clientId: string;
   verifier?: string;
   redirectUri: string;
   scopes: string[];
@@ -47,7 +49,7 @@ export class OAuthFlow {
     this.now = o.now ?? Date.now;
   }
 
-  /** @throws OAuthFlowError (404 no connection, 503 no master key, 409 unreadable secret) */
+  /** @throws OAuthFlowError (404 no connection, 503 no master key, 409 unreadable client secret) */
   start(provider: string, base: string): { url: URL; state: string } {
     const { store, requests } = this.o;
     const conn = store.get(provider);
@@ -55,21 +57,19 @@ export class OAuthFlow {
     if (!store.secretsEnabled) throw new OAuthFlowError(503, new OAuthStoreDisabled().message);
     let clientSecret: string | undefined;
     try {
-      clientSecret = store.secrets(provider).clientSecret;
+      // Only the client secret: unreadable tokens must not block the login that replaces them.
+      clientSecret = store.clientSecret(provider);
     } catch (e) {
       if (e instanceof OAuthDecryptError) throw new OAuthFlowError(409, e.message);
       throw e;
     }
     const uri = redirectUri(base, provider);
-    const client = this.buildClient(
-      { provider, clientId: conn.clientId, ...(clientSecret !== undefined && { clientSecret }), ...(conn.authUrl !== undefined && { authUrl: conn.authUrl }), ...(conn.tokenUrl !== undefined && { tokenUrl: conn.tokenUrl }) },
-      uri,
-    );
+    const client = this.buildClient(clientConfig(conn, clientSecret), uri);
     const scopes = requests.requestedScopes(provider, store.grants(provider), conn.extraScopes);
     const state = generateState();
     const verifier = client.pkce ? generateCodeVerifier() : undefined;
     this.sweep();
-    this.pending.set(state, { provider, redirectUri: uri, scopes, expiresAt: this.now() + STATE_TTL_MS, ...(verifier !== undefined && { verifier }) });
+    this.pending.set(state, { provider, clientId: conn.clientId, redirectUri: uri, scopes, expiresAt: this.now() + STATE_TTL_MS, ...(verifier !== undefined && { verifier }) });
     return { url: client.authorizationUrl(state, verifier, scopes), state };
   }
 
@@ -95,16 +95,14 @@ export class OAuthFlow {
 
     const conn = store.get(provider);
     if (!conn) return { ok: false, error: `The ${name} connection was deleted during the login.` };
+    if (conn.clientId !== pending.clientId) return { ok: false, error: `The ${name} connection was changed during the login. Click Connect again.` };
     let clientSecret: string | undefined;
     try {
-      clientSecret = store.secrets(provider).clientSecret;
+      clientSecret = store.clientSecret(provider);
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
-    const client = this.buildClient(
-      { provider, clientId: conn.clientId, ...(clientSecret !== undefined && { clientSecret }), ...(conn.authUrl !== undefined && { authUrl: conn.authUrl }), ...(conn.tokenUrl !== undefined && { tokenUrl: conn.tokenUrl }) },
-      pending.redirectUri,
-    );
+    const client = this.buildClient(clientConfig(conn, clientSecret), pending.redirectUri);
     let tokens: arctic.OAuth2Tokens;
     try {
       tokens = await client.exchange(code, pending.verifier, pending.scopes);
@@ -112,9 +110,12 @@ export class OAuthFlow {
       const message = e instanceof arctic.OAuth2RequestError
         ? `exchanging the authorization code was refused: ${providerMessage(e)}`
         : `exchanging the authorization code failed: ${e instanceof arctic.UnexpectedResponseError || e instanceof arctic.UnexpectedErrorResponseBodyError ? `HTTP ${e.status}` : "network error"}`;
-      store.setError(provider, message);
+      // A failed Reconnect leaves a working login as it was; only a connection without one shows the error.
+      if (!(conn.state === "connected" && conn.hasTokens)) store.setError(provider, message);
       return { ok: false, error: `${name}: ${message}` };
     }
+    // Saved with another client, or deleted, while the code was being exchanged: these tokens belong to nobody.
+    if (store.get(provider)?.clientId !== pending.clientId) return { ok: false, error: `The ${name} connection was changed during the login. Click Connect again.` };
     const expiresAt = tokenExpiry(tokens, this.now());
     store.storeTokens(provider, {
       accessToken: tokens.accessToken(),

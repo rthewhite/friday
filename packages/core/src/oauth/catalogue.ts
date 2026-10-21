@@ -140,6 +140,17 @@ export interface OAuthClient {
 
 export type BuildClient = (config: ClientConfig, redirectUri: string) => OAuthClient;
 
+/** The client config of a stored connection, with its decrypted client secret. */
+export function clientConfig(conn: { provider: string; clientId: string; authUrl?: string; tokenUrl?: string }, clientSecret: string | undefined): ClientConfig {
+  return {
+    provider: conn.provider,
+    clientId: conn.clientId,
+    ...(clientSecret !== undefined && { clientSecret }),
+    ...(conn.authUrl !== undefined && { authUrl: conn.authUrl }),
+    ...(conn.tokenUrl !== undefined && { tokenUrl: conn.tokenUrl }),
+  };
+}
+
 /** Arctic classes are only known by name at runtime; this is the shape the table describes. */
 interface ArcticProvider {
   createAuthorizationURL(...args: unknown[]): URL;
@@ -156,9 +167,10 @@ export function arcticClass(className: string): ArcticClass | undefined {
 function catalogueClient(entry: CatalogueEntry, config: ClientConfig, redirectUri: string): OAuthClient {
   const Class = arcticClass(entry.className);
   if (!Class) throw new Error(`OAuth provider ${entry.id}: Arctic has no class ${entry.className}`);
+  // null, not "": Arctic treats only null as a public client (client_id in the body, no Basic auth).
   const instance = entry.publicClient
     ? new Class(config.clientId, redirectUri)
-    : new Class(config.clientId, config.clientSecret ?? "", redirectUri);
+    : new Class(config.clientId, config.clientSecret ?? null, redirectUri);
   const pkce = usesPkce(entry.auth);
   return {
     pkce,

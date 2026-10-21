@@ -103,6 +103,20 @@ test("concurrent calls share one refresh", async () => {
   assert.equal(s.refreshes.length, 1);
 });
 
+test("a refresh that resolves after the connection got a new client is discarded", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const s = setup({ refresh: async () => { await gate; return new arctic.OAuth2Tokens({ access_token: "AT-OLD-CLIENT", expires_in: 3600 }); } });
+  s.connect(0);
+  const pending = s.tokens.token("spotify", "spotify");
+  s.store.upsert({ provider: "spotify", clientId: "new-client", clientSecret: "new" });
+  release();
+  await rejects(pending, "not_connected", /was changed while its login was being refreshed/);
+  const conn = s.store.get("spotify")!;
+  assert.equal(conn.state, "disconnected");
+  assert.equal(conn.hasTokens, false, "the old client's tokens were not written back");
+});
+
 test("a refresh the provider refuses sets error and rejects with refresh_failed", async () => {
   const s = setup({ refresh: async () => { throw new arctic.OAuth2RequestError("invalid_grant", "Refresh token revoked", null, null); } });
   s.connect(0);
