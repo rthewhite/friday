@@ -1,0 +1,44 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createTestHost } from "@friday/sdk/test";
+import { createSonosModule } from "../src/index.js";
+import { ARC, ARC_NAME, env, fakeHa, household } from "./fake-ha.js";
+
+test("sonos_list_speakers adds what is playing", async () => {
+  const rows = household();
+  Object.assign(rows[0], { state: "playing", title: "Karma Police", artist: "Radiohead" });
+  const ha = fakeHa(rows);
+  const h = await createTestHost(createSonosModule({ fetch: ha.fetch }), { env });
+  const { result } = await h.call("sonos_list_speakers");
+  const speakers = result.speakers as Record<string, unknown>[];
+  assert.deepEqual(speakers[0], {
+    name: ARC_NAME,
+    area: "Living Room",
+    model: "Arc",
+    entity: ARC,
+    state: "playing",
+    volume: 16,
+    playing: { title: "Karma Police", artist: "Radiohead" },
+  });
+  assert.equal(speakers.length, 3);
+  assert.equal(ha.calls.length, 0);
+});
+
+test("sonos_list_speakers leaves out a title when nothing is playing or paused", async () => {
+  const rows = household();
+  Object.assign(rows[0], { state: "idle", title: "Old" });
+  const h = await createTestHost(createSonosModule({ fetch: fakeHa(rows).fetch }), { env });
+  const { result } = await h.call("sonos_list_speakers");
+  assert.equal((result.speakers as Record<string, unknown>[])[0].playing, undefined);
+});
+
+test("sonos_list_speakers returns an empty list when the integration has no entities", async () => {
+  const h = await createTestHost(createSonosModule({ fetch: fakeHa([]).fetch }), { env });
+  assert.deepEqual((await h.call("sonos_list_speakers")).result, { speakers: [] });
+});
+
+test("the tools are offered on voice and chat", async () => {
+  const h = await createTestHost(createSonosModule({ fetch: fakeHa().fetch }), { env });
+  assert.deepEqual(h.toolsIn("voice"), h.tools);
+  assert.deepEqual(h.toolsIn("chat"), h.tools);
+});

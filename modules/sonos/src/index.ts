@@ -4,7 +4,9 @@
  * Config (declared in the manifest, read lazily through ctx.config):
  *   HA_URL, HA_TOKEN   Home Assistant base URL and long-lived access token (shared with the media module)
  */
-import { defineModule, type ModuleContext } from "@friday/sdk";
+import { defineModule, Type, type ModuleContext } from "@friday/sdk";
+import { createHa } from "./ha.js";
+import { loadSpeakers, view } from "./speakers.js";
 
 export interface SonosOptions {
   /** Injectable for tests. */
@@ -12,8 +14,6 @@ export interface SonosOptions {
 }
 
 export function createSonosModule(opts: SonosOptions = {}) {
-  const fetchFn = opts.fetch ?? fetch;
-
   return defineModule({
     manifest: {
       id: "sonos",
@@ -25,11 +25,25 @@ export function createSonosModule(opts: SonosOptions = {}) {
       ],
     },
     init(ctx) {
-      defineSonosTools(ctx, fetchFn);
+      defineSonosTools(ctx, opts.fetch);
     },
   });
 }
 
-function defineSonosTools(_ctx: ModuleContext, _fetchFn: typeof fetch): void {}
+function defineSonosTools(ctx: ModuleContext, fetchFn: typeof fetch | undefined): void {
+  const ha = createHa(ctx.config, { fetch: fetchFn });
+
+  ctx.defineTool({
+    name: "sonos_list_speakers",
+    description:
+      "List the Sonos speakers: name, room (area), model, state, volume (0-100), the group a speaker plays in " +
+      "(leader first) and what is playing. Speakers can be named by their room in the other sonos tools.",
+    parameters: { type: Type.OBJECT, properties: {} },
+    handler: async () => {
+      const all = await loadSpeakers(ha);
+      return { speakers: all.map((s) => view(s, all)) };
+    },
+  });
+}
 
 export default createSonosModule();
