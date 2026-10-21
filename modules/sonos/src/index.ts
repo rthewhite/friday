@@ -6,7 +6,9 @@
  */
 import { defineModule, Type, type ModuleContext } from "@friday/sdk";
 import { createHa } from "./ha.js";
-import { loadSpeakers, view } from "./speakers.js";
+import { loadSpeakers, resolve, view } from "./speakers.js";
+import { checkUris, MAX_URIS } from "./uris.js";
+import { play } from "./control.js";
 
 export interface SonosOptions {
   /** Injectable for tests. */
@@ -44,6 +46,30 @@ function defineSonosTools(ctx: ModuleContext, fetchFn: typeof fetch | undefined)
       return { speakers: all.map((s) => view(s, all)) };
     },
   });
+
+  ctx.defineTool<{ speakers: string[]; uris: string[] }>({
+    name: "sonos_play",
+    description:
+      "Play Spotify music on one or more Sonos speakers. The speakers named become one group for synchronized " +
+      "multi-room playback (others leave it). Takes Spotify track, album, playlist, episode or show URIs " +
+      "(spotify:album:ID) or open.spotify.com links; the first replaces the queue and the rest are added after it. " +
+      "Artist URIs are not accepted: play the artist's tracks, an album or a playlist instead.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        speakers: { type: Type.ARRAY, items: { type: Type.STRING }, description: SPEAKERS },
+        uris: { type: Type.ARRAY, items: { type: Type.STRING }, description: `1 to ${MAX_URIS} Spotify URIs or open.spotify.com links, in play order` },
+      },
+      required: ["speakers", "uris"],
+    },
+    handler: async ({ speakers, uris }) => {
+      const checked = checkUris(uris);
+      return play(ha, resolve(speakers, await loadSpeakers(ha)), checked);
+    },
+  });
 }
+
+const SPEAKERS =
+  "Rooms (Home Assistant areas, e.g. the room you are in) or speaker names. A room means every Sonos speaker in it.";
 
 export default createSonosModule();
