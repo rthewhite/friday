@@ -53,6 +53,29 @@ test("a hanging request times out with an error naming the request, without the 
   assert.doesNotMatch(err.message, /ha-secret-token/);
 });
 
+test("a body that stalls after the headers still fails naming the request", async () => {
+  const stalled = (async () => ({
+    status: 200,
+    text: async () => {
+      throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    },
+  })) as unknown as typeof fetch;
+  const err = await createHa(config(env), { fetch: stalled, timeoutMs: 20 }).call("media_player", "play_media", {}).catch((e: Error) => e);
+  assert.ok(err instanceof Error);
+  assert.match(err.message, /home assistant media_player\.play_media failed: no answer within/);
+});
+
+test("a call can wait longer than the client's timeout", async () => {
+  let aborted = false;
+  const slow = ((_: unknown, init?: RequestInit) =>
+    new Promise<Response>((resolve) => {
+      init?.signal?.addEventListener("abort", () => (aborted = true));
+      setTimeout(() => resolve(Response.json([])), 40);
+    })) as typeof fetch;
+  await createHa(config(env), { fetch: slow, timeoutMs: 10 }).call("media_player", "play_media", {}, 200);
+  assert.equal(aborted, false);
+});
+
 test("the config is read per request, so a new token is used without rebuilding the client", async () => {
   const values = { ...env };
   const ha = fakeHa();

@@ -40,7 +40,7 @@ The speakers SHALL be the `media_player` entities of Home Assistant's `sonos` in
 
 ### Requirement: Naming speakers
 
-Tools that take `speakers` SHALL accept a list of references. Each reference SHALL be matched case-insensitively, ignoring everything other than letters and digits, against first a speaker's entity id, then its name, then its area. An area SHALL match every speaker in that area. The speakers matched by all references SHALL be used once each, in the order first referenced. A reference matching no speaker SHALL fail the call before any change is made, with an error that names the reference and lists the available speakers with their areas. An empty `speakers` list SHALL be refused where `speakers` is required. A command naming an `unavailable` speaker SHALL fail before any change, naming that speaker.
+Tools that take `speakers` SHALL accept a list of references. Each reference SHALL be matched case-insensitively, ignoring accents and everything other than letters and digits (of any script), against first a speaker's entity id, then its name, then its area. An area SHALL match every speaker in that area that is not `unavailable`. The speakers matched by all references SHALL be used once each, in the order first referenced. A reference matching no speaker SHALL fail the call before any change is made, with an error that names the reference and lists the available speakers with their areas. An empty `speakers` list SHALL be refused where `speakers` is required. A command SHALL fail before any change, naming the speaker, when it names an `unavailable` speaker by entity id or name, or names an area whose speakers are all `unavailable`.
 
 #### Scenario: By area
 - **WHEN** `sonos_pause` is called with `speakers: ["bedroom"]` and the Playbar is in area `Bedroom`
@@ -58,9 +58,21 @@ Tools that take `speakers` SHALL accept a list of references. Each reference SHA
 - **WHEN** the reference is `kitchen` and no speaker or area matches it
 - **THEN** the call fails with an error naming `kitchen` and listing the available speakers and their areas, and Home Assistant receives no service call
 
+#### Scenario: Accents
+- **WHEN** a speaker's area is `Küche` and the reference is `kuche`
+- **THEN** that speaker is matched
+
 #### Scenario: Unavailable speaker
-- **WHEN** a named speaker's state is `unavailable`
+- **WHEN** a speaker named by its name is `unavailable`
 - **THEN** the call fails naming that speaker, and Home Assistant receives no service call
+
+#### Scenario: Offline speaker in a room
+- **WHEN** the reference is `living room`, the Arc there is available and a second speaker there is `unavailable`
+- **THEN** only the Arc is used
+
+#### Scenario: Whole room offline
+- **WHEN** the reference is `living room` and every speaker there is `unavailable`
+- **THEN** the call fails naming an unavailable speaker, and Home Assistant receives no service call
 
 ### Requirement: sonos_list_speakers
 
@@ -82,7 +94,7 @@ The speakers used SHALL become exactly one Sonos group:
 - with one speaker, it SHALL first leave its group if it is grouped with others;
 - with several, the leader SHALL be the first home-theatre speaker (Arc, Arc Ultra, Beam, Ray, Playbar, Playbase or Amp) among them, else the first one used. Speakers in the leader's group that are not used SHALL leave it, and the other used speakers SHALL join it.
 
-Playback SHALL then start on the leader with the first URI replacing its queue, and each further URI SHALL be added to the queue in order. The result SHALL be `{ playing: <speaker names>, leader: <name>, queued: <number of URIs queued> }` with scheduling `SILENT`. If grouping or the first URI fails, the call SHALL fail. If a later URI fails to be added, the result SHALL still report playback, with `queued` counting only the URIs that were queued and a `warning` naming the ones that failed, with scheduling `WHEN_IDLE`.
+Playback SHALL then start on the leader with the first URI replacing its queue, and each further URI SHALL be added to the queue in order. The result SHALL be `{ playing: <speaker names>, leader: <name>, queued: <number of URIs queued> }` with scheduling `SILENT`. If grouping or the first URI fails, the call SHALL fail. If a later URI fails to be added, the result SHALL still report playback, with `queued` counting only the URIs that were queued and a `warning` naming each one that failed with Home Assistant's error for it, with scheduling `WHEN_IDLE`. Starting and queueing a URI SHALL be allowed longer than other Home Assistant requests (over 30 seconds), since Home Assistant may take that long to queue a long playlist.
 
 #### Scenario: One speaker
 - **WHEN** called with `speakers: ["Bedroom"]` and `uris: ["spotify:album:abc"]`, and the Playbar is not grouped

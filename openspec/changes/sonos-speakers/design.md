@@ -48,7 +48,7 @@ The HA client is copied from `modules/media/src/ha.ts` into `modules/sonos/src/h
 
 ### Matching speaker references
 
-A reference is normalized to lowercase letters and digits only, then compared with the entity id (whole id, and without the `media_player.` prefix), the name, then the area. The first kind that matches anything wins, so a speaker named `Bedroom` beats the Bedroom area. An area resolves to all of its speakers. The device prompt's area is free text up to 80 characters ("Living room"), and normalization makes it match HA's "Living Room". Matching is exact after normalization, not by substring: with only a handful of speakers, a wrong substring match ("room" matching every room) is worse than an error that lists the choices.
+A reference is normalized to lowercase letters and digits only (Unicode letters of any script, accents removed through NFD, so "Küche" matches "Kuche"), then compared with the entity id (whole id, and without the `media_player.` prefix), the name, then the area. The first kind that matches anything wins, so a speaker named `Bedroom` beats the Bedroom area. An area resolves to all of its available speakers, so one offline speaker doesn't block its room. A speaker named directly that is offline still fails, as does a room where every speaker is offline. The device prompt's area is free text up to 80 characters ("Living room"), and normalization makes it match HA's "Living Room". Matching is exact after normalization, not by substring: with only a handful of speakers, a wrong substring match ("room" matching every room) is worse than an error that lists the choices.
 
 ### Group semantics of `sonos_play`
 
@@ -87,6 +87,10 @@ Parameters use Gemini's schema subset: `speakers` and `uris` are `ARRAY` of `STR
 - `control.ts`: grouping, play, transport, volume, ungroup
 
 `createSonosModule({ fetch })` for tests, like `media` and `travel`. Tests use a fake HA built on injectable `fetch`: the template endpoint returns fixture speakers, and every service call is recorded and checked for order and payload.
+
+### Requests
+
+Requests time out after 15 s. `play_media` gets 45 s, because HA's Sonos integration allows a share link up to 30 s to resolve and queue. A shorter timeout would report a failure for music that then starts, and would send the next `add` while HA is still busy. The response body is read inside the same timeout and error wrapping, so a stalled body still names the request. Transport commands and `volume_set` go out as one service call with a list of entity ids. `media_player` services take lists, and the speakers then change together.
 
 ## Risks / Trade-offs
 

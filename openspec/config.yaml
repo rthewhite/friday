@@ -37,7 +37,7 @@ context: |
   HA_URL + secret HA_TOKEN, shared with media; client in src/ha.ts copied from media plus template()). Speakers are
   read fresh per call with one POST /api/template (SPEAKERS_TEMPLATE in src/speakers.ts: integration_entities('sonos')
   media_players with name, area, model, state, volume, group_members, title/artist), never cached. References match
-  normalized (letters and digits) entity id, then name, then area (an area = all its speakers); unknown or unavailable
+  normalized (letters and digits) entity id, then name, then area (an area = all its available speakers; accents dropped via NFD, Unicode letters); unknown, unavailable (named directly) or an all-offline area
   fails before any service call. Tools sonos_list_speakers, sonos_play (speakers[] + 1-50 Spotify track/album/playlist/
   episode/show URIs or open.spotify.com links, artists refused; the named speakers become exactly one group via
   unjoin/join, home-theatre model leads; play_media enqueue replace then add), sonos_pause/resume/stop (once per group

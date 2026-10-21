@@ -109,17 +109,21 @@ export function view(speaker: Speaker, all: Speaker[]): SpeakerView {
   return v;
 }
 
-/** Lowercase letters and digits only, so "[Hobby Room] Sonos" and "hobby room sonos" match. */
-export const normalize = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+/**
+ * Lowercase letters and digits only, accents dropped, so "[Hobby Room] Sonos" matches "hobby room
+ * sonos" and "Küche" matches "Kuche". Letters of any script count.
+ */
+export const normalize = (s: string): string =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
-function matches(ref: string, all: Speaker[]): Speaker[] {
+function matches(ref: string, all: Speaker[]): { speakers: Speaker[]; area: boolean } {
   const n = normalize(ref);
-  if (!n) return [];
+  if (!n) return { speakers: [], area: false };
   const byEntity = all.filter((s) => normalize(s.entity) === n || normalize(s.entity.replace(/^media_player\./, "")) === n);
-  if (byEntity.length) return byEntity;
+  if (byEntity.length) return { speakers: byEntity, area: false };
   const byName = all.filter((s) => normalize(s.name) === n);
-  if (byName.length) return byName;
-  return all.filter((s) => s.area !== undefined && normalize(s.area) === n);
+  if (byName.length) return { speakers: byName, area: false };
+  return { speakers: all.filter((s) => s.area !== undefined && normalize(s.area) === n), area: true };
 }
 
 function available(all: Speaker[]): string {
@@ -127,10 +131,12 @@ function available(all: Speaker[]): string {
   return all.map((s) => (s.area ? `${s.name} (${s.area})` : s.name)).join(", ");
 }
 
+const unavailable = (s: Speaker) => s.state === "unavailable";
+
 /**
- * Resolve speaker references (entity id, then name, then area; an area gives all its speakers) to
- * speakers, once each in first-referenced order. Throws before anything changes on an unknown
- * reference or an unavailable speaker.
+ * Resolve speaker references (entity id, then name, then area; an area gives all its available
+ * speakers) to speakers, once each in first-referenced order. Throws before anything changes on an
+ * unknown reference, a speaker named directly that is unavailable, or a room whose speakers all are.
  */
 export function resolve(refs: unknown, all: Speaker[]): Speaker[] {
   if (!Array.isArray(refs) || refs.length === 0) throw new Error("Name at least one Sonos speaker or room");
@@ -138,10 +144,12 @@ export function resolve(refs: unknown, all: Speaker[]): Speaker[] {
   for (const ref of refs) {
     if (typeof ref !== "string") throw new Error("Speakers must be names or rooms");
     const found = matches(ref, all);
-    if (!found.length) throw new Error(`No Sonos speaker or room matches "${ref}". Available: ${available(all)}`);
-    for (const s of found) if (!out.includes(s)) out.push(s);
+    if (!found.speakers.length) throw new Error(`No Sonos speaker or room matches "${ref}". Available: ${available(all)}`);
+    // An offline speaker doesn't block its room while another speaker there still plays.
+    const usable = found.area && found.speakers.some((s) => !unavailable(s)) ? found.speakers.filter((s) => !unavailable(s)) : found.speakers;
+    const down = usable.find(unavailable);
+    if (down) throw new Error(`Sonos speaker ${down.name} is unavailable`);
+    for (const s of usable) if (!out.includes(s)) out.push(s);
   }
-  const down = out.find((s) => s.state === "unavailable");
-  if (down) throw new Error(`Sonos speaker ${down.name} is unavailable`);
   return out;
 }

@@ -15,17 +15,15 @@ test("grouped speakers get their volume set individually", async () => {
   const r = await h.call("sonos_set_volume", { speakers: ["Living Room", "Hobby Room"], volume: 30 });
   assert.deepEqual(r.result, { volume: 30, speakers: [ARC_NAME, ONE_SL_NAME] });
   assert.equal(r.scheduling, "SILENT");
-  assert.deepEqual(ha.calls, [
-    { service: "media_player.volume_set", data: { entity_id: ARC, volume_level: 0.3 } },
-    { service: "media_player.volume_set", data: { entity_id: ONE_SL, volume_level: 0.3 } },
-  ]);
+  // One volume_set listing both: HA sets the level on each entity, not on the group.
+  assert.deepEqual(ha.calls, [{ service: "media_player.volume_set", data: { entity_id: [ARC, ONE_SL], volume_level: 0.3 } }]);
 });
 
 test("a fractional volume is rounded", async () => {
   const { ha, h } = await host();
   const r = await h.call("sonos_set_volume", { speakers: ["Bedroom"], volume: 24.6 });
   assert.equal(r.result.volume, 25);
-  assert.deepEqual(ha.calls[0].data, { entity_id: PLAYBAR, volume_level: 0.25 });
+  assert.deepEqual(ha.calls[0].data, { entity_id: [PLAYBAR], volume_level: 0.25 });
 });
 
 test("a volume out of range is refused before Home Assistant is asked anything", async () => {

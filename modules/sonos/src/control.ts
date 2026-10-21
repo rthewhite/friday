@@ -41,11 +41,18 @@ async function groupExactly(ha: HaClient, speakers: Speaker[]): Promise<Speaker>
   return leader;
 }
 
+/**
+ * HA's Sonos integration gives a share link up to 30 s to resolve and queue (a long playlist), so
+ * `play_media` waits longer than other requests: an earlier timeout would report a failure for
+ * music that then starts, and send the next add while HA is still busy with this one.
+ */
+export const PLAY_MEDIA_TIMEOUT_MS = 45_000;
+
 /** Group the speakers, replace the leader's queue with the first URI and add the rest in order. */
 export async function play(ha: HaClient, speakers: Speaker[], uris: string[]): Promise<ToolResult> {
   const leader = await groupExactly(ha, speakers);
   const media = (uri: string, enqueue: "replace" | "add") =>
-    ha.call("media_player", "play_media", { entity_id: leader.entity, media_content_id: uri, media_content_type: "music", enqueue });
+    ha.call("media_player", "play_media", { entity_id: leader.entity, media_content_id: uri, media_content_type: "music", enqueue }, PLAY_MEDIA_TIMEOUT_MS);
 
   await media(uris[0], "replace");
   let queued = 1;
@@ -54,13 +61,13 @@ export async function play(ha: HaClient, speakers: Speaker[], uris: string[]): P
     try {
       await media(uri, "add");
       queued++;
-    } catch {
-      failed.push(uri);
+    } catch (err) {
+      failed.push(`${uri} (${err instanceof Error ? err.message : String(err)})`);
     }
   }
   const result: ToolResult = { playing: speakers.map((s) => s.name), leader: leader.name, queued };
   if (!failed.length) return { ...result, scheduling: "SILENT" };
-  return { ...result, warning: `Playing, but these could not be added to the queue: ${failed.join(", ")}`, scheduling: "WHEN_IDLE" };
+  return { ...result, warning: `Playing, but these could not be added to the queue: ${failed.join("; ")}`, scheduling: "WHEN_IDLE" };
 }
 
 export type Transport = "pause" | "resume" | "stop";
@@ -72,14 +79,14 @@ const TRANSPORT: Record<Transport, { service: string; key: string }> = {
 };
 
 /**
- * Pause, resume or stop: once per distinct group, sent to its leader. A Sonos group plays as one,
- * so the result names every speaker in the groups affected.
+ * Pause, resume or stop: once per distinct group, sent to its leader, all leaders in one service
+ * call. A Sonos group plays as one, so the result names every speaker in the groups affected.
  */
 export async function transport(ha: HaClient, all: Speaker[], speakers: Speaker[], action: Transport): Promise<ToolResult> {
   const leaders = [...new Set(speakers.map((s) => s.members[0]))];
+  await ha.call("media_player", TRANSPORT[action].service, { entity_id: leaders });
   const affected: string[] = [];
   for (const leader of leaders) {
-    await ha.call("media_player", TRANSPORT[action].service, { entity_id: leader });
     const members = all.find((s) => s.entity === leader)?.members ?? [leader];
     for (const e of members) affected.push(all.find((s) => s.entity === e)?.name ?? e);
   }
@@ -94,9 +101,12 @@ export function checkVolume(volume: unknown): number {
   return Math.round(volume);
 }
 
-/** Set the volume on each speaker individually, also when they are grouped. */
+/**
+ * Set the volume on each speaker individually, also when they are grouped (one service call
+ * listing them, so they change together rather than one request after another).
+ */
 export async function setVolume(ha: HaClient, speakers: Speaker[], volume: number): Promise<ToolResult> {
-  for (const s of speakers) await ha.call("media_player", "volume_set", { entity_id: s.entity, volume_level: volume / 100 });
+  await ha.call("media_player", "volume_set", { entity_id: speakers.map((s) => s.entity), volume_level: volume / 100 });
   return { volume, speakers: speakers.map((s) => s.name), scheduling: "SILENT" };
 }
 

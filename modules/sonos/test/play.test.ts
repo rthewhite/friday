@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTestHost } from "@friday/sdk/test";
 import { createSonosModule } from "../src/index.js";
+import { play, PLAY_MEDIA_TIMEOUT_MS } from "../src/control.js";
+import { parseSpeakers } from "../src/speakers.js";
+import type { HaClient } from "../src/ha.js";
 import { ARC, ARC_NAME, ONE_SL, ONE_SL_NAME, PLAYBAR, PLAYBAR_NAME, env, fakeHa, grouped, household, type FakeHa, type FakeHaOptions, type Row } from "./fake-ha.js";
 
 async function host(rows: Row[] = household(), opts: FakeHaOptions = {}) {
@@ -116,9 +119,23 @@ test("a later URI that fails to be added is reported, WHEN_IDLE", async () => {
   const { call } = await host(household(), { fail: (c) => (c.data.media_content_id === "spotify:track:b" ? 500 : undefined) });
   const r = await call({ speakers: ["Living Room"], uris: ["spotify:track:a", "spotify:track:b", "spotify:track:c"] });
   assert.equal(r.result.queued, 2);
-  assert.match(String(r.result.warning), /spotify:track:b/);
+  // The warning says why, so a bad URI can be told apart from a Home Assistant failure.
+  assert.match(String(r.result.warning), /spotify:track:b \(home assistant media_player\.play_media -> 500 service failed\)/);
   assert.doesNotMatch(String(r.result.warning), /spotify:track:c/);
   assert.equal(r.scheduling, "WHEN_IDLE");
+});
+
+test("play_media waits longer than other requests, for share links HA takes up to 30 s to queue", async () => {
+  const timeouts: Record<string, number | undefined> = {};
+  const ha: HaClient = {
+    template: async () => "[]",
+    call: async (domain, service, _data, timeoutMs) => void (timeouts[`${domain}.${service}`] = timeoutMs),
+  };
+  const all = parseSpeakers(JSON.stringify(household()));
+  await play(ha, all.slice(0, 2), ["spotify:playlist:p", "spotify:track:t"]);
+  assert.equal(timeouts["media_player.play_media"], PLAY_MEDIA_TIMEOUT_MS);
+  assert.ok(PLAY_MEDIA_TIMEOUT_MS > 30_000);
+  assert.equal(timeouts["media_player.join"], undefined);
 });
 
 test("a failing first URI fails the call", async () => {

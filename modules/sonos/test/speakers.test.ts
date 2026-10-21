@@ -23,23 +23,23 @@ test("missing area, model and volume are omitted", () => {
 test("only what the template returns are speakers: a group entity is never among them", async () => {
   // The template selects integration_entities('sonos'); the parser trusts it and adds nothing.
   const rows = household();
-  const all = await loadSpeakers({ template: async () => JSON.stringify(rows), call: async () => [] });
+  const all = await loadSpeakers({ template: async () => JSON.stringify(rows), call: async () => {} });
   assert.deepEqual(all.map((s) => s.entity), [ARC, PLAYBAR, ONE_SL]);
   assert.ok(!all.some((s) => s.entity === "media_player.all_speakers"));
 });
 
 test("every call reads the speakers fresh, so a speaker added in Home Assistant shows up", async () => {
   const rows = household();
-  const ha: HaClient = { template: async () => JSON.stringify(rows), call: async () => [] };
+  const ha: HaClient = { template: async () => JSON.stringify(rows), call: async () => {} };
   assert.equal((await loadSpeakers(ha)).length, 3);
   rows.push({ entity: "media_player.kitchen", name: "Kitchen", area: "Kitchen", model: "Era 100", state: "idle", volume: 0.2, group: ["media_player.kitchen"], title: null, artist: null });
   assert.equal((await loadSpeakers(ha)).length, 4);
 });
 
 test("a malformed template response fails as a lookup error", async () => {
-  await assert.rejects(loadSpeakers({ template: async () => "<html>", call: async () => [] }), /Sonos speaker lookup failed: .*not JSON|other than JSON/);
-  await assert.rejects(loadSpeakers({ template: async () => '{"a":1}', call: async () => [] }), /Sonos speaker lookup failed: .*not return a list/);
-  await assert.rejects(loadSpeakers({ template: async () => { throw new Error("home assistant template -> 500 x"); }, call: async () => [] }), /Sonos speaker lookup failed: home assistant template -> 500/);
+  await assert.rejects(loadSpeakers({ template: async () => "<html>", call: async () => {} }), /Sonos speaker lookup failed: .*not JSON|other than JSON/);
+  await assert.rejects(loadSpeakers({ template: async () => '{"a":1}', call: async () => {} }), /Sonos speaker lookup failed: .*not return a list/);
+  await assert.rejects(loadSpeakers({ template: async () => { throw new Error("home assistant template -> 500 x"); }, call: async () => {} }), /Sonos speaker lookup failed: home assistant template -> 500/);
 });
 
 test("a reference matches by area, case-insensitively", () => {
@@ -83,6 +83,29 @@ test("an unavailable speaker is refused by name", () => {
   const rows = household();
   rows[1].state = "unavailable";
   assert.throws(() => resolve(["living room", "bedroom"], parse(rows)), /Sonos speaker \[Bedroom\] Sonos Playbar is unavailable/);
+  assert.throws(() => resolve(["[Bedroom] Sonos Playbar"], parse(rows)), /is unavailable/);
+});
+
+test("a room skips its offline speaker while another one there is available", () => {
+  const rows = household();
+  Object.assign(rows[2], { area: "Living Room", state: "unavailable" });
+  assert.deepEqual(names(resolve(["living room"], parse(rows))), [ARC_NAME]);
+});
+
+test("a room whose speakers are all offline is refused", () => {
+  const rows = household();
+  rows[0].state = "unavailable";
+  assert.throws(() => resolve(["living room"], parse(rows)), /\[Living Room\] Sonos ARC is unavailable/);
+});
+
+test("accents and other scripts are matched, not dropped", () => {
+  const rows = household();
+  rows[0].area = "Küche";
+  rows[1].area = "寝室";
+  const all = parse(rows);
+  assert.deepEqual(names(resolve(["kuche"], all)), [ARC_NAME]);
+  assert.deepEqual(names(resolve(["Küche"], all)), [ARC_NAME]);
+  assert.deepEqual(names(resolve(["寝室"], all)), [PLAYBAR_NAME]);
 });
 
 test("an empty list is refused", () => {

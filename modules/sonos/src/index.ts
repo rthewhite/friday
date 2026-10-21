@@ -35,7 +35,7 @@ export function createSonosModule(opts: SonosOptions = {}) {
 const SPEAKERS: Schema = {
   type: Type.ARRAY,
   items: { type: Type.STRING },
-  description: "Rooms (Home Assistant areas, e.g. the room you are in) or speaker names. A room means every Sonos speaker in it.",
+  description: "Rooms (Home Assistant areas, e.g. the room you are in) or speaker names. A room means every Sonos speaker in it that is online.",
 };
 
 function defineSonosTools(ctx: ModuleContext, fetchFn: typeof fetch | undefined): void {
