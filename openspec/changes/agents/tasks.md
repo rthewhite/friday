@@ -16,7 +16,7 @@
 
 ## 3. Shared model loop
 
-- [ ] 3.1 Extract the model and tool loop from `chat/engine.ts` into `packages/core/src/llm/tool-loop.ts` (tools, `callTool`, `beforeRound`/`beforeCalls` stop hooks, chunk callback, signal, settling unrun calls), and make `ChatTurn` use it. Verify that `chat-engine.test.ts`, `chat-api.test.ts` and `chat-history.test.ts` pass unchanged, and add `packages/core/test/tool-loop.test.ts` with a fake stream for a stop from `beforeCalls`, an abort during a model call, and parts sent back verbatim
+- [x] 3.1 Extract the model and tool loop from `chat/engine.ts` into `packages/core/src/llm/tool-loop.ts` (tools, `callTool`, `beforeRound`/`beforeCalls` stop hooks, chunk callback, signal, settling unrun calls), and make `ChatTurn` use it. Verify that `chat-engine.test.ts`, `chat-api.test.ts` and `chat-history.test.ts` pass unchanged, and add `packages/core/test/tool-loop.test.ts` with a fake stream for a stop from `beforeCalls`, an abort during a model call, and parts sent back verbatim
 
 ## 4. Definitions and storage
 

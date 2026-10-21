@@ -4,32 +4,19 @@
  * `begin` validates synchronously (so two posts for one thread can't both pass the busy check), then
  * stores the message and returns the turn; `run` streams it:
  *   history (+ the new message) -> model round -> tool calls (chat channel, timed out) -> next round ...
- * until the model answers without calls, at most MAX_TOOL_ROUNDS rounds of calls. Within the turn
- * the model's parts go back verbatim (thought signatures kept, thought summaries dropped). The turn
- * never depends on its listener: a disconnected client only stops receiving events.
+ * until the model answers without calls, at most MAX_TOOL_ROUNDS rounds of calls (the loop itself is
+ * shared with agent runs, llm/tool-loop.ts). The turn never depends on its listener: a disconnected
+ * client only stops receiving events.
  */
-import type { Content, FunctionDeclaration, Part } from "@google/genai";
+import type { Content, FunctionDeclaration } from "@google/genai";
 import { LlmError, type ToolRegistry } from "@friday/sdk";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
-import type { StreamEnd } from "../llm/gemini.js";
 import type { LlmService } from "../llm/service.js";
+import { runToolLoop, type LoopCall as Call } from "../llm/tool-loop.js";
 import { toContents } from "./history.js";
 
 export const MAX_TOOL_ROUNDS = 10;
-
-interface Call {
-  id: number;
-  name: string;
-  args: Record<string, unknown>;
-}
-
-/** Why a round without calls ended before its answer was complete. */
-function unfinished(reason: string): string {
-  if (reason === "MAX_TOKENS") return "the answer was cut off at the output limit";
-  if (reason === "MALFORMED_FUNCTION_CALL") return "the model produced a malformed tool call";
-  return `the model stopped without finishing (${reason})`;
-}
 
 export type ChatErrorKind = LlmError["kind"] | "too_many_tool_calls";
 
@@ -131,57 +118,34 @@ export class ChatTurn {
     const id = this.conversationId;
     emit({ event: "start", data: { conversationId: id } });
     try {
-      const system = this.opts.system();
-      const contents = this.history();
-      const tools = this.opts.registry.declarations("chat") as FunctionDeclaration[];
-      let rounds = 0;
-      let streamed = false;
-      let callSeq = 0;
-      for (;;) {
-        const parts: Part[] = [];
-        const calls: Call[] = [];
-        let end: StreamEnd;
-        try {
-          end = await this.opts.llm.streamCall(
-            "chat",
-            { model: this.opts.model, system, contents, tools, thoughts: true },
-            (c) => {
-              if (c.kind === "thought") return emit({ event: "thinking", data: { text: c.text } });
-              parts.push(c.part);
-              if (c.kind === "text") {
-                streamed = true;
-                this.recorder.assistant(c.text);
-                emit({ event: "text", data: { text: c.text } });
-              } else if (c.kind === "call") {
-                const call = { id: ++callSeq, name: c.name, args: c.args };
-                calls.push(call);
-                emit({ event: "tool_call", data: call });
-              }
-            },
-          );
-        } catch (e) {
-          const err = e instanceof LlmError ? e : new LlmError("unavailable", e instanceof Error ? e.message : String(e));
-          if (streamed) this.recorder.interrupted();
-          return this.fail(emit, err.kind, err.message);
-        }
-        if (!calls.length) {
-          // Blocked answers already rejected in streamCall; anything else but STOP is an unfinished answer.
-          const reason = end.finishReason;
-          if (reason && reason !== "STOP") {
-            if (streamed) this.recorder.interrupted();
-            return this.fail(emit, "invalid_output", unfinished(reason));
-          }
-          break;
-        }
-        if (rounds >= MAX_TOOL_ROUNDS) {
-          // These calls were announced but never run: settle them, so live and stored views agree.
-          for (const c of calls) this.settleUnrun(c, emit);
-          return this.fail(emit, "too_many_tool_calls", `the model asked for tools more than ${MAX_TOOL_ROUNDS} times in one turn`);
-        }
-        rounds++;
-        contents.push({ role: "model", parts });
-        const results = await Promise.all(calls.map((c) => this.callTool(c, emit)));
-        contents.push({ role: "user", parts: calls.map((c, i) => ({ functionResponse: { name: c.name, response: results[i] } })) });
+      const { outcome, state } = await runToolLoop({
+        llm: this.opts.llm,
+        owner: "chat",
+        model: this.opts.model,
+        system: this.opts.system(),
+        contents: this.history(),
+        tools: this.opts.registry.declarations("chat") as FunctionDeclaration[],
+        thoughts: true,
+        onThought: (text) => emit({ event: "thinking", data: { text } }),
+        onText: (text) => {
+          this.recorder.assistant(text);
+          emit({ event: "text", data: { text } });
+        },
+        onCall: (call) => emit({ event: "tool_call", data: call }),
+        callTool: (c) => this.callTool(c, emit),
+        beforeCalls: (_calls, s) =>
+          s.rounds >= MAX_TOOL_ROUNDS ? { kind: "too_many_tool_calls", message: `the model asked for tools more than ${MAX_TOOL_ROUNDS} times in one turn` } : undefined,
+      });
+      if (outcome.kind === "stopped") {
+        // These calls were announced but never run: settle them, so live and stored views agree.
+        for (const c of outcome.unrun) this.settleUnrun(c, emit);
+        return this.fail(emit, "too_many_tool_calls", outcome.stop.message);
+      }
+      if (outcome.kind !== "done") {
+        if (state.streamed) this.recorder.interrupted();
+        if (outcome.kind === "unfinished") return this.fail(emit, "invalid_output", outcome.message);
+        const err = outcome.kind === "failed" ? outcome.error : new LlmError("cancelled", "the turn was cancelled");
+        return this.fail(emit, err.kind, err.message);
       }
       this.recorder.release();
       emit({ event: "done", data: { conversationId: id } });
