@@ -149,6 +149,20 @@ test("deleting a running agent cancels the run, removes the agent, its runs and 
   }
 });
 
+test("a disabled agent has no job but can still be run from the portal", async () => {
+  const s = await start();
+  try {
+    await s.req("POST", "/api/agents", { ...review, enabled: false });
+    assert.deepEqual(s.scheduler.list(), []);
+    const r = await s.req("POST", "/api/agents/weekly-review/run", {});
+    assert.equal(r.status, 202);
+    await waitFor(() => s.runs.get(r.json.runId)!.outcome === "ok");
+    assert.equal(s.runs.get(r.json.runId)!.trigger, "portal");
+  } finally {
+    await s.close();
+  }
+});
+
 test("without agents the API answers 503", async () => {
   const s = await start(undefined, { agents: false });
   try {

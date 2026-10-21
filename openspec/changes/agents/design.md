@@ -78,7 +78,7 @@ Patterns are converted to anchored regular expressions with every character esca
 ### 5. The runtime
 
 `AgentRuntime` (`agents/runtime.ts`) owns runs:
-- `start(name, trigger, request?)` returns `{ runId } | { busy: startedAt } | { unknown } | { invalid: message }`, synchronously up to registering the run, so two starts can't both pass the busy check (the same pattern as `ChatEngine.begin`). The run then continues in the background.
+- `start(name, trigger, request?)` returns `{ ok: true, run, done }`, `{ ok: false, reason: "busy", since, runId }` or `{ ok: false, reason: "unknown" }`, synchronously up to registering the run, so two starts can't both pass the busy check (the same pattern as `ChatEngine.begin`). The run then continues in the background; `done` resolves to the finished run (the job handler awaits it). A stored definition that no longer validates still gets a run, recorded as `failed` with `invalid definition: …` before any model call, so the failure shows in the run history.
 - Per run: an `AbortController`, a wall-time timer that aborts with reason `budget`, counters for tool calls and tokens (`StreamEnd.usage` input + output after each round), and a recorder on channel `agent`.
 - Budget checks: before each model round (tokens, time) and before running a round's calls (`toolCalls + calls.length > maxToolCalls`). The calls not run are settled with an error, as chat settles unrun calls.
 - `callTool`: a name outside the resolved set → `{ error: "tool <name> is not available to this agent" }`; `approve` → park (decision 7); `auto` → `registry.callTool(name, args, { channel: "agent", conversationId })` raced against `FRIDAY_AGENT_TOOL_TIMEOUT_MS` (default 60000).
@@ -119,7 +119,7 @@ Approval doesn't re-check the agent's current tool list. The user approving that
 
 ### 11. API and portal
 
-Routes in `agents/routes.ts`, mounted by `app.ts` when `deps.agents` is set (503 otherwise, like chat). The portal gets `pages/AgentsPage.vue` (list), `pages/AgentPage.vue` (editor and run history, `/agents/new` and `/agents/:name`) and a run drawer with the actions, built from `@friday/portal-ui` components like the Jobs page. The tool picker uses `GET /api/agents/tools` and matches patterns client-side with the same rule (a shared helper in `packages/portal/src/lib/agents.ts`, with the same test cases as core).
+Routes in `agents/routes.ts`, mounted by `app.ts` when `deps.agents` is set (503 otherwise, like chat). The portal gets `pages/AgentsPage.vue` at `/agents`, with `:name` as a child route (like `/chat/:id`, so the `Agents` nav item stays active), which shows the list or, for `/agents/new` and `/agents/:name`, `pages/AgentEditor.vue` (editor, Run now, run history and a run drawer with the actions), built from `@friday/portal-ui` components like the Jobs page. Agent names `tools`, `runs`, `actions` and `new` are refused by `parseAgent`, since the router takes the first matching path. The tool picker uses `GET /api/agents/tools` and matches patterns client-side with the same rule (a shared helper in `packages/portal/src/lib/agents.ts`, with the same test cases as core).
 
 ## Risks / Trade-offs
 
