@@ -344,6 +344,14 @@ export default defineModule({
 - **Redirect URI.** `<base>/api/oauth/<provider>/callback`, where the base is `FRIDAY_PUBLIC_URL` (core key, also settable in the portal) or, unset, the address the portal is opened at. Register exactly that URI with the provider; the connection's side panel shows it.
 - **Tokens stay in core.** No HTTP endpoint returns a token or a client secret. Remote modules have no `ctx.oauth`; they bring their own credentials.
 
+Settings > Connections lists every provider that has a connection or that a module requests, with a status dot (`connected`, `disconnected`, `error`, or not set up), the requesting modules (✓ when granted) and whether scopes are missing. To set one up:
+
+1. Create an app (OAuth client) at the provider and register the redirect URI the side panel shows, exactly as shown. Locally, open the portal at `http://127.0.0.1:<port>` rather than `localhost`: Spotify, for one, refuses `http://localhost` redirect URIs.
+2. Open the provider's row, enter the client id and secret, and `Save`. For a provider no module requests, use `New connection`; pick `Generic OAuth2` for one outside the catalogue and enter its URLs.
+3. Turn on the grant for each module that may use it, then `Connect`. Friday sends you to the provider's login and back to the same panel, which shows `connected` or the provider's error.
+
+When a granted module later needs a scope the login lacks, the row says it needs a reconnect and the panel names the scope and the module; `Reconnect` logs in again with the new set. Changing the client id or secret clears the stored login. `Delete` forgets the connection, its tokens and its grants (remove Friday's access at the provider too if you want that). Without `FRIDAY_MASTER_KEY` the page shows a banner and nothing can be saved.
+
 The login is `GET /api/oauth/<provider>/authorize`, which redirects to the provider with a one-time state (and PKCE where the provider supports it). The provider redirects back to the callback, which checks the state against an `HttpOnly` cookie, exchanges the code and returns to the portal. A login left for more than 10 minutes, or interrupted by a restart, has to be started again. Over HTTP:
 
 ```sh

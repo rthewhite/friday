@@ -11,6 +11,7 @@ export function createPortalRouter(uis: ModuleUi[]) {
     { path: "/agents", name: "agents", component: () => import("./pages/AgentsPage.vue"), children: [{ path: ":name", name: "agent", component: { render: () => null } }] },
     { path: "/modules", name: "modules", component: () => import("./pages/ModulesPage.vue") },
     { path: "/settings/config", name: "settings-config", component: () => import("./pages/settings/ConfigurationPage.vue") },
+    { path: "/settings/connections", name: "settings-connections", component: () => import("./pages/settings/ConnectionsPage.vue") },
     { path: "/settings/devices", name: "settings-devices", component: () => import("./pages/settings/VoiceDevicesPage.vue") },
     { path: "/settings/keys", name: "settings-keys", component: () => import("./pages/settings/RemoteModulesPage.vue") },
     { path: "/settings/alerts", name: "settings-alerts", component: () => import("./pages/settings/AlertsPage.vue") },
