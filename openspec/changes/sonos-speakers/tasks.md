@@ -23,7 +23,7 @@
 
 ## 5. Docs and context
 
-- [ ] 5.1 Update the README (overview diagram line, modules table row, a "Sonos (via Home Assistant)" section: what it does, that it uses the HA Sonos integration and its areas, HA keys shared with `media`, artists refused, `FRIDAY_MODULES` to leave it out), `.env.example` (the HA keys' comment names `media` and `sonos`), the `deploy/k8s.yaml` secret comment, and the integrations part of `openspec/config.yaml` context (modules/sonos, template lookup, reference matching, the group rule, SILENT results). Verify by reading the diff and running `pnpm --filter @friday/core test` (it checks `.env.example`)
+- [x] 5.1 Update the README (overview diagram line, modules table row, a "Sonos (via Home Assistant)" section: what it does, that it uses the HA Sonos integration and its areas, HA keys shared with `media`, artists refused, `FRIDAY_MODULES` to leave it out), `.env.example` (the HA keys' comment names `media` and `sonos`), the `deploy/k8s.yaml` secret comment, and the integrations part of `openspec/config.yaml` context (modules/sonos, template lookup, reference matching, the group rule, SILENT results). Verify by reading the diff and running `pnpm --filter @friday/core test` (it checks `.env.example`)
 
 ## 6. Integration
 

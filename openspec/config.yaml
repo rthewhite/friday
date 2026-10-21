@@ -33,6 +33,16 @@ context: |
   Routing v2; TOMTOM_API_KEY required secret, sent as a query parameter so URLs are never logged; geocodes
   cached in memory (LRU, hits 24h, misses 10 min), routes never; client rebuilt when the key changes, no
   reload needed; offset-less departAt/arriveAt read in FRIDAY_TIMEZONE, past times refused).
+  Sonos: modules/sonos (id sonos) controls the speakers only through Home Assistant's Sonos integration (required
+  HA_URL + secret HA_TOKEN, shared with media; client in src/ha.ts copied from media plus template()). Speakers are
+  read fresh per call with one POST /api/template (SPEAKERS_TEMPLATE in src/speakers.ts: integration_entities('sonos')
+  media_players with name, area, model, state, volume, group_members, title/artist), never cached. References match
+  normalized (letters and digits) entity id, then name, then area (an area = all its speakers); unknown or unavailable
+  fails before any service call. Tools sonos_list_speakers, sonos_play (speakers[] + 1-50 Spotify track/album/playlist/
+  episode/show URIs or open.spotify.com links, artists refused; the named speakers become exactly one group via
+  unjoin/join, home-theatre model leads; play_media enqueue replace then add), sonos_pause/resume/stop (once per group
+  leader), sonos_set_volume (per speaker), sonos_ungroup; actions SILENT, a partly failed queue WHEN_IDLE. Spotify
+  search is not here: the model chains a search tool's URIs into sonos_play.
   Calendar: modules/calendar (id calendar) has two optional sources and loads when at least one has both keys
   (checked in init). The Work calendar (src/work.ts, src/intake.ts): INTAKE_URL + secret INTAKE_KEY; the
   calendar/refresh job POSTs {"subject":"calendar"} with a bearer key (redirects refused, 30 s) to the homelab intake,
