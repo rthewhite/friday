@@ -133,6 +133,11 @@ test("copy: a secret is re-encrypted under the target scope, a plain value stays
   assert.equal(s.copy("media", "sonos", "HA_URL", { secret: false }), "copied");
   assert.deepEqual(s.info("sonos", "HA_URL"), { secret: false });
   assert.equal(s.get("sonos", "HA_URL"), "http://ha");
+  // `secret: false` never downgrades a secret source; `secret: true` promotes a plain one.
+  assert.equal(s.copy("media", "brain", "HA_TOKEN", { secret: false }), "copied");
+  assert.deepEqual(s.info("brain", "HA_TOKEN"), { secret: true });
+  assert.equal(s.copy("media", "brain", "HA_URL", { secret: true }), "copied");
+  assert.deepEqual(s.info("brain", "HA_URL"), { secret: true });
   // the source is untouched
   assert.equal(s.get("media", "HA_TOKEN"), "tok");
 });

@@ -449,6 +449,9 @@ test("PUT { from } copies a stored value into another scope without it passing t
     assert.equal((await put("/api/config/global/HA_URL", { value: "x", from: "media" })).status, 400);
     assert.equal((await put("/api/config/global/HA_URL", {})).status, 400);
     assert.equal((await put("/api/config/global/HA_URL", { from: "" })).status, 400);
+    assert.equal((await put("/api/config/media/HA_URL", { from: "media" })).status, 400, "copying a scope onto itself is refused");
+    assert.equal((await put("/api/config/global/HA_URL", null)).status, 400, "a non-object body is a 400, not a 500");
+    assert.equal((await put("/api/config/global/HA_URL", ["x"])).status, 400);
     assert.equal(s.configStore.info("global", "HA_URL"), undefined);
     assert.equal((await put("/api/config/nope/HA_URL", { from: "media" })).status, 404);
     assert.deepEqual(changes, [], "a rejected copy is not reported");

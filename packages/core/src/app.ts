@@ -294,16 +294,17 @@ export function createApp(deps: AppDeps) {
       } catch {
         return sendJson(res, { error: "invalid JSON" }, 400);
       }
+      if (typeof body !== "object" || body === null || Array.isArray(body)) return sendJson(res, { error: "body must be a JSON object" }, 400);
       if ((body.value === undefined) === (body.from === undefined)) return sendJson(res, { error: "send either value or from" }, 400);
       try {
         if (body.from !== undefined) {
           // Copy the value stored in another scope; it never passes through the request or response.
           if (typeof body.from !== "string" || !body.from) return sendJson(res, { error: "from must be a non-empty string" }, 400);
-          const source = deps.configStore.info(body.from, key);
-          if (!source) return sendJson(res, { error: `${key} is not stored for "${body.from}"` }, 404);
-          // The copy is never weaker than its source or the declaration.
-          const secret = isDeclaredSecret(deps.host, key) || source.secret;
-          if (deps.configStore.copy(body.from, scope, key, { secret }) === "unreadable") return sendJson(res, { error: `${body.from}/${key} cannot be read (wrong or missing FRIDAY_MASTER_KEY); enter the value again` }, 503);
+          if (body.from === scope) return sendJson(res, { error: "from must be another scope" }, 400);
+          // The copy is never weaker than its source (copy keeps a secret secret) or the declaration.
+          const copied = deps.configStore.copy(body.from, scope, key, { secret: isDeclaredSecret(deps.host, key) });
+          if (copied === "missing") return sendJson(res, { error: `${key} is not stored for "${body.from}"` }, 404);
+          if (copied === "unreadable") return sendJson(res, { error: `${body.from}/${key} cannot be read (wrong or missing FRIDAY_MASTER_KEY); enter the value again` }, 503);
         } else {
           if (typeof body.value !== "string" || !body.value) return sendJson(res, { error: "value must be a non-empty string" }, 400);
           // A key any module declares secret is always stored encrypted; the request cannot downgrade it.

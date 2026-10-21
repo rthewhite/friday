@@ -101,13 +101,14 @@ const toggle = (scope: string) => { draft.value.scopes = toggleScope(scopeOption
 const hasGlobal = computed(() => selected.value?.stored?.some((s) => s.scope === "global") === true);
 const selectsGlobal = computed(() => draft.value.scopes.includes("global"));
 const selectsOnlyCore = computed(() => draft.value.scopes.length === 1 && draft.value.scopes[0] === "core");
-// Core is not a reloadable module: its keys apply to the next voice session and model call.
-const reloadable = computed(() => draft.value.scopes.filter((s) => s !== "global" && s !== "core"));
 const isSecret = computed(() => (adding.value ? tab.value === "secrets" : selected.value?.secret === true));
 /** Which scopes a failed save reached, shown in the drawer (the page notice sits behind it). */
 const saveError = ref<string | null>(null);
 watch(open, (v) => { if (v) saveError.value = null; });
 const plan = computed(() => (draft.value.key.trim() ? savePlan(adding.value ? null : selected.value, draft.value.scopes, draft.value.value) : null));
+// Only modules that get a write are reloaded. Core is not a reloadable module: its keys apply to the next
+// voice session and model call.
+const reloadable = computed(() => (plan.value?.writes ?? []).map((w) => w.scope).filter((s) => s !== "global" && s !== "core"));
 
 async function save(reload: boolean) {
   const key = draft.value.key.trim();
@@ -130,11 +131,17 @@ async function save(reload: boolean) {
       saved.push(w.scope);
     }
     const what = `${key} ${p.source ? `copied from ${p.source} to` : "saved for"} ${saved.join(", ")}`;
-    if (reload && reloadable.value.length) {
+    const toReload = reload ? reloadable.value : [];
+    if (toReload.length) {
+      // Everything is saved by now: a module that fails to reload is reported, the others still reload.
       const results: string[] = [];
-      for (const id of reloadable.value) {
-        const m = await api<{ status: string; error?: string }>(`/api/modules/${encodeURIComponent(id)}/reload`, { method: "POST" });
-        results.push(m.status === "loaded" ? `${id} reloaded` : `${id} is ${m.status}: ${m.error ?? ""}`);
+      for (const id of toReload) {
+        try {
+          const m = await api<{ status: string; error?: string }>(`/api/modules/${encodeURIComponent(id)}/reload`, { method: "POST" });
+          results.push(m.status === "loaded" ? `${id} reloaded` : `${id} is ${m.status}: ${m.error ?? ""}`);
+        } catch (e) {
+          results.push(`${id} not reloaded: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
       notice.value = `${what}; ${results.join("; ")}`;
       await refreshModules();
@@ -143,7 +150,7 @@ async function save(reload: boolean) {
     }
     open.value = false;
   });
-  // After a partial save the drawer stays open; plan the next try against what is stored now.
+  // After a partial save the drawer stays open; plan the next try against what is stored now (run reloaded it).
   const fresh = selected.value && entries.value.find((x) => x.key === selected.value!.key);
   if (open.value && fresh) selected.value = fresh;
 }
@@ -158,12 +165,14 @@ async function clear(scope: string) {
   const fresh = entries.value.find((x) => x.key === e.key);
   if (fresh) {
     selected.value = fresh;
-    draft.value.scopes = defaultScopes(fresh);
+    // Keep the user's ticks; only an emptied selection falls back to the defaults.
+    if (!draft.value.scopes.length) draft.value.scopes = defaultScopes(fresh);
   }
 }
+/** Run an action, then always reload the listing: a partly failed save still changed what is stored. */
 async function run(f: () => Promise<void>) {
   busy.value = true;
-  try { await f(); await load(); } catch (e) { notice.value = e instanceof Error ? e.message : String(e); } finally { busy.value = false; }
+  try { await f(); } catch (e) { notice.value = e instanceof Error ? e.message : String(e); } finally { await load(); busy.value = false; }
 }
 </script>
 
@@ -252,7 +261,7 @@ async function run(f: () => Promise<void>) {
         <p v-if="selectsGlobal && selected && ownCopies(selected).length" class="text-xs text-f-warning">
           {{ ownCopies(selected).length === 1 ? `${ownCopies(selected)[0]} keeps its own value until you clear it above.` : `${ownCopies(selected).join(", ")} keep their own values until you clear them above.` }}
         </p>
-        <p v-if="draft.scopes.includes('core') && draft.key === 'FRIDAY_TIMEZONE'" class="text-xs text-f-text-muted">Re-plans cron jobs at once. A core-only value is not seen by modules; save it as global to reach them too.</p>
+        <p v-if="selectsOnlyCore && draft.key === 'FRIDAY_TIMEZONE'" class="text-xs text-f-text-muted">Re-plans cron jobs at once. A core-only value is not seen by modules; save it as global to reach them too.</p>
         <p v-else-if="selectsOnlyCore" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
         <p v-if="saveError" class="text-sm text-f-error">{{ saveError }}</p>
         <template #footer>

@@ -34,9 +34,19 @@ test("preselection: nothing stored keeps the single-requester and shared-key def
 
 test("preselection: every requester holding a copy, in requester order", () => {
   assert.deepEqual(defaultScopes({ scope: "brain", modules: requesters("core", "builtin", "brain", "travel"), stored: stored("brain") }), ["brain"]);
-  assert.deepEqual(defaultScopes({ scope: "media", modules: ha, stored: stored("media", "sonos") }), ["media", "sonos"]);
+  assert.deepEqual(defaultScopes({ scope: "media", secret: true, modules: ha, stored: stored("media", "sonos") }), ["media", "sonos"]);
   // A requester copy wins over a global copy in the preselection, and global is not added to it.
-  assert.deepEqual(defaultScopes({ scope: "global", modules: requesters("core", "builtin"), stored: stored("global", "builtin") }), ["builtin"]);
+  assert.deepEqual(defaultScopes({ scope: "global", secret: true, modules: requesters("core", "builtin"), stored: stored("global", "builtin") }), ["builtin"]);
+});
+
+test("preselection: a plain value ticks only the copies that hold the value shown, so an override is never overwritten unasked", () => {
+  const tz = requesters("core", "builtin", "brain", "travel");
+  // core and travel differ: only core (whose value the field shows) is ticked.
+  assert.deepEqual(defaultScopes({ scope: "core", value: "Europe/Amsterdam", modules: tz, stored: [{ scope: "core", value: "Europe/Amsterdam" }, { scope: "travel", value: "America/New_York" }] }), ["core"]);
+  // The same value in two modules: both ticked.
+  assert.deepEqual(defaultScopes({ scope: "media", value: "http://ha", modules: ha, stored: [{ scope: "media", value: "http://ha" }, { scope: "sonos", value: "http://ha" }] }), ["media", "sonos"]);
+  // A global value shown with a differing module override: global, like before multi-select.
+  assert.deepEqual(defaultScopes({ scope: "global", value: "Europe/Amsterdam", modules: tz, stored: [{ scope: "global", value: "Europe/Amsterdam" }, { scope: "builtin", value: "Asia/Tokyo" }] }), ["global"]);
 });
 
 test("preselection: a global copy alone selects global; a leftover is never preselected", () => {

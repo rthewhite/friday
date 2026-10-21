@@ -34,13 +34,13 @@ The alternative was the drawer asking the user for the value again. That's the p
 
 `packages/portal/src/lib/config-scope.ts` holds the pure logic, so it is unit-tested like `defaultScope` is today:
 
-- `defaultScopes(entry): string[]` returns the requesters (`entry.modules`) that appear in `entry.stored`, else `["global"]` when a global copy exists. With nothing stored it returns `[defaultScope(entry)]`, the current rule. A leftover scope is not a requester, so it is never preselected.
+- `defaultScopes(entry): string[]` returns the requesters (`entry.modules`) that appear in `entry.stored` (for a plain value only those whose copy equals the shown value, so an override isn't overwritten by default), else `["global"]` when a global copy exists. With nothing stored it returns `[defaultScope(entry)]`, the current rule. A leftover scope is not a requester, so it is never preselected.
 - `toggleScope(selected, scope): string[]` makes `global` and requesters exclude each other. Deselecting the last scope is allowed; Save is then disabled.
 - `savePlan(entry, selected, value)` returns `{ writes: { scope, value? , from? }[], source?: string }`, or `null` when nothing can be saved:
   - with a value, every selected scope gets `{ value }`;
   - with an empty value, each selected scope without a copy gets `{ from: source }`, where source is the first selected scope with a copy, else `entry.scope`, else the first stored scope. If there's no source, or no selected scope lacks a copy, the result is `null`.
 
-The page renders the plan's `source` as "Copies the value stored for media", sends the writes one after another, then reloads every selected module (excluding `global` and `core`) when asked. It collects which scopes succeeded and which failed, and shows those in the notice. The drawer stays open when something failed. The selector is a row of checkboxes, like the MCP servers tab's channels: one per requester, plus `global (all modules)` last. It stays readable at five requesters (`FRIDAY_TIMEZONE`). A failed save is shown inside the drawer as well, because the page notice sits behind it.
+The page renders the plan's `source` as "Copies the value stored for media" and sends the writes one after another, stopping at the first failure. When asked, it then reloads every module that got a write (excluding `global` and `core`); a failed reload is reported without stopping the others. After a failure the drawer stays open, saying which scopes were saved, which failed and which were not tried. The listing is reloaded either way, so a retry plans against what is stored now. The selector is a row of checkboxes, like the MCP servers tab's channels: one per requester, plus `global (all modules)` last. It stays readable at five requesters (`FRIDAY_TIMEZONE`). A failed save is shown inside the drawer as well, because the page notice sits behind it.
 
 Writes go sequentially as separate PUTs rather than through a new batch endpoint. The API stays per scope, as the spec already describes it, and a partial failure is rare (the store is local SQLite). When it does happen, it is reported per scope.
 

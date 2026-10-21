@@ -4,8 +4,12 @@ export interface ScopeEntry {
   scope?: string;
   /** Requesters of the key: modules and `core`. */
   modules: { id: string }[];
-  /** Every scope the key is stored in, global first. */
-  stored?: { scope: string }[];
+  /** Secret values are never listed, so their copies can't be compared. */
+  secret?: boolean;
+  /** The value the drawer shows (plain entries): the one stored in `scope`. */
+  value?: string;
+  /** Every scope the key is stored in, global first, with its value for plain entries. */
+  stored?: { scope: string; value?: string }[];
 }
 
 /** One PUT the drawer sends: the typed value, or a server-side copy from another scope. */
@@ -23,11 +27,14 @@ export function defaultScope(entry: { scope?: string; modules: { id: string }[] 
 
 /**
  * The scopes the drawer preselects: every requester holding a copy, so re-saving updates them all; else global
- * when a global copy exists; else the nothing-stored rule. A leftover scope (not a requester) is never preselected.
+ * when a global copy exists; else the nothing-stored rule. For a plain value only the copies holding the value
+ * the field shows count, so saving never overwrites a different (override) value unasked. A leftover scope
+ * (not a requester) is never preselected.
  */
 export function defaultScopes(entry: ScopeEntry): string[] {
-  const stored = new Set((entry.stored ?? []).map((s) => s.scope));
-  const own = entry.modules.map((m) => m.id).filter((id) => stored.has(id));
+  const stored = new Map((entry.stored ?? []).map((s) => [s.scope, s.value]));
+  const same = (scope: string) => entry.secret || entry.value === undefined || stored.get(scope) === entry.value;
+  const own = entry.modules.map((m) => m.id).filter((id) => stored.has(id) && same(id));
   if (own.length) return own;
   if (stored.has("global")) return ["global"];
   return [defaultScope({ modules: entry.modules })];
