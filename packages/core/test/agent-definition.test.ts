@@ -21,6 +21,8 @@ test("every invalid field is refused with a message naming it", () => {
     ["not an object", [], /JSON object/],
     ["spaces in the name", { ...base, name: "Weekly Review" }, /kebab-case/],
     ["name too long", { ...base, name: "a".repeat(41) }, /at most 40/],
+    ["name the API uses", { ...base, name: "tools" }, /can't be an agent's name/],
+    ["name the portal uses", { ...base, name: "new" }, /can't be an agent's name/],
     ["empty description", { ...base, description: " " }, /description must be one line/],
     ["two-line description", { ...base, description: "a\nb" }, /one line/],
     ["empty instructions", { ...base, instructions: "" }, /instructions must be/],

@@ -38,7 +38,7 @@
 
 ## 7. API
 
-- [ ] 7.1 Add `agents/routes.ts` with every route in the spec, mounted in `app.ts` (503 without `deps.agents`), and wire `AgentStore`, `AgentRuntime`, the jobs and `run_agent` in `server.ts` (stop on shutdown). Verify with `packages/core/test/agents-api.test.ts`: create 201 with `unmatched`, invalid 400, duplicate 409, rename 400, unknown 404, `GET /api/agents/tools` without voice-only tools, run 202 then 409 while running, runs listed newest first, cancel, approve/reject 409 when not pending, and delete of a running agent (run cancelled, job gone, 204)
+- [x] 7.1 Add `agents/routes.ts` with every route in the spec, mounted in `app.ts` (503 without `deps.agents`), and wire `AgentStore`, `AgentRuntime`, the jobs and `run_agent` in `server.ts` (stop on shutdown). Verify with `packages/core/test/agents-api.test.ts`: create 201 with `unmatched`, invalid 400, duplicate 409, rename 400, unknown 404, `GET /api/agents/tools` without voice-only tools, run 202 then 409 while running, runs listed newest first, cancel, approve/reject 409 when not pending, and delete of a running agent (run cancelled, job gone, 204)
 
 ## 8. Portal
 

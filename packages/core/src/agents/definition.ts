@@ -44,6 +44,8 @@ export const MAX_DESCRIPTION = 200;
 export const MAX_INSTRUCTIONS = 20_000;
 export const MAX_TOOL_ENTRIES = 50;
 const NAME = /^[a-z][a-z0-9-]*$/;
+/** Path segments of /api/agents and /agents that an agent's name would shadow. */
+const RESERVED_NAMES = ["tools", "runs", "actions", "new"];
 /** Tool-name characters (as sanitized for Gemini) plus `*`. */
 const PATTERN = /^[A-Za-z0-9_.:*-]{1,128}$/;
 
@@ -62,6 +64,7 @@ export function parseAgent(body: unknown, name?: string): AgentDefinition {
     if (typeof body.name !== "string" || !NAME.test(body.name) || body.name.length > MAX_NAME) {
       throw new AgentInputError(`name must be kebab-case (lowercase letters, digits and -, starting with a letter), at most ${MAX_NAME} characters`);
     }
+    if (RESERVED_NAMES.includes(body.name)) throw new AgentInputError(`"${body.name}" can't be an agent's name; it is used by the Agents page`);
     name = body.name;
   } else if (body.name !== undefined && body.name !== name) {
     throw new AgentInputError("name cannot be changed; create a new agent instead");
