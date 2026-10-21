@@ -52,5 +52,5 @@
 
 ## 10. Integration
 
-- [ ] 10.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify it is green
+- [x] 10.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify it is green
 - [ ] 10.2 With a dev server on a free port, create an agent with `calendar_list_events` (`auto`) and a notify or other write tool (`approve`), mark it startable, and say "run <agent>" in the Talk page. Verify the tool answers at once, the run appears with trigger `voice`, the write is parked, the conversation is on the `agent` channel, and approving it runs the tool once
