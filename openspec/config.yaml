@@ -139,8 +139,12 @@ context: |
   strict ISO 8601 with optional RFC 3339 offset, offset-less read in the zone, used by travel and calendar;
   offsetMinutes/formatOffset). Core declares it too; the scheduler
   resolves it like core's keys (core scope, global, env) and refreshTimezone() re-plans cron jobs when the config
-  API saves or clears it (AppDeps.onConfigChange → followTimezone). The portal drawer preselects the stored
-  scope, else the sole requester, else global (packages/portal/src/lib/config-scope.ts). Never hard-code the zone.
+  API saves or clears it (AppDeps.onConfigChange → followTimezone). The portal drawer ticks several scopes at once
+  (global excludes the requesters): defaultScopes() preselects every requester holding a copy (plain: only copies equal to the shown value), else global when
+  stored there, else the sole requester, else global; savePlan() turns the ticks into one PUT per scope, and an
+  empty value copies a stored one server-side with PUT /api/config/:scope/:key { from } (ConfigStore.copy
+  re-encrypts a secret under the target's AAD; the value never reaches the browser)
+  (packages/portal/src/lib/config-scope.ts). Never hard-code the zone.
   Configuration values are plain (plaintext, visible in the
   portal) or secret (manifest config key `secret: true`; AES-256-GCM with FRIDAY_MASTER_KEY, write-only)
   (packages/core/src/secrets); ctx.config resolves module scope, then global,

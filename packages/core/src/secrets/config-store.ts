@@ -83,6 +83,20 @@ export class ConfigStore {
     this.cache.delete(`${scope}\0${key}`);
   }
 
+  /**
+   * Copy the value `key` has in scope `from` into scope `to`, re-encrypting a secret under the target's AAD.
+   * The copy is secret when the source is or `opts.secret` asks for it, never weaker than its source.
+   * The value never leaves the store. `missing`: no row in `from`; `unreadable`: a row whose value can't be read.
+   */
+  copy(from: string, to: string, key: string, opts: { secret: boolean }): "copied" | "missing" | "unreadable" {
+    const source = this.info(from, key);
+    if (!source) return "missing";
+    const value = this.get(from, key);
+    if (value === undefined) return "unreadable";
+    this.set(to, key, value, { secret: opts.secret || source.secret });
+    return "copied";
+  }
+
   delete(scope: string, key: string): boolean {
     this.cache.delete(`${scope}\0${key}`);
     return this.db.prepare("DELETE FROM config_values WHERE scope = ? AND key = ?").run(scope, key).changes > 0;

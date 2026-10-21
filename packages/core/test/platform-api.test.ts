@@ -63,7 +63,7 @@ async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string
   const port = (server.address() as { port: number }).port;
   const base = `http://127.0.0.1:${port}`;
   const j = (path: string, init?: RequestInit) => fetch(base + path, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
-  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, registry, remote, conversations, configStore, jobs, close: async () => { await jobs?.stop(); await remote.closeAll(); server.close(); await once(server, "close"); } };
+  return { base, ws: `ws://127.0.0.1:${port}/ws/modules`, j, db, registry, remote, conversations, configStore, jobs, close: async () => { await jobs?.stop(); await remote.closeAll(); server.close(); await once(server, "close"); } };
 }
 
 test("conversations: list summary shape and the full conversation with entries", async () => {
@@ -405,6 +405,70 @@ test("a stored or deleted config value is reported to onConfigChange; a rejected
     assert.equal((await s.j("/api/config/global/FRIDAY_TIMEZONE", { method: "PUT", body: JSON.stringify({ value: "" }) })).status, 400);
     assert.equal((await s.j("/api/config/nope/FRIDAY_TIMEZONE", { method: "PUT", body: JSON.stringify({ value: "UTC" }) })).status, 404);
     assert.deepEqual(changes, ["global/FRIDAY_TIMEZONE", "media/HA_URL"]);
+  } finally {
+    await s.close();
+  }
+});
+
+test("PUT { from } copies a stored value into another scope without it passing through the API", async () => {
+  const changes: string[] = [];
+  const s = await start({ onConfigChange: (scope, key) => void changes.push(`${scope}/${key}`) });
+  const put = (path: string, body: unknown) => s.j(path, { method: "PUT", body: JSON.stringify(body) });
+  try {
+    await put("/api/config/media/HA_TOKEN", { value: "tok-media" });
+    await put("/api/config/media/HA_URL", { value: "http://ha" });
+    changes.length = 0;
+
+    // Copy a secret: no value in the response, encrypted under the target scope.
+    const copied = await put("/api/config/plain/HA_TOKEN", { from: "media" });
+    assert.equal(copied.status, 204);
+    assert.equal(await copied.text(), "");
+    assert.equal(s.configStore.get("plain", "HA_TOKEN"), "tok-media");
+    assert.deepEqual(s.configStore.info("plain", "HA_TOKEN"), { secret: true });
+    const token = (await (await s.j("/api/config")).json()).entries.find((e: any) => e.key === "HA_TOKEN");
+    assert.deepEqual(token.stored.map((x: any) => x.scope), ["media", "plain"]);
+    assert.ok(!JSON.stringify(token).includes("tok-media"));
+
+    // Copy a plain value: stays plain, and `secret` in the body is ignored with `from`.
+    assert.equal((await put("/api/config/plain/HA_URL", { from: "media", secret: true })).status, 204);
+    assert.equal(s.configStore.get("plain", "HA_URL"), "http://ha");
+    assert.deepEqual(s.configStore.info("plain", "HA_URL"), { secret: false });
+
+    // An undeclared secret stays secret when copied.
+    await put("/api/config/global/EXTRA_SECRET", { value: "shh", secret: true });
+    assert.equal((await put("/api/config/media/EXTRA_SECRET", { from: "global" })).status, 204);
+    assert.deepEqual(s.configStore.info("media", "EXTRA_SECRET"), { secret: true });
+
+    assert.deepEqual(changes, ["plain/HA_TOKEN", "plain/HA_URL", "global/EXTRA_SECRET", "media/EXTRA_SECRET"], "a copy counts as a write to the target");
+    changes.length = 0;
+
+    // Source without the key, both or neither of value/from, unknown target.
+    assert.equal((await put("/api/config/plain/HA_TOKEN", { from: "brain" })).status, 404);
+    assert.equal((await put("/api/config/global/HA_TOKEN", { from: "brain" })).status, 404);
+    assert.equal(s.configStore.info("global", "HA_TOKEN"), undefined);
+    assert.equal((await put("/api/config/global/HA_URL", { value: "x", from: "media" })).status, 400);
+    assert.equal((await put("/api/config/global/HA_URL", {})).status, 400);
+    assert.equal((await put("/api/config/global/HA_URL", { from: "" })).status, 400);
+    assert.equal((await put("/api/config/media/HA_URL", { from: "media" })).status, 400, "copying a scope onto itself is refused");
+    assert.equal((await put("/api/config/global/HA_URL", null)).status, 400, "a non-object body is a 400, not a 500");
+    assert.equal((await put("/api/config/global/HA_URL", ["x"])).status, 400);
+    assert.equal(s.configStore.info("global", "HA_URL"), undefined);
+    assert.equal((await put("/api/config/nope/HA_URL", { from: "media" })).status, 404);
+    assert.deepEqual(changes, [], "a rejected copy is not reported");
+  } finally {
+    await s.close();
+  }
+});
+
+test("PUT { from } answers 503 when the source secret cannot be read, and stores nothing", async () => {
+  const s = await start();
+  try {
+    // Written under another master key: present on disk, but undecryptable for this server.
+    new ConfigStore(s.db, randomBytes(32), quiet).set("media", "HA_TOKEN", "tok", { secret: true });
+    const r = await s.j("/api/config/plain/HA_TOKEN", { method: "PUT", body: JSON.stringify({ from: "media" }) });
+    assert.equal(r.status, 503);
+    assert.match((await r.json()).error, /media.*HA_TOKEN.*cannot be read/);
+    assert.equal(s.configStore.info("plain", "HA_TOKEN"), undefined);
   } finally {
     await s.close();
   }
