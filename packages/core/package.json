@@ -17,6 +17,7 @@
     "@friday/module-calendar": "workspace:*",
     "@friday/module-media": "workspace:*",
     "@friday/module-sonos": "workspace:*",
+    "@friday/module-spotify": "workspace:*",
     "@friday/module-travel": "workspace:*",
     "@friday/sdk": "workspace:*",
     "@google/genai": "^2.24.0",

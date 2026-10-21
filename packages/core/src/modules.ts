@@ -8,7 +8,8 @@ import builtin from "@friday/module-builtin";
 import media from "@friday/module-media";
 import brain from "@friday/module-brain";
 import travel from "@friday/module-travel";
+import spotify from "@friday/module-spotify";
 import calendar from "@friday/module-calendar";
 import sonos from "@friday/module-sonos";
 
-export const modules: FridayModule[] = [builtin, media, brain, travel, calendar, sonos];
+export const modules: FridayModule[] = [builtin, media, brain, travel, spotify, calendar, sonos];

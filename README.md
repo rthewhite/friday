@@ -12,6 +12,7 @@ portal Chat page       ── /api/chat (SSE) ────►├── Gemini te
                                                ├─► modules/media     Jellyfin + Apple TV
                                                ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► modules/travel    driving time with traffic (TomTom)
+                                               ├─► modules/spotify   Spotify search and playlists (OAuth)
                                                ├─► modules/calendar  iCloud calendar (CalDAV), Work calendar (intake)
                                                ├─► modules/sonos     Sonos speakers via Home Assistant
                                                ├─► MCP servers       configured in the portal (HTTP)
@@ -30,6 +31,7 @@ The repo is a pnpm workspace:
 | `@friday/module-media` | `modules/media` | Jellyfin library and Apple TV (Infuse) playback via Home Assistant |
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, `brain_recall_conversations`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
+| `@friday/module-spotify` | `modules/spotify` | `search_spotify` and `list_spotify_playlists` through the Spotify connection (see [Spotify](#spotify)) |
 | `@friday/module-calendar` | `modules/calendar` | The iCloud calendar over CalDAV (list, create, and confirmed edits/deletes with undo) plus a read-only Work calendar from the intake, today's agenda in the prompt, and the `/m/calendar` page (see [Calendar](#calendar-icloud-and-work)) |
 | `@friday/module-sonos` | `modules/sonos` | Spotify playback, multi-room grouping and volume on the Sonos speakers via Home Assistant (see [Sonos](#sonos-via-home-assistant)) |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
@@ -419,6 +421,21 @@ Setup: the Sonos integration in Home Assistant, with each speaker in its area. T
 - Place lookups are cached for 24 hours (a lookup that found nothing for 10 minutes); routes never are.
 
 Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
+
+## Spotify
+
+`modules/spotify` (ported from Jarvis) has two tools on voice and chat:
+
+- `search_spotify` (`query`): up to 10 tracks (name, artist, album, URI), artists (name, URI) and albums (name, artist, year, URI). It finds things and their URIs; it doesn't play anything.
+- `list_spotify_playlists`: up to 50 of your playlists, your own and followed ones, with owner, track count and URI.
+
+The module has no configuration keys. It requests the `spotify` connection (scopes `playlist-read-private` and `playlist-read-collaborative`) and loads whether or not that is set up; until it is, the tools answer with what to do. Setup:
+
+1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) with the Web API. Add the redirect URI from Settings > Connections > Spotify: `https://friday.thewhite.nl/api/oauth/spotify/callback` in production, `http://127.0.0.1:<port>/api/oauth/spotify/callback` locally (Spotify refuses `localhost`).
+2. A new app is in development mode: add your own Spotify account under the app's *Users and Access*, or Spotify answers 403.
+3. In Settings > Connections, open Spotify, enter the app's client id and secret, `Save`, turn on the grant for `spotify`, and `Connect`.
+
+Spotify errors are explained in the tool's answer: 401 means reconnect, 403 a missing permission or an account the app doesn't allow, 429 a rate limit (with the wait Spotify asked for). Requests time out after 10 seconds. The token is never logged or returned.
 
 ## Calendar (iCloud and Work)
 

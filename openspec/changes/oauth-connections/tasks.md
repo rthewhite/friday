@@ -30,9 +30,9 @@
 
 ## 6. Spotify module
 
-- [ ] 6.1 Create `modules/spotify` (`@friday/module-spotify`, modelled on `modules/travel`): the manifest with the `spotify` request and its two scopes, `src/spotify.ts` with an injectable `fetch`, a 10 s timeout and the status errors, and add it to `packages/core/src/modules.ts` after `travel`. Before mapping, check `/v1/search` and `/v1/me/playlists` and their fields against Spotify's current Web API reference. Verify with `modules/spotify/test/spotify.test.ts` on a fake fetch: 401, 403 with Spotify's message, 429 with `Retry-After: 30`, 500 and a timeout each give the spec's message, and the token is never in a message
-- [ ] 6.2 Add `search_spotify` and `list_spotify_playlists` with the spec's result shapes, the empty-query refusal and the `OAuthError` message passed through. Verify with `modules/spotify/test/tools.test.ts` through `createTestHost` with `oauth: { spotify: ... }`: the Radiohead search, nothing found, an empty query not calling Spotify, 3 playlists, `not_granted` giving the grant message, and the module loading without a token
-- [ ] 6.3 Add the Spotify module (tools, the Spotify app to create in development mode, its redirect URI) to the README and the `openspec/config.yaml` context. Verify by reading both against the specs
+- [x] 6.1 Create `modules/spotify` (`@friday/module-spotify`, modelled on `modules/travel`): the manifest with the `spotify` request and its two scopes, `src/spotify.ts` with an injectable `fetch`, a 10 s timeout and the status errors, and add it to `packages/core/src/modules.ts` after `travel`. Before mapping, check `/v1/search` and `/v1/me/playlists` and their fields against Spotify's current Web API reference. Verify with `modules/spotify/test/spotify.test.ts` on a fake fetch: 401, 403 with Spotify's message, 429 with `Retry-After: 30`, 500 and a timeout each give the spec's message, and the token is never in a message
+- [x] 6.2 Add `search_spotify` and `list_spotify_playlists` with the spec's result shapes, the empty-query refusal and the `OAuthError` message passed through. Verify with `modules/spotify/test/tools.test.ts` through `createTestHost` with `oauth: { spotify: ... }`: the Radiohead search, nothing found, an empty query not calling Spotify, 3 playlists, `not_granted` giving the grant message, and the module loading without a token
+- [x] 6.3 Add the Spotify module (tools, the Spotify app to create in development mode, its redirect URI) to the README and the `openspec/config.yaml` context. Verify by reading both against the specs
 
 ## 7. End to end
 

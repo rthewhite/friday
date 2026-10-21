@@ -93,6 +93,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  modules/spotify:
+    dependencies:
+      '@friday/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   modules/travel:
     dependencies:
       '@friday/sdk':
@@ -116,6 +122,9 @@ importers:
       '@friday/module-sonos':
         specifier: workspace:*
         version: link:../../modules/sonos
+      '@friday/module-spotify':
+        specifier: workspace:*
+        version: link:../../modules/spotify
       '@friday/module-travel':
         specifier: workspace:*
         version: link:../../modules/travel

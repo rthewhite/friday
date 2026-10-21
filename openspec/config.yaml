@@ -57,7 +57,13 @@ context: |
   episode/show URIs or open.spotify.com links, artists refused; the named speakers become exactly one group via
   unjoin/join, home-theatre model leads; play_media enqueue replace then add), sonos_pause/resume/stop (once per group
   leader), sonos_set_volume (per speaker), sonos_ungroup; actions SILENT, a partly failed queue WHEN_IDLE. Spotify
-  search is not here: the model chains a search tool's URIs into sonos_play.
+  search is not here: the model chains search_spotify's URIs into sonos_play.
+  Spotify (modules/spotify, id spotify, no config keys): manifest oauth request for provider spotify (playlist-read-private,
+  playlist-read-collaborative); search_spotify (/v1/search, track,artist,album, limit 10 = Spotify's max; compact
+  name/artist/album/year/uri) and list_spotify_playlists (/v1/me/playlists?limit=50; count from `items.total`, the
+  deprecated `tracks.total` as fallback); ctx.oauth.token on every call, OAuthError message passed on as the tool's
+  error; src/spotify.ts client over injectable fetch, 10 s timeout, SpotifyError per status (401 reconnect, 403 scope
+  or development-mode allowlist, 429 Retry-After, else unavailable), token never in messages.
   Calendar: modules/calendar (id calendar) has two optional sources and loads when at least one has both keys
   (checked in init). The Work calendar (src/work.ts, src/intake.ts): INTAKE_URL + secret INTAKE_KEY; the
   calendar/refresh job POSTs {"subject":"calendar"} with a bearer key (redirects refused, 30 s) to the homelab intake,
