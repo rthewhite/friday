@@ -73,7 +73,7 @@ export function defineSpotifyTools(ctx: ModuleContext, get: SpotifyGet): void {
     name: "search_spotify",
     description:
       "Search Spotify for tracks, artists and albums, returning their names and Spotify URIs. " +
-      "For finding things and their URIs only: this tool cannot play music.",
+      "For finding things and their URIs only: this tool does not play music. To play something, pass its URI to a playback tool.",
     parameters: {
       type: Type.OBJECT,
       properties: { query: { type: Type.STRING, description: "What to look for: a song, artist or album name" } },

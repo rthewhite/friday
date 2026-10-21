@@ -409,7 +409,7 @@ The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 
 Speakers are named by room ("Bedroom"), name or entity id, matched without regard to case or punctuation. A room means every Sonos speaker in it that is online (an offline one doesn't block the rest), accents don't matter ("Kuche" finds "Küche"), and a voice device's own area works too, so "play this here" needs no list call first. The speaker list is read from Home Assistant on every call with one template request (`POST /api/template`), so groups and states are never stale. Only `media_player` entities of the `sonos` integration count: Home Assistant group entities and Sonos devices from other integrations are left out. Successful actions are `SILENT`, so Friday doesn't talk over the music.
 
-Setup: the Sonos integration in Home Assistant, with each speaker in its area. The module uses the same `HA_URL` and `HA_TOKEN` as `media`. Set them globally (Settings > Configuration, global scope, or the environment) so both modules see them. The module is `failed` until both are set; leave it out with `FRIDAY_MODULES` if you don't want it. There is no Spotify search here yet: the model passes URIs it has, e.g. from a Spotify module's search.
+Setup: the Sonos integration in Home Assistant, with each speaker in its area. The module uses the same `HA_URL` and `HA_TOKEN` as `media`. Set them globally (Settings > Configuration, global scope, or the environment) so both modules see them. The module is `failed` until both are set; leave it out with `FRIDAY_MODULES` if you don't want it. There is no Spotify search here: the model passes URIs it has, typically from [`search_spotify`](#spotify) or `list_spotify_playlists`.
 
 ## Travel time (TomTom)
 
