@@ -9,5 +9,6 @@ import media from "@friday/module-media";
 import brain from "@friday/module-brain";
 import travel from "@friday/module-travel";
 import calendar from "@friday/module-calendar";
+import sonos from "@friday/module-sonos";
 
-export const modules: FridayModule[] = [builtin, media, brain, travel, calendar];
+export const modules: FridayModule[] = [builtin, media, brain, travel, calendar, sonos];

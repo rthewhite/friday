@@ -13,6 +13,7 @@ portal Chat page       ── /api/chat (SSE) ────►├── Gemini te
                                                ├─► modules/brain     long-term memory (pages, profile)
                                                ├─► modules/travel    driving time with traffic (TomTom)
                                                ├─► modules/calendar  iCloud calendar (CalDAV), Work calendar (intake)
+                                               ├─► modules/sonos     Sonos speakers via Home Assistant
                                                ├─► MCP servers       configured in the portal (HTTP)
                                                └─◄ remote modules    dial in over /ws/modules (e.g. remote/simracing)
 ```
@@ -30,6 +31,7 @@ The repo is a pnpm workspace:
 | `@friday/module-brain` | `modules/brain` | Long-term memory: `brain_remember`, `brain_recall`, `brain_recall_conversations`, prompt context and the `/m/brain` page (see [Memory](#memory)) |
 | `@friday/module-travel` | `modules/travel` | `get_travel_time`: driving time with live or predicted traffic via TomTom (see [Travel time](#travel-time-tomtom)) |
 | `@friday/module-calendar` | `modules/calendar` | The iCloud calendar over CalDAV (list, create, and confirmed edits/deletes with undo) plus a read-only Work calendar from the intake, today's agenda in the prompt, and the `/m/calendar` page (see [Calendar](#calendar-icloud-and-work)) |
+| `@friday/module-sonos` | `modules/sonos` | Spotify playback, multi-room grouping and volume on the Sonos speakers via Home Assistant (see [Sonos](#sonos-via-home-assistant)) |
 | `@friday/remote-simracing` | `remote/simracing` | Remote module for the gaming PC (mock telemetry for now); not part of the image |
 
 ## Run
@@ -322,6 +324,20 @@ Setup:
 3. Infuse 7.6.2 or later on the Apple TV. Playback uses `infuse://x-callback-url/play?url=<jellyfin stream url>`; the Apple TV must be able to reach `JELLYFIN_URL` (override with `JELLYFIN_PUBLIC_URL`).
 
 The stream URL embeds the Jellyfin API key, so keep this on your LAN.
+
+## Sonos (via Home Assistant)
+
+`modules/sonos` plays Spotify music on the Sonos speakers, groups them for multi-room playback and sets their volume, all through Home Assistant's Sonos integration. Friday never talks to the speakers itself, so it needs no host networking or discovery. Tools, on voice and chat:
+
+- `sonos_list_speakers`: every speaker with its room (Home Assistant area), model, state, volume, group and what is playing.
+- `sonos_play`: `speakers` plus `uris`, Spotify track, album, playlist, episode or show URIs or `open.spotify.com` links. The first replaces the queue and the rest are added after it. The speakers named become exactly one group: a home theatre (Arc, Beam, Ray, Playbar, ...) leads when one is named, and speakers that weren't named leave the group. Artist URIs are refused. Play the artist's tracks, an album or a playlist instead.
+- `sonos_pause`, `sonos_resume`, `sonos_stop`: sent to each named speaker's group leader, so they act on the whole group.
+- `sonos_set_volume` (0-100): per speaker, also when grouped.
+- `sonos_ungroup`: the named speakers, or every group when none are named.
+
+Speakers are named by room ("Bedroom"), name or entity id, matched without regard to case or punctuation. A room means every Sonos speaker in it that is online (an offline one doesn't block the rest), accents don't matter ("Kuche" finds "Küche"), and a voice device's own area works too, so "play this here" needs no list call first. The speaker list is read from Home Assistant on every call with one template request (`POST /api/template`), so groups and states are never stale. Only `media_player` entities of the `sonos` integration count: Home Assistant group entities and Sonos devices from other integrations are left out. Successful actions are `SILENT`, so Friday doesn't talk over the music.
+
+Setup: the Sonos integration in Home Assistant, with each speaker in its area. The module uses the same `HA_URL` and `HA_TOKEN` as `media`. Set them globally (Settings > Configuration, global scope, or the environment) so both modules see them. The module is `failed` until both are set; leave it out with `FRIDAY_MODULES` if you don't want it. There is no Spotify search here yet: the model passes URIs it has, e.g. from a Spotify module's search.
 
 ## Travel time (TomTom)
 
