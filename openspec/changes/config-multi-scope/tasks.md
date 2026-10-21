@@ -42,7 +42,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 Update the README configuration paragraph (scope one value to one module, several modules or global; empty value copies a stored one) and the Sonos setup line (store `HA_URL`/`HA_TOKEN` for `media` and `sonos`, or globally). Also update the `.env.example` HA comment and the scope description in the `openspec/config.yaml` context (`defaultScopes`, `savePlan`, `PUT { from }`). Verify by reading the diff and running `pnpm --filter @friday/core test`, which checks `.env.example`.
+- [x] 3.1 Update the README configuration paragraph (scope one value to one module, several modules or global; empty value copies a stored one) and the Sonos setup line (store `HA_URL`/`HA_TOKEN` for `media` and `sonos`, or globally). Also update the `.env.example` HA comment and the scope description in the `openspec/config.yaml` context (`defaultScopes`, `savePlan`, `PUT { from }`). Verify by reading the diff and running `pnpm --filter @friday/core test`, which checks `.env.example`.
 
 ## 4. Integration
 
