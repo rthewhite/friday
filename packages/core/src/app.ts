@@ -288,17 +288,28 @@ export function createApp(deps: AppDeps) {
     .add("PUT", "/api/config/:scope/:key", async (req, res, { scope, key }) => {
       if (!deps.configStore) return sendJson(res, { error: "no configuration store" }, 503);
       if (scope !== GLOBAL_SCOPE && scope !== CORE_ID && !deps.host.manifests().some((m) => m.manifest.id === scope)) return sendJson(res, { error: `unknown scope "${scope}"` }, 404);
-      let body: { value?: unknown; secret?: unknown };
+      let body: { value?: unknown; secret?: unknown; from?: unknown };
       try {
         body = JSON.parse((await readBody(req)) || "{}");
       } catch {
         return sendJson(res, { error: "invalid JSON" }, 400);
       }
-      if (typeof body.value !== "string" || !body.value) return sendJson(res, { error: "value must be a non-empty string" }, 400);
-      // A key any module declares secret is always stored encrypted; the request cannot downgrade it.
-      const secret = isDeclaredSecret(deps.host, key) || body.secret === true;
+      if ((body.value === undefined) === (body.from === undefined)) return sendJson(res, { error: "send either value or from" }, 400);
       try {
-        deps.configStore.set(scope, key, body.value, { secret });
+        if (body.from !== undefined) {
+          // Copy the value stored in another scope; it never passes through the request or response.
+          if (typeof body.from !== "string" || !body.from) return sendJson(res, { error: "from must be a non-empty string" }, 400);
+          const source = deps.configStore.info(body.from, key);
+          if (!source) return sendJson(res, { error: `${key} is not stored for "${body.from}"` }, 404);
+          // The copy is never weaker than its source or the declaration.
+          const secret = isDeclaredSecret(deps.host, key) || source.secret;
+          if (deps.configStore.copy(body.from, scope, key, { secret }) === "unreadable") return sendJson(res, { error: `${body.from}/${key} cannot be read (wrong or missing FRIDAY_MASTER_KEY); enter the value again` }, 503);
+        } else {
+          if (typeof body.value !== "string" || !body.value) return sendJson(res, { error: "value must be a non-empty string" }, 400);
+          // A key any module declares secret is always stored encrypted; the request cannot downgrade it.
+          const secret = isDeclaredSecret(deps.host, key) || body.secret === true;
+          deps.configStore.set(scope, key, body.value, { secret });
+        }
       } catch (e) {
         if (e instanceof ConfigStoreDisabled) return sendJson(res, { error: e.message }, 503);
         throw e;

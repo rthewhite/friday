@@ -2,12 +2,12 @@
 
 ## 1. Copy a stored value on the server
 
-- [ ] 1.1 Add `ConfigStore.copy(from, to, key, { secret })` in `packages/core/src/secrets/config-store.ts`. It reads the source through `get` (decrypting under `from:key`) and writes it through `set` (re-encrypting under `to:key`). It returns `"copied"`, `"missing"` (no row) or `"unreadable"` (a row whose value can't be read). Verify with new cases in `packages/core/test/secrets.test.ts`:
+- [x] 1.1 Add `ConfigStore.copy(from, to, key, { secret })` in `packages/core/src/secrets/config-store.ts`. It reads the source through `get` (decrypting under `from:key`) and writes it through `set` (re-encrypting under `to:key`). It returns `"copied"`, `"missing"` (no row) or `"unreadable"` (a row whose value can't be read). Verify with new cases in `packages/core/test/secrets.test.ts`:
   - a secret copied to another scope reads back the same and is ciphertext on disk under the new scope;
   - a plain value copies as plain;
   - a missing source returns `"missing"`;
   - with a wrong master key, or none, a secret source returns `"unreadable"` and writes nothing.
-- [ ] 1.2 Accept `{ from }` in `PUT /api/config/:scope/:key` (`packages/core/src/app.ts`):
+- [x] 1.2 Accept `{ from }` in `PUT /api/config/:scope/:key` (`packages/core/src/app.ts`):
   - `value` and `from` together, or neither, gives 400;
   - a missing source gives 404;
   - an unreadable source gives 503 with a message;

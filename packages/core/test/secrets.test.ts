@@ -115,3 +115,41 @@ test("resolver order: module scope, global scope, env; status reports the source
   s.set("other", "NOPE", "now", { secret: false });
   assert.equal(r("NOPE"), "now");
 });
+
+test("copy: a secret is re-encrypted under the target scope, a plain value stays plain", () => {
+  const d = db();
+  const s = new ConfigStore(d, key, quiet);
+  s.set("media", "HA_TOKEN", "tok", { secret: true });
+  s.set("media", "HA_URL", "http://ha", { secret: false });
+  assert.equal(s.copy("media", "sonos", "HA_TOKEN", { secret: true }), "copied");
+  assert.equal(s.get("sonos", "HA_TOKEN"), "tok");
+  assert.deepEqual(s.info("sonos", "HA_TOKEN"), { secret: true });
+  const row = d.prepare("SELECT plaintext, ciphertext, iv, tag FROM config_values WHERE scope = 'sonos' AND key = 'HA_TOKEN'").get() as any;
+  assert.equal(row.plaintext, null);
+  assert.ok(!Buffer.from(row.ciphertext).toString().includes("tok"));
+  const e = { ciphertext: Buffer.from(row.ciphertext), iv: Buffer.from(row.iv), tag: Buffer.from(row.tag) };
+  assert.equal(decrypt(key, "sonos", "HA_TOKEN", e), "tok");
+  assert.throws(() => decrypt(key, "media", "HA_TOKEN", e));
+  assert.equal(s.copy("media", "sonos", "HA_URL", { secret: false }), "copied");
+  assert.deepEqual(s.info("sonos", "HA_URL"), { secret: false });
+  assert.equal(s.get("sonos", "HA_URL"), "http://ha");
+  // the source is untouched
+  assert.equal(s.get("media", "HA_TOKEN"), "tok");
+});
+
+test("copy: a missing source is reported and writes nothing", () => {
+  const s = new ConfigStore(db(), key, quiet);
+  assert.equal(s.copy("brain", "sonos", "HA_TOKEN", { secret: true }), "missing");
+  assert.equal(s.info("sonos", "HA_TOKEN"), undefined);
+});
+
+test("copy: a secret that cannot be read (wrong or no master key) is reported and writes nothing", () => {
+  const d = db();
+  new ConfigStore(d, key, quiet).set("media", "HA_TOKEN", "tok", { secret: true });
+  const wrong = new ConfigStore(d, randomBytes(32), quiet);
+  assert.equal(wrong.copy("media", "sonos", "HA_TOKEN", { secret: true }), "unreadable");
+  assert.equal(wrong.info("sonos", "HA_TOKEN"), undefined);
+  const none = new ConfigStore(d, undefined, quiet);
+  assert.equal(none.copy("media", "sonos", "HA_TOKEN", { secret: true }), "unreadable");
+  assert.equal(none.info("sonos", "HA_TOKEN"), undefined);
+});
