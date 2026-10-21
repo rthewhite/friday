@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
-import { defaultScope } from "../../lib/config-scope.js";
+import { defaultScopes, savePlan, toggleScope } from "../../lib/config-scope.js";
 import { ownCopies, scopeSummary, strayCopies } from "../../lib/config-stored.js";
 import McpServersTab from "./McpServersTab.vue";
 
@@ -72,19 +72,20 @@ const open = ref(false);
 const selected = ref<Entry | null>(null);
 /** Adding a new global value: the key is editable. */
 const adding = ref(false);
-const draft = ref({ key: "", value: "", scope: "global" });
+/** `scopes`: every scope `Save` writes to (global, or one or more requesters). */
+const draft = ref({ key: "", value: "", scopes: ["global"] });
 
 function openEntry(e: Entry) {
   selected.value = e;
   adding.value = false;
-  draft.value = { key: e.key, value: e.secret ? "" : (e.value ?? ""), scope: defaultScope(e) };
+  draft.value = { key: e.key, value: e.secret ? "" : (e.value ?? ""), scopes: defaultScopes(e) };
   open.value = true;
   router.replace({ query: { ...route.query, key: e.key } });
 }
 function openAdd() {
   selected.value = null;
   adding.value = true;
-  draft.value = { key: "", value: "", scope: "global" };
+  draft.value = { key: "", value: "", scopes: ["global"] };
   open.value = true;
 }
 function openFromQuery() {
@@ -96,25 +97,55 @@ watch(open, (v) => { if (!v && route.query.key) router.replace({ query: { ...rou
 watch(() => route.query.key, (k) => { if (k && !open.value) openFromQuery(); });
 
 const scopeOptions = computed(() => [...(selected.value?.modules.map((m) => m.id) ?? []), "global"]);
+const toggle = (scope: string) => { draft.value.scopes = toggleScope(scopeOptions.value, draft.value.scopes, scope); };
 const hasGlobal = computed(() => selected.value?.stored?.some((s) => s.scope === "global") === true);
+const selectsGlobal = computed(() => draft.value.scopes.includes("global"));
+const selectsOnlyCore = computed(() => draft.value.scopes.length === 1 && draft.value.scopes[0] === "core");
 // Core is not a reloadable module: its keys apply to the next voice session and model call.
-const canReload = computed(() => draft.value.scope !== "global" && draft.value.scope !== "core");
+const reloadable = computed(() => draft.value.scopes.filter((s) => s !== "global" && s !== "core"));
 const isSecret = computed(() => (adding.value ? tab.value === "secrets" : selected.value?.secret === true));
+/** Which scopes a failed save reached, shown in the drawer (the page notice sits behind it). */
+const saveError = ref<string | null>(null);
+watch(open, (v) => { if (v) saveError.value = null; });
+const plan = computed(() => (draft.value.key.trim() ? savePlan(adding.value ? null : selected.value, draft.value.scopes, draft.value.value) : null));
 
 async function save(reload: boolean) {
   const key = draft.value.key.trim();
-  if (!key || !draft.value.value) return;
+  const p = plan.value;
+  if (!key || !p) return;
+  saveError.value = null;
+  const path = (scope: string) => `/api/config/${encodeURIComponent(scope)}/${encodeURIComponent(key)}`;
   await run(async () => {
-    await api(`/api/config/${encodeURIComponent(draft.value.scope)}/${encodeURIComponent(key)}`, { method: "PUT", json: { value: draft.value.value, secret: isSecret.value } });
-    if (reload && canReload.value) {
-      const m = await api<{ status: string; error?: string }>(`/api/modules/${draft.value.scope}/reload`, { method: "POST" });
-      notice.value = m.status === "loaded" ? `${key} saved, ${draft.value.scope} reloaded` : `${key} saved, but ${draft.value.scope} is ${m.status}: ${m.error ?? ""}`;
+    // One PUT per scope, in order; stop at the first failure and say which scopes were saved.
+    const saved: string[] = [];
+    for (const w of p.writes) {
+      try {
+        await api(path(w.scope), { method: "PUT", json: "from" in w ? { from: w.from } : { value: w.value, secret: isSecret.value } });
+      } catch (e) {
+        const why = e instanceof Error ? e.message : String(e);
+        const rest = p.writes.slice(saved.length + 1).map((x) => x.scope);
+        saveError.value = `${saved.length ? `Saved for ${saved.join(", ")}. ` : ""}Failed for ${w.scope}: ${why}${rest.length ? `. Not tried for ${rest.join(", ")}` : ""}`;
+        throw new Error(`${key}: ${saveError.value}`);
+      }
+      saved.push(w.scope);
+    }
+    const what = `${key} ${p.source ? `copied from ${p.source} to` : "saved for"} ${saved.join(", ")}`;
+    if (reload && reloadable.value.length) {
+      const results: string[] = [];
+      for (const id of reloadable.value) {
+        const m = await api<{ status: string; error?: string }>(`/api/modules/${encodeURIComponent(id)}/reload`, { method: "POST" });
+        results.push(m.status === "loaded" ? `${id} reloaded` : `${id} is ${m.status}: ${m.error ?? ""}`);
+      }
+      notice.value = `${what}; ${results.join("; ")}`;
       await refreshModules();
     } else {
-      notice.value = `${key} saved`;
+      notice.value = what;
     }
     open.value = false;
   });
+  // After a partial save the drawer stays open; plan the next try against what is stored now.
+  const fresh = selected.value && entries.value.find((x) => x.key === selected.value!.key);
+  if (open.value && fresh) selected.value = fresh;
 }
 /** Clear one stored copy; the others (and the environment) stay. The drawer stays open on the refreshed entry. */
 async function clear(scope: string) {
@@ -127,7 +158,7 @@ async function clear(scope: string) {
   const fresh = entries.value.find((x) => x.key === e.key);
   if (fresh) {
     selected.value = fresh;
-    if (draft.value.scope === scope) draft.value.scope = defaultScope(fresh);
+    draft.value.scopes = defaultScopes(fresh);
   }
 }
 async function run(f: () => Promise<void>) {
@@ -205,23 +236,29 @@ async function run(f: () => Promise<void>) {
           </div>
         </div>
         <Input v-if="adding" v-model="draft.key" label="Key" placeholder="MY_SETTING" />
-        <Input v-model="draft.value" :type="isSecret ? 'password' : 'text'" label="Value" :placeholder="isSecret ? 'Enter a new value' : ''" />
-        <label class="flex flex-col gap-1 text-sm">
+        <Input v-model="draft.value" :type="isSecret ? 'password' : 'text'" label="Value" :placeholder="isSecret ? (selected?.stored?.length ? 'Leave empty to copy the stored value' : 'Enter a new value') : ''" />
+        <div class="flex flex-col gap-1 text-sm">
           <span class="text-f-text-muted">Scope</span>
-          <select v-model="draft.scope" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent">
-            <option v-for="s in scopeOptions" :key="s" :value="s">{{ s === "global" ? "global (all modules)" : `${s} only` }}</option>
-          </select>
-        </label>
+          <div class="flex flex-wrap gap-4">
+            <label v-for="s in scopeOptions" :key="s" class="flex items-center gap-2">
+              <input type="checkbox" :checked="draft.scopes.includes(s)" class="accent-f-accent" @change="toggle(s)" />
+              <span>{{ s === "global" ? "global (all modules)" : s }}</span>
+            </label>
+          </div>
+          <p v-if="!draft.scopes.length" class="text-xs text-f-text-muted">Choose at least one.</p>
+        </div>
+        <p v-if="plan?.source" class="text-xs text-f-text-muted">Copies the value stored for {{ plan.source }} to {{ plan.writes.map((w) => w.scope).join(", ") }}.</p>
         <p v-if="isSecret" class="text-xs text-f-text-muted">Stored encrypted. Not shown again after saving.</p>
-        <p v-if="draft.scope === 'global' && selected && ownCopies(selected).length" class="text-xs text-f-warning">
+        <p v-if="selectsGlobal && selected && ownCopies(selected).length" class="text-xs text-f-warning">
           {{ ownCopies(selected).length === 1 ? `${ownCopies(selected)[0]} keeps its own value until you clear it above.` : `${ownCopies(selected).join(", ")} keep their own values until you clear them above.` }}
         </p>
-        <p v-if="draft.scope === 'core' && draft.key === 'FRIDAY_TIMEZONE'" class="text-xs text-f-text-muted">Re-plans cron jobs at once. A core-only value is not seen by modules; save it as global to reach them too.</p>
-        <p v-else-if="draft.scope === 'core'" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
+        <p v-if="draft.scopes.includes('core') && draft.key === 'FRIDAY_TIMEZONE'" class="text-xs text-f-text-muted">Re-plans cron jobs at once. A core-only value is not seen by modules; save it as global to reach them too.</p>
+        <p v-else-if="selectsOnlyCore" class="text-xs text-f-text-muted">Applies to the next voice session and model call.</p>
+        <p v-if="saveError" class="text-sm text-f-error">{{ saveError }}</p>
         <template #footer>
           <span class="flex-1"></span>
-          <Button :variant="canReload ? 'ghost' : undefined" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(false)">Save</Button>
-          <Button v-if="canReload" :disabled="busy || !draft.value || !draft.key.trim()" @click="save(true)">Save and reload {{ draft.scope }}</Button>
+          <Button :variant="reloadable.length ? 'ghost' : undefined" :disabled="busy || !plan" @click="save(false)">Save</Button>
+          <Button v-if="reloadable.length" :disabled="busy || !plan" @click="save(true)">Save and reload {{ reloadable.join(", ") }}</Button>
         </template>
       </Drawer>
     </template>

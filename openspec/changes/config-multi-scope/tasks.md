@@ -19,7 +19,7 @@
 
 ## 2. Multi-select scopes in the drawer
 
-- [ ] 2.1 In `packages/portal/src/lib/config-scope.ts`, add three helpers. Keep `defaultScope` as the nothing-stored rule:
+- [x] 2.1 In `packages/portal/src/lib/config-scope.ts`, add three helpers. Keep `defaultScope` as the nothing-stored rule:
   - `defaultScopes(entry)`: the requesters holding a copy, else `["global"]` if there's a global copy, else `[defaultScope(entry)]`;
   - `toggleScope(selected, scope)`: global and the requesters exclude each other;
   - `savePlan(entry, selected, value)`: writes with `value` or `from`, the `source`, and `null` when nothing can be saved.
@@ -30,7 +30,7 @@
   - the source fallbacks (first selected copy, then `entry.scope`, then the first stored);
   - `null` for an empty value when nothing is stored or every selected scope has a copy;
   - `null` for an empty selection.
-- [ ] 2.2 In `ConfigurationPage.vue`, replace the scope `<select>` with checkbox chips: one per requester, plus `global (all modules)`.
+- [x] 2.2 In `ConfigurationPage.vue`, replace the scope `<select>` with checkbox chips: one per requester, plus `global (all modules)`.
   - The drawer preselects with `defaultScopes`.
   - `Save` runs the `savePlan` writes in order. `Save and reload` reloads every selected module (not `global`/`core`) and is labelled with their names.
   - The "Copies the value stored for X" hint appears when the plan copies.
