@@ -496,6 +496,8 @@ test("unregister removes one job; the owner's other jobs keep running", async ()
   assert.deepEqual([x, y], [1, 3]);
   assert.deepEqual(s.list().map((j) => j.id), ["core/agent-y"]);
   assert.deepEqual(s.runNow("core/agent-x"), { status: "unknown" });
+  assert.equal(s.nextRunAt("core/agent-y"), s.list()[0].nextRunAt);
+  assert.equal(s.nextRunAt("core/agent-x"), null);
   await s.stop();
 });
 

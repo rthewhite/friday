@@ -216,9 +216,17 @@ export class AgentRunStore {
     return this.list(agent, 1)[0];
   }
 
-  /** Runs left `running` by a stop without shutdown (a crash) become failed; returns how many. */
+  /**
+   * At startup: runs left `running`, and approved actions left `approving` (their call was cut off, so it may or
+   * may not have happened), become failed. Returns how many runs and actions.
+   */
   failInterrupted(): number {
-    return Number(this.db.prepare("UPDATE agent_runs SET outcome = 'failed', error = 'interrupted by a restart', ended_at = ? WHERE outcome = 'running'").run(this.iso()).changes);
+    const at = this.iso();
+    const runs = this.db.prepare("UPDATE agent_runs SET outcome = 'failed', error = 'interrupted by a restart', ended_at = ? WHERE outcome = 'running'").run(at).changes;
+    const actions = this.db
+      .prepare("UPDATE agent_actions SET state = 'failed', error = 'interrupted by a restart; the call may or may not have happened', decided_at = ? WHERE state = 'approving'")
+      .run(at).changes;
+    return Number(runs) + Number(actions);
   }
 
   /** Delete an agent's finished runs beyond the newest KEEP_RUNS, except runs with a pending action. */

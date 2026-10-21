@@ -64,8 +64,11 @@ test("a run records its progress and outcome; runs left running fail at startup"
   assert.deepEqual([done.outcome, done.summary, done.toolCalls, done.tokens, done.conversationId, done.endedAt], ["ok", "Busy week", 3, 2000, "c-1", "2026-10-21T10:00:05.000Z"]);
 
   const stuck = runs.start({ agent: "weekly-review", trigger: "schedule" });
-  assert.equal(runs.failInterrupted(), 1);
+  const approving = runs.park({ runId: run.id, agent: "weekly-review", tool: "notify", args: {} });
+  runs.claim(approving.id);
+  assert.equal(runs.failInterrupted(), 2);
   assert.deepEqual([runs.get(stuck.id)!.outcome, runs.get(stuck.id)!.error], ["failed", "interrupted by a restart"]);
+  assert.deepEqual([runs.action(approving.id)!.state, runs.action(approving.id)!.error], ["failed", "interrupted by a restart; the call may or may not have happened"]);
   assert.deepEqual(runs.list("weekly-review").map((r) => r.id), [stuck.id, run.id]);
 });
 

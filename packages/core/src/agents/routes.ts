@@ -38,9 +38,10 @@ export function mountAgentRoutes(router: Router, api: AgentsApi | undefined): vo
         throw e;
       }
     }))
-    .add("GET", "/api/agents/tools", need((a, _req, res) =>
-      sendJson(res, { tools: a.registry.list().filter((t) => a.registry.declarations("agent").some((d) => d.name === t.name)) }),
-    ))
+    .add("GET", "/api/agents/tools", need((a, _req, res) => {
+      const offered = new Set(a.registry.declarations("agent").map((d) => d.name));
+      sendJson(res, { tools: a.registry.list().filter((t) => offered.has(t.name)) });
+    }))
     .add("GET", "/api/agents/runs/:id", need((a, _req, res, { id }) => {
       const run = a.runs.get(id);
       if (!run) return sendJson(res, { error: "unknown run" }, 404);

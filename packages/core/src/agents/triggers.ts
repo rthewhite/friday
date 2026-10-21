@@ -37,7 +37,8 @@ export class AgentTriggers {
 
   /** Register every agent's job and `run_agent`, and follow changes from now on. */
   start(): void {
-    for (const a of this.o.agents.list()) this.syncJob(a.name, a);
+    // At startup the stored due times stand, so a run missed while Friday was down catches up once.
+    for (const a of this.o.agents.list()) this.syncJob(a.name, a, { boot: true });
     this.syncTool();
     this.unsubscribe = this.o.agents.onChange((name) => {
       this.syncJob(name, this.o.agents.get(name));
@@ -52,7 +53,7 @@ export class AgentTriggers {
     this.o.registry.remove(RUN_AGENT);
   }
 
-  private syncJob(name: string, agent: StoredAgent | undefined): void {
+  private syncJob(name: string, agent: StoredAgent | undefined, o: { boot?: boolean } = {}): void {
     const before = this.scheduled.get(name);
     this.o.scheduler.unregister(jobId(name));
     this.scheduled.delete(name);
@@ -62,8 +63,9 @@ export class AgentTriggers {
       return;
     }
     if (!agent.enabled || !agent.schedule) return;
-    // A changed schedule starts afresh: the old schedule's last due time must not make the new one catch up.
-    if (before !== agent.schedule) this.o.jobs.clearState(jobId(name));
+    // An edit that changes the schedule, or enables the agent again, starts afresh: an old due time must not make
+    // the job catch up a slot of the old schedule or one missed while the agent was disabled.
+    if (!o.boot && before !== agent.schedule) this.o.jobs.clearState(jobId(name));
     try {
       this.o.scheduler.register(CORE_ID, {
         name: jobName(name),

@@ -128,8 +128,9 @@ export class AgentRuntime {
       const error = typeof result.error === "string" ? result.error : undefined;
       settled = this.o.runs.settle(actionId, error ? { state: "failed", result, error } : { state: "executed", result });
     }
-    this.log.log(`agents: action ${actionId} (${action.tool}) approved: ${settled!.state}`);
-    return { status: "ok", action: settled! };
+    // The agent (and with it the action) may have been deleted while the call ran.
+    this.log.log(`agents: action ${actionId} (${action.tool}) approved: ${settled?.state ?? "ran, but its agent was deleted meanwhile"}`);
+    return settled ? { status: "ok", action: settled } : { status: "missing" };
   }
 
   reject(actionId: string): DecideResult {
@@ -191,8 +192,12 @@ export class AgentRuntime {
           progress();
           return s.tokens >= def.budgets.maxTokens ? { kind: "tokens", message: `the token budget (${def.budgets.maxTokens}) is used up` } : undefined;
         },
-        beforeCalls: (calls, s) =>
-          s.calls + calls.length > def.budgets.maxToolCalls ? { kind: "tool_calls", message: `the tool call budget (${def.budgets.maxToolCalls}) is used up` } : undefined,
+        // The round that crossed a budget doesn't get its calls run either.
+        beforeCalls: (calls, s) => {
+          if (s.tokens > def.budgets.maxTokens) return { kind: "tokens", message: `the token budget (${def.budgets.maxTokens}) is used up` };
+          if (s.calls + calls.length > def.budgets.maxToolCalls) return { kind: "tool_calls", message: `the tool call budget (${def.budgets.maxToolCalls}) is used up` };
+          return undefined;
+        },
       });
       state = result.state;
       const { outcome } = result;

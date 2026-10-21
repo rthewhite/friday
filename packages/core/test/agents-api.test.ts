@@ -23,7 +23,7 @@ async function start(rounds: Round[] = [{ chunks: [text("Done.")] }], o: { agent
   new AgentTriggers({ agents: t.agents, runtime: t.runtime, registry: t.registry, scheduler, jobs, timezone: () => "Europe/Amsterdam", log: quiet }).start();
   const agents = o.agents === false ? undefined : {
     agents: t.agents, runs: t.runs, runtime: t.runtime, registry: t.registry,
-    nextRun: (name: string) => scheduler.list().find((j) => j.id === `core/agent-${name}`)?.nextRunAt ?? null,
+    nextRun: (name: string) => scheduler.nextRunAt(`core/agent-${name}`),
   };
   const host = new ModuleHost(t.registry, { env: {}, log: quiet });
   const server = createServer(createApp({ registry: t.registry, host, mcp: new McpSource(t.registry, undefined, { log: quiet }), webDir: "/nonexistent", conversations: t.conversations, jobs: scheduler, agents }));

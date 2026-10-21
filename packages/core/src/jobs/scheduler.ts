@@ -205,6 +205,12 @@ export class Scheduler {
     return this.jobs.has(jobId);
   }
 
+  /** A registered job's next due time, or null (unknown job, or no further due time). */
+  nextRunAt(jobId: string): string | null {
+    const due = this.jobs.get(jobId)?.nextDue;
+    return due === undefined || due === null ? null : new Date(due).toISOString();
+  }
+
   list(): JobInfo[] {
     return [...this.jobs.values()]
       .sort((a, b) => a.id.localeCompare(b.id))

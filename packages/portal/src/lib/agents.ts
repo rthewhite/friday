@@ -109,7 +109,8 @@ export function runDuration(r: Pick<AgentRun, "startedAt" | "endedAt">): string 
   const ms = Date.parse(r.endedAt) - Date.parse(r.startedAt);
   if (ms < 1000) return `${ms} ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
-  return `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
 /** The status shown for an agent: running, its last outcome, or never run. */

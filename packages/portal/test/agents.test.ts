@@ -28,6 +28,7 @@ test("status and durations of runs", () => {
   const run = { startedAt: "2026-10-21T10:00:00.000Z", endedAt: "2026-10-21T10:03:04.000Z", outcome: "budget_exceeded" as const };
   assert.equal(runDuration(run), "3 min 4 s");
   assert.equal(runDuration({ startedAt: run.startedAt, endedAt: null }), "");
+  assert.equal(runDuration({ startedAt: run.startedAt, endedAt: "2026-10-21T10:02:59.600Z" }), "3 min 0 s");
   assert.deepEqual(agentStatus({ running: null, lastRun: run as never }), { label: "budget exceeded", tone: "warning" });
   assert.deepEqual(agentStatus({ running: run as never, lastRun: null }), { label: "running", tone: "accent" });
   assert.deepEqual(agentStatus({ running: null, lastRun: null }), { label: "never run", tone: "neutral" });

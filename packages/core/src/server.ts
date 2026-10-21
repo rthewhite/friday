@@ -108,7 +108,7 @@ await mcp.load();
 const agentStore = new AgentStore(db);
 const agentRuns = new AgentRunStore(db);
 const interruptedRuns = agentRuns.failInterrupted();
-if (interruptedRuns) console.warn(`agents: ${interruptedRuns} run(s) interrupted by the last shutdown marked failed`);
+if (interruptedRuns) console.warn(`agents: ${interruptedRuns} run(s) or approved action(s) interrupted by the last shutdown marked failed`);
 const agentRuntime = new AgentRuntime({
   agents: agentStore,
   runs: agentRuns,
@@ -149,7 +149,7 @@ const chat = new ChatEngine({
 });
 
 const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs),
-  agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.list().find((j) => j.id === agentJob(name))?.nextRunAt ?? null } }));
+  agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) } }));
 attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts });
 attachDeviceWs(server, { devices, links: deviceLinks, onReport: (id, type, alert) => alerts.deviceReport(id, type, alert) });
 remote.attach(server);

@@ -73,6 +73,18 @@ test("a tool that answers with an error fails the action and keeps its result", 
   assert.deepEqual(r.status === "ok" && [r.action.state, r.action.error, r.action.result], ["failed", "branch deps/vite does not exist", { error: "branch deps/vite does not exist" }]);
 });
 
+test("approving while the agent is deleted answers missing instead of failing", async () => {
+  const { t, action } = await parked();
+  let release!: () => void;
+  t.registry.remove("github__create_pull_request");
+  t.tool("github__create_pull_request", () => new Promise((r) => (release = () => r({ url: "pr/8" }))), ["agent"]);
+  const approval = t.runtime.approve(action.id);
+  await new Promise((r) => setTimeout(r, 5));
+  t.agents.delete("security-sweep");
+  release();
+  assert.deepEqual(await approval, { status: "missing" });
+});
+
 test("a pending action older than 7 days expires and can no longer be approved", async () => {
   const { t, action } = await parked();
   t.clock.advance(ACTION_TTL_MS + 1000);

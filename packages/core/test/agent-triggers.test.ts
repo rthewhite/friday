@@ -67,6 +67,35 @@ test("changing the schedule never causes a catch-up run for the old schedule's l
   await t.scheduler.stop();
 });
 
+test("a run missed while Friday was down catches up once after the restart", async () => {
+  // Down over Sunday 18:00 (17:00 UTC); back at 19:00 UTC.
+  const t = setup(undefined, "2026-10-25T19:00:00Z");
+  t.define(weekly);
+  t.jobs.setLastDue(JOB, Date.parse("2026-10-18T17:00:00Z"));
+  t.triggers.start();
+  await t.clock.advance(30_000);
+  await settle();
+  assert.deepEqual(t.runs.list("weekly-review").map((r) => r.trigger), ["schedule"]);
+  await t.clock.advance(0);
+  assert.equal(t.jobs.runs(JOB)[0].trigger, "catch-up");
+  await t.scheduler.stop();
+});
+
+test("enabling an agent again does not catch up a slot missed while it was disabled", async () => {
+  const t = setup(undefined, "2026-10-25T12:00:00Z");
+  t.define(weekly);
+  t.triggers.start();
+  const disabled = { name: "weekly-review", description: "Sums up my week", instructions: "x", ...weekly };
+  t.agents.update(parseAgent({ ...disabled, enabled: false }));
+  await t.clock.to("2026-10-26T12:00:00Z");
+  t.agents.update(parseAgent(disabled));
+  await t.clock.advance(60_000);
+  await settle();
+  assert.deepEqual(t.runs.list("weekly-review"), []);
+  assert.equal(t.scheduler.list()[0].nextRunAt, "2026-11-01T17:00:00.000Z");
+  await t.scheduler.stop();
+});
+
 test("a due time while the agent runs from elsewhere records 'already running since'", async () => {
   const t = setup([{ waitMs: 50, chunks: [] }]);
   t.define(weekly);

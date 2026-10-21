@@ -137,6 +137,16 @@ test("token budget: once the reported tokens reach it, no further model call is 
   assert.equal(t.stream.requests.length, 1);
 });
 
+test("token budget: the calls of the round that crossed it are not run", async () => {
+  const t = agentHarness([{ chunks: [call("github__create_issue", { title: "x" })], tokens: { input: 11_000, output: 500 } }]);
+  t.tool("github__create_issue");
+  t.define({ tools: [{ pattern: "github__*", mode: "auto" }], budgets: { maxTokens: 10000 } });
+  const run = await started(t.runtime.start("weekly-review", "schedule")).done;
+  assert.deepEqual([run.outcome, run.toolCalls, run.summary], ["budget_exceeded", 0, "Stopped: the token budget (10000) is used up."]);
+  assert.deepEqual(t.calls, [], "the issue was not created");
+  assert.deepEqual((entries(t.conversations, run.conversationId!)[1] as { result: unknown }).result, { error: "not run: the token budget (10000) is used up" });
+});
+
 test("time budget: a model call still running when the minutes are up is aborted", async () => {
   const t = agentHarness([{ waitMs: Infinity }], { minuteMs: 10 });
   t.define({ budgets: { maxMinutes: 2 } });
