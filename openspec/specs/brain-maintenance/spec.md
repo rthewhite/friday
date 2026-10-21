@@ -29,6 +29,8 @@ Extraction SHALL consider the conversations that went quiet after its watermark,
 - skip, without a model call, entries whose user text totals fewer than 4 words;
 - remember how far it got and advance the watermark once the conversation has been handled.
 
+Conversations on the `agent` channel SHALL be passed over without a model call: their text comes from tools and the agent's instructions, not from the user. They SHALL NOT count toward the limit or as handled or skipped, and the watermark SHALL move past them.
+
 On a first run without a watermark, it SHALL start from the oldest retained conversation. Conversations that are active SHALL NOT be read.
 
 #### Scenario: Backlog
@@ -42,6 +44,10 @@ On a first run without a watermark, it SHALL start from the oldest retained conv
 #### Scenario: Trivial conversation
 - **WHEN** a conversation's only user entry is "pause"
 - **THEN** it is counted as skipped and no model call is made for it
+
+#### Scenario: Agent run
+- **WHEN** an agent run's conversation, whose tool results say "the user's sister is called Anouk", went quiet after the watermark
+- **THEN** no model call is made for it, no note is added, and the next run does not consider it again
 
 ### Requirement: Extraction appends notes only
 

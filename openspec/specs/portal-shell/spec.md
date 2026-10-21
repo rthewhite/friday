@@ -8,11 +8,11 @@ The browser portal for Friday: a single-page application served by core that hos
 
 ### Requirement: Shell layout and navigation
 
-The portal SHALL render a sidebar with a brand row and three sections labelled `Assistant`, `Modules` and `System`. `Assistant` SHALL contain `Talk`, `Chat` and `Conversations`; `Modules` SHALL contain the `Modules` page followed by one entry per enabled module UI ordered by `nav.order` then label; `System` SHALL contain `Configuration`, `Voice devices`, `Remote modules` and `Jobs`. Items SHALL show an icon (named icon or text fallback). The active route SHALL be highlighted, and `Chat` SHALL be highlighted on `/chat` and on every `/chat/<id>`. The shell SHALL work at widths down to 360 px by collapsing the sidebar into a menu.
+The portal SHALL render a sidebar with a brand row and three sections labelled `Assistant`, `Modules` and `System`. `Assistant` SHALL contain `Talk`, `Chat`, `Conversations` and `Agents`; `Modules` SHALL contain the `Modules` page followed by one entry per enabled module UI ordered by `nav.order` then label; `System` SHALL contain `Configuration`, `Voice devices`, `Alerts`, `Remote modules` and `Jobs`. Items SHALL show an icon (named icon or text fallback). The active route SHALL be highlighted, `Chat` SHALL be highlighted on `/chat` and on every `/chat/<id>`, and `Agents` SHALL be highlighted on `/agents` and every route under it. The shell SHALL work at widths down to 360 px by collapsing the sidebar into a menu.
 
 #### Scenario: Default navigation
 - **WHEN** the portal loads with `builtin` and `media` enabled and only `media` declaring a UI
-- **THEN** the sidebar shows `Talk`, `Chat` and `Conversations` under Assistant, `Modules` and `Media` under Modules, and `Configuration`, `Voice devices`, `Remote modules` and `Jobs` under System
+- **THEN** the sidebar shows `Talk`, `Chat`, `Conversations` and `Agents` under Assistant, `Modules` and `Media` under Modules, and `Configuration`, `Voice devices`, `Alerts`, `Remote modules` and `Jobs` under System
 
 #### Scenario: Disabled module hidden
 - **WHEN** `/api/modules` reports `media` as `disabled` or `failed`
@@ -21,6 +21,10 @@ The portal SHALL render a sidebar with a brand row and three sections labelled `
 #### Scenario: Chat thread highlighted
 - **WHEN** the user is on `/chat/<id>`
 - **THEN** the `Chat` item is highlighted
+
+#### Scenario: Agent page highlighted
+- **WHEN** the user is on an agent's page under `/agents`
+- **THEN** the `Agents` item is highlighted
 
 ### Requirement: Module UI contract
 

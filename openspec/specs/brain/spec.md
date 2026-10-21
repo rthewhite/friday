@@ -137,7 +137,7 @@ The result SHALL contain the page whose name or alias matches `entity` exactly, 
 
 ### Requirement: brain_recall_conversations searches what was said
 
-The module SHALL register a tool `brain_recall_conversations`, offered in both channels, with optional parameters `query`, `since` and `until` (dates as `YYYY-MM-DD`), and `channel` (`voice` or `chat`). Its description SHALL tell the model to use it for what was said in earlier conversations, and to use `brain_recall` for what Friday knows about people, places and projects.
+The module SHALL register a tool `brain_recall_conversations`, offered in every channel, with optional parameters `query`, `since` and `until` (dates as `YYYY-MM-DD`), and `channel` (`voice`, `chat` or `agent`). Its description SHALL tell the model to use it for what was said in earlier conversations, and to use `brain_recall` for what Friday knows about people, places and projects.
 
 The tool SHALL search conversations through `ctx.conversations.search`:
 - **Words**: the significant words of `query`, by the same rules as `brain_recall` (short words and English and Dutch stopwords dropped, at most 8 words). A non-blank `query` with no significant words SHALL return an error saying so and suggesting longer words, rather than being searched as if no query were given.
@@ -180,6 +180,10 @@ Each returned conversation SHALL carry its id, its channel, its device when know
 #### Scenario: No searchable words
 - **WHEN** the model calls `brain_recall_conversations({ query: "TV" })`
 - **THEN** the result is an error stating that the query has no searchable words, and no conversations are returned
+
+#### Scenario: What an agent reported
+- **WHEN** the user asks by voice "what did the weekly review say?" and the model calls `brain_recall_conversations({ query: "review", channel: "agent" })`
+- **THEN** the result holds the agent runs mentioning "review", with their snippets
 
 ### Requirement: Pages link to each other with double brackets
 
