@@ -23,6 +23,7 @@ import type { Env } from "@friday/sdk";
 import { CORE_ID, coreManifest } from "./core-config.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { chatRoute } from "./chat/route.js";
+import { addOAuthRoutes, type OAuthDeps } from "./oauth/routes.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -70,6 +71,8 @@ export interface AppDeps {
   agents?: AgentsApi;
   /** Called after a configuration value is stored or deleted through the API. */
   onConfigChange?: (scope: string, key: string) => void;
+  /** OAuth connections; without it `/api/oauth/connections` and the login answer 503. */
+  oauth?: OAuthDeps;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -466,6 +469,7 @@ export function createApp(deps: AppDeps) {
       if (r.status === "running") return sendJson(res, { error: "job is already running" }, 409);
       sendJson(res, { runId: r.runId }, 202);
     });
+  addOAuthRoutes(router, deps.oauth);
 
   const moduleRoute = async (req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> => {
     const m = /^\/api\/modules\/([^/]+)(\/.*)?$/.exec(url.pathname);

@@ -105,6 +105,8 @@ const httpsUrl = (v: string): boolean => {
 /** Validates an API body for `PUT /api/oauth/connections/:provider`. @throws OAuthInputError */
 export function parseConnectionInput(provider: string, body: unknown): ConnectionInput {
   if (!PROVIDER_ID.test(provider)) throw new OAuthInputError(`provider must be kebab-case, got ${JSON.stringify(provider)}`);
+  // These name /api/oauth's own paths.
+  if (provider === "connections" || provider === "providers") throw new OAuthInputError(`"${provider}" cannot be a provider id`);
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new OAuthInputError("body must be a JSON object");
   const b = body as Record<string, unknown>;
   if (typeof b.clientId !== "string" || !b.clientId.trim()) throw new OAuthInputError("clientId is required");

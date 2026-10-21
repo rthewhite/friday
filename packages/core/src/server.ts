@@ -37,6 +37,7 @@ import { CORE_ID } from "./core-config.js";
 import { OAuthStore } from "./oauth/store.js";
 import { enabledManifests, OAuthRequests } from "./oauth/requests.js";
 import { OAuthTokens } from "./oauth/tokens.js";
+import { OAuthFlow } from "./oauth/flow.js";
 import { FALLBACK_BASE, redirectUri } from "./oauth/redirect.js";
 
 const db = openDatabase(settings.dataDir);
@@ -160,7 +161,8 @@ const chat = new ChatEngine({
 });
 
 const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs),
-  agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) } }));
+  agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) },
+  oauth: { store: oauthStore, requests: oauthRequests, flow: new OAuthFlow({ store: oauthStore, requests: oauthRequests }), publicUrl } }));
 attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts });
 attachDeviceWs(server, { devices, links: deviceLinks, onReport: (id, type, alert) => alerts.deviceReport(id, type, alert) });
 remote.attach(server);

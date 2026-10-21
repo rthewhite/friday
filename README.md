@@ -314,6 +314,44 @@ llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok in=1834 out=212 think=640
 llm: [brain] gemini-flash-latest (gemini-3.8-flash) ok in=1834 out=212 think=640 41.9s (2 attempts: 429 wait 39s)
 ```
 
+## OAuth connections
+
+Services like Spotify, Google and GitHub need an OAuth login in a browser and tokens that expire. Core keeps one connection per provider in `friday.db`. The client secret and both tokens are encrypted with `FRIDAY_MASTER_KEY`, so without it connections can't be saved or used. A module asks for access in its manifest and reads a fresh access token through `ctx.oauth`:
+
+```ts
+export default defineModule({
+  manifest: {
+    id: "spotify",
+    label: "Spotify",
+    oauth: [{ provider: "spotify", scopes: ["playlist-read-private"], description: "Read your playlists" }],
+  },
+  init(ctx) {
+    ctx.defineTool({
+      name: "list_spotify_playlists",
+      description: "The user's Spotify playlists",
+      handler: async () => {
+        const token = await ctx.oauth.token("spotify"); // refreshed first when it expires within a minute
+        // ... fetch with Authorization: Bearer <token>
+      },
+    });
+  },
+});
+```
+
+- **Grants.** A request alone gets a module nothing. You grant access per module on the connection, and only granted modules get the token. Granting, revoking and connecting apply to the next `ctx.oauth.token` call without a reload, and a module loads whether or not its provider is connected. `ctx.oauth.token` rejects with an `OAuthError` (exported from `@friday/sdk`) of kind `not_connected`, `not_granted` or `refresh_failed`. Its message says what to do under Settings > Connections, so a tool can pass it on.
+- **Scopes.** Friday asks the provider for the scopes the granted modules request, plus any extra scopes you add. When a newly granted module needs a scope the stored login lacks, the connection lists it as missing and offers `Reconnect`. There is one token per provider, so a granted module can use every scope the token carries.
+- **Providers.** Every Arctic provider with a plain client-id/secret constructor is in the catalogue (`GET /api/oauth/providers`), with its quirks handled by Arctic. Anything else that speaks standard OAuth2 connects as a generic provider with its authorization and token URLs (https, PKCE). A module can name those URLs in its request to pre-fill the connection. Providers that need a domain or tenant (Auth0, GitLab, Okta, ...) connect as generic providers.
+- **Redirect URI.** `<base>/api/oauth/<provider>/callback`, where the base is `FRIDAY_PUBLIC_URL` (core key, also settable in the portal) or, unset, the address the portal is opened at. Register exactly that URI with the provider; the connection's side panel shows it.
+- **Tokens stay in core.** No HTTP endpoint returns a token or a client secret. Remote modules have no `ctx.oauth`; they bring their own credentials.
+
+The login is `GET /api/oauth/<provider>/authorize`, which redirects to the provider with a one-time state (and PKCE where the provider supports it). The provider redirects back to the callback, which checks the state against an `HttpOnly` cookie, exchanges the code and returns to the portal. A login left for more than 10 minutes, or interrupted by a restart, has to be started again. Over HTTP:
+
+```sh
+curl -s localhost:8080/api/oauth/connections                                    # connections, requests, grants, missing scopes
+curl -s -X PUT localhost:8080/api/oauth/connections/spotify -d '{"clientId":"…","clientSecret":"…"}'
+curl -s -X PUT localhost:8080/api/oauth/connections/spotify/grants/spotify      # grant; DELETE revokes
+```
+
 ## Remote modules
 
 A module does not have to run inside Friday. `runRemote` from `@friday/sdk/remote` runs the same `defineModule` on another machine, dials `ws(s)://<friday>/ws/modules`, authenticates with a key, and serves its tools over MCP on that socket. While the connection is up its tools are registered as `<id>__<tool>` and listed under `/api/modules` with status `connected`; when the process stops or the network drops, they are removed. The remote reconnects with backoff (1 s to 30 s) and only gives up when Friday rejects the key.
