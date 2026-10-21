@@ -34,6 +34,10 @@ import { AgentRunStore, AgentStore } from "./agents/store.js";
 import { AgentRuntime } from "./agents/runtime.js";
 import { AgentTriggers, jobName } from "./agents/triggers.js";
 import { CORE_ID } from "./core-config.js";
+import { OAuthStore } from "./oauth/store.js";
+import { enabledManifests, OAuthRequests } from "./oauth/requests.js";
+import { OAuthTokens } from "./oauth/tokens.js";
+import { FALLBACK_BASE, redirectUri } from "./oauth/redirect.js";
 
 const db = openDatabase(settings.dataDir);
 const masterKey = parseMasterKey(settings.masterKey);
@@ -78,8 +82,15 @@ const llm = new LlmService({
   timeoutMs: settings.llmTimeoutMs,
   maxRetryWaitMs: settings.llmMaxRetryWaitMs,
 });
+// OAuth connections: modules request providers in their manifests, the user grants each module in the portal, and
+// ctx.oauth.token hands out fresh access tokens (the only way a token leaves core).
+const oauthStore = new OAuthStore(db, masterKey);
+const oauthRequests = new OAuthRequests(() => enabledManifests(host));
+const publicUrl = () => coreKey("FRIDAY_PUBLIC_URL");
+const oauthTokens = new OAuthTokens({ store: oauthStore, requests: oauthRequests, redirectUri: (p) => redirectUri(publicUrl() ?? FALLBACK_BASE, p) });
 const host = new ModuleHost(registry, {
   enabled: process.env.FRIDAY_MODULES,
+  oauth: (id) => oauthTokens.forModule(id),
   resolve: createResolver(configStore, process.env),
   storage: (id) => new SqliteModuleStorage(db, id),
   jobs: (id) => jobs.forOwner(id),

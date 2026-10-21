@@ -18,6 +18,7 @@ export const coreManifest: ModuleManifest = {
   config: [
     { key: "GEMINI_API_KEY", secret: true, required: true, description: "Gemini API key for voice sessions and text generation" },
     { key: "FRIDAY_TIMEZONE", description: `IANA zone for cron job schedules (default ${DEFAULT_TIME_ZONE})` },
+    { key: "FRIDAY_PUBLIC_URL", description: "Base URL OAuth redirect URIs are built from, e.g. https://friday.thewhite.nl (default: the address the portal is opened at)" },
   ],
 };
 
