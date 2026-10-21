@@ -39,6 +39,8 @@ If the session is already in a worktree for a *different* change, stop and ask. 
 
 ### 4. Quality gate (before saying a change is done)
 
+When the last task is finished, or only tasks remain that need the user (device tests at home, for example), go straight on to this gate **without asking**. Don't stop at the end of `/opsx:apply`. Report to the user only once the gate has run and its findings are fixed.
+
 Run all of these in the worktree, in order, and fix what they find:
 
 1. `pnpm -r build && pnpm -r typecheck && pnpm -r test`. This is the same as CI; it must be green.
