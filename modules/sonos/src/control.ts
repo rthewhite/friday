@@ -62,3 +62,52 @@ export async function play(ha: HaClient, speakers: Speaker[], uris: string[]): P
   if (!failed.length) return { ...result, scheduling: "SILENT" };
   return { ...result, warning: `Playing, but these could not be added to the queue: ${failed.join(", ")}`, scheduling: "WHEN_IDLE" };
 }
+
+export type Transport = "pause" | "resume" | "stop";
+
+const TRANSPORT: Record<Transport, { service: string; key: string }> = {
+  pause: { service: "media_pause", key: "paused" },
+  resume: { service: "media_play", key: "resumed" },
+  stop: { service: "media_stop", key: "stopped" },
+};
+
+/**
+ * Pause, resume or stop: once per distinct group, sent to its leader. A Sonos group plays as one,
+ * so the result names every speaker in the groups affected.
+ */
+export async function transport(ha: HaClient, all: Speaker[], speakers: Speaker[], action: Transport): Promise<ToolResult> {
+  const leaders = [...new Set(speakers.map((s) => s.members[0]))];
+  const affected: string[] = [];
+  for (const leader of leaders) {
+    await ha.call("media_player", TRANSPORT[action].service, { entity_id: leader });
+    const members = all.find((s) => s.entity === leader)?.members ?? [leader];
+    for (const e of members) affected.push(all.find((s) => s.entity === e)?.name ?? e);
+  }
+  return { [TRANSPORT[action].key]: [...new Set(affected)], scheduling: "SILENT" };
+}
+
+/** Check a volume before anything changes: 0-100, rounded to a whole number. */
+export function checkVolume(volume: unknown): number {
+  if (typeof volume !== "number" || !Number.isFinite(volume) || volume < 0 || volume > 100) {
+    throw new Error("Volume must be a number from 0 to 100");
+  }
+  return Math.round(volume);
+}
+
+/** Set the volume on each speaker individually, also when they are grouped. */
+export async function setVolume(ha: HaClient, speakers: Speaker[], volume: number): Promise<ToolResult> {
+  for (const s of speakers) await ha.call("media_player", "volume_set", { entity_id: s.entity, volume_level: volume / 100 });
+  return { volume, speakers: speakers.map((s) => s.name), scheduling: "SILENT" };
+}
+
+/**
+ * Take speakers out of their groups: the named ones that are grouped, or, with none named, every
+ * member that isn't a leader, so each speaker ends up on its own.
+ */
+export async function ungroup(ha: HaClient, all: Speaker[], named: Speaker[] | undefined): Promise<ToolResult> {
+  const leaving = named
+    ? named.filter((s) => s.members.length > 1)
+    : all.filter((s) => s.members.length > 1 && s.members[0] !== s.entity);
+  if (leaving.length) await unjoin(ha, leaving.map((s) => s.entity));
+  return { ungrouped: leaving.map((s) => s.name), scheduling: "SILENT" };
+}

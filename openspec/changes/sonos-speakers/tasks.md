@@ -17,9 +17,9 @@
 
 ## 4. Transport, volume and ungroup
 
-- [ ] 4.1 Define `sonos_pause`, `sonos_resume` and `sonos_stop`: one `media_pause`/`media_play`/`media_stop` per distinct group leader; the result lists every speaker in the affected groups; `SILENT`. Verify with `modules/sonos/test/transport.test.ts`: the pause-a-member, two-speakers-one-group and resume scenarios
-- [ ] 4.2 Define `sonos_set_volume` (`volume_set` per speaker with `volume_level` = volume/100, rounded, 0-100 checked first) and `sonos_ungroup` (named grouped speakers, or every non-leader member; nothing to do gives `{ ungrouped: [] }` with no service call). Verify with `modules/sonos/test/volume-ungroup.test.ts`: the grouped-volume, out-of-range, ungroup-everything and nothing-grouped scenarios, plus ungrouping one named member
-- [ ] 4.3 Write the tool descriptions (speakers take room/area names including the device's own area; Spotify kinds accepted, never artists; pause/stop act on the whole group; volume is per speaker). Verify with `modules/sonos/test/tools.test.ts`: the module registers exactly the seven tools in spec order, and the `sonos_play` description mentions artists not being accepted
+- [x] 4.1 Define `sonos_pause`, `sonos_resume` and `sonos_stop`: one `media_pause`/`media_play`/`media_stop` per distinct group leader; the result lists every speaker in the affected groups; `SILENT`. Verify with `modules/sonos/test/transport.test.ts`: the pause-a-member, two-speakers-one-group and resume scenarios
+- [x] 4.2 Define `sonos_set_volume` (`volume_set` per speaker with `volume_level` = volume/100, rounded, 0-100 checked first) and `sonos_ungroup` (named grouped speakers, or every non-leader member; nothing to do gives `{ ungrouped: [] }` with no service call). Verify with `modules/sonos/test/volume-ungroup.test.ts`: the grouped-volume, out-of-range, ungroup-everything and nothing-grouped scenarios, plus ungrouping one named member
+- [x] 4.3 Write the tool descriptions (speakers take room/area names including the device's own area; Spotify kinds accepted, never artists; pause/stop act on the whole group; volume is per speaker). Verify with `modules/sonos/test/tools.test.ts`: the module registers exactly the seven tools in spec order, and the `sonos_play` description mentions artists not being accepted
 
 ## 5. Docs and context
 

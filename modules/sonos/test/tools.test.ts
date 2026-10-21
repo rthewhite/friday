@@ -37,6 +37,20 @@ test("sonos_list_speakers returns an empty list when the integration has no enti
   assert.deepEqual((await h.call("sonos_list_speakers")).result, { speakers: [] });
 });
 
+test("the module registers exactly the seven sonos tools", async () => {
+  const h = await createTestHost(createSonosModule({ fetch: fakeHa().fetch }), { env });
+  assert.deepEqual(h.tools, ["sonos_list_speakers", "sonos_play", "sonos_pause", "sonos_resume", "sonos_stop", "sonos_set_volume", "sonos_ungroup"]);
+});
+
+test("the descriptions say artists aren't accepted, rooms work, and pause acts on the group", async () => {
+  const h = await createTestHost(createSonosModule({ fetch: fakeHa().fetch }), { env });
+  const decl = (name: string) => h.registry.declarations("voice").find((d) => d.name === name)!;
+  assert.match(decl("sonos_play").description, /Artist URIs are not accepted/);
+  assert.match(decl("sonos_pause").description, /whole group/);
+  assert.match(decl("sonos_set_volume").description, /individually/);
+  assert.match(JSON.stringify(decl("sonos_play").parameters), /the room you are in/);
+});
+
 test("the tools are offered on voice and chat", async () => {
   const h = await createTestHost(createSonosModule({ fetch: fakeHa().fetch }), { env });
   assert.deepEqual(h.toolsIn("voice"), h.tools);
