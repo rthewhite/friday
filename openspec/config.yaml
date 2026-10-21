@@ -148,7 +148,7 @@ context: |
   the key, global first, plain values only, so module overrides are visible and clearable) and the portal's Settings >
   Configuration edits them; POST /api/modules/:id/reload re-initializes a module. Remote module keys are issued
   in the portal (/api/keys, hashed in module_keys) with FRIDAY_MODULE_KEYS as fallback (CompositeKeyStore).
-  OAuth (packages/core/src/oauth/, migration 9: oauth_connections + oauth_grants): one connection per provider, client
+  OAuth (packages/core/src/oauth/, migration 10: oauth_connections + oauth_grants): one connection per provider, client
   secret and tokens AES-256-GCM sealed (AAD oauth:<provider>/<field>), client id plain; a changed URL needs the client
   secret again; catalogue clients get a null secret when none is stored (Arctic's public client). A manifest's `oauth` requests
   (provider, scopes, description, generic authUrl/tokenUrl) are read from core's module list per call (requests.ts),

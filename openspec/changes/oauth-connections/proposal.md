@@ -32,7 +32,7 @@ Out of scope, each for a later change: OAuth for remote modules (they bring thei
 
 ## Impact
 
-- New `packages/core/src/oauth/` (store, catalogue, flow, token service with refresh, routes) and migration 9 (`oauth_connections`, `oauth_grants`). `agents` also uses 9. Whichever of the two merges second renumbers to 10 during its rebase.
+- New `packages/core/src/oauth/` (store, catalogue, flow, token service with refresh, routes) and migration 10 (`oauth_connections`, `oauth_grants`). `agents` merged first with 9.
 - New dependency `arctic` in `@friday/core`.
 - `packages/sdk/src/module.ts`, `context.ts`, `test.ts`, `index.ts`: `ModuleManifest.oauth`, `ModuleContext.oauth`, `OAuthError`, manifest validation, the test host option. `packages/sdk/src/remote/`: `ctx.oauth` rejects.
 - `packages/core/src/module-host.ts`, `app.ts`, `core-config.ts`: wiring, `/api/oauth` routes, `FRIDAY_PUBLIC_URL`.

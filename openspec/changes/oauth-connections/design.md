@@ -13,7 +13,7 @@ Friday has the pieces this builds on:
 - `module-host.ts`: builds each module's context through the SDK's `createContext`. Unset capabilities get facades that throw "not available in this host" (`packages/sdk/src/context.ts`), which is how the remote runner rejects `ctx.db` and `ctx.prompt`.
 - Core routes go on the router in `app.ts`. The CSRF guard only affects non-GET `/api/` requests.
 - Portal settings pages are routed in `packages/portal/src/router.ts`.
-- The latest migration on `main` is 8. `agents` also uses 9 on its branch (see decision 3).
+- The latest migration on `main` is 9 (`agents`, see decision 3).
 
 ## Goals / Non-Goals
 
@@ -61,7 +61,7 @@ The reflection stays. It is the only way to cover the whole catalogue without on
 
 *Alternative considered*: a few presets as data (URLs plus quirks) on top of `OAuth2Client`. Rejected because the user wants the full catalogue, so that a new feature's provider never touches this code.
 
-### 3. Storage: migration 9
+### 3. Storage: migration 10
 
 ```
 oauth_connections  provider PK, client_id, client_secret_* NULL, auth_url NULL, token_url NULL,
@@ -73,7 +73,7 @@ oauth_grants       provider -> oauth_connections ON DELETE CASCADE, module_id, g
 
 `*_` columns are three BLOBs (ciphertext, iv, tag). They are encrypted with `crypto.ts` with AAD scope `oauth:<provider>` and the field name as the key, so a ciphertext copied to another row or field fails to decrypt. A grant for a module that is not in the module list stays in the table and applies again when the module comes back. `module_id` therefore has no foreign key.
 
-The branch takes 9, the next free number on `main`; `agents` uses 9 too. Following the CLAUDE.md rule that a migration number is claimed at merge, whichever change merges second renumbers to 10 during its rebase. A branch must never skip a number ahead of merge. The runner skips every migration at or below the stored version, so a deployed 10 would make a later 9 never run.
+The branch used 9, then the next free number on `main`. `agents` merged first with 9, so following the CLAUDE.md rule that a migration number is claimed at merge, this change took 10 at its rebase. A branch must never skip a number ahead of merge. The runner skips every migration at or below the stored version, so a deployed 10 would make a later 9 never run.
 
 Changing a URL of a connection that has a stored client secret requires the secret again (400 otherwise). Without that, anyone who can reach the portal could point a generic token URL at their own server and receive the stored secret at the next code exchange.
 
@@ -155,7 +155,7 @@ Search uses `GET /v1/search?type=track,artist,album&limit=10`, playlists `GET /v
 
 ## Migration Plan
 
-1. Deploy. Migration 9 (10 if `agents` merged first) creates empty tables, and nothing changes until a connection is made.
+1. Deploy. Migration 10 creates empty tables, and nothing changes until a connection is made.
 2. Set `FRIDAY_PUBLIC_URL=https://friday.thewhite.nl` in `deploy/k8s.yaml`, or in the portal under core.
 3. Create a Spotify app at developer.spotify.com with redirect URI `https://friday.thewhite.nl/api/oauth/spotify/callback`. Enter its client id and secret under Settings > Connections, grant `spotify`, and click Connect.
 
