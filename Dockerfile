@@ -12,6 +12,7 @@ COPY modules/brain/package.json modules/brain/
 COPY modules/builtin/package.json modules/builtin/
 COPY modules/calendar/package.json modules/calendar/
 COPY modules/media/package.json modules/media/
+COPY modules/sonos/package.json modules/sonos/
 COPY modules/travel/package.json modules/travel/
 COPY remote/simracing/package.json remote/simracing/
 RUN pnpm install --frozen-lockfile

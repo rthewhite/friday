@@ -2,7 +2,7 @@
 
 ## 1. Module scaffold
 
-- [ ] 1.1 Create `modules/sonos` (`@friday/module-sonos`: package.json with build/typecheck/test scripts like `modules/travel`, tsconfig, `src/index.ts` with `createSonosModule({ fetch })` and the manifest: id `sonos`, label `Sonos`, required `HA_URL` and secret `HA_TOKEN`), and register it in `packages/core/src/modules.ts` and `packages/core/package.json`. Verify with `modules/sonos/test/module.test.ts`: the module fails naming `HA_URL, HA_TOKEN` when unset; then `pnpm install` and `pnpm --filter @friday/module-sonos typecheck` and `pnpm --filter @friday/core typecheck` pass
+- [x] 1.1 Create `modules/sonos` (`@friday/module-sonos`: package.json with build/typecheck/test scripts like `modules/travel`, tsconfig, `src/index.ts` with `createSonosModule({ fetch })` and the manifest: id `sonos`, label `Sonos`, required `HA_URL` and secret `HA_TOKEN`), and register it in `packages/core/src/modules.ts` and `packages/core/package.json`. Verify with `modules/sonos/test/module.test.ts`: the module fails naming `HA_URL, HA_TOKEN` when unset; then `pnpm install` and `pnpm --filter @friday/module-sonos typecheck` and `pnpm --filter @friday/core typecheck` pass
 
 ## 2. Home Assistant client and speakers
 
