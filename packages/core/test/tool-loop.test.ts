@@ -77,6 +77,7 @@ test("model failures and unfinished rounds are reported, with whether text was s
   const f = await failed.run;
   assert.equal(f.outcome.kind, "failed");
   assert.equal(f.outcome.kind === "failed" && f.outcome.error.kind, "unavailable");
+  assert.equal(f.state.streamed, true);
 
   const cut = loop([{ chunks: [text("Half an ans")], finish: "MAX_TOKENS" }]);
   const c = await cut.run;

@@ -16,7 +16,7 @@ export interface Round {
   tokens?: { input: number; output: number };
   /** Milliseconds to wait before answering; `Infinity` waits for the abort. */
   waitMs?: number;
-  /** Rejects instead of answering. */
+  /** Rejects after streaming `chunks`, instead of answering. */
   error?: Error;
 }
 
@@ -35,8 +35,8 @@ export function fakeStream(...rounds: Round[]) {
       state.maxActive = Math.max(state.maxActive, state.active);
       try {
         if (round.waitMs) await wait(round.waitMs, signal);
-        if (round.error) throw round.error;
         for (const c of round.chunks ?? []) onChunk(c);
+        if (round.error) throw round.error;
         const usage = { inputTokens: round.tokens?.input ?? 1, outputTokens: round.tokens?.output ?? 1, thoughtTokens: 0 };
         return { finishReason: round.finish ?? "STOP", model: req.model, usage };
       } finally {
