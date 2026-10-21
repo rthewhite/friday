@@ -179,7 +179,7 @@ Core SHALL expose:
 - `DELETE /api/oauth/connections/:provider`: delete the connection, its tokens and grants; 404 when absent.
 - `PUT` and `DELETE /api/oauth/connections/:provider/grants/:module`: grant and revoke.
 
-Provider ids SHALL be kebab-case. Invalid bodies SHALL be answered with 400 and a message.
+Provider ids SHALL be kebab-case and SHALL NOT be `connections` or `providers`, which name the API's own paths. Invalid bodies SHALL be answered with 400 and a message.
 
 #### Scenario: Listing hides secrets
 - **WHEN** Spotify is connected and the connections are listed
@@ -192,6 +192,10 @@ Provider ids SHALL be kebab-case. Invalid bodies SHALL be answered with 400 and 
 #### Scenario: Extra scope added
 - **WHEN** the user adds an extra scope to a connected connection
 - **THEN** the tokens are kept and the scope is listed as missing
+
+#### Scenario: Reserved provider id
+- **WHEN** a connection is saved with provider id `connections`
+- **THEN** the response is 400
 
 #### Scenario: Delete
 - **WHEN** the user deletes the Spotify connection

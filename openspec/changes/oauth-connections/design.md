@@ -49,9 +49,11 @@ Grants need every module's manifest and the encrypted store, and modules may onl
 
 Port Jarvis's `PROVIDER_REGISTRY` as is: the same ids, display names and `authPattern`/`hasRefresh`/`ctorParams`. Check it against Arctic's current exports when porting, so providers added to Arctic since 3.7 can come along. Arctic's classes handle non-standard providers (Basic auth for Reddit and Notion, TikTok's `client_key`, Withings' wrapped response), which a generic client cannot.
 
-Two changes from Jarvis:
+Changes from Jarvis:
 - **Each entry records whether it uses PKCE**, derived from `authPattern`. The listing reports it, and the flow only stores a verifier when one is needed.
-- **A catalogue test** iterates over every entry. It looks up the class in Arctic's exports and constructs it with dummy credentials. It builds an authorization URL and checks that it parses, that it carries `state` when the pattern has one, and that it carries `code_challenge` when the entry uses PKCE. A renamed class or a changed signature then fails `pnpm -r test`.
+- **Every authorization URL carries Friday's `state`.** Two Arctic classes build URLs without one (Naver: no arguments; DonationAlerts: scopes only), so `buildClient` adds it when the class didn't. The callback check then holds for every provider.
+- **Arguments Jarvis's table missed.** StartGG passes the scopes again when exchanging the code and refreshing, and DonationAlerts when refreshing (`validateWithScopes`, `refreshWithScopes`). Google gets `access_type=offline&prompt=consent` (`authParams`), because without it Google returns no refresh token.
+- **Catalogue tests** in `oauth-catalogue.test.ts`. For every entry, the class must exist in Arctic's exports, and its constructor, `createAuthorizationURL`, `validateAuthorizationCode` and `refreshAccessToken` arities must match the entry. Every entry builds an authorization URL with `state`, and with `code_challenge` exactly when it uses PKCE. A third test fails when Arctic exports a provider that is neither in the catalogue nor on the excluded list (constructors that need a domain, tenant or key), so a new Arctic provider is noticed. A renamed class or a changed signature then fails `pnpm -r test`.
 
 The reflection stays. It is the only way to cover the whole catalogue without one adapter per provider, and the test is what makes it safe.
 

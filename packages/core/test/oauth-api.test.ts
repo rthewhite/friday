@@ -26,7 +26,7 @@ const travel = defineModule({ manifest: { id: "travel", label: "Travel" }, init(
 
 interface Opts {
   masterKey?: Buffer | null;
-  publicUrl?: string;
+  publicUrl?: string | (() => string | undefined);
   exchange?: () => Promise<arctic.OAuth2Tokens>;
 }
 
@@ -61,7 +61,7 @@ async function start(o: Opts = {}) {
   });
   const flow = new OAuthFlow({ store, requests, buildClient, now: () => now });
   const mcp = new McpSource(registry, new McpServerStore(db, undefined), { log: quiet });
-  const server = createServer(createApp({ registry, host, mcp, webDir: "/nonexistent", oauth: { store, requests, flow, publicUrl: () => o.publicUrl } }));
+  const server = createServer(createApp({ registry, host, mcp, webDir: "/nonexistent", oauth: { store, requests, flow, publicUrl: typeof o.publicUrl === "function" ? o.publicUrl : () => o.publicUrl as string | undefined } }));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -237,6 +237,20 @@ test("the redirect URI comes from FRIDAY_PUBLIC_URL, else the forwarded origin, 
     assert.equal(forwarded.redirectUri, "https://friday.thewhite.nl/api/oauth/spotify/callback");
     assert.equal((await s.entry("spotify")).redirectUri, `${s.base}/api/oauth/spotify/callback`);
     assert.match(s.base, /^http:\/\/127\.0\.0\.1:\d+$/);
+  } finally {
+    s.close();
+  }
+});
+
+test("a public URL saved later applies to the next listing and authorization without a restart", async () => {
+  let saved: string | undefined;
+  const s = await start({ publicUrl: () => saved });
+  try {
+    await s.setUp();
+    assert.equal((await s.entry("spotify")).redirectUri, `${s.base}/api/oauth/spotify/callback`);
+    saved = "https://friday.thewhite.nl";
+    assert.equal((await s.entry("spotify")).redirectUri, "https://friday.thewhite.nl/api/oauth/spotify/callback");
+    assert.equal((await s.authorize()).location!.searchParams.get("redirect_uri"), "https://friday.thewhite.nl/api/oauth/spotify/callback");
   } finally {
     s.close();
   }

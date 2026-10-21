@@ -161,6 +161,23 @@ test("not set up, not granted, not requested and revoked", async () => {
   await rejects(s.tokens.token("spotify", "spotify"), "not_connected", /not connected yet/);
 });
 
+test("a grant stays while its module is out of the list and applies again when it returns", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, migrations, quiet);
+  const store = new OAuthStore(db, randomBytes(32), quiet);
+  let list: ModuleManifest[] = manifests;
+  const tokens = new OAuthTokens({ store, requests: new OAuthRequests(() => list), redirectUri: () => "https://friday.example/cb" });
+  store.upsert({ provider: "spotify", clientId: "id" });
+  store.storeTokens("spotify", { accessToken: "AT-1", expiresAt: new Date(Date.now() + 3600_000) });
+  store.grant("spotify", "spotify");
+  list = manifests.filter((m) => m.id !== "spotify");
+  await rejects(tokens.token("spotify", "spotify"), "not_granted", /does not request access/);
+  assert.deepEqual(store.grants("spotify"), ["spotify"]);
+  list = manifests;
+  assert.equal(await tokens.token("spotify", "spotify"), "AT-1");
+});
+
 test("without a master key the call rejects with not_connected naming the key", async () => {
   const s = setup({ masterKey: undefined });
   s.connect(3600_000);
