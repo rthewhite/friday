@@ -20,8 +20,8 @@
 
 ## 4. Definitions and storage
 
-- [ ] 4.1 Add the rest of migration 9 (`agents`, `agent_runs`, `agent_actions`) and `AgentStore`/`AgentRunStore` in `packages/core/src/agents/` (CRUD, runs with outcome and counters, pruning to 50 per agent while keeping runs with pending actions, `running` runs failed at startup). Verify with `packages/core/test/agent-store.test.ts`
-- [ ] 4.2 Add `parseAgent(body, name?)` and `resolveTools(definition, registry)` (the escaped `*` pattern rule, `approve` wins, unmatched list, matched against `declarations("agent")`). Verify with `packages/core/test/agent-definition.test.ts`: defaults, every range and format error from the spec, a renamed agent refused, `github__*` + `github__create_pull_request` (approve wins), a voice-only tool unmatched, a regex character in a pattern matched literally
+- [x] 4.1 Add the rest of migration 9 (`agents`, `agent_runs`, `agent_actions`) and `AgentStore`/`AgentRunStore` in `packages/core/src/agents/` (CRUD, runs with outcome and counters, pruning to 50 per agent while keeping runs with pending actions, `running` runs failed at startup). Verify with `packages/core/test/agent-store.test.ts`
+- [x] 4.2 Add `parseAgent(body, name?)` and `resolveTools(definition, registry)` (the escaped `*` pattern rule, `approve` wins, unmatched list, matched against `declarations("agent")`). Verify with `packages/core/test/agent-definition.test.ts`: defaults, every range and format error from the spec, a renamed agent refused, `github__*` + `github__create_pull_request` (approve wins), a voice-only tool unmatched, a regex character in a pattern matched literally
 
 ## 5. Runtime
 

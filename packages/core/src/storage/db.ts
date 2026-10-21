@@ -22,8 +22,50 @@ export const migrations: Migration[] = [
   {
     version: 9,
     name: "agents",
+    // Agent definitions, their runs, and the calls parked for the user's approval (exact tool and arguments).
     // An MCP server's channels (JSON list; NULL = every channel), so a server can serve agents only.
     sql: `
+      CREATE TABLE agents (
+        name TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        instructions TEXT NOT NULL,
+        schedule TEXT,
+        enabled INTEGER NOT NULL,
+        startable INTEGER NOT NULL,
+        tools_json TEXT NOT NULL,
+        budgets_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE agent_runs (
+        id TEXT PRIMARY KEY,
+        agent TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
+        trigger TEXT NOT NULL,
+        request TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        outcome TEXT NOT NULL,
+        error TEXT,
+        summary TEXT,
+        tool_calls INTEGER NOT NULL DEFAULT 0,
+        tokens INTEGER NOT NULL DEFAULT 0,
+        conversation_id TEXT
+      );
+      CREATE INDEX agent_runs_agent_started ON agent_runs (agent, started_at DESC);
+      CREATE TABLE agent_actions (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+        agent TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        state TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        result_json TEXT,
+        error TEXT
+      );
+      CREATE INDEX agent_actions_run ON agent_actions (run_id);
+      CREATE INDEX agent_actions_state ON agent_actions (state, created_at);
       ALTER TABLE mcp_servers ADD COLUMN channels_json TEXT;
     `,
   },
