@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import type { ModuleUi } from "@friday/portal-ui";
+import { clearReloadMark, handleNavigationError } from "./lib/stale-chunks.js";
 
 export function createPortalRouter(uis: ModuleUi[]) {
   const routes: RouteRecordRaw[] = [
@@ -25,5 +26,15 @@ export function createPortalRouter(uis: ModuleUi[]) {
     { path: "/m/:id(.*)", component: () => import("./shell/ModuleGate.vue"), props: true },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ];
-  return createRouter({ history: createWebHistory(), routes });
+  const router = createRouter({ history: createWebHistory(), routes });
+  // A tab open across a deploy asks for page chunks the deploy replaced: reload once, at the page the user asked for,
+  // so the new build takes over. A page that fails again after its reload is logged instead of reloading in a loop;
+  // a successful navigation clears that mark.
+  router.onError((error, to) => {
+    handleNavigationError(error, to.fullPath, { storage: sessionStorage, location, history, log: (e) => console.error(e) });
+  });
+  router.afterEach((_to, _from, failure) => {
+    if (!failure) clearReloadMark(sessionStorage);
+  });
+  return router;
 }

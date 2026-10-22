@@ -138,7 +138,7 @@ A statement that touches anything outside the module's `pantry__` prefix (core's
 
 ## Portal
 
-The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), an `Agents` page (see [Agents](#agents)), a `Modules` page (everything `/api/modules` reports, with status and tools; core's own tools are the *Core* row, kind *core*), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`.
+The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), an `Agents` page (see [Agents](#agents)), a `Modules` page (everything `/api/modules` reports, with status and tools; core's own tools are the *Core* row, kind *core*), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`. Pages are loaded on first use. A tab left open across a deploy reloads itself, once, when it next opens a page whose code the deploy replaced (`src/lib/stale-chunks.ts`).
 
 ### Add a module UI
 
