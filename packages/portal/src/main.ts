@@ -10,7 +10,12 @@ async function bootstrap() {
   const app = createApp(App);
   app.provide("moduleUis", uis);
   app.use(router);
-  await router.isReady();
+  try {
+    await router.isReady();
+  } catch {
+    // The first page could not load (the router's error handler logged it): show the shell anyway, so the sidebar
+    // still works instead of a blank tab.
+  }
   app.mount("#app");
 }
 

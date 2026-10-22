@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import type { ModuleUi } from "@friday/portal-ui";
-import { isChunkLoadError, RELOAD_KEY, shouldReload } from "./lib/stale-chunks.js";
+import { clearReloadMark, handleNavigationError } from "./lib/stale-chunks.js";
 
 export function createPortalRouter(uis: ModuleUi[]) {
   const routes: RouteRecordRaw[] = [
@@ -28,15 +28,13 @@ export function createPortalRouter(uis: ModuleUi[]) {
   ];
   const router = createRouter({ history: createWebHistory(), routes });
   // A tab open across a deploy asks for page chunks the deploy replaced: reload once, at the page the user asked for,
-  // so the new build takes over. A failure again within the guard window surfaces instead of looping.
+  // so the new build takes over. A page that fails again after its reload is logged instead of reloading in a loop;
+  // a successful navigation clears that mark.
   router.onError((error, to) => {
-    if (isChunkLoadError(error) && shouldReload(Date.now(), sessionStorage.getItem(RELOAD_KEY))) {
-      sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
-      location.assign(to.fullPath);
-      return;
-    }
-    // With a handler registered the router no longer logs errors itself; keep them visible.
-    console.error(error);
+    handleNavigationError(error, to.fullPath, { storage: sessionStorage, location, history, log: (e) => console.error(e) });
+  });
+  router.afterEach((_to, _from, failure) => {
+    if (!failure) clearReloadMark(sessionStorage);
   });
   return router;
 }
