@@ -47,4 +47,4 @@
 ## 4. Integration
 
 - [x] 4.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify it is green
-- [ ] 4.2 After the merge and deploy, in production: share `HA_TOKEN` and `HA_URL` from `media` to `sonos` with an empty value and `Save and reload`. Verify that `sonos` shows `loaded`, `media` stays `loaded`, and `GET /api/config` lists `media` and `sonos` for both keys
+- [x] 4.2 After the merge and deploy, in production: share `HA_TOKEN` and `HA_URL` from `media` to `sonos` with an empty value and `Save and reload`. Verify that `sonos` shows `loaded`, `media` stays `loaded`, and `GET /api/config` lists `media` and `sonos` for both keys
