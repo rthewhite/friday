@@ -19,6 +19,8 @@ Route components are lazy (`() => import("./pages/ChatPage.vue")` in `packages/p
 
 Vue Router reports a failed lazy component to `router.onError(error, to)`, which carries the target route. Reloading with `location.assign(to.fullPath)` lands on the page the user clicked. Vite's `vite:preloadError` event fires earlier but knows only the current URL, so reloading there would leave the user on the old page. It also fires for preload failures the router would retry. The router handler is enough, because every lazy import in the portal is a route component.
 
+Once any `onError` handler is registered, Vue Router stops logging navigation errors itself. The handler therefore `console.error`s every error it doesn't turn into a reload, so other failures stay visible as they were. The browser check caught this: the "Broken chunk" case was silent before that.
+
 ### 2. A pure helper with a guard in `sessionStorage`
 
 `packages/portal/src/lib/stale-chunks.ts`:

@@ -114,7 +114,8 @@ context: |
   once after a guidance change; bump it when existing brains should be redone. Fixtures in test/fixtures/nightly;
   `pnpm --filter @friday/module-brain eval`.
   Portal (packages/portal): Vue 3 + Vite + Tailwind 4 SPA served by core from packages/portal/dist
-  (FRIDAY_WEB_DIR) with SPA fallback; pages Talk (voice client, AudioWorklet in public/), Chat
+  (FRIDAY_WEB_DIR) with SPA fallback (a missing chunk after a deploy: router.onError reloads at the target once per
+  10 s, src/lib/stale-chunks.ts, and console.errors everything else); pages Talk (voice client, AudioWorklet in public/), Chat
   (/chat, /chat/:id; markdown-it with HTML off), Conversations, Modules, and
   /m/<id> per module UI. Module UIs are declared with "friday": { "ui": ... } in the module package.json and
   defineModuleUi from @friday/portal-ui (tokens + base components); scripts/gen-modules.mjs generates the

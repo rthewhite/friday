@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import type { ModuleUi } from "@friday/portal-ui";
+import { isChunkLoadError, RELOAD_KEY, shouldReload } from "./lib/stale-chunks.js";
 
 export function createPortalRouter(uis: ModuleUi[]) {
   const routes: RouteRecordRaw[] = [
@@ -25,5 +26,17 @@ export function createPortalRouter(uis: ModuleUi[]) {
     { path: "/m/:id(.*)", component: () => import("./shell/ModuleGate.vue"), props: true },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ];
-  return createRouter({ history: createWebHistory(), routes });
+  const router = createRouter({ history: createWebHistory(), routes });
+  // A tab open across a deploy asks for page chunks the deploy replaced: reload once, at the page the user asked for,
+  // so the new build takes over. A failure again within the guard window surfaces instead of looping.
+  router.onError((error, to) => {
+    if (isChunkLoadError(error) && shouldReload(Date.now(), sessionStorage.getItem(RELOAD_KEY))) {
+      sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+      location.assign(to.fullPath);
+      return;
+    }
+    // With a handler registered the router no longer logs errors itself; keep them visible.
+    console.error(error);
+  });
+  return router;
 }
