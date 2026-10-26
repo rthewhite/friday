@@ -17,9 +17,24 @@ export interface PageSummary {
 }
 
 export interface PageList {
-  profile: { id: string; usedTokens: number; budgetTokens: number; overBudget: boolean };
+  profile: { id: string; usedTokens: number; budgetTokens: number; overBudget: boolean; instructions: string; subjectId: string };
   pages: PageSummary[];
   deleted: { id: string; name: string; deletedAt: string }[];
+}
+
+/** Whether the user's page still has the name the upgrade gave it (`Me`, `Me 2`, …) rather than theirs. */
+export const unnamedSubject = (name: string): boolean => /^me(\s+\d+)?$/i.test(name.trim());
+
+/**
+ * The list as the brain page shows it: the profile pinned first, the user's page second, then the other
+ * pages matching the search box (in the API's order, most recently updated first).
+ */
+export function arrangePages(list: PageList, query: string): { profile?: PageSummary; subject?: PageSummary; others: PageSummary[] } {
+  return {
+    profile: list.pages.find((p) => p.isProfile),
+    subject: list.pages.find((p) => p.id === list.profile.subjectId),
+    others: list.pages.filter((p) => !p.isProfile && p.id !== list.profile.subjectId && matches(p, query)),
+  };
 }
 
 export interface RevisionSummary {
@@ -31,6 +46,11 @@ export interface RevisionSummary {
 }
 
 export interface PageDetail extends PageSummary {
+  /** The profile only: the user's instructions, and the id of the user's page. */
+  instructions?: string;
+  subjectId?: string;
+  /** This is the user's own page. */
+  isSubject: boolean;
   createdAt: string;
   deletedAt?: string;
   revisions: RevisionSummary[];
@@ -45,6 +65,8 @@ export interface RevisionDetail {
   type: PageType;
   aliases: string[];
   body: string;
+  /** Profile revisions only. */
+  instructions?: string;
   note?: string;
   sources: string[];
   createdAt: string;
@@ -100,6 +122,23 @@ export function matches(page: Pick<PageSummary, "name" | "aliases" | "body">, qu
   const text = fold([page.name, ...page.aliases, page.body].join("\n"));
   return words.every((w) => text.includes(w));
 }
+
+/** Starts the `brain/nightly` job through core's jobs API: "started", or "running" when a run is already going. */
+export async function runNightlyNow(): Promise<"started" | "running"> {
+  const res = await fetch("/api/jobs/brain/nightly/run", { method: "POST" });
+  if (res.status === 409) return "running";
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new ApiError(res.status, data.code as string | undefined, String(data.error ?? res.statusText), data);
+  }
+  return "started";
+}
+
+/** The profile's instructions are at most this many characters (the store refuses more). */
+export const INSTRUCTIONS_MAX = 2000;
+
+/** When the profile's summary was last written by the nightly pass: its newest `consolidation` revision. */
+export const summaryGeneratedAt = (revisions: RevisionSummary[]): string | undefined => revisions.find((r) => r.author === "consolidation")?.createdAt;
 
 /** Aliases typed as a comma-separated list. */
 export const parseAliases = (text: string): string[] => text.split(",").map((s) => s.trim()).filter(Boolean);

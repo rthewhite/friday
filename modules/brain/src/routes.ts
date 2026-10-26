@@ -67,7 +67,7 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
 
   route("GET", "pages/:id", (_req, res, { id }) => {
     const page = found(id);
-    res.json({ ...page, revisions: store.revisions(id), links: store.links(page), backlinks: page.deletedAt ? [] : store.backlinks(page) });
+    res.json({ ...page, isSubject: page.id === store.subjectId(), revisions: store.revisions(id), links: store.links(page), backlinks: page.deletedAt ? [] : store.backlinks(page) });
   });
 
   route("GET", "pages/:id/revisions/:rev", (_req, res, { id, rev }) => {

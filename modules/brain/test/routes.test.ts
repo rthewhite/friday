@@ -111,8 +111,10 @@ test("DELETE soft-deletes with 204; the profile can't be deleted; undelete is 40
   assert.deepEqual(u.body.names, ["Old car"]);
 });
 
-test("the subject page can't be deleted", async () => {
-  const { req, subject } = await host();
+test("the subject page can't be deleted, and GET marks it as the user's page", async () => {
+  const { req, subject, create } = await host();
+  assert.equal((await req("GET", `pages/${subject().id}`)).body.isSubject, true);
+  assert.equal((await req("GET", `pages/${(await create({ name: "Anouk" })).id}`)).body.isSubject, false);
   assert.deepEqual(await req("DELETE", `pages/${subject().id}`), { status: 400, body: { error: "the page about the user cannot be deleted", code: "profile" } });
   assert.equal((await req("GET", `pages/${subject().id}`)).body.deletedAt, undefined);
 });

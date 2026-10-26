@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { Badge, Button, Card, Chip, Icon, Input, PageLayout, Tabs, formatDateTime } from "@friday/portal-ui";
 import { lineDiff } from "./lib/diff.js";
 import { renderBody } from "./lib/markdown.js";
-import { ApiError, PAGE_TYPES, api, nameKey, parseAliases, type PageDetail, type PageType, type RevisionDetail } from "./lib/pages.js";
+import { ApiError, INSTRUCTIONS_MAX, PAGE_TYPES, api, nameKey, parseAliases, runNightlyNow, summaryGeneratedAt, type PageDetail, type PageType, type RevisionDetail } from "./lib/pages.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -44,12 +44,27 @@ function onBodyClick(e: MouseEvent) {
 const subtitle = computed(() => {
   const p = page.value;
   if (!p) return "";
-  return [p.isProfile ? "about you and the household" : p.type, p.aliases.length ? `aka ${p.aliases.join(", ")}` : "", `updated ${formatDateTime(p.updatedAt)}`].filter(Boolean).join(" · ");
+  const kind = p.isProfile ? "your instructions and a summary generated from your pages" : p.isSubject ? "your own page" : p.type;
+  return [kind, p.aliases.length ? `aka ${p.aliases.join(", ")}` : "", `updated ${formatDateTime(p.updatedAt)}`].filter(Boolean).join(" · ");
 });
+const generatedAt = computed(() => (page.value?.isProfile ? summaryGeneratedAt(page.value.revisions) : undefined));
 
-// ---- Edit ----
+// ---- Run nightly now (the profile) ----
+const nightlyNotice = ref("");
+async function runNightly() {
+  nightlyNotice.value = "";
+  try {
+    nightlyNotice.value = (await runNightlyNow()) === "running"
+      ? "The nightly pass is already running; the summary updates when it finishes."
+      : "Started the nightly pass; the summary updates when it finishes (see the Nightly tab).";
+  } catch (e) {
+    nightlyNotice.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+// ---- Edit (the profile: its instructions only) ----
 const editing = ref(false);
-const draft = ref<{ name: string; type: PageType; aliases: string; body: string; keepOldName: boolean }>({ name: "", type: "other", aliases: "", body: "", keepOldName: true });
+const draft = ref<{ name: string; type: PageType; aliases: string; body: string; keepOldName: boolean; instructions: string }>({ name: "", type: "other", aliases: "", body: "", keepOldName: true, instructions: "" });
 const base = ref(0);
 const saveError = ref("");
 const conflict = ref<{ author: string; at: string; revisionId: number } | null>(null);
@@ -57,7 +72,7 @@ const renamed = computed(() => !!page.value && nameKey(draft.value.name) !== nam
 
 function startEdit() {
   const p = page.value!;
-  draft.value = { name: p.name, type: p.type, aliases: p.aliases.join(", "), body: p.body, keepOldName: true };
+  draft.value = { name: p.name, type: p.type, aliases: p.aliases.join(", "), body: p.body, keepOldName: true, instructions: p.instructions ?? "" };
   base.value = p.revisionId;
   saveError.value = "";
   conflict.value = null;
@@ -66,14 +81,20 @@ function startEdit() {
 async function save() {
   saveError.value = "";
   try {
-    await api("PUT", `pages/${encodeURIComponent(id.value)}`, {
-      name: draft.value.name,
-      type: draft.value.type,
-      aliases: parseAliases(draft.value.aliases),
-      body: draft.value.body,
-      baseRevision: base.value,
-      keepOldName: draft.value.keepOldName,
-    });
+    await api(
+      "PUT",
+      `pages/${encodeURIComponent(id.value)}`,
+      page.value?.isProfile
+        ? { instructions: draft.value.instructions, baseRevision: base.value }
+        : {
+            name: draft.value.name,
+            type: draft.value.type,
+            aliases: parseAliases(draft.value.aliases),
+            body: draft.value.body,
+            baseRevision: base.value,
+            keepOldName: draft.value.keepOldName,
+          },
+    );
     editing.value = false;
     conflict.value = null;
     await load();
@@ -145,6 +166,8 @@ async function selectRevision(revId: number) {
   }
 }
 const diff = computed(() => (selected.value ? lineDiff(selected.value.previous?.body ?? "", selected.value.rev.body) : []));
+/** The profile's history also shows how its instructions changed. */
+const instructionsDiff = computed(() => (selected.value && page.value?.isProfile ? lineDiff(selected.value.previous?.instructions ?? "", selected.value.rev.instructions ?? "") : []));
 const fieldChanges = computed(() => {
   const s = selected.value;
   if (!s?.previous) return [];
@@ -173,6 +196,7 @@ watch(id, () => {
   editing.value = false;
   conflict.value = null;
   confirmingDelete.value = false;
+  nightlyNotice.value = "";
   selected.value = null;
   tab.value = "page";
   void load();
@@ -184,12 +208,14 @@ watch(id, () => {
     <template #actions>
       <Button variant="ghost" @click="router.push('/m/brain')"><Icon name="grid" />All pages</Button>
       <template v-if="page && !page.deletedAt && !editing">
-        <Button @click="startEdit">Edit</Button>
-        <Button v-if="!page.isProfile" variant="danger" @click="confirmingDelete = true">Delete</Button>
+        <Button v-if="page.isProfile" variant="ghost" @click="runNightly"><Icon name="refresh" />Run nightly now</Button>
+        <Button @click="startEdit">{{ page.isProfile ? "Edit instructions" : "Edit" }}</Button>
+        <Button v-if="!page.isProfile && !page.isSubject" variant="danger" @click="confirmingDelete = true">Delete</Button>
       </template>
     </template>
     <p v-if="error" class="text-f-error">{{ error }}</p>
     <p v-if="actionError" class="text-f-error">{{ actionError }}</p>
+    <p v-if="nightlyNotice" class="text-sm text-f-text-muted">{{ nightlyNotice }}</p>
 
     <Card v-if="confirmingDelete && page">
       <div class="flex flex-wrap items-center gap-3">
@@ -211,7 +237,27 @@ watch(id, () => {
       <Tabs v-model="tab" :items="tabs" />
 
       <template v-if="tab === 'page'">
-        <Card v-if="editing">
+        <Card v-if="editing && page.isProfile" title="Instructions">
+          <form class="flex flex-col gap-4" @submit.prevent="save">
+            <label class="flex flex-col gap-1 text-sm">
+              <span class="text-f-text-muted">Standing instructions Friday follows in every conversation, voice and chat. Scope a line yourself if it's for one ("In voice: keep answers short").</span>
+              <textarea v-model="draft.instructions" rows="10" :maxlength="INSTRUCTIONS_MAX" spellcheck="true" placeholder="Call me Ray. Answer in Dutch unless I speak English." class="surface-inset px-3 py-2 text-sm text-f-text outline-none focus:border-f-accent"></textarea>
+              <span :class="['self-end text-xs', draft.instructions.length > INSTRUCTIONS_MAX ? 'text-f-error' : 'text-f-text-muted']">{{ draft.instructions.length }} / {{ INSTRUCTIONS_MAX }}</span>
+            </label>
+            <div v-if="conflict" class="flex flex-wrap items-center gap-3 rounded-lg border border-f-warning/60 p-3" role="alert">
+              <span class="mr-auto text-sm text-f-text">The instructions changed since you opened them (by <b>{{ conflict.author }}</b> at {{ formatDateTime(conflict.at) }}).</span>
+              <Button variant="ghost" @click="discard">Discard my edits</Button>
+              <Button variant="danger" @click="overwrite">Overwrite</Button>
+            </div>
+            <p v-if="saveError" class="text-sm text-f-error">{{ saveError }}</p>
+            <div class="flex justify-end gap-2">
+              <Button variant="ghost" @click="editing = false; conflict = null">Cancel</Button>
+              <Button type="submit" :disabled="!!conflict">Save</Button>
+            </div>
+          </form>
+        </Card>
+
+        <Card v-else-if="editing">
           <form class="flex flex-col gap-4" @submit.prevent="save">
             <div class="grid gap-4 md:grid-cols-2">
               <label class="flex flex-col gap-1 text-sm">
@@ -220,7 +266,7 @@ watch(id, () => {
               </label>
               <label class="flex flex-col gap-1 text-sm">
                 <span class="text-f-text-muted">Type</span>
-                <select v-model="draft.type" :disabled="page.isProfile" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent disabled:opacity-60">
+                <select v-model="draft.type" :disabled="page.isProfile || page.isSubject" class="surface-inset px-3 py-2 text-f-text outline-none focus:border-f-accent disabled:opacity-60">
                   <option v-for="t in PAGE_TYPES" :key="t" :value="t">{{ t }}</option>
                 </select>
               </label>
@@ -246,10 +292,18 @@ watch(id, () => {
           </form>
         </Card>
 
-        <Card v-else>
+        <Card v-if="!editing && page.isProfile" title="Instructions">
+          <p v-if="page.instructions?.trim()" class="whitespace-pre-wrap text-sm text-f-text">{{ page.instructions }}</p>
+          <p v-else class="text-sm text-f-text-muted">None yet. Add standing instructions Friday follows in every conversation, such as how to address you or how long to keep answers.</p>
+        </Card>
+
+        <Card v-if="!editing" :title="page.isProfile ? 'Summary' : undefined">
+          <p v-if="page.isProfile" class="mb-2 text-xs text-f-text-muted">
+            Generated from your pages by the nightly pass{{ generatedAt ? `, last on ${formatDateTime(generatedAt)}` : "" }}. To change it, edit the pages it names.
+          </p>
           <!-- eslint-disable-next-line vue/no-v-html -- raw HTML disabled, see lib/markdown -->
           <div v-if="page.body.trim()" class="f-markdown brain-body" @click="onBodyClick" v-html="html" />
-          <p v-else class="text-sm text-f-text-muted">Nothing here yet.</p>
+          <p v-else class="text-sm text-f-text-muted">{{ page.isProfile ? "No summary yet." : "Nothing here yet." }}</p>
         </Card>
 
         <Card v-if="!editing" title="Linked from">
@@ -288,10 +342,16 @@ watch(id, () => {
             <ul v-if="fieldChanges.length" class="text-sm text-f-text">
               <li v-for="c in fieldChanges" :key="c">{{ c }}</li>
             </ul>
+            <template v-if="page.isProfile">
+              <p class="text-sm font-medium text-f-text-bright">Instructions</p>
+              <pre class="max-h-[16rem] overflow-auto rounded-lg bg-f-bg p-3 font-mono text-xs leading-5"><template v-for="(l, i) in instructionsDiff" :key="i"><span :class="l.kind === 'add' ? 'text-f-success' : l.kind === 'del' ? 'text-f-error line-through opacity-80' : 'text-f-text-muted'">{{ l.kind === "add" ? "+ " : l.kind === "del" ? "- " : "  " }}{{ l.text }}
+</span></template></pre>
+              <p class="text-sm font-medium text-f-text-bright">Summary</p>
+            </template>
             <pre class="max-h-[32rem] overflow-auto rounded-lg bg-f-bg p-3 font-mono text-xs leading-5"><template v-for="(l, i) in diff" :key="i"><span :class="l.kind === 'add' ? 'text-f-success' : l.kind === 'del' ? 'text-f-error line-through opacity-80' : 'text-f-text-muted'">{{ l.kind === "add" ? "+ " : l.kind === "del" ? "- " : "  " }}{{ l.text }}
 </span></template></pre>
             <div v-if="selected.rev.id !== page.revisionId && !page.deletedAt" class="flex justify-end">
-              <Button @click="restoreSelected">Restore this version</Button>
+              <Button @click="restoreSelected">{{ page.isProfile ? "Restore these instructions" : "Restore this version" }}</Button>
             </div>
           </Card>
           <Card v-else><p class="text-sm text-f-text-muted">Select a revision to see what changed.</p></Card>

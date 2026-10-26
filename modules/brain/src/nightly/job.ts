@@ -68,8 +68,9 @@ export async function runNightly(runs: RunStore, steps: NightlySteps, trigger: J
   try {
     e = await steps.extract(signal);
     if (!e.stopped) c = await steps.consolidate(signal);
-    // A refused plan leaves the pages as they were; the summary still follows them. A cancelled run stops here.
-    if (c && !(signal.aborted || c.failed === "cancelled")) s = await steps.summary(signal);
+    // A refused plan leaves the pages as they were; the summary still follows them. A cancelled run, or one
+    // whose model is unavailable ("model unavailable: …"), stops here: outages wait for the next run.
+    if (c && !(signal.aborted || c.failed === "cancelled" || c.failed?.startsWith("model "))) s = await steps.summary(signal);
     const problems = [e.stopped, ...e.errors, c?.failed, s?.failed].filter((x): x is string => !!x);
     const outcome: RunOutcome = e.stopped || c?.failed || s?.failed ? "partial" : "ok";
     const error = problems.length ? problems.join("; ") : undefined;

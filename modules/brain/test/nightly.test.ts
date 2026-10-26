@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTestHost } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
-import { summarize } from "../src/nightly/job.js";
+import { runNightly, summarize } from "../src/nightly/job.js";
+import { RunStore } from "../src/nightly/runs.js";
 
 test("brain/nightly is scheduled at 03:00 by default, from BRAIN_NIGHTLY_CRON, and not at all when off", async () => {
   assert.deepEqual((await createTestHost(createBrainModule())).jobs, [{ name: "nightly", cron: "0 3 * * *" }]);
@@ -22,6 +23,20 @@ test("a run on an empty brain is ok with a zero-count summary and is recorded", 
   assert.deepEqual(r, { outcome: "ok", summary: "0 conversations (0 trivial), 0 notes; nothing to consolidate" });
   const rows = h.db.prepare("SELECT trigger, outcome, conversations FROM brain__runs").all().map((x) => ({ ...x }));
   assert.deepEqual(rows, [{ trigger: "manual", outcome: "ok", conversations: 0 }]);
+});
+
+test("the summary step follows a refused plan, but not a model outage or a cancelled run", async () => {
+  const h = await createTestHost(createBrainModule());
+  const runs = new RunStore(h.db);
+  const extract = async () => ({ conversations: 0, skipped: 0, notes: 0, refused: 0, errors: [] });
+  const summarized: string[] = [];
+  const steps = (failed?: string) => ({
+    extract,
+    consolidate: async () => ({ ran: true, rewrites: 0, creates: 0, merges: [], dropped: [], ...(failed ? { failed } : {}) }),
+    summary: async () => { summarized.push(failed ?? "ok"); return { ran: true, generated: true }; },
+  });
+  for (const failed of [undefined, "consolidation plan refused twice: x", "model unavailable: timed out", "cancelled"]) await runNightly(runs, steps(failed), "manual", new AbortController().signal);
+  assert.deepEqual(summarized, ["ok", "consolidation plan refused twice: x"]);
 });
 
 test("the summary states the counts", () => {

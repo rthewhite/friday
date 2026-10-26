@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Badge, Button, Card, DataTable, Drawer, Icon, Input, PageLayout, Tabs, formatDateTime, type Column } from "@friday/portal-ui";
-import { ApiError, PAGE_TYPES, api, hint, matches, parseAliases, type PageList, type PageSummary, type PageType } from "./lib/pages.js";
+import { ApiError, PAGE_TYPES, api, arrangePages, hint, parseAliases, unnamedSubject, type PageList, type PageSummary, type PageType } from "./lib/pages.js";
 import NightlyPanel from "./NightlyPanel.vue";
 
 const route = useRoute();
@@ -29,12 +29,10 @@ async function load() {
 }
 onMounted(load);
 
-const profile = computed(() => data.value?.pages.find((p) => p.isProfile));
-const rows = computed(() =>
-  (data.value?.pages ?? [])
-    .filter((p) => !p.isProfile && matches(p, query.value))
-    .map((p) => ({ ...p, hint: hint(p.body), aliasList: p.aliases.join(", ") })),
-);
+const arranged = computed(() => (data.value ? arrangePages(data.value, query.value) : { others: [] as PageSummary[] }));
+const profile = computed(() => arranged.value.profile);
+const subject = computed(() => arranged.value.subject);
+const rows = computed(() => arranged.value.others.map((p) => ({ ...p, hint: hint(p.body), aliasList: p.aliases.join(", ") })));
 const columns: Column[] = [
   { key: "name", label: "Name" },
   { key: "type", label: "Type" },
@@ -133,13 +131,27 @@ async function purge() {
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-base font-semibold text-f-text-bright">Profile</span>
           <Badge tone="accent">pinned</Badge>
+          <Badge v-if="data.profile.instructions.trim()">instructions</Badge>
           <Badge v-if="data.profile.overBudget" tone="warning">over budget</Badge>
-          <span class="ml-auto text-sm text-f-text-muted">~{{ data.profile.usedTokens }} / {{ data.profile.budgetTokens }} tokens</span>
+          <span class="ml-auto text-sm text-f-text-muted">summary ~{{ data.profile.usedTokens }} / {{ data.profile.budgetTokens }} tokens</span>
         </div>
-        <div class="h-1.5 w-full overflow-hidden rounded-full bg-f-bg" role="meter" :aria-valuenow="data.profile.usedTokens" :aria-valuemax="data.profile.budgetTokens" aria-label="Profile budget">
+        <div class="h-1.5 w-full overflow-hidden rounded-full bg-f-bg" role="meter" :aria-valuenow="data.profile.usedTokens" :aria-valuemax="data.profile.budgetTokens" aria-label="Summary budget">
           <div :class="['h-full rounded-full', data.profile.overBudget ? 'bg-f-warning' : 'bg-f-accent']" :style="{ width: `${budgetPct}%` }" />
         </div>
-        <p class="text-sm text-f-text-muted line-clamp-2">{{ hint(profile.body) || "Empty. Friday adds facts about you and your household here." }}</p>
+        <p class="text-sm text-f-text-muted line-clamp-2">{{ hint(profile.body) || "No summary yet: the nightly pass writes it from your pages. Add your own instructions for Friday here." }}</p>
+      </button>
+    </Card>
+    <Card v-if="subject">
+      <button type="button" class="flex w-full flex-col gap-2 text-left" @click="open(subject.id)">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-base font-semibold text-f-text-bright">{{ subject.name }}</span>
+          <Badge tone="accent">your page</Badge>
+          <span class="ml-auto text-sm text-f-text-muted">{{ formatDateTime(subject.updatedAt) }}</span>
+        </div>
+        <p v-if="unnamedSubject(subject.name)" class="text-sm text-f-warning">
+          Give this page your name: open it, choose Edit and change the name. Friday then writes "your sister" as "{name}'s sister".
+        </p>
+        <p class="text-sm text-f-text-muted line-clamp-2">{{ hint(subject.body) || "What Friday knows about you yourself: preferences, routines, how you like it to behave." }}</p>
       </button>
     </Card>
 
@@ -174,7 +186,7 @@ async function purge() {
     </Card>
     </template>
 
-    <Drawer v-model:open="creating" title="New page" subtitle="A person, place or project Friday should know about">
+    <Drawer v-model:open="creating" title="New page" subtitle="A person, place, project, hobby or belonging Friday should know about">
       <form id="brain-new" class="flex flex-col gap-4" @submit.prevent="create">
         <Input v-model="draft.name" label="Name" placeholder="Anouk" />
         <label class="flex flex-col gap-1 text-sm">

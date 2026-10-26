@@ -2,7 +2,29 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderBody } from "../src/ui/lib/markdown.js";
 import { lineDiff } from "../src/ui/lib/diff.js";
-import { matches, nameKey, parseAliases } from "../src/ui/lib/pages.js";
+import { arrangePages, matches, nameKey, parseAliases, unnamedSubject, type PageList, type PageSummary } from "../src/ui/lib/pages.js";
+
+const page = (id: string, name: string, body = "", isProfile = false): PageSummary => ({ id, name, type: "other", aliases: [], body, isProfile, updatedAt: "", revisionId: 1 });
+
+test("the brain page lists the profile first, the user's page second, then the other pages matching the search", () => {
+  const list: PageList = {
+    profile: { id: "profile", usedTokens: 0, budgetTokens: 800, overBudget: false, instructions: "", subjectId: "me" },
+    pages: [page("a", "Anouk", "Lives in Utrecht"), page("profile", "Profile", "", true), page("me", "Me", "Lives in Utrecht too"), page("h", "Home", "Almere")],
+    deleted: [],
+  };
+  const all = arrangePages(list, "");
+  assert.deepEqual([all.profile?.id, all.subject?.id, all.others.map((p) => p.id)], ["profile", "me", ["a", "h"]]);
+  // The search filters the others; the pinned two stay.
+  const utrecht = arrangePages(list, "utrecht");
+  assert.deepEqual([utrecht.profile?.id, utrecht.subject?.id, utrecht.others.map((p) => p.id)], ["profile", "me", ["a"]]);
+});
+
+test("the user's page asks for a name while it is still Me", () => {
+  assert.equal(unnamedSubject("Me"), true);
+  assert.equal(unnamedSubject("me 2"), true);
+  assert.equal(unnamedSubject("Raymond"), false);
+  assert.equal(unnamedSubject("Meike"), false);
+});
 
 const ids: Record<string, string> = { anouk: "p-1", noukie: "p-1" };
 const resolve = (target: string) => ids[nameKey(target)];
