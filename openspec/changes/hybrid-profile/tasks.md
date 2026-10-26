@@ -49,8 +49,8 @@
 ## 7. Portal
 
 - [x] 7.1 Update `src/ui/BrainPage.vue` and `src/ui/lib/pages.ts`: the profile pinned first with the summary's tokens against the budget, the subject page second marked as the user's page, with a prompt to name it while it is `Me`. Verify the list ordering and the name prompt in `test/ui-lib.test.ts`
-- [ ] 7.2 Update `src/ui/PageView.vue` for the profile: an instructions editor with the stale handling, the summary rendered read-only with its links and generation time, and `Run nightly now` calling `POST /api/jobs/brain/nightly/run` (409 shown as already running); no `Delete` for the profile and the subject page, type fixed for the subject. Verify in the running portal (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`) the "Edit instructions" and "Summary links" scenarios, then stop the dev server
-- [ ] 7.3 Show the instructions and the summary in the profile's history diff and offer `Restore these instructions`; show the profile's summary diff in the `Nightly` tab. Verify the "Undo an instructions edit" scenario in the running portal, then stop the dev server
+- [x] 7.2 Update `src/ui/PageView.vue` for the profile: an instructions editor with the stale handling, the summary rendered read-only with its links and generation time, and `Run nightly now` calling `POST /api/jobs/brain/nightly/run` (409 shown as already running); no `Delete` for the profile and the subject page, type fixed for the subject. Verify in the running portal (`FRIDAY_PORT=8081 FRIDAY_CORE_URL=http://localhost:8081 pnpm dev`) the "Edit instructions" and "Summary links" scenarios, then stop the dev server
+- [x] 7.3 Show the instructions and the summary in the profile's history diff and offer `Restore these instructions`; show the profile's summary diff in the `Nightly` tab. Verify the "Undo an instructions edit" scenario in the running portal, then stop the dev server
 - [x] 7.4 Update the README "Curating" paragraph for instructions, the read-only summary, the subject page and `Run nightly now`. Verify it matches the portal
 - [x] 7.5 Run `pnpm --filter @friday/module-brain test` and `typecheck` and verify both pass
 
