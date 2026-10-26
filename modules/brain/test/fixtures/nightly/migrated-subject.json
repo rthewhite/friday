@@ -13,7 +13,7 @@
     { "entity": "Oreo", "contains": "female" },
     { "entity": "Sylvester", "contains": "male" },
     { "entity": "Schuberg Philis", "contains": "Raymond" },
-    { "entity": "Cupra Leon", "contains": "weekday" },
+    { "entity": "me", "contains": "[[Cupra Leon" },
     { "entity": "Motorcycles", "contains": "Suzuki Bandit" },
     { "entity": "Motorcycles", "contains": "[[Honda CB resto-mod project]]" },
     { "entity": "RC racing", "contains": "Xray X4" },

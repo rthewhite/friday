@@ -42,7 +42,7 @@
 - [x] 6.1 Add `src/nightly/summary.ts`: trigger on any live page other than the profile changed since the last generated summary (by revision id, including the run's own plan) or a guidance change (own `ctx.storage` keys), an empty summary without a model call for an empty brain, the input (summary guidance, budget, subject and home page in full, other pages up to the bound with subject neighbours first, an index of the rest, the current summary). Verify in a new `test/summary.test.ts` the "Nothing changed" and "Generated after new notes" scenarios and the empty-brain case
 - [x] 6.2 Validate the summary (budget, links resolving to live pages, every line backed by the subject page or the pages it names, reusing `preserved` and `namedPages`), with one repair round, and write it as a `consolidation` profile revision keeping the instructions. Verify in `test/summary.test.ts` the "Unbacked line", "Over budget", "Dangling link" and "Refused twice" scenarios
 - [x] 6.3 Run the summary after consolidation in `src/nightly/job.ts`; record whether it was generated and count the profile among the touched pages in `src/nightly/runs.ts`; a profile revert restores only the summary and is stale only on a later summary change. Verify in `test/nightly.test.ts`, `test/runs.test.ts` and `test/runs-routes.test.ts` the "Summary", "Revertible" and "Revert a summary" scenarios
-- [ ] 6.4 Add summary fixtures (a backed, linked summary within budget; a brain whose detail would exceed the budget) and extend `scripts/eval.ts` to report "Profile split checked" and "Summary checked". Verify that `test/nightly-fixtures.test.ts` passes and that `pnpm --filter @friday/module-brain eval` lists the new fixtures
+- [x] 6.4 Add summary fixtures (a backed, linked summary within budget; a brain whose detail would exceed the budget) and extend `scripts/eval.ts` to report "Profile split checked" and "Summary checked". Verify that `test/nightly-fixtures.test.ts` passes and that `pnpm --filter @friday/module-brain eval` lists the new fixtures
 - [x] 6.5 Update the README nightly section and the `openspec/config.yaml` brain context for the summary step, and the `.env.example` comment on `BRAIN_PROFILE_TOKEN_BUDGET` (now the summary's target). Verify that the documented behaviour matches the tests
 - [x] 6.6 Run the brain module's tests and typecheck and verify both pass
 
@@ -56,7 +56,7 @@
 
 ## 8. Integration
 
-- [ ] 8.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all pass
+- [x] 8.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all pass
 - [x] 8.2 Upgrade a local brain whose profile holds the text of the migrated-subject fixture from 5.4: start the dev server, verify the subject page `Me` holds the old profile, run `brain/nightly` from the portal, and review in the `Nightly` tab that hub, item and stub pages were created, the subject page links them, and the summary is backed and linked. Stop the dev server
-- [ ] 8.3 Run `pnpm --filter @friday/module-brain eval` against `FRIDAY_TEXT_MODEL` and verify the extraction, consolidation and summary fixtures pass, recording any failures with their output
+- [x] 8.3 Run `pnpm --filter @friday/module-brain eval` against `FRIDAY_TEXT_MODEL` and verify the extraction, consolidation and summary fixtures pass, recording any failures with their output
 - [ ] 8.4 After deployment (user): rename `Me` in the portal, add instructions, run nightly now, and review the result in the `Nightly` tab
