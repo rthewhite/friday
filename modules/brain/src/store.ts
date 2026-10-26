@@ -19,6 +19,8 @@ export const NAME_MAX = 80;
 export const ALIASES_MAX = 20;
 export const BODY_MAX = 20000;
 export const FACT_MAX = 500;
+/** The profile's instructions, at most this many characters (hybrid-profile D2). */
+export const INSTRUCTIONS_MAX = 2000;
 
 export type BrainErrorCode = "invalid" | "stale" | "name_taken" | "tombstoned" | "not_found" | "profile" | "not_deleted";
 
@@ -46,6 +48,10 @@ export interface PageFields {
 export interface Page extends PageFields {
   id: string;
   isProfile: boolean;
+  /** The profile only: the user's standing instructions for Friday. */
+  instructions?: string;
+  /** The profile only: the id of the subject page, the page about the user. */
+  subjectId?: string;
   revisionId: number;
   createdAt: string;
   updatedAt: string;
@@ -55,6 +61,8 @@ export interface Page extends PageFields {
 export interface Revision extends PageFields {
   id: number;
   pageId: string;
+  /** Profile revisions only: the instructions at this revision. */
+  instructions?: string;
   author: Author;
   baseRevisionId?: number;
   sources: string[];
@@ -72,6 +80,14 @@ export interface WriteOptions {
   note?: string;
   /** On a rename, add the old name as an alias (default true). */
   keepOldName?: boolean;
+}
+
+/** Write options only the store's own write paths set. */
+interface InternalWriteOptions extends WriteOptions {
+  /** The profile's new instructions; absent keeps the current ones. */
+  instructions?: string;
+  /** The write may change the profile's summary (its body). */
+  summary?: boolean;
 }
 
 export interface OutgoingLink {
@@ -99,6 +115,8 @@ interface PageRow {
   aliases_json: string;
   body: string;
   is_profile: number;
+  instructions: string | null;
+  subject_id: string | null;
   revision_id: number;
   created_at: string;
   updated_at: string;
@@ -116,6 +134,7 @@ interface RevisionRow {
   body: string;
   sources_json: string;
   note: string | null;
+  instructions: string | null;
   created_at: string;
 }
 
@@ -126,6 +145,7 @@ const toPage = (r: PageRow): Page => ({
   aliases: JSON.parse(r.aliases_json) as string[],
   body: r.body,
   isProfile: r.is_profile === 1,
+  ...(r.is_profile === 1 ? { instructions: r.instructions ?? "", ...(r.subject_id ? { subjectId: r.subject_id } : {}) } : {}),
   revisionId: r.revision_id,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -141,6 +161,7 @@ const toRevision = (r: RevisionRow): Revision => ({
   type: r.type as PageType,
   aliases: JSON.parse(r.aliases_json) as string[],
   body: r.body,
+  ...(r.instructions !== null ? { instructions: r.instructions } : {}),
   sources: JSON.parse(r.sources_json) as string[],
   ...(r.note !== null ? { note: r.note } : {}),
   createdAt: r.created_at,
@@ -207,6 +228,15 @@ export class BrainStore {
 
   profile(): Page {
     return this.get(PROFILE_ID)!;
+  }
+
+  /** The subject page: the page about the user, which `me` and `profile` resolve to (hybrid-profile D4). */
+  subject(): Page {
+    return this.get(this.subjectId())!;
+  }
+
+  subjectId(): string {
+    return (this.db.prepare("SELECT subject_id FROM brain__pages WHERE id = ?").get(PROFILE_ID) as { subject_id: string }).subject_id;
   }
 
   /** Live pages, most recently updated first (the profile included). */
@@ -322,10 +352,42 @@ export class BrainStore {
     });
   }
 
+  /**
+   * Saves the profile's instructions, as the user (hybrid-profile D2). Refused as `stale` only when the
+   * instructions changed after `base`: a summary the nightly pass wrote meanwhile doesn't conflict.
+   */
+  saveInstructions(text: unknown, base: number): Page {
+    if (typeof text !== "string") throw new BrainError("invalid", "instructions must be text");
+    if (text.length > INSTRUCTIONS_MAX) throw new BrainError("invalid", `instructions may be at most ${INSTRUCTIONS_MAX} characters`);
+    return this.db.transaction(() => {
+      const profile = this.instructionsBase(base);
+      return this.writeRevision(profile, "user", profile, { instructions: text });
+    });
+  }
+
+  /** Makes an earlier profile revision's instructions current again, keeping the current summary. */
+  restoreInstructions(revisionId: number, base: number): Page {
+    return this.db.transaction(() => {
+      const rev = this.revision(PROFILE_ID, revisionId);
+      if (!rev) throw new BrainError("not_found", `revision ${revisionId} of the profile does not exist`);
+      const profile = this.instructionsBase(base);
+      return this.writeRevision(profile, "user", profile, { instructions: rev.instructions ?? "", note: `restored revision ${revisionId}` });
+    });
+  }
+
+  /** Writes the profile's summary: by the nightly pass, or by the user reverting one of its runs. */
+  writeSummary(body: string, author: "consolidation" | "user", opts: Pick<WriteOptions, "base" | "note" | "sources"> = {}): Page {
+    return this.db.transaction(() => {
+      const profile = this.profile();
+      return this.writeRevision(profile, author, { ...profile, body }, { ...opts, summary: true });
+    });
+  }
+
   softDelete(id: string, author: Author, opts: { base?: number; note?: string } = {}): Page {
     return this.db.transaction(() => {
       const page = this.live(id);
       if (page.isProfile) throw new BrainError("profile", "the profile cannot be deleted");
+      if (page.id === this.subjectId()) throw new BrainError("profile", "the page about the user cannot be deleted");
       if (opts.base !== undefined && opts.base !== page.revisionId) throw new BrainError("stale", "the page changed since it was opened", page);
       const at = this.now().toISOString();
       this.db.prepare("UPDATE brain__pages SET deleted_at = ? WHERE id = ?").run(at, id);
@@ -374,7 +436,7 @@ export class BrainStore {
       for (const other of this.list()) {
         const body = unlink(other.body, forgotten);
         if (body === other.body) continue;
-        this.writeRevision(other, author, { ...other, body }, { note: `unlinked "${page.name}" after purge`, keepOldName: false });
+        this.writeRevision(other, author, { ...other, body }, { note: `unlinked "${page.name}" after purge`, keepOldName: false, summary: other.isProfile });
         unlinked.push(other.name);
       }
       this.db.prepare("DELETE FROM brain__pages WHERE id = ?").run(id);
@@ -419,14 +481,21 @@ export class BrainStore {
   }
 
   /** The single write path. Must run inside a transaction. */
-  private writeRevision(page: Page, author: Author, input: Partial<PageFields>, opts: WriteOptions = {}): Page {
+  private writeRevision(page: Page, author: Author, input: Partial<PageFields>, opts: InternalWriteOptions = {}): Page {
     if (!AUTHORS.includes(author)) throw new BrainError("invalid", `unknown author ${JSON.stringify(author)}`);
     if (opts.base !== undefined && opts.base !== page.revisionId) {
       throw new BrainError("stale", "the page changed since it was opened", this.get(page.id));
     }
     const fields = validateFields(input, page.isProfile);
-    if (page.isProfile && (fields.name !== page.name || fields.type !== page.type)) {
-      throw new BrainError("profile", "the profile's name and type cannot change");
+    if (page.isProfile) {
+      if (fields.name !== page.name || fields.type !== page.type) throw new BrainError("profile", "the profile's name and type cannot change");
+      // The summary is generated from the pages (hybrid-profile D1); only its own write path changes it.
+      if (!opts.summary && (fields.body !== page.body || fields.aliases.join("\n") !== page.aliases.join("\n"))) {
+        throw new BrainError("profile", "the profile's summary is generated from the pages; edit its instructions or the pages instead");
+      }
+    } else if (page.name !== "" && page.id === this.subjectId()) {
+      if (fields.type !== page.type) throw new BrainError("profile", "the page about the user is always a person");
+      if (author !== "user" && fields.name !== page.name) throw new BrainError("profile", "only the user can rename the page about the user");
     }
     const renamed = page.name !== "" && nameKey(fields.name) !== nameKey(page.name);
     if (renamed && opts.keepOldName !== false && !fields.aliases.some((a) => nameKey(a) === nameKey(page.name))) {
@@ -456,13 +525,23 @@ export class BrainStore {
     }
 
     const at = this.now().toISOString();
+    // A profile revision snapshots both parts; other pages have no instructions.
+    const instructions = page.isProfile ? (opts.instructions ?? page.instructions ?? "") : null;
     const rev = Number(this.db
-      .prepare("INSERT INTO brain__revisions (page_id, author, base_revision_id, name, type, aliases_json, body, sources_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(page.id, author, page.revisionId || null, fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, JSON.stringify(opts.sources ?? []), opts.note ?? null, at).lastInsertRowid);
+      .prepare("INSERT INTO brain__revisions (page_id, author, base_revision_id, name, type, aliases_json, body, instructions, sources_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(page.id, author, page.revisionId || null, fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, JSON.stringify(opts.sources ?? []), opts.note ?? null, at).lastInsertRowid);
     this.db
-      .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, revision_id = ?, updated_at = ? WHERE id = ?")
-      .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, rev, at, page.id);
+      .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, instructions = ?, revision_id = ?, updated_at = ? WHERE id = ?")
+      .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, rev, at, page.id);
     return this.get(page.id)!;
+  }
+
+  /** The profile, after checking that its instructions haven't changed since revision `base`. */
+  private instructionsBase(base: number): Page {
+    const profile = this.profile();
+    const at = this.revision(PROFILE_ID, base);
+    if (!at || (at.instructions ?? "") !== profile.instructions) throw new BrainError("stale", "the instructions changed since they were opened", profile);
+    return profile;
   }
 
   /** A live, existing page, or `not_found`. */

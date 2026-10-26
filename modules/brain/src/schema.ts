@@ -1,9 +1,16 @@
-/** The brain's tables (design D1). Migration 1 also seeds the profile so it exists from the first start. */
-import type { ModuleMigration } from "@friday/sdk";
+/**
+ * The brain's tables (design D1). Migration 1 also seeds the profile so it exists from the first start;
+ * migration 3 gives the profile its instructions and its subject page (hybrid-profile D1, D10).
+ */
+import { randomUUID } from "node:crypto";
+import type { ModuleDb, ModuleMigration } from "@friday/sdk";
+import { nameKey } from "./links.js";
 
 /** The profile's fixed id and name. */
 export const PROFILE_ID = "profile";
 export const PROFILE_NAME = "Profile";
+/** The subject page's first name, until the user gives it theirs. */
+export const SUBJECT_NAME = "Me";
 
 export const migrations: ModuleMigration[] = [
   {
@@ -91,4 +98,40 @@ export const migrations: ModuleMigration[] = [
       CREATE INDEX brain__runs_started ON brain__runs (started_at DESC);
     `,
   },
+  {
+    version: 3,
+    name: "profile-subject",
+    up(db) {
+      db.exec(`
+        ALTER TABLE brain__pages ADD COLUMN instructions TEXT;
+        ALTER TABLE brain__pages ADD COLUMN subject_id TEXT;
+        ALTER TABLE brain__revisions ADD COLUMN instructions TEXT;
+        UPDATE brain__pages SET instructions = '' WHERE is_profile = 1;
+        UPDATE brain__revisions SET instructions = '' WHERE page_id = '${PROFILE_ID}';
+      `);
+      moveProfileToSubject(db);
+    },
+  },
 ];
+
+/**
+ * Creates the subject page from the profile's current body (named `Me`, or `Me 2`, `Me 3`… when that name
+ * is live or tombstoned) and points the profile at it. The profile keeps its body as the summary until
+ * the nightly pass generates one.
+ */
+function moveProfileToSubject(db: ModuleDb): void {
+  const profile = db.prepare("SELECT body FROM brain__pages WHERE id = ?").get(PROFILE_ID) as { body: string };
+  const taken = (name: string) =>
+    !!db.prepare("SELECT 1 FROM brain__names WHERE key = ?").get(nameKey(name)) || !!db.prepare("SELECT 1 FROM brain__tombstones WHERE key = ?").get(nameKey(name));
+  let name = SUBJECT_NAME;
+  for (let n = 2; taken(name); n++) name = `${SUBJECT_NAME} ${n}`;
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO brain__pages (id, name, type, aliases_json, body, created_at, updated_at) VALUES (?, ?, 'person', '[]', ?, ?, ?)").run(id, name, profile.body, now, now);
+  const rev = Number(db
+    .prepare("INSERT INTO brain__revisions (page_id, author, name, type, aliases_json, body, note, created_at) VALUES (?, 'system', ?, 'person', '[]', ?, 'moved from the profile', ?)")
+    .run(id, name, profile.body, now).lastInsertRowid);
+  db.prepare("UPDATE brain__pages SET revision_id = ? WHERE id = ?").run(rev, id);
+  db.prepare("INSERT INTO brain__names (key, page_id, kind) VALUES (?, ?, 'name')").run(nameKey(name), id);
+  db.prepare("UPDATE brain__pages SET subject_id = ? WHERE id = ?").run(id, PROFILE_ID);
+}
