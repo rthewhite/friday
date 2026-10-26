@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { ModuleDb } from "@friday/sdk";
-import { nameKey, parseLinks, unlink } from "./links.js";
+import { autolink, LINK_PATTERN, nameKey, parseLinks, unlink, type LinkName } from "./links.js";
 import { PROFILE_ID } from "./schema.js";
 import { PAGE_TYPES, type PageType } from "./types.js";
 
@@ -21,6 +21,8 @@ export const BODY_MAX = 20000;
 export const FACT_MAX = 500;
 /** The profile's instructions, at most this many characters (hybrid-profile D2). */
 export const INSTRUCTIONS_MAX = 2000;
+/** Entities that mean the user: `brain_remember` writes them to the subject page. */
+const SELF = new Set(["me", "profile"]);
 
 export type BrainErrorCode = "invalid" | "stale" | "name_taken" | "tombstoned" | "not_found" | "profile" | "not_deleted";
 
@@ -457,10 +459,12 @@ export class BrainStore {
     if (!clean) return { stored: false, reason: "invalid", message: "the fact is empty" };
     if (clean.length > FACT_MAX) return { stored: false, reason: "invalid", message: `a fact may be at most ${FACT_MAX} characters; store one short fact per call` };
     if (type !== undefined && !PAGE_TYPES.includes(type)) return { stored: false, reason: "invalid", message: `type must be one of ${PAGE_TYPES.join(", ")}` };
-    const note = `- ${date}: ${clean}`;
     try {
       return this.db.transaction((): RememberResult => {
-        const target = this.resolve(String(entity ?? ""));
+        // `me` and `profile` are the user: their facts go on the subject page, never on the profile (hybrid-profile D4).
+        const target = SELF.has(nameKey(String(entity ?? ""))) ? this.subject() : this.resolve(String(entity ?? ""));
+        // Links are added to the note only, never to text already on the page (hybrid-profile D7).
+        const note = `- ${date}: ${autolink(clean, this.linkNames(target?.id), target ? this.linkedPages(target.body) : new Set())}`;
         if (!target) {
           const page = this.create({ name: String(entity ?? ""), type: type ?? "other", aliases: [], body: `## Notes\n${note}` }, author, { sources });
           return { stored: true, page: page.name, created: true };
@@ -496,6 +500,11 @@ export class BrainStore {
     } else if (page.name !== "" && page.id === this.subjectId()) {
       if (fields.type !== page.type) throw new BrainError("profile", "the page about the user is always a person");
       if (author !== "user" && fields.name !== page.name) throw new BrainError("profile", "only the user can rename the page about the user");
+    }
+    // The nightly pass's text gets its links from code, not from the model remembering to add them (hybrid-profile D7).
+    if (author === "consolidation" && !page.deletedAt) {
+      const own = new Set(keysOf(fields));
+      fields.body = autolink(fields.body, this.linkNames(page.id).filter((n) => !own.has(nameKey(n.name))), this.linkedPages(fields.body));
     }
     const renamed = page.name !== "" && nameKey(fields.name) !== nameKey(page.name);
     if (renamed && opts.keepOldName !== false && !fields.aliases.some((a) => nameKey(a) === nameKey(page.name))) {
@@ -536,6 +545,18 @@ export class BrainStore {
     return this.get(page.id)!;
   }
 
+  /** Names and aliases of live pages other than the profile and `exclude`, for `autolink`. */
+  private linkNames(exclude?: string): LinkName[] {
+    return this.list()
+      .filter((p) => !p.isProfile && p.id !== exclude)
+      .flatMap((p) => [p.name, ...p.aliases].map((name) => ({ name, pageId: p.id })));
+  }
+
+  /** The ids of the live pages `body` already links to. */
+  private linkedPages(body: string): Set<string> {
+    return new Set(this.links({ body }).flatMap((l) => (l.pageId ? [l.pageId] : [])));
+  }
+
   /** The profile, after checking that its instructions haven't changed since revision `base`. */
   private instructionsBase(base: number): Page {
     const profile = this.profile();
@@ -565,7 +586,9 @@ const NOTE_LINE = /^\s*[-*]\s+(\d{4}-\d{2}-\d{2}):\s*(.*?)\s*$/;
  * case-insensitively. Older notes don't count: remembering an earlier fact again is a correction.
  */
 export function alreadyNoted(body: string, fact: string, date: string): boolean {
-  const same = (text: string) => text.replace(/\s+/g, " ").toLowerCase() === fact.toLowerCase();
+  // Links added to a note don't make it a different fact.
+  const plain = (text: string) => text.replace(LINK_PATTERN, "$1").replace(/\s+/g, " ").toLowerCase();
+  const same = (text: string) => plain(text) === plain(fact);
   const notes = body.split("\n").flatMap((l) => {
     const m = NOTE_LINE.exec(l);
     return m ? [{ date: m[1]!, text: m[2]! }] : [];

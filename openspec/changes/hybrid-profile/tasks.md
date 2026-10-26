@@ -10,8 +10,8 @@
 
 ## 2. Links added on non-user writes
 
-- [ ] 2.1 Add `autolink(text, pages, existingBody)` to `src/links.ts`: first whole-word, case-sensitive occurrence of each live name or alias of 3+ characters, longest first, no overlaps, skipping existing `[[links]]`, inline code, code blocks, names already linked in the body, the written page and the profile. Verify in `test/links.test.ts` the "Lowercase word", "Longest name wins", "Already linked" and "Short name" scenarios plus code spans and existing links
-- [ ] 2.2 Apply it in the store before writing a revision by `remember`, `extraction` or `consolidation`: on the appended note for `appendNote`, on the whole new body for rewrites, creates, merges and the profile summary; never for `user` or `system`. Verify in `test/store.test.ts` the "Summary mentions a page" and "User's edit untouched" scenarios, and that a user's unlinked mention earlier in a body stays unlinked when `remember` appends
+- [x] 2.1 Add `autolink(text, pages, existingBody)` to `src/links.ts`: first whole-word, case-sensitive occurrence of each live name or alias of 3+ characters, longest first, no overlaps, skipping existing `[[links]]`, inline code, code blocks, names already linked in the body, the written page and the profile. Verify in `test/links.test.ts` the "Lowercase word", "Longest name wins", "Already linked" and "Short name" scenarios plus code spans and existing links
+- [x] 2.2 Apply it in the store before writing a revision by `remember`, `extraction` or `consolidation`: on the appended note for `appendNote`, on the whole new body for rewrites, creates, merges and the profile summary; never for `user` or `system`. Verify in `test/store.test.ts` the "Summary mentions a page" and "User's edit untouched" scenarios, and that a user's unlinked mention earlier in a body stays unlinked when `remember` appends
 - [ ] 2.3 Run the brain module's tests and typecheck and verify both pass
 
 ## 3. Tools and the prompt context
