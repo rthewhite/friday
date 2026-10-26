@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import type { SeedEntry } from "@friday/sdk";
 import type { TestHost } from "@friday/sdk/test";
 import { preserved } from "../../src/nightly/consolidate.js";
-import { fold } from "../../src/text.js";
+import { validateSummary } from "../../src/nightly/summary.js";
+import { BrainStore } from "../../src/store.js";
+import { estimateTokens, fold } from "../../src/text.js";
 
 export interface FixturePage {
   name: string;
@@ -21,8 +23,11 @@ export interface Fixture {
   /** File name without `.json`. */
   name: string;
   description: string;
-  kind: "extraction" | "consolidation";
-  profile?: string;
+  kind: "extraction" | "consolidation" | "summary";
+  /** The body of the user's own page (the subject page). */
+  me?: string;
+  /** A name for the user's page instead of `Me` (the old name stays an alias). */
+  meName?: string;
   pages?: FixturePage[];
   /** Names purged before the conversation (they end up tombstoned). */
   tombstones?: string[];
@@ -47,8 +52,10 @@ export interface Fixture {
   mayDrop?: string[];
   /** No live page may have one of these as its name or alias after the run. */
   mustNotPage?: string[];
+  /** Summary: the generated summary must name each of these pages with a `[[link]]`. */
+  summaryLinks?: string[];
   /** Canned model answers for the fake-model tests. */
-  fake?: { notes?: unknown[]; plan?: unknown };
+  fake?: { notes?: unknown[]; plan?: unknown; summary?: string };
 }
 
 export const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "nightly");
@@ -66,11 +73,12 @@ async function ok(r: Promise<{ status: number; body: unknown }>, what: string) {
   return res.body as { id: string; revisionId: number };
 }
 
-/** Seeds a test host with the fixture's profile, pages, tombstones and conversation (quiet). Returns the conversation id. */
+/** Seeds a test host with the fixture's user page, pages, tombstones and conversation (quiet). Returns the conversation id. */
 export async function seedFixture(h: TestHost, fx: Fixture): Promise<string | undefined> {
-  if (fx.profile !== undefined) {
-    const cur = (await h.request("GET", "pages/profile")).body as { revisionId: number };
-    await ok(h.request("PUT", "pages/profile", { name: "Profile", type: "other", aliases: [], body: fx.profile, baseRevision: cur.revisionId }), `${fx.name}: profile`);
+  if (fx.me !== undefined || fx.meName !== undefined) {
+    const id = ((await h.request("GET", "pages")).body as { profile: { subjectId: string } }).profile.subjectId;
+    const cur = (await h.request("GET", `pages/${id}`)).body as { name: string; body: string; revisionId: number };
+    await ok(h.request("PUT", `pages/${id}`, { name: fx.meName ?? cur.name, type: "person", aliases: [], body: fx.me ?? cur.body, baseRevision: cur.revisionId }), `${fx.name}: user's page`);
   }
   for (const name of fx.tombstones ?? []) {
     const p = await ok(h.request("POST", "pages", { name }), `${fx.name}: tombstone ${name}`);
@@ -102,7 +110,7 @@ export function brainText(h: TestHost): string {
     .toLowerCase();
 }
 
-/** The body of the live page whose name or alias is `entity` ("profile" for the profile). */
+/** The body of the live page whose name or alias is `entity` ("me" for the user's page while it has its first name or keeps it as an alias). */
 export function bodyOf(h: TestHost, entity: string): string | undefined {
   const row = h.db.prepare("SELECT p.body FROM brain__names n JOIN brain__pages p ON p.id = n.page_id WHERE n.key = ?").get(entity.trim().toLowerCase()) as { body: string } | undefined;
   return row?.body;
@@ -117,7 +125,9 @@ export interface Check {
 export function checkFixture(h: TestHost, fx: Fixture, before: string): Check[] {
   const after = brainText(h);
   const out: Check[] = [];
-  for (const m of fx.mustNote ?? []) out.push({ expectation: `note on ${m.entity} contains "${m.contains}"`, ok: (bodyOf(h, m.entity) ?? "").toLowerCase().includes(m.contains.toLowerCase()) });
+  // Links the brain added don't change what a page says: "[[Raymond]]'s brother" contains "Raymond's brother".
+  const says = (body: string, text: string) => [body, body.replace(/\[\[([^[\]\n]+)\]\]/g, "$1")].some((b) => b.toLowerCase().includes(text.toLowerCase()));
+  for (const m of fx.mustNote ?? []) out.push({ expectation: `note on ${m.entity} contains "${m.contains}"`, ok: says(bodyOf(h, m.entity) ?? "", m.contains) });
   for (const p of fx.mustNotNote ?? []) {
     const needle = p.toLowerCase();
     out.push({ expectation: `nothing new mentions "${p}"`, ok: !after.includes(needle) || before.includes(needle) });
@@ -126,5 +136,15 @@ export function checkFixture(h: TestHost, fx: Fixture, before: string): Check[] 
   const folded = fold(after);
   for (const k of fx.mustKeep ?? []) out.push({ expectation: `still states "${k}"`, ok: after.includes(k.toLowerCase()) || preserved(k, folded) });
   for (const n of fx.mustNotPage ?? []) out.push({ expectation: `no page named "${n}"`, ok: bodyOf(h, n) === undefined });
+  if (fx.kind === "summary") {
+    // The summary as written, checked by the same rules the nightly pass uses before writing it.
+    const summary = (h.db.prepare("SELECT body FROM brain__pages WHERE id = 'profile'").get() as { body: string }).body;
+    const budget = Number(fx.env?.BRAIN_PROFILE_TOKEN_BUDGET ?? 800);
+    const reasons = validateSummary(new BrainStore(h.db), summary, budget);
+    out.push({ expectation: "a summary was written", ok: summary.trim() !== "" });
+    out.push({ expectation: `the summary is within ${budget} tokens (${estimateTokens(summary)})`, ok: estimateTokens(summary) <= budget });
+    out.push({ expectation: `every line of the summary is backed and every link resolves${reasons.length ? `: ${reasons.join("; ")}` : ""}`, ok: !reasons.length });
+    for (const n of fx.summaryLinks ?? []) out.push({ expectation: `the summary links [[${n}]]`, ok: summary.toLowerCase().includes(`[[${n.toLowerCase()}]]`) });
+  }
   return out;
 }

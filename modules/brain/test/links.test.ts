@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLinks, unlink } from "../src/links.js";
+import { autolink, parseLinks, unlink } from "../src/links.js";
 import { brainStore } from "./fixtures.js";
 
 test("parseLinks finds targets with their line, cut to 160 characters", () => {
@@ -63,4 +63,72 @@ test("unlink rewrites only the given names and leaves other links intact", () =>
   const body = "Worked at [[Old job]] and [[old  JOB]], lives in [[Utrecht]].";
   assert.equal(unlink(body, new Set(["old job"])), "Worked at Old job and old  JOB, lives in [[Utrecht]].");
   assert.equal(unlink(body, new Set()), body);
+});
+
+// ---- hybrid-profile: links added by code ----
+
+const n = (name: string, pageId = name) => ({ name, pageId });
+
+test("autolink links the first whole-word, same-case mention of each page", () => {
+  assert.equal(autolink("Lives at Home in Almere. Home is warm.", [n("Home")]), "Lives at [[Home]] in Almere. Home is warm.");
+  // Lowercase is a word, not the page; inside another word isn't a mention either.
+  assert.equal(autolink("Works from home on Fridays, at Homeland too.", [n("Home")]), "Works from home on Fridays, at Homeland too.");
+  // Accented letters count as letters for the word boundary.
+  assert.equal(autolink("Café, Cafébar and Café", [n("Café")]), "[[Café]], Cafébar and Café");
+});
+
+test("autolink: longest name first, no overlap, one link per page across its names", () => {
+  assert.equal(autolink("Restoring the Honda CB900F; the Honda is old.", [n("Honda", "h"), n("Honda CB900F", "cb")]), "Restoring the [[Honda CB900F]]; the [[Honda]] is old.");
+  assert.equal(autolink("Noukie and Anouk", [n("Anouk", "a"), n("Noukie", "a")]), "[[Noukie]] and Anouk");
+});
+
+test("autolink skips short names, already linked pages, existing links and code", () => {
+  assert.equal(autolink("Me and Lisa went to Utrecht", [n("Me"), n("Lisa")]), "Me and [[Lisa]] went to Utrecht");
+  assert.equal(autolink("Lisa again", [n("Lisa", "l")], new Set(["l"])), "Lisa again");
+  assert.equal(autolink("[[Lisa de Wit]] and Lisa", [n("Lisa", "l")]), "[[Lisa de Wit]] and [[Lisa]]");
+  assert.equal(autolink("`Lisa` and\n```\nLisa\n```\nLisa", [n("Lisa")]), "`Lisa` and\n```\nLisa\n```\n[[Lisa]]");
+});
+
+test("autolink leaves headings, URLs, markdown links and longer capitalized names alone", () => {
+  assert.equal(autolink("Controls the lights via Home Assistant, at Home.", [n("Home")]), "Controls the lights via Home Assistant, at [[Home]].");
+  assert.equal(autolink("[docs](https://x.org/Home) and <https://x.org/Home> or https://x.org/Home then Home", [n("Home")]), "[docs](https://x.org/Home) and <https://x.org/Home> or https://x.org/Home then [[Home]]");
+  assert.equal(autolink("## Notes\n- Notes on the car", [n("Notes")]), "## Notes\n- [[Notes]] on the car");
+  // A link written with any of a planned page's names counts as linking it.
+  assert.equal(autolink("[[Lisa]] is my wife. Elisabeth teaches.", [n("Elisabeth", "new:elisabeth")], new Set(["new:elisabeth"])), "[[Lisa]] is my wife. Elisabeth teaches.");
+});
+
+test("a link written with a planned page's alias counts as linking it, and links never push a body over its limit", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const me = store.subject();
+  const plan = [{ name: "Elisabeth", pageId: "new:elisabeth" }, { name: "Lisa", pageId: "new:elisabeth" }];
+  assert.equal(store.save(me.id, { ...me, body: "[[Lisa]] is my wife. Elisabeth teaches." }, "consolidation", { alsoLink: plan }).body, "[[Lisa]] is my wife. Elisabeth teaches.");
+  store.create({ name: "Home" }, "user");
+  const full = `Home ${"x".repeat(19995)}`;
+  assert.equal(store.save(me.id, { ...store.subject(), body: full }, "consolidation").body, full);
+});
+
+test("the store links nightly writes in full, remembered notes only in the note, and user writes never", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const home = store.create({ name: "Home", type: "place" }, "user");
+  store.create({ name: "Schuberg Philis", type: "other" }, "user");
+  // A user's own mention stays as typed.
+  const lisa = store.create({ name: "Lisa", type: "person", body: "Lives at Home." }, "user");
+  assert.equal(lisa.body, "Lives at Home.");
+  // remember links only the new note, not the user's earlier text.
+  store.appendNote("Lisa", "Works at Schuberg Philis near Home", undefined, "2026-09-29");
+  assert.equal(store.get(lisa.id)!.body, "Lives at Home.\n\n## Notes\n- 2026-09-29: Works at [[Schuberg Philis]] near [[Home]]");
+  // The same fact again is still recognised, links or not.
+  assert.equal(store.appendNote("Lisa", "Works at Schuberg Philis near Home", undefined, "2026-09-29").stored, false);
+  // A page already linking a target gets no second link.
+  const fam = store.create({ name: "Family", body: "See [[Lisa]]." }, "user");
+  store.appendNote("Family", "Lisa likes tea", undefined, "2026-09-29");
+  assert.equal(store.get(fam.id)!.body, "See [[Lisa]].\n\n## Notes\n- 2026-09-29: Lisa likes tea");
+  // A consolidation rewrite and the summary are linked in full; the page never links itself.
+  const rewritten = store.save(home.id, { ...store.get(home.id)!, body: "Home is in Almere. Lisa lives here." }, "consolidation");
+  assert.equal(rewritten.body, "Home is in Almere. [[Lisa]] lives here.");
+  assert.equal(store.writeSummary("Lives at Home in Almere. Works at Schuberg Philis.", "consolidation").body, "Lives at [[Home]] in Almere. Works at [[Schuberg Philis]].");
+  // A user's save keeps the text as typed.
+  assert.equal(store.save(home.id, { ...store.get(home.id)!, body: "Lisa and Schuberg Philis" }, "user").body, "Lisa and Schuberg Philis");
 });

@@ -6,11 +6,11 @@
  */
 import { randomUUID } from "node:crypto";
 import type { ModuleDb } from "@friday/sdk";
-import { nameKey, parseLinks, unlink } from "./links.js";
+import { autolink, LINK_PATTERN, nameKey, parseLinks, unlink, type LinkName } from "./links.js";
 import { PROFILE_ID } from "./schema.js";
-import { PAGE_TYPES, type PageType } from "./types.js";
+import { INSTRUCTIONS_MAX, isSelf, PAGE_TYPES, type PageType } from "./types.js";
 
-export { PAGE_TYPES, type PageType };
+export { INSTRUCTIONS_MAX, PAGE_TYPES, type PageType };
 
 export const AUTHORS = ["system", "user", "remember", "extraction", "consolidation"] as const;
 export type Author = (typeof AUTHORS)[number];
@@ -46,6 +46,10 @@ export interface PageFields {
 export interface Page extends PageFields {
   id: string;
   isProfile: boolean;
+  /** The profile only: the user's standing instructions for Friday. */
+  instructions?: string;
+  /** The profile only: the id of the subject page, the page about the user. */
+  subjectId?: string;
   revisionId: number;
   createdAt: string;
   updatedAt: string;
@@ -55,6 +59,8 @@ export interface Page extends PageFields {
 export interface Revision extends PageFields {
   id: number;
   pageId: string;
+  /** Profile revisions only: the instructions at this revision. */
+  instructions?: string;
   author: Author;
   baseRevisionId?: number;
   sources: string[];
@@ -72,6 +78,19 @@ export interface WriteOptions {
   note?: string;
   /** On a rename, add the old name as an alias (default true). */
   keepOldName?: boolean;
+  /**
+   * Names of pages a nightly plan creates in the same transaction: a `consolidation` write links them too,
+   * so a page written before them in the plan still links to them.
+   */
+  alsoLink?: LinkName[];
+}
+
+/** Write options only the store's own write paths set. */
+interface InternalWriteOptions extends WriteOptions {
+  /** The profile's new instructions; absent keeps the current ones. */
+  instructions?: string;
+  /** The write may change the profile's summary (its body). */
+  summary?: boolean;
 }
 
 export interface OutgoingLink {
@@ -99,6 +118,8 @@ interface PageRow {
   aliases_json: string;
   body: string;
   is_profile: number;
+  instructions: string | null;
+  subject_id: string | null;
   revision_id: number;
   created_at: string;
   updated_at: string;
@@ -116,6 +137,7 @@ interface RevisionRow {
   body: string;
   sources_json: string;
   note: string | null;
+  instructions: string | null;
   created_at: string;
 }
 
@@ -126,6 +148,7 @@ const toPage = (r: PageRow): Page => ({
   aliases: JSON.parse(r.aliases_json) as string[],
   body: r.body,
   isProfile: r.is_profile === 1,
+  ...(r.is_profile === 1 ? { instructions: r.instructions ?? "", ...(r.subject_id ? { subjectId: r.subject_id } : {}) } : {}),
   revisionId: r.revision_id,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -141,6 +164,7 @@ const toRevision = (r: RevisionRow): Revision => ({
   type: r.type as PageType,
   aliases: JSON.parse(r.aliases_json) as string[],
   body: r.body,
+  ...(r.instructions !== null ? { instructions: r.instructions } : {}),
   sources: JSON.parse(r.sources_json) as string[],
   ...(r.note !== null ? { note: r.note } : {}),
   createdAt: r.created_at,
@@ -207,6 +231,15 @@ export class BrainStore {
 
   profile(): Page {
     return this.get(PROFILE_ID)!;
+  }
+
+  /** The subject page: the page about the user, which `me` and `profile` resolve to (hybrid-profile D4). */
+  subject(): Page {
+    return this.get(this.subjectId())!;
+  }
+
+  subjectId(): string {
+    return (this.db.prepare("SELECT subject_id FROM brain__pages WHERE id = ?").get(PROFILE_ID) as { subject_id: string }).subject_id;
   }
 
   /** Live pages, most recently updated first (the profile included). */
@@ -277,6 +310,17 @@ export class BrainStore {
     return [...this.changesSince(revisionId, excluded).keys()];
   }
 
+  /**
+   * Whether anything the profile's summary is built from changed after `revisionId`: any revision of another
+   * page, live or deleted, reverts included, or a purge unlinking a name in the summary. The summary's own
+   * writes, its reverts and instructions edits don't count.
+   */
+  summarySourcesChangedSince(revisionId: number): boolean {
+    return !!this.db
+      .prepare("SELECT 1 FROM brain__revisions WHERE id > ? AND (page_id != ? OR note LIKE 'unlinked %') LIMIT 1")
+      .get(revisionId, PROFILE_ID);
+  }
+
   /** A page's `[[links]]`, resolved through live names and aliases. */
   links(page: Pick<Page, "body">): OutgoingLink[] {
     return parseLinks(page.body).map(({ target, line }) => {
@@ -322,10 +366,42 @@ export class BrainStore {
     });
   }
 
+  /**
+   * Saves the profile's instructions, as the user (hybrid-profile D2). Refused as `stale` only when the
+   * instructions changed after `base`: a summary the nightly pass wrote meanwhile doesn't conflict.
+   */
+  saveInstructions(text: unknown, base: number): Page {
+    if (typeof text !== "string") throw new BrainError("invalid", "instructions must be text");
+    if (text.length > INSTRUCTIONS_MAX) throw new BrainError("invalid", `instructions may be at most ${INSTRUCTIONS_MAX} characters`);
+    return this.db.transaction(() => {
+      const profile = this.instructionsBase(base);
+      return this.writeRevision(profile, "user", profile, { instructions: text });
+    });
+  }
+
+  /** Makes an earlier profile revision's instructions current again, keeping the current summary. */
+  restoreInstructions(revisionId: number, base: number): Page {
+    return this.db.transaction(() => {
+      const rev = this.revision(PROFILE_ID, revisionId);
+      if (!rev) throw new BrainError("not_found", `revision ${revisionId} of the profile does not exist`);
+      const profile = this.instructionsBase(base);
+      return this.writeRevision(profile, "user", profile, { instructions: rev.instructions ?? "", note: `restored revision ${revisionId}` });
+    });
+  }
+
+  /** Writes the profile's summary: by the nightly pass, or by the user reverting one of its runs. */
+  writeSummary(body: string, author: "consolidation" | "user", opts: Pick<WriteOptions, "base" | "note" | "sources"> = {}): Page {
+    return this.db.transaction(() => {
+      const profile = this.profile();
+      return this.writeRevision(profile, author, { ...profile, body }, { ...opts, summary: true });
+    });
+  }
+
   softDelete(id: string, author: Author, opts: { base?: number; note?: string } = {}): Page {
     return this.db.transaction(() => {
       const page = this.live(id);
       if (page.isProfile) throw new BrainError("profile", "the profile cannot be deleted");
+      if (page.id === this.subjectId()) throw new BrainError("profile", "the page about the user cannot be deleted");
       if (opts.base !== undefined && opts.base !== page.revisionId) throw new BrainError("stale", "the page changed since it was opened", page);
       const at = this.now().toISOString();
       this.db.prepare("UPDATE brain__pages SET deleted_at = ? WHERE id = ?").run(at, id);
@@ -374,7 +450,7 @@ export class BrainStore {
       for (const other of this.list()) {
         const body = unlink(other.body, forgotten);
         if (body === other.body) continue;
-        this.writeRevision(other, author, { ...other, body }, { note: `unlinked "${page.name}" after purge`, keepOldName: false });
+        this.writeRevision(other, author, { ...other, body }, { note: `unlinked "${page.name}" after purge`, keepOldName: false, summary: other.isProfile });
         unlinked.push(other.name);
       }
       this.db.prepare("DELETE FROM brain__pages WHERE id = ?").run(id);
@@ -395,10 +471,12 @@ export class BrainStore {
     if (!clean) return { stored: false, reason: "invalid", message: "the fact is empty" };
     if (clean.length > FACT_MAX) return { stored: false, reason: "invalid", message: `a fact may be at most ${FACT_MAX} characters; store one short fact per call` };
     if (type !== undefined && !PAGE_TYPES.includes(type)) return { stored: false, reason: "invalid", message: `type must be one of ${PAGE_TYPES.join(", ")}` };
-    const note = `- ${date}: ${clean}`;
     try {
       return this.db.transaction((): RememberResult => {
-        const target = this.resolve(String(entity ?? ""));
+        // `me` and `profile` are the user: their facts go on the subject page, never on the profile (hybrid-profile D4).
+        const target = isSelf(String(entity ?? "")) ? this.subject() : this.resolve(String(entity ?? ""));
+        // Links are added to the note only, never to text already on the page (hybrid-profile D7).
+        const note = `- ${date}: ${autolink(clean, this.linkNames(target?.id), target ? this.linkedPages(target.body) : new Set())}`;
         if (!target) {
           const page = this.create({ name: String(entity ?? ""), type: type ?? "other", aliases: [], body: `## Notes\n${note}` }, author, { sources });
           return { stored: true, page: page.name, created: true };
@@ -419,14 +497,27 @@ export class BrainStore {
   }
 
   /** The single write path. Must run inside a transaction. */
-  private writeRevision(page: Page, author: Author, input: Partial<PageFields>, opts: WriteOptions = {}): Page {
+  private writeRevision(page: Page, author: Author, input: Partial<PageFields>, opts: InternalWriteOptions = {}): Page {
     if (!AUTHORS.includes(author)) throw new BrainError("invalid", `unknown author ${JSON.stringify(author)}`);
     if (opts.base !== undefined && opts.base !== page.revisionId) {
       throw new BrainError("stale", "the page changed since it was opened", this.get(page.id));
     }
     const fields = validateFields(input, page.isProfile);
-    if (page.isProfile && (fields.name !== page.name || fields.type !== page.type)) {
-      throw new BrainError("profile", "the profile's name and type cannot change");
+    if (page.isProfile) {
+      if (fields.name !== page.name || fields.type !== page.type) throw new BrainError("profile", "the profile's name and type cannot change");
+      // The summary is generated from the pages (hybrid-profile D1); only its own write path changes it.
+      if (!opts.summary && (fields.body !== page.body || fields.aliases.join("\n") !== page.aliases.join("\n"))) {
+        throw new BrainError("profile", "the profile's summary is generated from the pages; edit its instructions or the pages instead");
+      }
+    } else if (page.name !== "" && page.id === this.subjectId()) {
+      if (fields.type !== page.type) throw new BrainError("profile", "the page about the user is always a person");
+      if (author !== "user" && fields.name !== page.name) throw new BrainError("profile", "only the user can rename the page about the user");
+    }
+    // The nightly pass's text gets its links from code, not from the model remembering to add them (hybrid-profile D7).
+    if (author === "consolidation" && !page.deletedAt) {
+      const linked = this.withLinks(fields.body, page.id, keysOf(fields), opts.alsoLink);
+      // The links never push a body over its limit: then it is stored as written.
+      if (linked.length <= BODY_MAX) fields.body = linked;
     }
     const renamed = page.name !== "" && nameKey(fields.name) !== nameKey(page.name);
     if (renamed && opts.keepOldName !== false && !fields.aliases.some((a) => nameKey(a) === nameKey(page.name))) {
@@ -456,13 +547,51 @@ export class BrainStore {
     }
 
     const at = this.now().toISOString();
+    // A profile revision snapshots both parts; other pages have no instructions.
+    const instructions = page.isProfile ? (opts.instructions ?? page.instructions ?? "") : null;
     const rev = Number(this.db
-      .prepare("INSERT INTO brain__revisions (page_id, author, base_revision_id, name, type, aliases_json, body, sources_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(page.id, author, page.revisionId || null, fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, JSON.stringify(opts.sources ?? []), opts.note ?? null, at).lastInsertRowid);
+      .prepare("INSERT INTO brain__revisions (page_id, author, base_revision_id, name, type, aliases_json, body, instructions, sources_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(page.id, author, page.revisionId || null, fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, JSON.stringify(opts.sources ?? []), opts.note ?? null, at).lastInsertRowid);
     this.db
-      .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, revision_id = ?, updated_at = ? WHERE id = ?")
-      .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, rev, at, page.id);
+      .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, instructions = ?, revision_id = ?, updated_at = ? WHERE id = ?")
+      .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, rev, at, page.id);
     return this.get(page.id)!;
+  }
+
+  /**
+   * `body` with the links a `consolidation` write of page `pageId` adds (hybrid-profile D7): the summary is
+   * validated in this form, as it will be stored. `own` are the written page's name keys; `alsoLink` names
+   * pages the same plan creates.
+   */
+  withLinks(body: string, pageId: string, own: readonly string[] = [], alsoLink: readonly LinkName[] = []): string {
+    const self = new Set(own);
+    // A page the plan already created is a live page by now, linked under its own id.
+    const upcoming = alsoLink.filter((n) => !this.owner(nameKey(n.name)));
+    const names = [...this.linkNames(pageId), ...upcoming].filter((n) => !self.has(nameKey(n.name)));
+    // Links to a page the plan creates later don't resolve yet: count them by any of its names.
+    const planned = new Map(upcoming.map((n) => [nameKey(n.name), n.pageId]));
+    const linked = new Set([...this.linkedPages(body), ...parseLinks(body).flatMap((l) => planned.get(nameKey(l.target)) ?? [])]);
+    return autolink(body, names, linked);
+  }
+
+  /** Names and aliases of live pages other than the profile and `exclude`, for `autolink`. */
+  private linkNames(exclude?: string): LinkName[] {
+    return this.list()
+      .filter((p) => !p.isProfile && p.id !== exclude)
+      .flatMap((p) => [p.name, ...p.aliases].map((name) => ({ name, pageId: p.id })));
+  }
+
+  /** The ids of the live pages `body` already links to. */
+  private linkedPages(body: string): Set<string> {
+    return new Set(this.links({ body }).flatMap((l) => (l.pageId ? [l.pageId] : [])));
+  }
+
+  /** The profile, after checking that its instructions haven't changed since revision `base`. */
+  private instructionsBase(base: number): Page {
+    const profile = this.profile();
+    const at = this.revision(PROFILE_ID, base);
+    if (!at || (at.instructions ?? "") !== profile.instructions) throw new BrainError("stale", "the instructions changed since they were opened", profile);
+    return profile;
   }
 
   /** A live, existing page, or `not_found`. */
@@ -486,7 +615,9 @@ const NOTE_LINE = /^\s*[-*]\s+(\d{4}-\d{2}-\d{2}):\s*(.*?)\s*$/;
  * case-insensitively. Older notes don't count: remembering an earlier fact again is a correction.
  */
 export function alreadyNoted(body: string, fact: string, date: string): boolean {
-  const same = (text: string) => text.replace(/\s+/g, " ").toLowerCase() === fact.toLowerCase();
+  // Links added to a note don't make it a different fact.
+  const plain = (text: string) => text.replace(LINK_PATTERN, "$1").replace(/\s+/g, " ").toLowerCase();
+  const same = (text: string) => plain(text) === plain(fact);
   const notes = body.split("\n").flatMap((l) => {
     const m = NOTE_LINE.exec(l);
     return m ? [{ date: m[1]!, text: m[2]! }] : [];

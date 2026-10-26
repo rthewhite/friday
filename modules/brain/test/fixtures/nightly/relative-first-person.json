@@ -1,7 +1,8 @@
 {
-  "description": "A get-to-know-you chat: a first-person fact about a named relative goes on that person's page, a fact about the speaker on the profile.",
+  "description": "A get-to-know-you chat: a first-person fact about a named relative goes on that person's page with the relation written with the user's name, a fact about the speaker on the user's page.",
   "kind": "extraction",
-  "profile": "Lives in Amsterdam.",
+  "me": "Lives in Amsterdam.",
+  "meName": "Raymond",
   "conversation": {
     "channel": "chat",
     "entries": [
@@ -11,13 +12,14 @@
   },
   "mustNote": [
     { "entity": "Lisa", "contains": "Regenboog" },
-    { "entity": "profile", "contains": "engineer" }
+    { "entity": "Lisa", "contains": "Raymond's wife" },
+    { "entity": "me", "contains": "engineer" }
   ],
   "mustNotNote": ["busy household"],
   "fake": {
     "notes": [
-      { "entity": "Lisa", "fact": "The user's wife; teaches at De Regenboog.", "type": "person", "reason": "stated by the user about their wife" },
-      { "entity": "profile", "fact": "Works as an engineer at Schuberg Philis.", "reason": "stated by the user about themselves" }
+      { "entity": "Lisa", "fact": "Raymond's wife; teaches at De Regenboog.", "type": "person", "reason": "stated by the user about their wife" },
+      { "entity": "me", "fact": "Works as an engineer at Schuberg Philis.", "reason": "stated by the user about themselves" }
     ]
   }
 }

@@ -100,6 +100,8 @@ A valid summary is written as a profile revision with author `consolidation`, an
 
 The backing check prevents invention, not omission. Omission is acceptable: the summary is a convenience, and every fact is still on a page.
 
+The step runs after a refused plan, because the pages are then as they were and the summary can still follow them. It doesn't run when consolidation found the model unavailable, or when the run was cancelled: an outage waits for the next run, as it does in extraction.
+
 Alternatives:
 - **A `summary` action inside the plan.** The plan's validation is about not losing lines. A derived summary loses nothing by dropping a line, so it would need a separate set of rules inside the same validator.
 - **A summary rendered by code from page first lines.** That's deterministic, but it can't summarize, and the result reads like an index the prompt already has.
@@ -129,11 +131,13 @@ Alternatives:
 
 The guidance still asks the model to use exact page names, because code can't link a paraphrased name.
 
+A plan's writes happen one action at a time, so a rewrite listed before a `create` would miss the new page. `applyPlan` therefore passes the names the plan creates to every write it makes (`alsoLink`). A link to a page created later in the same transaction resolves once the transaction commits.
+
 ### D8. Portal
 
 - The profile view shows **Instructions**, editable with the stale check from D2, and the **Summary**, rendered read-only with its links, the time and run that generated it, and a `Run nightly now` action that calls the jobs API.
 - History and restore on the profile restore the instructions only.
-- The subject page is marked as the user's page, with no `Delete`. While it is named `Me`, the portal asks the user to give it their name.
+- The subject page is marked as the user's page, with no `Delete`. While it is named `Me`, the portal asks the user to give it their name. `GET pages/:id` carries `isSubject`, so the page view knows this without loading the whole list.
 - `PUT pages/profile` accepts `instructions` only. A changed body, name or type is refused with `profile`.
 
 ### D9. Budget

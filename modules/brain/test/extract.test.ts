@@ -20,8 +20,9 @@ async function host(extract: Answer = () => ({ notes: [] }), env: Record<string,
   const h = await createTestHost(createBrainModule({ now: () => now }), {
     env,
     llm: (req) => {
-      const isExtract = !!(req.schema as { properties?: Record<string, unknown> })?.properties?.notes;
-      if (!isExtract) return JSON.stringify({ actions: [], note: "nothing to tidy" });
+      const props = (req.schema as { properties?: Record<string, unknown> })?.properties;
+      if (props?.summary) return JSON.stringify({ summary: "" });
+      if (!props?.notes) return JSON.stringify({ actions: [], note: "nothing to tidy" });
       extractions.push(req);
       const a = extract(req);
       if (a instanceof Error) throw a;
@@ -91,7 +92,9 @@ test("the brain rendering lists dangling links and forgotten names, and an overs
   const store = new BrainStore(t.h.db);
   const text = renderBrain(store, "what was the wifi router password again?");
   assert.ok(text.length <= 60000, `${text.length}`);
-  assert.match(text, /### Profile \(the user and the household\)\n\(empty\)/);
+  // The user's page comes first; the profile's summary is not shown.
+  assert.match(text, /^### Me \(person; the user's own page, entity "me"\)\n\(empty\)/);
+  assert.doesNotMatch(text, /### Profile/);
   assert.match(text, /### Home \(place\)\nWifi password is on the router label/);
   assert.match(text, /### Other pages \(index only\)\n- Big \d \(other\)/);
   assert.match(text, /## Links to pages that don't exist yet\n- Utrecht/);
@@ -110,22 +113,25 @@ test("a fact said in passing becomes a sourced extraction note dated with the co
   assert.equal(r.outcome, "ok");
   assert.match(r.summary!, /^1 conversation \(0 trivial\), 1 note;/);
   assert.equal(t.body("Anouk"), "My sister.\n\n## Notes\n- 2026-09-29: Birthday is on 3 November.");
-  const rev = t.h.db.prepare("SELECT author, sources_json FROM brain__revisions ORDER BY id DESC LIMIT 1").get() as { author: string; sources_json: string };
+  const rev = t.h.db.prepare("SELECT r.author, r.sources_json FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id WHERE p.name = 'Anouk' ORDER BY r.id DESC LIMIT 1").get() as { author: string; sources_json: string };
   assert.deepEqual({ ...rev }, { author: "extraction", sources_json: JSON.stringify([id]) });
   assert.deepEqual([t.extractions[0]!.model, t.extractions[0]!.temperature, t.extractions[0]!.maxOutputTokens], ["standard", 0.2, 4096]);
 });
 
-test("a first-person fact about a named relative lands on a new page for them, a fact about the speaker on the profile", async () => {
+test("a first-person fact about a named relative lands on a new page for them, a fact about the speaker on the user's page", async () => {
   const f = fixture("relative-first-person");
   const t = await host(() => f.fake);
   await seedFixture(t.h, f);
   const before = brainText(t.h);
   const r = await t.run();
   assert.equal(r.outcome, "ok");
-  assert.equal(t.body("Lisa"), "## Notes\n- 2026-09-29: The user's wife; teaches at De Regenboog.");
+  // The relation names the user, and the mention of their page is linked.
+  assert.equal(t.body("Lisa"), "## Notes\n- 2026-09-29: [[Raymond]]'s wife; teaches at De Regenboog.");
+  assert.match(t.extractions[0]!.system!, /"Raymond's sister; works at the library\."/);
   assert.equal((t.h.db.prepare("SELECT type FROM brain__pages WHERE name = 'Lisa'").get() as { type: string }).type, "person");
   for (const c of checkFixture(t.h, f, before)) assert.ok(c.ok, c.expectation);
-  assert.doesNotMatch(t.body("profile")!, /Regenboog/, "the wife's job is not on the profile");
+  assert.doesNotMatch(t.body("me")!, /Regenboog/, "the wife's job is not on the user's page");
+  assert.equal(t.body("profile"), "", "nothing is noted on the profile");
 });
 
 test("the date shown to the model is the date the notes get, even if the zone changes during the model call", async () => {
@@ -317,7 +323,11 @@ test("an aborted run stops at the next conversation, is partial, and skips conso
     zone: () => "Europe/Amsterdam",
   };
   let consolidated = false;
-  const { run, summary } = await runNightly(new RunStore(t.h.db), { extract: (s) => runExtract(deps as never, s), consolidate: async () => { consolidated = true; return { ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }; } }, "schedule", ac.signal);
+  const { run, summary } = await runNightly(new RunStore(t.h.db), {
+    extract: (s) => runExtract(deps as never, s),
+    consolidate: async () => { consolidated = true; return { ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }; },
+    summary: async () => { consolidated = true; return { ran: false, generated: false }; },
+  }, "schedule", ac.signal);
   assert.equal(run.outcome, "partial");
   assert.equal(run.error, "cancelled");
   assert.equal(run.conversations, 1);

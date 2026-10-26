@@ -42,6 +42,8 @@ export interface Run extends RunCounts {
   outcome?: RunOutcome;
   dropped: DroppedLine[];
   mergeRecords: MergeRecord[];
+  /** The run wrote a new profile summary. */
+  summaryGenerated: boolean;
   /** Revisions this run may have written have ids in [firstRevisionId, lastRevisionId]. */
   firstRevisionId: number;
   lastRevisionId?: number;
@@ -55,6 +57,7 @@ export interface RunFinish extends Partial<RunCounts> {
   dropped?: DroppedLine[];
   merges?: number;
   mergeRecords?: MergeRecord[];
+  summaryGenerated?: boolean;
   error?: string;
   summary?: string;
 }
@@ -74,6 +77,7 @@ interface RunRow {
   merges: number;
   dropped_json: string;
   merges_json: string;
+  summary_generated: number;
   first_revision_id: number;
   last_revision_id: number | null;
   error: string | null;
@@ -95,6 +99,7 @@ const toRun = (r: RunRow): Run => ({
   merges: r.merges,
   dropped: JSON.parse(r.dropped_json) as DroppedLine[],
   mergeRecords: JSON.parse(r.merges_json) as MergeRecord[],
+  summaryGenerated: r.summary_generated === 1,
   firstRevisionId: r.first_revision_id,
   ...(r.last_revision_id !== null ? { lastRevisionId: r.last_revision_id } : {}),
   ...(r.error !== null ? { error: r.error } : {}),
@@ -123,11 +128,11 @@ export class RunStore {
   finish(id: number, f: RunFinish): Run {
     this.db
       .prepare(`UPDATE brain__runs SET finished_at = ?, outcome = ?, conversations = ?, skipped = ?, notes = ?, refused = ?,
-        rewrites = ?, creates = ?, merges = ?, dropped_json = ?, merges_json = ?, last_revision_id = ?, error = ?, summary = ? WHERE id = ?`)
+        rewrites = ?, creates = ?, merges = ?, dropped_json = ?, merges_json = ?, summary_generated = ?, last_revision_id = ?, error = ?, summary = ? WHERE id = ?`)
       .run(
         this.now().toISOString(), f.outcome, f.conversations ?? 0, f.skipped ?? 0, f.notes ?? 0, f.refused ?? 0,
         f.rewrites ?? 0, f.creates ?? 0, f.merges ?? f.mergeRecords?.length ?? 0,
-        JSON.stringify(f.dropped ?? []), JSON.stringify(f.mergeRecords ?? []), this.nextRevisionId() - 1, f.error ?? null, f.summary ?? null, id,
+        JSON.stringify(f.dropped ?? []), JSON.stringify(f.mergeRecords ?? []), f.summaryGenerated ? 1 : 0, this.nextRevisionId() - 1, f.error ?? null, f.summary ?? null, id,
       );
     return this.get(id)!;
   }

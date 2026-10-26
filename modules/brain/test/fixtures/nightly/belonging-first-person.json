@@ -1,0 +1,17 @@
+{
+  "description": "A first-person fact about a belonging that has a page goes on that page, not on the user's page.",
+  "kind": "extraction",
+  "meName": "Raymond",
+  "pages": [{ "name": "Honda CB900F", "type": "other", "body": "Raymond's 1979 motorcycle, being restored." }],
+  "conversation": {
+    "channel": "voice",
+    "device": "garage",
+    "entries": [
+      { "kind": "user", "input": "speech", "text": "I finally finished the paint on my Honda CB900F this weekend, it's deep red now." },
+      { "kind": "assistant", "text": "Nice, deep red will look great on it.", "interrupted": false }
+    ]
+  },
+  "mustNote": [{ "entity": "Honda CB900F", "contains": "red" }],
+  "mustNotNote": ["# garage"],
+  "fake": { "notes": [{ "entity": "Honda CB900F", "fact": "Painted deep red; the paint was finished in September 2026.", "reason": "lasting fact about the user's motorcycle" }] }
+}

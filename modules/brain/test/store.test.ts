@@ -116,15 +116,82 @@ test("revision ids keep increasing after a purge deletes the newest ones", (t) =
   assert.ok(next.revisionId > highest, `${next.revisionId} > ${highest}`);
 });
 
-test("the profile can't be renamed, retyped or deleted", (t) => {
+test("the profile can't be renamed, retyped, deleted, or have its summary edited", (t) => {
   const { store, close } = brainStore();
   t.after(close);
   const profile = store.profile();
   assert.throws(() => store.save(profile.id, { ...profile, name: "Me" }, "user"), code("profile"));
   assert.throws(() => store.save(profile.id, { ...profile, type: "person" }, "user"), code("profile"));
   assert.throws(() => store.softDelete(profile.id, "user"), code("profile"));
-  assert.equal(store.save(profile.id, { ...profile, body: "Lives in Amsterdam", aliases: ["Household"] }, "user").body, "Lives in Amsterdam");
-  assert.equal(store.profile().name, "Profile");
+  assert.throws(() => store.save(profile.id, { ...profile, body: "Lives in Amsterdam" }, "user"), code("profile", /generated/));
+  assert.throws(() => store.save(profile.id, { ...profile, aliases: ["Household"] }, "user"), code("profile"));
+  assert.throws(() => store.save(profile.id, { ...profile, body: "Lives in Amsterdam" }, "consolidation"), code("profile"));
+  assert.deepEqual({ name: store.profile().name, body: store.profile().body, revisionId: store.profile().revisionId }, { name: "Profile", body: "", revisionId: profile.revisionId });
+});
+
+// ---- hybrid-profile: the subject page, instructions and the summary ----
+
+test("the subject page can't be deleted or retyped, and only the user renames it, keeping the old name as an alias", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const me = store.subject();
+  assert.equal(me.name, "Me");
+  assert.equal(me.type, "person");
+  assert.equal(store.profile().subjectId, me.id);
+  assert.throws(() => store.softDelete(me.id, "user"), code("profile"));
+  assert.throws(() => store.save(me.id, { ...me, type: "other" }, "user"), code("profile"));
+  assert.throws(() => store.save(me.id, { ...me, name: "Raymond" }, "consolidation"), code("profile", /only the user/));
+  assert.equal(store.save(me.id, { ...me, body: "Plays iRacing" }, "consolidation").body, "Plays iRacing");
+  const renamed = store.save(me.id, { ...store.subject(), name: "Raymond" }, "user");
+  assert.deepEqual({ name: renamed.name, aliases: renamed.aliases }, { name: "Raymond", aliases: ["Me"] });
+  assert.equal(store.subject().id, me.id);
+  assert.equal(store.resolve("me")?.id, me.id);
+});
+
+test("instructions: saved by the user up to 2000 characters, snapshotted in every profile revision", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const base = store.profile().revisionId;
+  const saved = store.saveInstructions("Call me Ray. In voice, keep answers short.", base);
+  assert.equal(saved.instructions, "Call me Ray. In voice, keep answers short.");
+  assert.deepEqual(store.revisions("profile")[0]!.author, "user");
+  assert.equal(store.revision("profile", saved.revisionId)?.instructions, "Call me Ray. In voice, keep answers short.");
+  // A summary write keeps the instructions, and its revision holds both parts.
+  const summary = store.writeSummary("Lives in Almere.", "consolidation");
+  assert.deepEqual({ body: summary.body, instructions: summary.instructions }, { body: "Lives in Almere.", instructions: "Call me Ray. In voice, keep answers short." });
+  const rev = store.revision("profile", summary.revisionId)!;
+  assert.deepEqual({ body: rev.body, instructions: rev.instructions, author: rev.author }, { body: "Lives in Almere.", instructions: "Call me Ray. In voice, keep answers short.", author: "consolidation" });
+  // Other pages have no instructions.
+  assert.equal(store.revision(store.subject().id, store.subject().revisionId)?.instructions, undefined);
+  // Too long.
+  assert.throws(() => store.saveInstructions("x".repeat(2001), summary.revisionId), code("invalid", /2000/));
+  assert.throws(() => store.saveInstructions(42, summary.revisionId), code("invalid"));
+  assert.doesNotThrow(() => store.saveInstructions("x".repeat(2000), summary.revisionId));
+});
+
+test("instructions: a summary written meanwhile doesn't make a save stale; other instructions do", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const opened = store.profile().revisionId;
+  store.writeSummary("Lives in Almere.", "consolidation");
+  const saved = store.saveInstructions("Call me Ray.", opened);
+  assert.deepEqual({ body: saved.body, instructions: saved.instructions }, { body: "Lives in Almere.", instructions: "Call me Ray." });
+  // A second tab, opened before that save, is stale and gets the current profile back.
+  assert.throws(() => store.saveInstructions("Answer in Dutch.", opened), (e) => code("stale")(e) && (e as BrainError).current?.instructions === "Call me Ray.");
+  assert.throws(() => store.saveInstructions("Answer in Dutch.", 99999), code("stale"));
+  assert.equal(store.profile().instructions, "Call me Ray.");
+});
+
+test("instructions: restoring a revision brings back its instructions and keeps the current summary", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const first = store.saveInstructions("Call me Ray.", store.profile().revisionId);
+  const second = store.saveInstructions("Answer in Dutch.", first.revisionId);
+  store.writeSummary("Lives in Almere.", "consolidation");
+  const restored = store.restoreInstructions(first.revisionId, second.revisionId);
+  assert.deepEqual({ body: restored.body, instructions: restored.instructions }, { body: "Lives in Almere.", instructions: "Call me Ray." });
+  assert.equal(store.revisions("profile")[0]!.note, `restored revision ${first.revisionId}`);
+  assert.throws(() => store.restoreInstructions(999999, restored.revisionId), code("not_found"));
 });
 
 test("a tombstoned name is refused for non-user writes; a user create lifts it", (t) => {
@@ -189,7 +256,7 @@ test("delete frees the names and undelete brings the page back with its history"
   const deleted = store.softDelete(p.id, "user");
   assert.ok(deleted.deletedAt);
   assert.equal(store.resolve("Noukie"), undefined);
-  assert.deepEqual(store.list().map((x) => x.name), ["Profile"]);
+  assert.deepEqual(store.list().map((x) => x.name).sort(), ["Me", "Profile"]);
   assert.deepEqual(store.deleted().map((x) => x.name), ["Anouk"]);
   const back = store.undelete(p.id, "user");
   assert.equal(back.deletedAt, undefined);
@@ -211,7 +278,7 @@ test("undelete is refused when a live page took one of its names", (t) => {
 test("purge tombstones the names, unlinks inbound links and deletes the page with its revisions", (t) => {
   const { store, db, close } = brainStore();
   t.after(close);
-  const profile = store.save("profile", { ...store.profile(), body: "Worked at [[Old job]] for years. Lives near [[Utrecht]]." }, "user");
+  const profile = store.writeSummary("Worked at [[Old job]] for years. Lives near [[Utrecht]].", "consolidation");
   const job = store.create({ name: "Old job", aliases: ["Acme"], body: "Office in town" }, "user");
   const family = store.create({ name: "Family", body: "Met at [[acme]]." }, "user");
   store.softDelete(job.id, "user");

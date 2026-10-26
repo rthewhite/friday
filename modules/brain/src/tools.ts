@@ -16,6 +16,7 @@ import {
 import { nameKey } from "./links.js";
 import { search, searchTerms } from "./search.js";
 import { PAGE_TYPES, type BrainStore, type Page, type PageType } from "./store.js";
+import { isSelf } from "./types.js";
 
 /** Other pages `brain_recall` returns after an exact name match. */
 export const RECALL_HITS = 3;
@@ -24,15 +25,16 @@ export const RECALL_CONNECTIONS = 10;
 /** Page names listed when nothing matches. */
 export const RECALL_NAMES = 50;
 
-/** `brain_remember`'s description: facts go on the entity they're about (profile-as-summary, design D4). */
+/** `brain_remember`'s description: facts go on the entity they're about (hybrid-profile D4, D6). */
 export const REMEMBER_DESCRIPTION =
   "Store one lasting fact in Friday's long-term memory, as a dated note on a page. Use the name of the person, place, " +
-  "project or organisation the fact is about as entity, also when the user says it in the first person (\"my sister Anouk " +
-  "works at the library\" goes on Anouk), and include the relation to the user in the fact. Reuse a name or alias from " +
-  "the memory index when one fits. Use \"profile\" only for facts about the user themselves or the household as a whole. " +
-  "Friday can't tell voices apart: facts about the speaker go on the profile unless they say who they are. One fact per " +
-  "call; write it so it reads on its own. [[Name]] may reference other pages. Existing notes are never changed; a " +
-  "correction is stored as a new, newer note.";
+  "project, organisation, hobby, belonging or pet the fact is about as entity, also when the user says it in the first " +
+  "person (\"my sister Anouk works at the library\" goes on Anouk, \"my Honda needs new tyres\" on the Honda), and include " +
+  "the relation to the user in the fact. Reuse a name or alias from the memory index when one fits. Use \"me\" only for " +
+  "facts about the user themselves, including how they like Friday to behave (\"from now on, call me Ray\"). Facts about " +
+  "the household as a whole go on the household's home page (for example \"Home\"). Friday can't tell voices apart: facts " +
+  "about the speaker go on \"me\" unless they say who they are. One fact per call; write it so it reads on its own. " +
+  "Existing notes are never changed; a correction is stored as a new, newer note.";
 
 export interface Connection {
   from: string;
@@ -48,7 +50,7 @@ export function defineBrainTools(ctx: ModuleContext, store: BrainStore, today: (
     parameters: {
       type: Type.OBJECT,
       properties: {
-        entity: { type: Type.STRING, description: "Page name or alias, or \"profile\"" },
+        entity: { type: Type.STRING, description: "Page name or alias, or \"me\" for the user" },
         fact: { type: Type.STRING, description: "The fact, one short sentence" },
         type: { type: Type.STRING, enum: [...PAGE_TYPES], description: "Kind of page, used when the page is new (default other)" },
       },
@@ -193,7 +195,8 @@ type RecalledPage = Pick<Page, "name" | "type" | "aliases" | "body" | "updatedAt
 
 /** Design D4: the exact entity first, then the best other hits, with up to 10 connections. */
 export function recall(store: BrainStore, query: string, entity?: string): Record<string, unknown> {
-  const exact = entity ? store.resolve(entity) : undefined;
+  // `me` and `profile` are the user, as in brain_remember, also when another page is called "Me".
+  const exact = entity ? (isSelf(entity) ? store.subject() : store.resolve(entity)) : undefined;
   const named = exact && !exact.isProfile ? exact : undefined;
   const hits = search(store.list(), searchTerms(query, entity));
   const pages: { page: Page; found_by: RecalledPage["found_by"] }[] = [];

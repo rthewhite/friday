@@ -1,0 +1,56 @@
+{
+  "description": "A user's page migrated from an old profile, holding detail about relatives, the employer, hobbies, belongings and pets: every entity gets a page (hubs for hobbies, stubs for name-only relatives), relations name the user, and the user's page keeps short linked lines and their own routine.",
+  "kind": "consolidation",
+  "meName": "Raymond",
+  "me": "Prefers the home temperature set to 20.5 °C.\nLives at Home in Almere. Works at Schuberg Philis.\nFamily: Dimitri (brother), Mom (Cora) and Dad (Renee).\nHas two Cats: Oreo (female) and Sylvester (male).\nDrives the Cupra Leon Plugin Hybrid to the office basically every weekday.\nOwns and likes riding two motorcycles: a customized Suzuki Bandit and a 1979 Honda CB900F being restored in the Honda CB resto-mod project.\nOn weekdays, wakes up around 07:30, leaves for the office around 08:15, takes a shower around 23:00, and goes to bed around 23:45.\nEnjoys gaming in the evening: plays PC shooters like Battlefield 6 with friends, or races in iRacing.\nIn the summer on weekends, races 1:10 scale RC cars: an Exotek Ultra F1 (Ultra R5) and an Xray X4 '26 touring car.\nOn rare occasions enjoys going for a game of airsoft.",
+  "pages": [
+    { "name": "Home", "type": "place", "body": "The house in Almere." },
+    { "name": "Honda CB resto-mod project", "type": "project", "body": "Restoring a 1979 Honda CB900F as a resto-mod." }
+  ],
+  "mustNote": [
+    { "entity": "Dimitri", "contains": "Raymond's brother" },
+    { "entity": "Cora", "contains": "mother" },
+    { "entity": "Oreo", "contains": "female" },
+    { "entity": "Sylvester", "contains": "male" },
+    { "entity": "Schuberg Philis", "contains": "Raymond" },
+    { "entity": "me", "contains": "[[Cupra Leon" },
+    { "entity": "Motorcycles", "contains": "Suzuki Bandit" },
+    { "entity": "Motorcycles", "contains": "[[Honda CB resto-mod project]]" },
+    { "entity": "RC racing", "contains": "Xray X4" },
+    { "entity": "Gaming", "contains": "iRacing" },
+    { "entity": "Airsoft", "contains": "Raymond" },
+    { "entity": "me", "contains": "[[Home]]" },
+    { "entity": "me", "contains": "[[Dimitri]]" },
+    { "entity": "me", "contains": "[[Oreo]]" },
+    { "entity": "me", "contains": "[[Motorcycles]]" },
+    { "entity": "me", "contains": "[[RC racing]]" },
+    { "entity": "me", "contains": "20.5" },
+    { "entity": "me", "contains": "07:30" }
+  ],
+  "mustKeep": ["20.5 °C", "Battlefield 6", "1979 Honda CB900F", "Exotek Ultra F1", "airsoft", "goes to bed around 23:45"],
+  "fake": {
+    "plan": {
+      "actions": [
+        { "kind": "create", "name": "Dimitri", "type": "person", "body": "Raymond's brother." },
+        { "kind": "create", "name": "Cora", "type": "person", "aliases": ["Mom"], "body": "Raymond's mother." },
+        { "kind": "create", "name": "Renee", "type": "person", "aliases": ["Dad"], "body": "Raymond's father." },
+        { "kind": "create", "name": "Schuberg Philis", "type": "other", "body": "Raymond's employer." },
+        { "kind": "create", "name": "Oreo", "type": "other", "body": "One of Raymond's two cats; female." },
+        { "kind": "create", "name": "Sylvester", "type": "other", "body": "One of Raymond's two cats; male." },
+        { "kind": "create", "name": "Cupra Leon", "type": "other", "body": "Raymond's car, a Cupra Leon Plugin Hybrid. He drives it to the office basically every weekday." },
+        { "kind": "create", "name": "Motorcycles", "type": "other", "body": "Raymond owns and likes riding two motorcycles:\n- a customized Suzuki Bandit;\n- a 1979 Honda CB900F, being restored in the Honda CB resto-mod project." },
+        { "kind": "create", "name": "Gaming", "type": "other", "body": "Raymond enjoys gaming in the evening: he plays PC shooters like Battlefield 6 with friends, or races in iRacing." },
+        { "kind": "create", "name": "RC racing", "type": "other", "body": "In the summer on weekends, Raymond races 1:10 scale RC cars: an Exotek Ultra F1 (Ultra R5) and an Xray X4 '26 touring car." },
+        { "kind": "create", "name": "Airsoft", "type": "other", "body": "On rare occasions Raymond enjoys going for a game of airsoft." },
+        {
+          "kind": "rewrite",
+          "page": "{{id:Raymond}}",
+          "base": "{{rev:Raymond}}",
+          "body": "Prefers the home temperature set to 20.5 °C.\nLives at Home in Almere. Works at Schuberg Philis.\nFamily: brother Dimitri, Mom Cora and Dad Renee.\nCats: Oreo and Sylvester.\nDrives the Cupra Leon to the office basically every weekday.\nHobbies: Motorcycles, Gaming, RC racing and Airsoft.\nOn weekdays, wakes up around 07:30, leaves for the office around 08:15, takes a shower around 23:00, and goes to bed around 23:45.",
+          "dropped": []
+        }
+      ],
+      "note": "Gave every person, hobby, belonging and pet on Raymond's page a page of its own, with hub pages for the hobbies, and kept short linked lines on Raymond."
+    }
+  }
+}

@@ -106,11 +106,17 @@ test("a fact mentioned in the page's own text, or inside a longer note, is still
   assert.match(body("Anouk")!, /- 2026-09-29: likes coffee$/);
 });
 
-test("entity profile appends to the profile, whatever its budget", async () => {
-  const { remember, body } = await host({ BRAIN_PROFILE_TOKEN_BUDGET: "5" });
-  assert.deepEqual(await remember({ entity: "Profile", fact: "Prefers Celsius" }), { stored: true, page: "Profile", created: false });
-  assert.deepEqual(await remember({ entity: "profile", fact: "Has two cats and a very long list of other lasting preferences" }), { stored: true, page: "Profile", created: false });
-  assert.equal(body("Profile"), "## Notes\n- 2026-09-29: Prefers Celsius\n- 2026-09-29: Has two cats and a very long list of other lasting preferences");
+test("entities me and profile append to the subject page, never to the profile or its instructions", async () => {
+  const { h, remember, body } = await host();
+  assert.deepEqual(await remember({ entity: "Me", fact: "Prefers Celsius" }), { stored: true, page: "Me", created: false });
+  assert.deepEqual(await remember({ entity: "profile", fact: "Prefers answers in English" }), { stored: true, page: "Me", created: false });
+  assert.equal(body("Me"), "## Notes\n- 2026-09-29: Prefers Celsius\n- 2026-09-29: Prefers answers in English");
+  assert.deepEqual({ ...(h.db.prepare("SELECT body, instructions FROM brain__pages WHERE id = 'profile'").get() as object) }, { body: "", instructions: "" });
+  // Renamed by the user, the subject still answers to me and profile, and the result names it.
+  const me = h.db.prepare("SELECT id, revision_id FROM brain__pages WHERE name = 'Me'").get() as { id: string; revision_id: number };
+  await h.request("PUT", `pages/${me.id}`, { name: "Raymond", type: "person", aliases: [], body: body("Me"), baseRevision: me.revision_id });
+  assert.deepEqual(await remember({ entity: "me", fact: "Drives a Cupra Leon" }), { stored: true, page: "Raymond", created: false });
+  assert.deepEqual(await remember({ entity: "PROFILE", fact: "Races RC cars in summer" }), { stored: true, page: "Raymond", created: false });
 });
 
 test("a tombstoned entity is refused as deliberately forgotten", async () => {
@@ -151,7 +157,7 @@ async function seeded() {
   await post({ name: "Family", body: "- Sister: [[Anouk]], birthday party in November" });
   await post({ name: "Home", type: "place", body: "Wifi password is on the router label" });
   await post({ name: "Utrecht", type: "place", body: "City" });
-  await t.put("pages/profile", { name: "Profile", type: "other", aliases: [], body: "Birthday in May", baseRevision: 1 });
+  t.h.db.prepare("UPDATE brain__pages SET body = 'Birthday in May' WHERE id = 'profile'").run();
   return t;
 }
 
@@ -185,7 +191,25 @@ test("a topic search finds a fact filed elsewhere and never returns the profile"
   const birthday = await recall({ query: "birthday" });
   assert.ok(!birthday.pages.some((p: any) => p.name === "Profile"));
   assert.ok(birthday.pages.length <= 3);
-  assert.equal((await recall({ entity: "profile", query: "may" })).found, false);
+  // "profile" means the user, as in brain_remember: their page, never the profile's summary.
+  assert.deepEqual((await recall({ entity: "profile", query: "may" })).pages.map((p: any) => p.name), ["Me"]);
+});
+
+test("recall returns the subject page like any page", async () => {
+  const { remember, recall } = await seeded();
+  await remember({ entity: "me", fact: "Plays iRacing with friends" });
+  assert.deepEqual((await recall({ query: "iRacing" })).pages.map((p: any) => p.name), ["Me"]);
+  assert.deepEqual((await recall({ entity: "me", query: "hobbies" })).pages.map((p: any) => p.name), ["Me"]);
+});
+
+test("me resolves to the user's page in both tools, also when another page is called Me", async () => {
+  const { h, remember, recall } = await host();
+  const id = (h.db.prepare("SELECT subject_id AS id FROM brain__pages WHERE id = 'profile'").get() as { id: string }).id;
+  const me = h.db.prepare("SELECT revision_id FROM brain__pages WHERE id = ?").get(id) as { revision_id: number };
+  await h.request("PUT", `pages/${id}`, { name: "Raymond", type: "person", aliases: [], body: "", baseRevision: me.revision_id, keepOldName: false });
+  await h.request("POST", "pages", { name: "Me", body: "A page about the band Me" });
+  assert.deepEqual(await remember({ entity: "me", fact: "Plays iRacing" }), { stored: true, page: "Raymond", created: false });
+  assert.deepEqual((await recall({ entity: "me", query: "iRacing" })).pages.map((p: any) => p.name)[0], "Raymond");
 });
 
 test("nothing found says so and lists the page names", async () => {
@@ -193,7 +217,7 @@ test("nothing found says so and lists the page names", async () => {
   const r = await recall({ query: "submarine" });
   assert.equal(r.found, false);
   assert.match(r.message, /Nothing in memory matches/);
-  assert.deepEqual([...r.pages].sort(), ["Anouk", "Family", "Home", "Utrecht"]);
+  assert.deepEqual([...r.pages].sort(), ["Anouk", "Family", "Home", "Me", "Utrecht"]);
 });
 
 test("recall returns at most the exact page plus 3 others", async () => {
@@ -208,10 +232,11 @@ test("recall returns at most the exact page plus 3 others", async () => {
 
 test("brain_remember's description routes a fact to the entity it is about, also in the first person", () => {
   const d = REMEMBER_DESCRIPTION.replace(/\s+/g, " ");
-  assert.match(d, /person, place, project or organisation/);
+  assert.match(d, /person, place, project, organisation, hobby, belonging or pet/);
   assert.match(d, /also when the user says it in the first person/);
   assert.match(d, /relation to the user/);
-  assert.match(d, /"profile" only for facts about the user themselves or the household as a whole/);
+  assert.match(d, /"me" only for facts about the user themselves/);
+  assert.match(d, /household as a whole go on the household's home page/);
 });
 
 test("the module's tools are brain_remember, brain_recall and brain_recall_conversations, in every channel", async () => {

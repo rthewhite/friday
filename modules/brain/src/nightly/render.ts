@@ -46,27 +46,27 @@ export function renderTranscript(c: Conversation, seenSeq: number, zone: string)
   return [header, ...(earlier.length ? ["", "[earlier] (context only; already processed)", ...earlier] : []), "", "[new]", ...fresh].join("\n");
 }
 
-function pageBlock(p: Page): string {
-  const meta = [p.isProfile ? "the user and the household" : p.type, ...(p.aliases.length ? [`aka ${p.aliases.join(", ")}`] : [])].join("; ");
+function pageBlock(p: Page, subject = false): string {
+  const meta = [p.type, ...(subject ? ['the user\'s own page, entity "me"'] : []), ...(p.aliases.length ? [`aka ${p.aliases.join(", ")}`] : [])].join("; ");
   return `### ${p.name} (${meta})\n${p.body.trim() || "(empty)"}`;
 }
 
 /**
- * The brain for extraction: the profile and live pages in full, dangling link targets, and tombstoned
- * names. Beyond `max` characters, pages are ranked by how many significant words of `relevantTo` they
- * contain; the best ones stay in full and the rest become index lines.
+ * The brain for extraction: the user's page and the other live pages in full, dangling link targets, and
+ * tombstoned names. The profile is left out: its summary is derived from these pages and takes no notes.
+ * Beyond `max` characters, pages are ranked by how many significant words of `relevantTo` they contain;
+ * the best ones stay in full and the rest become index lines.
  */
 export function renderBrain(store: BrainStore, relevantTo: string, max = BRAIN_MAX): string {
-  const all = store.list();
-  const profile = all.find((p) => p.isProfile)!;
-  const pages = all.filter((p) => !p.isProfile);
+  const subject = store.subject();
+  const pages = store.list().filter((p) => !p.isProfile && p.id !== subject.id);
   const dangling = store.danglingTargets();
   const forgotten = store.tombstones().map((t) => t.name);
   const tail = [
     `## Links to pages that don't exist yet\n${dangling.length ? dangling.map((d) => `- ${d}`).join("\n") : "(none)"}`,
     `## Deliberately forgotten: never record these\n${forgotten.length ? forgotten.map((d) => `- ${d}`).join("\n") : "(none)"}`,
   ].join("\n\n");
-  const full = [pageBlock(profile), ...pages.map(pageBlock)].join("\n\n");
+  const full = [pageBlock(subject, true), ...pages.map((p) => pageBlock(p))].join("\n\n");
   if (full.length + tail.length + 2 <= max) return `${full}\n\n${tail}`;
 
   const words = significantWords(relevantTo);
@@ -75,7 +75,7 @@ export function renderBrain(store: BrainStore, relevantTo: string, max = BRAIN_M
     return words.filter((w) => text.includes(w)).length;
   };
   const ranked = pages.map((p) => ({ p, r: relevance(p) })).sort((a, b) => b.r - a.r || b.p.updatedAt.localeCompare(a.p.updatedAt)).map((x) => x.p);
-  const blocks = [pageBlock(profile)];
+  const blocks = [pageBlock(subject, true)];
   const index: string[] = [];
   let used = blocks[0]!.length + tail.length + 200;
   for (const p of ranked) {
