@@ -53,11 +53,16 @@ export interface LinkName {
 /** Names shorter than this are never linked automatically ("Me" would match too much). */
 export const AUTOLINK_MIN = 3;
 
+/** Text `autolink` leaves alone: `[[links]]`, markdown links, `<autolinks>` and bare URLs. */
+const PROTECTED = new RegExp(`${LINK_PATTERN.source}|\\[[^\\]\\n]*\\]\\([^)\\n]*\\)|<[^>\\n]*>|\\b[a-z][a-z0-9+.-]*:\\/\\/\\S+`, "gi");
+const HEADING = /^\s{0,3}#{1,6}(\s|$)/;
+
 /**
  * Links the first mention of each page in `text` (hybrid-profile D7): a whole-word, case-sensitive
- * occurrence of one of its names or aliases, outside code and existing links, becomes `[[occurrence]]`.
- * Longer names go first, so "Honda CB900F" wins over "Honda". Pages in `linked` (already linked in the
- * body) are skipped, and so is a page once one of its names was linked.
+ * occurrence of one of its names or aliases becomes `[[occurrence]]`. Code, existing links, markdown links,
+ * URLs and headings are left alone, and so is a name followed by another capitalized word ("Home" in
+ * "Home Assistant"). Longer names go first, so "Honda CB900F" wins over "Honda". Pages in `linked` (already
+ * linked in the body) are skipped, and so is a page once one of its names was linked.
  */
 export function autolink(text: string, names: readonly LinkName[], linked: ReadonlySet<string> = new Set()): string {
   const done = new Set(linked);
@@ -65,7 +70,7 @@ export function autolink(text: string, names: readonly LinkName[], linked: Reado
   let out = text;
   for (const { name, pageId } of candidates) {
     if (done.has(pageId)) continue;
-    const word = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(name.trim())}(?![\\p{L}\\p{N}_])`, "u");
+    const word = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(name.trim())}(?![\\p{L}\\p{N}_])(?![ \\t]+\\p{Lu})`, "u");
     let found = false;
     const linkFirst = (part: string): string => {
       const m = found ? null : word.exec(part);
@@ -73,11 +78,12 @@ export function autolink(text: string, names: readonly LinkName[], linked: Reado
       found = true;
       return `${part.slice(0, m.index)}[[${m[0]}]]${part.slice(m.index + m[0].length)}`;
     };
-    out = mapText(out, (segment) => {
-      // Only the parts between existing links: never inside `[[...]]`.
+    out = mapText(out, (segment, line) => {
+      if (HEADING.test(line)) return segment;
+      // Only the parts between protected text: never inside a link or a URL.
       let result = "";
       let last = 0;
-      for (const m of segment.matchAll(LINK_PATTERN)) {
+      for (const m of segment.matchAll(PROTECTED)) {
         result += linkFirst(segment.slice(last, m.index)) + m[0];
         last = m.index + m[0].length;
       }
@@ -88,7 +94,8 @@ export function autolink(text: string, names: readonly LinkName[], linked: Reado
   return out;
 }
 
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** `s` matched literally inside a regular expression. */
+export const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Applies `fn` to the parts of `body` that are not code: lines inside ``` or ~~~ fences, and inline

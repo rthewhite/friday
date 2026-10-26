@@ -16,6 +16,7 @@ import {
 import { nameKey } from "./links.js";
 import { search, searchTerms } from "./search.js";
 import { PAGE_TYPES, type BrainStore, type Page, type PageType } from "./store.js";
+import { isSelf } from "./types.js";
 
 /** Other pages `brain_recall` returns after an exact name match. */
 export const RECALL_HITS = 3;
@@ -194,7 +195,8 @@ type RecalledPage = Pick<Page, "name" | "type" | "aliases" | "body" | "updatedAt
 
 /** Design D4: the exact entity first, then the best other hits, with up to 10 connections. */
 export function recall(store: BrainStore, query: string, entity?: string): Record<string, unknown> {
-  const exact = entity ? store.resolve(entity) : undefined;
+  // `me` and `profile` are the user, as in brain_remember, also when another page is called "Me".
+  const exact = entity ? (isSelf(entity) ? store.subject() : store.resolve(entity)) : undefined;
   const named = exact && !exact.isProfile ? exact : undefined;
   const hits = search(store.list(), searchTerms(query, entity));
   const pages: { page: Page; found_by: RecalledPage["found_by"] }[] = [];

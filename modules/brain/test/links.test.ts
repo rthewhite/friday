@@ -74,7 +74,7 @@ test("autolink links the first whole-word, same-case mention of each page", () =
   // Lowercase is a word, not the page; inside another word isn't a mention either.
   assert.equal(autolink("Works from home on Fridays, at Homeland too.", [n("Home")]), "Works from home on Fridays, at Homeland too.");
   // Accented letters count as letters for the word boundary.
-  assert.equal(autolink("Café Cafébar and Café", [n("Café")]), "[[Café]] Cafébar and Café");
+  assert.equal(autolink("Café, Cafébar and Café", [n("Café")]), "[[Café]], Cafébar and Café");
 });
 
 test("autolink: longest name first, no overlap, one link per page across its names", () => {
@@ -87,6 +87,25 @@ test("autolink skips short names, already linked pages, existing links and code"
   assert.equal(autolink("Lisa again", [n("Lisa", "l")], new Set(["l"])), "Lisa again");
   assert.equal(autolink("[[Lisa de Wit]] and Lisa", [n("Lisa", "l")]), "[[Lisa de Wit]] and [[Lisa]]");
   assert.equal(autolink("`Lisa` and\n```\nLisa\n```\nLisa", [n("Lisa")]), "`Lisa` and\n```\nLisa\n```\n[[Lisa]]");
+});
+
+test("autolink leaves headings, URLs, markdown links and longer capitalized names alone", () => {
+  assert.equal(autolink("Controls the lights via Home Assistant, at Home.", [n("Home")]), "Controls the lights via Home Assistant, at [[Home]].");
+  assert.equal(autolink("[docs](https://x.org/Home) and <https://x.org/Home> or https://x.org/Home then Home", [n("Home")]), "[docs](https://x.org/Home) and <https://x.org/Home> or https://x.org/Home then [[Home]]");
+  assert.equal(autolink("## Notes\n- Notes on the car", [n("Notes")]), "## Notes\n- [[Notes]] on the car");
+  // A link written with any of a planned page's names counts as linking it.
+  assert.equal(autolink("[[Lisa]] is my wife. Elisabeth teaches.", [n("Elisabeth", "new:elisabeth")], new Set(["new:elisabeth"])), "[[Lisa]] is my wife. Elisabeth teaches.");
+});
+
+test("a link written with a planned page's alias counts as linking it, and links never push a body over its limit", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  const me = store.subject();
+  const plan = [{ name: "Elisabeth", pageId: "new:elisabeth" }, { name: "Lisa", pageId: "new:elisabeth" }];
+  assert.equal(store.save(me.id, { ...me, body: "[[Lisa]] is my wife. Elisabeth teaches." }, "consolidation", { alsoLink: plan }).body, "[[Lisa]] is my wife. Elisabeth teaches.");
+  store.create({ name: "Home" }, "user");
+  const full = `Home ${"x".repeat(19995)}`;
+  assert.equal(store.save(me.id, { ...store.subject(), body: full }, "consolidation").body, full);
 });
 
 test("the store links nightly writes in full, remembered notes only in the note, and user writes never", (t) => {

@@ -5,7 +5,7 @@
  */
 import { LlmError, type LlmMessage, type ModuleDb, type ModuleLlm, type ModuleLogger, type ModuleStorage } from "@friday/sdk";
 import { indexLine } from "../context.js";
-import { nameKey } from "../links.js";
+import { escapeRegExp, nameKey } from "../links.js";
 import { fold, significantWords } from "../search.js";
 import { BrainError, validateFields, type BrainStore, type Page, type PageType } from "../store.js";
 import { PAGE_TYPES } from "../types.js";
@@ -169,7 +169,6 @@ export function preserved(line: string, result: string | ReadonlySet<string>): b
   return words.filter(found).length / words.length >= PRESERVED_SHARE;
 }
 
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * The live pages a line names (design D3): `[[link]]` targets, and names or aliases that occur in it as whole words.

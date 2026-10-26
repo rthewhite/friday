@@ -79,7 +79,8 @@ export function summaryInput(store: BrainStore, budget: number, max = BRAIN_MAX)
 export function validateSummary(store: BrainStore, text: unknown, budget: number): string[] {
   if (typeof text !== "string") return ["the answer has no summary text"];
   const reasons: string[] = [];
-  const tokens = estimateTokens(text.trim());
+  // Measured as it will be stored, with the links the write adds.
+  const tokens = estimateTokens(store.withLinks(text.trim(), store.profile().id));
   if (tokens > budget) reasons.push(`the summary is about ${tokens} tokens; it must be at most ${budget}`);
   for (const l of store.links({ body: text })) {
     if (!l.pageId || store.get(l.pageId)?.isProfile) reasons.push(`[[${l.target}]] is not a page; link only to pages that exist`);
@@ -105,11 +106,10 @@ export async function runSummary(deps: SummaryDeps, signal: AbortSignal): Promis
   const { store } = deps;
   const since = (await deps.storage.get<number>(WATERMARK)) ?? 0;
   const seenUpTo = store.lastRevisionId();
-  const profileId = store.profile().id;
-  // Any write counts, the nightly pass's own included: the summary follows the pages.
-  const changed = [...store.changesSince(since, []).keys()].filter((id) => id !== profileId);
+  // Any write to the pages counts, the nightly pass's own, deletes and reverts included: the summary follows the pages.
+  const changed = store.summarySourcesChangedSince(since);
   const guidanceChanged = ((await deps.storage.get<number>(GUIDANCE)) ?? 0) < GUIDANCE_VERSION;
-  if (!changed.length && !guidanceChanged) return { ran: false, generated: false };
+  if (!changed && !guidanceChanged) return { ran: false, generated: false };
   const done = async () => {
     await deps.storage.set(WATERMARK, seenUpTo);
     await deps.storage.set(GUIDANCE, GUIDANCE_VERSION);

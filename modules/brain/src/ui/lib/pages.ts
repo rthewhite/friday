@@ -1,9 +1,9 @@
 /** Types and small helpers the brain UI shares between its pages. */
 import { nameKey } from "../../links.js";
 import { estimateTokens, fold, hint } from "../../text.js";
-import { PAGE_TYPES, type PageType } from "../../types.js";
+import { INSTRUCTIONS_MAX, PAGE_TYPES, unnamedSubject, type PageType } from "../../types.js";
 
-export { hint, estimateTokens, nameKey, PAGE_TYPES, type PageType };
+export { hint, estimateTokens, nameKey, INSTRUCTIONS_MAX, PAGE_TYPES, unnamedSubject, type PageType };
 
 export interface PageSummary {
   id: string;
@@ -22,8 +22,6 @@ export interface PageList {
   deleted: { id: string; name: string; deletedAt: string }[];
 }
 
-/** Whether the user's page still has the name the upgrade gave it (`Me`, `Me 2`, …) rather than theirs. */
-export const unnamedSubject = (name: string): boolean => /^me(\s+\d+)?$/i.test(name.trim());
 
 /**
  * The list as the brain page shows it: the profile pinned first, the user's page second, then the other
@@ -123,19 +121,20 @@ export function matches(page: Pick<PageSummary, "name" | "aliases" | "body">, qu
   return words.every((w) => text.includes(w));
 }
 
-/** Starts the `brain/nightly` job through core's jobs API: "started", or "running" when a run is already going. */
-export async function runNightlyNow(): Promise<"started" | "running"> {
+/**
+ * Starts the `brain/nightly` job through core's jobs API: "started", "running" when a run is already going,
+ * or "off" when the job isn't scheduled (BRAIN_NIGHTLY_CRON=off or invalid).
+ */
+export async function runNightlyNow(): Promise<"started" | "running" | "off"> {
   const res = await fetch("/api/jobs/brain/nightly/run", { method: "POST" });
   if (res.status === 409) return "running";
+  if (res.status === 404) return "off";
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     throw new ApiError(res.status, data.code as string | undefined, String(data.error ?? res.statusText), data);
   }
   return "started";
 }
-
-/** The profile's instructions are at most this many characters (the store refuses more). */
-export const INSTRUCTIONS_MAX = 2000;
 
 /** When the profile's summary was last written by the nightly pass: its newest `consolidation` revision. */
 export const summaryGeneratedAt = (revisions: RevisionSummary[]): string | undefined => revisions.find((r) => r.author === "consolidation")?.createdAt;

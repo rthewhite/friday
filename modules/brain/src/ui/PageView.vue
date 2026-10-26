@@ -54,9 +54,12 @@ const nightlyNotice = ref("");
 async function runNightly() {
   nightlyNotice.value = "";
   try {
-    nightlyNotice.value = (await runNightlyNow()) === "running"
-      ? "The nightly pass is already running; the summary updates when it finishes."
-      : "Started the nightly pass; the summary updates when it finishes (see the Nightly tab).";
+    const notices = {
+      started: "Started the nightly pass; the summary updates when it finishes (see the Nightly tab).",
+      running: "The nightly pass is already running; the summary updates when it finishes.",
+      off: "The nightly pass is off (BRAIN_NIGHTLY_CRON), so the summary isn't regenerated. Set a schedule and reload the brain module.",
+    };
+    nightlyNotice.value = notices[await runNightlyNow()];
   } catch (e) {
     nightlyNotice.value = e instanceof Error ? e.message : String(e);
   }

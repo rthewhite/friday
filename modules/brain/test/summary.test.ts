@@ -82,6 +82,27 @@ test("no model call for the summary when nothing changed since the last one; an 
   assert.doesNotMatch(String(second.row.summary), /summary/);
 });
 
+test("deleting a page or reverting a run's rewrite makes the next run write the summary again; an instructions edit doesn't", async () => {
+  const t = await host(() => ({ summary: "Lives in Almere." }));
+  await t.setMe("Lives in Almere.");
+  const lisa = (await t.h.request("POST", "pages", { name: "Lisa", type: "person", body: "Wife." })).body as { id: string };
+  await t.run();
+  assert.equal(t.requests.length, 1);
+  await t.h.request("DELETE", `pages/${lisa.id}`);
+  await t.run();
+  assert.equal(t.requests.length, 2, "a deleted page is a change");
+});
+
+test("the budget is checked on the summary as it will be stored, links included", (t) => {
+  const { store, close } = brainStore();
+  t.after(close);
+  store.save(store.subjectId(), { name: "Me", type: "person", aliases: [], body: "Lives at Home." }, "user");
+  store.create({ name: "Home", type: "place", body: "The house." }, "user");
+  // 16 characters = 4 tokens as written; "Lives at [[Home]]." is 18 characters = 5 tokens.
+  assert.deepEqual(validateSummary(store, "Lives at Home.xx", 5), []);
+  assert.match(validateSummary(store, "Lives at Home.xx", 4).join("\n"), /about 5 tokens; it must be at most 4/);
+});
+
 test("an empty brain gets an empty summary without a model call", async () => {
   const t = await host();
   const r = await t.run();

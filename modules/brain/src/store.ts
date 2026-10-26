@@ -8,9 +8,9 @@ import { randomUUID } from "node:crypto";
 import type { ModuleDb } from "@friday/sdk";
 import { autolink, LINK_PATTERN, nameKey, parseLinks, unlink, type LinkName } from "./links.js";
 import { PROFILE_ID } from "./schema.js";
-import { PAGE_TYPES, type PageType } from "./types.js";
+import { INSTRUCTIONS_MAX, isSelf, PAGE_TYPES, type PageType } from "./types.js";
 
-export { PAGE_TYPES, type PageType };
+export { INSTRUCTIONS_MAX, PAGE_TYPES, type PageType };
 
 export const AUTHORS = ["system", "user", "remember", "extraction", "consolidation"] as const;
 export type Author = (typeof AUTHORS)[number];
@@ -19,10 +19,6 @@ export const NAME_MAX = 80;
 export const ALIASES_MAX = 20;
 export const BODY_MAX = 20000;
 export const FACT_MAX = 500;
-/** The profile's instructions, at most this many characters (hybrid-profile D2). */
-export const INSTRUCTIONS_MAX = 2000;
-/** Entities that mean the user: `brain_remember` writes them to the subject page. */
-const SELF = new Set(["me", "profile"]);
 
 export type BrainErrorCode = "invalid" | "stale" | "name_taken" | "tombstoned" | "not_found" | "profile" | "not_deleted";
 
@@ -314,6 +310,17 @@ export class BrainStore {
     return [...this.changesSince(revisionId, excluded).keys()];
   }
 
+  /**
+   * Whether anything the profile's summary is built from changed after `revisionId`: any revision of another
+   * page, live or deleted, reverts included, or a purge unlinking a name in the summary. The summary's own
+   * writes, its reverts and instructions edits don't count.
+   */
+  summarySourcesChangedSince(revisionId: number): boolean {
+    return !!this.db
+      .prepare("SELECT 1 FROM brain__revisions WHERE id > ? AND (page_id != ? OR note LIKE 'unlinked %') LIMIT 1")
+      .get(revisionId, PROFILE_ID);
+  }
+
   /** A page's `[[links]]`, resolved through live names and aliases. */
   links(page: Pick<Page, "body">): OutgoingLink[] {
     return parseLinks(page.body).map(({ target, line }) => {
@@ -467,7 +474,7 @@ export class BrainStore {
     try {
       return this.db.transaction((): RememberResult => {
         // `me` and `profile` are the user: their facts go on the subject page, never on the profile (hybrid-profile D4).
-        const target = SELF.has(nameKey(String(entity ?? ""))) ? this.subject() : this.resolve(String(entity ?? ""));
+        const target = isSelf(String(entity ?? "")) ? this.subject() : this.resolve(String(entity ?? ""));
         // Links are added to the note only, never to text already on the page (hybrid-profile D7).
         const note = `- ${date}: ${autolink(clean, this.linkNames(target?.id), target ? this.linkedPages(target.body) : new Set())}`;
         if (!target) {
@@ -508,13 +515,9 @@ export class BrainStore {
     }
     // The nightly pass's text gets its links from code, not from the model remembering to add them (hybrid-profile D7).
     if (author === "consolidation" && !page.deletedAt) {
-      const own = new Set(keysOf(fields));
-      // A page the plan already created is a live page by now, linked under its own id.
-      const upcoming = (opts.alsoLink ?? []).filter((n) => !this.owner(nameKey(n.name)));
-      const names = [...this.linkNames(page.id), ...upcoming].filter((n) => !own.has(nameKey(n.name)));
-      // Links to a page the plan creates later don't resolve yet: count them by name, as the pseudo ids `alsoLink` uses.
-      const linked = new Set([...this.linkedPages(fields.body), ...parseLinks(fields.body).map((l) => `new:${nameKey(l.target)}`)]);
-      fields.body = autolink(fields.body, names, linked);
+      const linked = this.withLinks(fields.body, page.id, keysOf(fields), opts.alsoLink);
+      // The links never push a body over its limit: then it is stored as written.
+      if (linked.length <= BODY_MAX) fields.body = linked;
     }
     const renamed = page.name !== "" && nameKey(fields.name) !== nameKey(page.name);
     if (renamed && opts.keepOldName !== false && !fields.aliases.some((a) => nameKey(a) === nameKey(page.name))) {
@@ -553,6 +556,22 @@ export class BrainStore {
       .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, instructions = ?, revision_id = ?, updated_at = ? WHERE id = ?")
       .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, rev, at, page.id);
     return this.get(page.id)!;
+  }
+
+  /**
+   * `body` with the links a `consolidation` write of page `pageId` adds (hybrid-profile D7): the summary is
+   * validated in this form, as it will be stored. `own` are the written page's name keys; `alsoLink` names
+   * pages the same plan creates.
+   */
+  withLinks(body: string, pageId: string, own: readonly string[] = [], alsoLink: readonly LinkName[] = []): string {
+    const self = new Set(own);
+    // A page the plan already created is a live page by now, linked under its own id.
+    const upcoming = alsoLink.filter((n) => !this.owner(nameKey(n.name)));
+    const names = [...this.linkNames(pageId), ...upcoming].filter((n) => !self.has(nameKey(n.name)));
+    // Links to a page the plan creates later don't resolve yet: count them by any of its names.
+    const planned = new Map(upcoming.map((n) => [nameKey(n.name), n.pageId]));
+    const linked = new Set([...this.linkedPages(body), ...parseLinks(body).flatMap((l) => planned.get(nameKey(l.target)) ?? [])]);
+    return autolink(body, names, linked);
   }
 
   /** Names and aliases of live pages other than the profile and `exclude`, for `autolink`. */

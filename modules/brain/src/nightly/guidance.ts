@@ -3,6 +3,7 @@
  * so extraction, consolidation and the summary can't drift apart on how pages are written. Blocks that
  * mention the user take the subject page's name (hybrid-profile D6).
  */
+import { unnamedSubject } from "../types.js";
 
 /**
  * Bump when a guidance change should make existing brains be reconsidered: the next consolidation then
@@ -12,7 +13,7 @@ export const GUIDANCE_VERSION = 3;
 
 /** How the guidance refers to the user: the subject page's name, or "the user" while it is still `Me`. */
 export function userName(subject: string): string {
-  return /^me(\s+\d+)?$/i.test(subject.trim()) ? "the user" : subject.trim();
+  return unnamedSubject(subject) ? "the user" : subject.trim();
 }
 
 const possessive = (user: string) => `${user}'s`;

@@ -191,7 +191,8 @@ test("a topic search finds a fact filed elsewhere and never returns the profile"
   const birthday = await recall({ query: "birthday" });
   assert.ok(!birthday.pages.some((p: any) => p.name === "Profile"));
   assert.ok(birthday.pages.length <= 3);
-  assert.equal((await recall({ entity: "profile", query: "may" })).found, false);
+  // "profile" means the user, as in brain_remember: their page, never the profile's summary.
+  assert.deepEqual((await recall({ entity: "profile", query: "may" })).pages.map((p: any) => p.name), ["Me"]);
 });
 
 test("recall returns the subject page like any page", async () => {
@@ -199,6 +200,16 @@ test("recall returns the subject page like any page", async () => {
   await remember({ entity: "me", fact: "Plays iRacing with friends" });
   assert.deepEqual((await recall({ query: "iRacing" })).pages.map((p: any) => p.name), ["Me"]);
   assert.deepEqual((await recall({ entity: "me", query: "hobbies" })).pages.map((p: any) => p.name), ["Me"]);
+});
+
+test("me resolves to the user's page in both tools, also when another page is called Me", async () => {
+  const { h, remember, recall } = await host();
+  const id = (h.db.prepare("SELECT subject_id AS id FROM brain__pages WHERE id = 'profile'").get() as { id: string }).id;
+  const me = h.db.prepare("SELECT revision_id FROM brain__pages WHERE id = ?").get(id) as { revision_id: number };
+  await h.request("PUT", `pages/${id}`, { name: "Raymond", type: "person", aliases: [], body: "", baseRevision: me.revision_id, keepOldName: false });
+  await h.request("POST", "pages", { name: "Me", body: "A page about the band Me" });
+  assert.deepEqual(await remember({ entity: "me", fact: "Plays iRacing" }), { stored: true, page: "Raymond", created: false });
+  assert.deepEqual((await recall({ entity: "me", query: "iRacing" })).pages.map((p: any) => p.name)[0], "Raymond");
 });
 
 test("nothing found says so and lists the page names", async () => {
