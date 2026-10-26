@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import type { SeedEntry } from "@friday/sdk";
 import type { TestHost } from "@friday/sdk/test";
 import { preserved } from "../../src/nightly/consolidate.js";
-import { fold } from "../../src/text.js";
+import { validateSummary } from "../../src/nightly/summary.js";
+import { BrainStore } from "../../src/store.js";
+import { estimateTokens, fold } from "../../src/text.js";
 
 export interface FixturePage {
   name: string;
@@ -21,7 +23,7 @@ export interface Fixture {
   /** File name without `.json`. */
   name: string;
   description: string;
-  kind: "extraction" | "consolidation";
+  kind: "extraction" | "consolidation" | "summary";
   /** The body of the user's own page (the subject page). */
   me?: string;
   /** A name for the user's page instead of `Me` (the old name stays an alias). */
@@ -50,8 +52,10 @@ export interface Fixture {
   mayDrop?: string[];
   /** No live page may have one of these as its name or alias after the run. */
   mustNotPage?: string[];
+  /** Summary: the generated summary must name each of these pages with a `[[link]]`. */
+  summaryLinks?: string[];
   /** Canned model answers for the fake-model tests. */
-  fake?: { notes?: unknown[]; plan?: unknown };
+  fake?: { notes?: unknown[]; plan?: unknown; summary?: string };
 }
 
 export const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "nightly");
@@ -132,5 +136,15 @@ export function checkFixture(h: TestHost, fx: Fixture, before: string): Check[] 
   const folded = fold(after);
   for (const k of fx.mustKeep ?? []) out.push({ expectation: `still states "${k}"`, ok: after.includes(k.toLowerCase()) || preserved(k, folded) });
   for (const n of fx.mustNotPage ?? []) out.push({ expectation: `no page named "${n}"`, ok: bodyOf(h, n) === undefined });
+  if (fx.kind === "summary") {
+    // The summary as written, checked by the same rules the nightly pass uses before writing it.
+    const summary = (h.db.prepare("SELECT body FROM brain__pages WHERE id = 'profile'").get() as { body: string }).body;
+    const budget = Number(fx.env?.BRAIN_PROFILE_TOKEN_BUDGET ?? 800);
+    const reasons = validateSummary(new BrainStore(h.db), summary, budget);
+    out.push({ expectation: "a summary was written", ok: summary.trim() !== "" });
+    out.push({ expectation: `the summary is within ${budget} tokens (${estimateTokens(summary)})`, ok: estimateTokens(summary) <= budget });
+    out.push({ expectation: `every line of the summary is backed and every link resolves${reasons.length ? `: ${reasons.join("; ")}` : ""}`, ok: !reasons.length });
+    for (const n of fx.summaryLinks ?? []) out.push({ expectation: `the summary links [[${n}]]`, ok: summary.toLowerCase().includes(`[[${n.toLowerCase()}]]`) });
+  }
   return out;
 }

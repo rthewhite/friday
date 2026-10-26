@@ -27,7 +27,10 @@ async function host(plan: PlanAnswer = () => ({ actions: [], note: "tidy" }), en
   const h = await createTestHost(createBrainModule({ now: () => new Date("2026-09-30T01:00:00Z") }), {
     env,
     llm: async (req) => {
-      if ((req.schema as { properties?: Record<string, unknown> })?.properties?.notes) return JSON.stringify({ notes: [] });
+      const props = (req.schema as { properties?: Record<string, unknown> })?.properties;
+      if (props?.notes) return JSON.stringify({ notes: [] });
+      // The summary step (tested in summary.test.ts): an empty summary is always valid.
+      if (props?.summary) return JSON.stringify({ summary: "" });
       requests.push(req);
       const a = await plan(req, requests.length);
       return typeof a === "string" ? a : JSON.stringify(a);

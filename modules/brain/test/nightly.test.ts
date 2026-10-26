@@ -30,5 +30,8 @@ test("the summary states the counts", () => {
   assert.equal(summarize(e, c, "ok"), "5 conversations (2 trivial), 4 notes; 3 pages rewritten, 1 merge, 2 lines dropped");
   assert.equal(summarize({ ...e, conversations: 1, notes: 1, refused: 1 }, { ...c, rewrites: 1, creates: 2, merges: [], dropped: [] }, "ok"), "1 conversation (2 trivial), 1 note (1 refused); 1 page rewritten, 2 pages created, 0 merges, 0 lines dropped");
   assert.equal(summarize({ ...e, stopped: "model unavailable" }, undefined, "partial", "model unavailable"), "5 conversations (2 trivial), 4 notes; not consolidated [partial: model unavailable]");
+  assert.equal(summarize(e, c, "ok", undefined, { ran: true, generated: true }), "5 conversations (2 trivial), 4 notes; 3 pages rewritten, 1 merge, 2 lines dropped; summary generated");
+  assert.equal(summarize(e, { ...c, ran: false }, "partial", "summary refused twice: x", { ran: true, generated: false, failed: "summary refused twice: x" }), "5 conversations (2 trivial), 4 notes; nothing to consolidate; summary not generated [partial: summary refused twice: x]");
+  assert.equal(summarize(e, { ...c, ran: false }, "ok", undefined, { ran: false, generated: false }), "5 conversations (2 trivial), 4 notes; nothing to consolidate");
   assert.ok(summarize(e, c, "partial", "x".repeat(600)).length <= 500);
 });

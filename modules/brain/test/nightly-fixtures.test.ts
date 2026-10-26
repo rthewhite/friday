@@ -22,12 +22,15 @@ test("the fixture set covers the cases design D7 lists", () => {
     "no-facts",
     "relative-first-person",
     "resumed",
+    "summary-household",
+    "summary-over-budget",
   ]);
   for (const f of fixtures) {
     assert.ok(f.description, `${f.name} has a description`);
-    assert.ok(f.kind === "extraction" || f.kind === "consolidation", `${f.name} kind`);
+    assert.ok(["extraction", "consolidation", "summary"].includes(f.kind), `${f.name} kind`);
     if (f.kind === "extraction") assert.ok(f.conversation?.entries.length, `${f.name} has a conversation`);
-    assert.ok(f.mustNote?.length || f.mustNotNote?.length || f.mustKeep?.length || f.mustNotPage?.length, `${f.name} has expectations`);
+    // A summary fixture always checks budget, backing and links; the others list their expectations.
+    assert.ok(f.kind === "summary" || f.mustNote?.length || f.mustNotNote?.length || f.mustKeep?.length || f.mustNotPage?.length, `${f.name} has expectations`);
   }
 });
 

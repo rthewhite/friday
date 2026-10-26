@@ -1,0 +1,16 @@
+{
+  "description": "A brain whose full detail would exceed the budget: the summary leaves detail on the pages and names them instead.",
+  "kind": "summary",
+  "env": { "BRAIN_PROFILE_TOKEN_BUDGET": "120" },
+  "meName": "Raymond",
+  "me": "Works at [[Schuberg Philis]] as an engineer.\nHobbies: [[Motorcycles]] and [[RC racing]].\nPrefers tea over coffee.",
+  "pages": [
+    { "name": "Schuberg Philis", "type": "other", "body": "Raymond's employer, in Schiphol-Rijk. He goes to the office on Tuesdays and Thursdays, takes the 08:15 train when the car is in for service, and has lunch in the canteen on the ground floor. The team has a stand-up at 09:30 and a retrospective every other Friday afternoon." },
+    { "name": "Motorcycles", "type": "other", "body": "Raymond owns a customized Suzuki Bandit with a Yoshimura exhaust, new fork seals in 2025 and a tank repainted in candy red, and a 1979 Honda CB900F being restored as a resto-mod with a modern front end, LED headlight, rebuilt carburettors and a new wiring loom. He rides on dry weekends between April and October." },
+    { "name": "RC racing", "type": "other", "body": "Races 1:10 scale RC cars on summer weekends at the club track: an Exotek Ultra F1 (Ultra R5) on foam tyres with a 21.5 turn motor, and an Xray X4 '26 touring car on rubber tyres with a 13.5 turn motor and a Hobbywing speed controller. Keeps setup sheets per track and per tyre." }
+  ],
+  "summaryLinks": ["Schuberg Philis", "Motorcycles", "RC racing"],
+  "fake": {
+    "summary": "Engineer at [[Schuberg Philis]].\nHobbies: [[Motorcycles]] and [[RC racing]].\nPrefers tea over coffee."
+  }
+}

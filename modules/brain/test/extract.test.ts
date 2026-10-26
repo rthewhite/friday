@@ -20,8 +20,9 @@ async function host(extract: Answer = () => ({ notes: [] }), env: Record<string,
   const h = await createTestHost(createBrainModule({ now: () => now }), {
     env,
     llm: (req) => {
-      const isExtract = !!(req.schema as { properties?: Record<string, unknown> })?.properties?.notes;
-      if (!isExtract) return JSON.stringify({ actions: [], note: "nothing to tidy" });
+      const props = (req.schema as { properties?: Record<string, unknown> })?.properties;
+      if (props?.summary) return JSON.stringify({ summary: "" });
+      if (!props?.notes) return JSON.stringify({ actions: [], note: "nothing to tidy" });
       extractions.push(req);
       const a = extract(req);
       if (a instanceof Error) throw a;
@@ -112,7 +113,7 @@ test("a fact said in passing becomes a sourced extraction note dated with the co
   assert.equal(r.outcome, "ok");
   assert.match(r.summary!, /^1 conversation \(0 trivial\), 1 note;/);
   assert.equal(t.body("Anouk"), "My sister.\n\n## Notes\n- 2026-09-29: Birthday is on 3 November.");
-  const rev = t.h.db.prepare("SELECT author, sources_json FROM brain__revisions ORDER BY id DESC LIMIT 1").get() as { author: string; sources_json: string };
+  const rev = t.h.db.prepare("SELECT r.author, r.sources_json FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id WHERE p.name = 'Anouk' ORDER BY r.id DESC LIMIT 1").get() as { author: string; sources_json: string };
   assert.deepEqual({ ...rev }, { author: "extraction", sources_json: JSON.stringify([id]) });
   assert.deepEqual([t.extractions[0]!.model, t.extractions[0]!.temperature, t.extractions[0]!.maxOutputTokens], ["standard", 0.2, 4096]);
 });
@@ -322,7 +323,11 @@ test("an aborted run stops at the next conversation, is partial, and skips conso
     zone: () => "Europe/Amsterdam",
   };
   let consolidated = false;
-  const { run, summary } = await runNightly(new RunStore(t.h.db), { extract: (s) => runExtract(deps as never, s), consolidate: async () => { consolidated = true; return { ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }; } }, "schedule", ac.signal);
+  const { run, summary } = await runNightly(new RunStore(t.h.db), {
+    extract: (s) => runExtract(deps as never, s),
+    consolidate: async () => { consolidated = true; return { ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }; },
+    summary: async () => { consolidated = true; return { ran: false, generated: false }; },
+  }, "schedule", ac.signal);
   assert.equal(run.outcome, "partial");
   assert.equal(run.error, "cancelled");
   assert.equal(run.conversations, 1);

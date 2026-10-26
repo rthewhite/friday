@@ -1,0 +1,22 @@
+{
+  "description": "A consolidated brain: the summary names the household, relations, hobbies and pets with links, states only what the pages state, and stays within the budget.",
+  "kind": "summary",
+  "meName": "Raymond",
+  "me": "Prefers the home temperature set to 20.5 °C.\nLives at [[Home]] in Almere. Works at [[Schuberg Philis]].\nFamily: brother [[Dimitri]], Mom [[Cora]] and Dad [[Renee]].\nCats: [[Oreo]] and [[Sylvester]].\nHobbies: [[Motorcycles]], [[Gaming]] and [[RC racing]].\nOn weekdays, wakes up around 07:30 and goes to bed around 23:45.",
+  "pages": [
+    { "name": "Home", "type": "place", "body": "The house in Almere." },
+    { "name": "Schuberg Philis", "type": "other", "body": "Raymond's employer." },
+    { "name": "Dimitri", "type": "person", "body": "Raymond's brother." },
+    { "name": "Cora", "type": "person", "aliases": ["Mom"], "body": "Raymond's mother." },
+    { "name": "Renee", "type": "person", "aliases": ["Dad"], "body": "Raymond's father." },
+    { "name": "Oreo", "type": "other", "body": "One of Raymond's two cats; female." },
+    { "name": "Sylvester", "type": "other", "body": "One of Raymond's two cats; male." },
+    { "name": "Motorcycles", "type": "other", "body": "Raymond owns a customized Suzuki Bandit and a 1979 Honda CB900F, being restored." },
+    { "name": "Gaming", "type": "other", "body": "Plays Battlefield 6 with friends in the evening, or races in iRacing." },
+    { "name": "RC racing", "type": "other", "body": "Races 1:10 RC cars on summer weekends: an Exotek Ultra F1 and an Xray X4 '26." }
+  ],
+  "summaryLinks": ["Home", "Dimitri", "Oreo", "Motorcycles", "RC racing"],
+  "fake": {
+    "summary": "Raymond lives at [[Home]] in Almere and works at [[Schuberg Philis]].\nFamily: brother [[Dimitri]], Mom [[Cora]], Dad [[Renee]].\nCats: [[Oreo]] and [[Sylvester]].\nHobbies: [[Motorcycles]], [[Gaming]], [[RC racing]].\nPrefers the home at 20.5 °C. Weekdays: up around 07:30, bed around 23:45."
+  }
+}

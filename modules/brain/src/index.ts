@@ -1,9 +1,10 @@
 /**
- * The brain: Friday's long-term memory for the household. Pages about people, places and projects
- * plus one profile, with full revisions, `[[links]]` and tombstones for forgotten names. Friday
- * reads it through the prompt context and `brain_recall`, and adds to it with `brain_remember`;
- * the user curates it at /m/brain. The `brain/nightly` job notes facts from finished conversations
- * and tidies the pages.
+ * The brain: Friday's long-term memory for the household. Pages about the people, places, projects,
+ * hobbies, belongings and pets in it, one of them the user's own, plus the profile: the user's
+ * instructions and a summary generated from the pages. Full revisions, `[[links]]` and tombstones for
+ * forgotten names. Friday reads it through the prompt context and `brain_recall`, and adds to it with
+ * `brain_remember`; the user curates it at /m/brain. The `brain/nightly` job notes facts from finished
+ * conversations, tidies the pages and writes the summary.
  */
 import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, localDate } from "@friday/sdk";
 import { renderContext } from "./context.js";
@@ -12,6 +13,7 @@ import { runExtract } from "./nightly/extract.js";
 import { DEFAULT_NIGHTLY_CRON, scheduleNightly, type NightlySteps } from "./nightly/job.js";
 import { registerRunRoutes } from "./nightly/review.js";
 import { RunStore } from "./nightly/runs.js";
+import { runSummary } from "./nightly/summary.js";
 import { registerBrainRoutes } from "./routes.js";
 import { migrations } from "./schema.js";
 import { BrainStore } from "./store.js";
@@ -36,10 +38,10 @@ export function createBrainModule(opts: BrainOptions = {}) {
     manifest: {
       id: "brain",
       label: "Brain",
-      description: "Long-term memory: pages about the people, places and projects in the household, plus a profile.",
+      description: "Long-term memory: pages about the people, places, projects, hobbies and belongings in the household, plus a profile with your instructions and a generated summary.",
       ui: true,
       config: [
-        { key: "BRAIN_PROFILE_TOKEN_BUDGET", description: `Soft token budget for the profile, estimated as characters / 4 (default ${DEFAULT_PROFILE_BUDGET})` },
+        { key: "BRAIN_PROFILE_TOKEN_BUDGET", description: `Token budget for the generated profile summary, estimated as characters / 4 (default ${DEFAULT_PROFILE_BUDGET})` },
         { key: "FRIDAY_TIMEZONE", description: `IANA zone for the dates on notes (default ${DEFAULT_TIME_ZONE})` },
         { key: "BRAIN_NIGHTLY_CRON", description: `When the nightly maintenance runs, as a cron expression in FRIDAY_TIMEZONE (default ${DEFAULT_NIGHTLY_CRON}); "off" disables it. Read at load.` },
         { key: "BRAIN_NIGHTLY_MAX_CONVERSATIONS", description: `Conversations the nightly pass reads per run (default ${DEFAULT_NIGHTLY_MAX_CONVERSATIONS})` },
@@ -63,6 +65,7 @@ export function createBrainModule(opts: BrainOptions = {}) {
       const steps: NightlySteps = {
         extract: (signal) => runExtract(extractDeps, signal),
         consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage: ctx.storage, log: ctx.log }, signal),
+        summary: (signal) => runSummary({ store, llm: ctx.llm, storage: ctx.storage, log: ctx.log, budget }, signal),
       };
       defineBrainTools(ctx, store, today, zone);
       registerBrainRoutes(ctx, store, budget);

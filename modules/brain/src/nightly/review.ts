@@ -71,7 +71,8 @@ export async function runPages(db: ModuleDb, store: BrainStore, conversations: M
       ...(into ? { mergedInto: into } : {}),
       ...(from ? { mergedFrom: from } : {}),
       currentRevisionId: page.revisionId,
-      changedSince: page.revisionId !== after.id || interleaved,
+      // For the profile only its summary counts: an instructions edit since doesn't block reverting the summary.
+      changedSince: page.isProfile ? page.body !== after.body : page.revisionId !== after.id || interleaved,
     });
   }
   return out;
@@ -96,6 +97,9 @@ export function revertPage(db: ModuleDb, store: BrainStore, run: Run, pages: Run
     const done: string[] = [];
     if (!t.before) {
       store.softDelete(t.pageId, "user", { note });
+    } else if (current.isProfile) {
+      // Only the summary goes back; the instructions are the user's and stay as they are now.
+      store.writeSummary(t.before.body, "user", { base: current.revisionId, note });
     } else {
       store.restore(t.pageId, t.before.id, "user", current.revisionId, note);
     }

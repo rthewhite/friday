@@ -140,7 +140,7 @@ export function consolidationInput(store: BrainStore, changed: ReadonlySet<strin
 }
 
 /** A line's content without list markers and a note's date prefix. */
-function content(line: string): string {
+export function content(line: string): string {
   return line.trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+|>\s*)+/, "").replace(/^\d{4}-\d{2}-\d{2}:\s*/, "").trim();
 }
 
@@ -176,7 +176,7 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * The name patterns are built on the first line that needs them, once per plan; the brain is small, so testing
  * every name against a removed line is cheap. Links resolve as everywhere else (`store.links`, code is not a link).
  */
-function namedPagesFinder(store: BrainStore): (line: string) => Page[] {
+export function namedPagesFinder(store: BrainStore): (line: string) => Page[] {
   let names: { page: Page; word: RegExp }[] | undefined;
   return (line) => {
     names ??= store.list().flatMap((p) =>

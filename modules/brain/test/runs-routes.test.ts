@@ -5,7 +5,7 @@ import { createBrainModule } from "../src/index.js";
 
 /**
  * One run over a seeded brain: extraction notes a fact on Anouk from conversation c1, then consolidation
- * merges Noukie into Anouk (folding the note), rewrites Home and creates Garden.
+ * merges Noukie into Anouk (folding the note), rewrites Home and creates Garden, and the summary is written.
  */
 async function scene() {
   const h = await createTestHost(createBrainModule({ now: () => new Date("2026-09-30T01:00:00Z") }), {
@@ -13,6 +13,7 @@ async function scene() {
       if ((req.schema as { properties?: Record<string, unknown> }).properties?.notes) {
         return JSON.stringify({ notes: [{ entity: "Anouk", fact: "Birthday is 3 November.", reason: "stated" }] });
       }
+      if ((req.schema as { properties?: Record<string, unknown> }).properties?.summary) return JSON.stringify({ summary: "Sister: Anouk, lives in Utrecht." });
       const p = (n: string) => h.db.prepare("SELECT p.id, p.revision_id AS rev, p.body FROM brain__names k JOIN brain__pages p ON p.id = k.page_id WHERE k.key = ?").get(n) as { id: string; rev: number; body: string };
       const anouk = p("anouk"), noukie = p("noukie"), home = p("home");
       return JSON.stringify({
@@ -41,10 +42,27 @@ async function scene() {
 
 test("GET runs lists runs newest first with their summary", async () => {
   const { h, run } = await scene();
-  assert.equal(run.summary, "1 conversation (0 trivial), 1 note; 1 page rewritten, 1 page created, 1 merge, 1 line dropped");
+  assert.equal(run.summary, "1 conversation (0 trivial), 1 note; 1 page rewritten, 1 page created, 1 merge, 1 line dropped; summary generated");
+  assert.equal((run as { summaryGenerated?: boolean }).summaryGenerated, true);
   await h.runJob("nightly");
   const runs = ((await h.request("GET", "runs?limit=1")).body as { runs: { id: number }[] }).runs;
   assert.deepEqual(runs.map((r) => r.id), [run.id + 1]);
+});
+
+test("a generated summary is listed with the run's pages, and reverting it keeps the instructions edited since", async () => {
+  const { h, run, review } = await scene();
+  const profile = (await review()).pages.find((p) => p.pageId === "profile");
+  assert.deepEqual([profile.before.body, profile.after.body], ["", "Sister: [[Anouk]], lives in Utrecht."]);
+  assert.deepEqual(profile.authors, ["consolidation"]);
+  // The user edits the instructions after the run: that doesn't block reverting the summary.
+  const opened = (await h.request("GET", "pages/profile")).body as { revisionId: number };
+  await h.request("PUT", "pages/profile", { instructions: "Call me Ray.", baseRevision: opened.revisionId });
+  const current = (await review()).pages.find((p) => p.pageId === "profile");
+  assert.equal(current.changedSince, false);
+  const r = await h.request("POST", `runs/${run.id}/pages/profile/revert`, { base: current.currentRevisionId });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const after = (await h.request("GET", "pages/profile")).body as { body: string; instructions: string; revisions: { author: string; note?: string }[] };
+  assert.deepEqual([after.body, after.instructions, after.revisions[0]!.author, after.revisions[0]!.note], ["", "Call me Ray.", "user", `reverted nightly run ${run.id}`]);
 });
 
 test("GET runs/:id shows each touched page with before and after, dropped lines, merges and sources", async () => {
@@ -106,6 +124,7 @@ test("a page someone else wrote during the run counts as changed, so revert does
   const h = await createTestHost(createBrainModule({ now: () => new Date("2026-09-30T01:00:00Z") }), {
     llm: async (req) => {
       if ((req.schema as { properties?: Record<string, unknown> }).properties?.notes) return JSON.stringify({ notes: [] });
+      if ((req.schema as { properties?: Record<string, unknown> }).properties?.summary) return JSON.stringify({ summary: "" });
       if (!remembered) {
         remembered = true;
         // The user asks Friday to remember something while the plan is being made.

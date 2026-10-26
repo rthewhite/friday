@@ -106,6 +106,7 @@ export const migrations: ModuleMigration[] = [
         ALTER TABLE brain__pages ADD COLUMN instructions TEXT;
         ALTER TABLE brain__pages ADD COLUMN subject_id TEXT;
         ALTER TABLE brain__revisions ADD COLUMN instructions TEXT;
+        ALTER TABLE brain__runs ADD COLUMN summary_generated INTEGER NOT NULL DEFAULT 0;
         UPDATE brain__pages SET instructions = '' WHERE is_profile = 1;
         UPDATE brain__revisions SET instructions = '' WHERE page_id = '${PROFILE_ID}';
       `);

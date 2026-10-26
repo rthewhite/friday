@@ -48,7 +48,8 @@ for (const fx of fixtures) {
   const h = await createTestHost(createBrainModule({ now: () => new Date("2026-09-30T01:00:00Z") }), {
     env: { FRIDAY_TIMEZONE: "Europe/Amsterdam", ...(fx.env ?? {}) },
     llm: async (req) => {
-      calls.push((req.schema as { properties?: Record<string, unknown> })?.properties?.notes ? "extract" : "consolidate");
+      const props = (req.schema as { properties?: Record<string, unknown> })?.properties;
+      calls.push(props?.notes ? "extract" : props?.summary ? "summary" : "consolidate");
       return gemini(req);
     },
   });
@@ -58,6 +59,8 @@ for (const fx of fixtures) {
   const checks = checkFixture(h, fx, before);
   // Without this, a consolidation fixture whose plan was refused would pass by changing nothing.
   if (fx.kind === "consolidation") checks.unshift({ expectation: "a consolidation plan was applied", ok: !!run.summary && !/no consolidation applied|nothing to consolidate/.test(run.summary) });
+  // A summary fixture's checks read the summary as written; a refused one would leave the old (empty) one.
+  if (fx.kind === "summary") checks.unshift({ expectation: "the nightly pass generated the summary", ok: !!run.summary && /summary generated/.test(run.summary) });
   console.log(`${fx.name} (${fx.kind}): ${run.outcome}, ${run.summary ?? run.error ?? ""} [calls: ${calls.join(", ") || "none"}]`);
   for (const c of checks) {
     console.log(`  ${c.ok ? "PASS" : "FAIL"} ${c.expectation}`);
