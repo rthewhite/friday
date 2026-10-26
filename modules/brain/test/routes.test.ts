@@ -11,21 +11,26 @@ async function host(env: Record<string, string> = {}) {
     return { status: r.status, body: r.body as any };
   };
   const create = async (b: Record<string, unknown>) => (await req("POST", "pages", b)).body;
-  return { h, req, create };
+  // The summary is written by the nightly pass; tests set it directly.
+  const setSummary = (text: string) => void h.db.prepare("UPDATE brain__pages SET body = ? WHERE id = 'profile'").run(text);
+  const subject = () => h.db.prepare("SELECT subject_id AS id FROM brain__pages WHERE id = 'profile'").get() as { id: string };
+  return { h, req, create, setSummary, subject };
 }
 
-test("GET pages lists the profile budget, live pages with bodies, and deleted pages", async () => {
-  const { req, create } = await host({ BRAIN_PROFILE_TOKEN_BUDGET: "10" });
-  await req("PUT", "pages/profile", { name: "Profile", type: "other", aliases: [], body: "x".repeat(41), baseRevision: 1 });
+test("GET pages lists the profile budget, instructions and subject, live pages with bodies, and deleted pages", async () => {
+  const { req, create, setSummary, subject } = await host({ BRAIN_PROFILE_TOKEN_BUDGET: "10" });
+  setSummary("x".repeat(41));
+  const profile = (await req("GET", "pages/profile")).body;
+  await req("PUT", "pages/profile", { instructions: "Call me Ray.", baseRevision: profile.revisionId });
   const anouk = await create({ name: "Anouk", type: "person", aliases: ["Noukie"], body: "Sister" });
   const car = await create({ name: "Old car" });
   await req("DELETE", `pages/${car.id}`);
   const { status, body } = await req("GET", "pages");
   assert.equal(status, 200);
-  assert.deepEqual(body.profile, { id: "profile", usedTokens: 11, budgetTokens: 10, overBudget: true });
-  assert.deepEqual(body.pages.map((p: any) => p.name), ["Anouk", "Profile"]);
-  assert.deepEqual(body.pages[0], { id: anouk.id, name: "Anouk", type: "person", aliases: ["Noukie"], body: "Sister", isProfile: false, updatedAt: anouk.updatedAt, revisionId: anouk.revisionId });
-  assert.equal(body.pages[1].isProfile, true);
+  assert.deepEqual(body.profile, { id: "profile", usedTokens: 11, budgetTokens: 10, overBudget: true, instructions: "Call me Ray.", subjectId: subject().id });
+  assert.deepEqual(body.pages.map((p: any) => p.name).sort(), ["Anouk", "Me", "Profile"]);
+  assert.deepEqual(body.pages.find((p: any) => p.name === "Anouk"), { id: anouk.id, name: "Anouk", type: "person", aliases: ["Noukie"], body: "Sister", isProfile: false, updatedAt: anouk.updatedAt, revisionId: anouk.revisionId });
+  assert.equal(body.pages.find((p: any) => p.name === "Profile").isProfile, true);
   assert.deepEqual(body.deleted.map((d: any) => [d.id, d.name, typeof d.deletedAt]), [[car.id, "Old car", "string"]]);
   // Default budget.
   assert.equal((await (await host()).req("GET", "pages")).body.profile.budgetTokens, 800);
@@ -106,10 +111,49 @@ test("DELETE soft-deletes with 204; the profile can't be deleted; undelete is 40
   assert.deepEqual(u.body.names, ["Old car"]);
 });
 
+test("the subject page can't be deleted", async () => {
+  const { req, subject } = await host();
+  assert.deepEqual(await req("DELETE", `pages/${subject().id}`), { status: 400, body: { error: "the page about the user cannot be deleted", code: "profile" } });
+  assert.equal((await req("GET", `pages/${subject().id}`)).body.deletedAt, undefined);
+});
+
+test("PUT pages/profile saves only instructions; GET and revisions carry them; a changed summary is refused", async () => {
+  const { req, setSummary } = await host();
+  setSummary("Lives in Almere.");
+  const opened = (await req("GET", "pages/profile")).body;
+  assert.equal(opened.instructions, "");
+  const saved = await req("PUT", "pages/profile", { instructions: "Call me Ray.", baseRevision: opened.revisionId });
+  assert.equal(saved.status, 200);
+  assert.deepEqual({ instructions: saved.body.instructions, body: saved.body.body }, { instructions: "Call me Ray.", body: "Lives in Almere." });
+  // The portal may send the unchanged fields along.
+  const again = await req("PUT", "pages/profile", { name: "Profile", type: "other", aliases: [], body: "Lives in Almere.", instructions: "Call me Ray. Answer in Dutch.", baseRevision: saved.body.revisionId });
+  assert.equal(again.status, 200);
+  assert.equal((await req("GET", `pages/profile/revisions/${saved.body.revisionId}`)).body.instructions, "Call me Ray.");
+  // Summary is not editable.
+  const edit = await req("PUT", "pages/profile", { body: "My own summary", instructions: "x", baseRevision: again.body.revisionId });
+  assert.deepEqual([edit.status, edit.body.code], [400, "profile"]);
+  assert.equal((await req("GET", "pages/profile")).body.body, "Lives in Almere.");
+  // Too long, or stale.
+  assert.equal((await req("PUT", "pages/profile", { instructions: "x".repeat(2001), baseRevision: again.body.revisionId })).body.code, "invalid");
+  const stale = await req("PUT", "pages/profile", { instructions: "Other tab", baseRevision: saved.body.revisionId });
+  assert.deepEqual([stale.status, stale.body.code, stale.body.current.instructions], [409, "stale", "Call me Ray. Answer in Dutch."]);
+});
+
+test("POST pages/profile/restore restores the instructions and keeps the current summary", async () => {
+  const { req, setSummary } = await host();
+  const opened = (await req("GET", "pages/profile")).body;
+  const first = (await req("PUT", "pages/profile", { instructions: "Call me Ray.", baseRevision: opened.revisionId })).body;
+  const second = (await req("PUT", "pages/profile", { instructions: "Answer in Dutch.", baseRevision: first.revisionId })).body;
+  setSummary("Lives in Almere.");
+  const r = await req("POST", "pages/profile/restore", { revisionId: first.revisionId, baseRevision: second.revisionId });
+  assert.equal(r.status, 200);
+  assert.deepEqual({ instructions: r.body.instructions, body: r.body.body }, { instructions: "Call me Ray.", body: "Lives in Almere." });
+});
+
 test("purge: a wrong confirmation is 400, a live page 409, and a purge lists the unlinked pages", async () => {
-  const { req, create } = await host();
+  const { req, create, setSummary } = await host();
   const job = await create({ name: "Old job" });
-  await req("PUT", "pages/profile", { name: "Profile", type: "other", aliases: [], body: "Worked at [[Old job]]", baseRevision: 1 });
+  setSummary("Worked at [[Old job]]");
   const live = await req("POST", `pages/${job.id}/purge`, { confirm: "Old job" });
   assert.equal(live.status, 409);
   assert.equal(live.body.code, "not_deleted");

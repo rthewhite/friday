@@ -24,8 +24,8 @@
 
 ## 4. Pages API
 
-- [ ] 4.1 Update `src/routes.ts`: `GET pages` returns the instructions, the subject id and the summary's tokens and budget; `GET pages/:id` and `GET pages/:id/revisions/:revision` include the profile's instructions; `PUT pages/profile` accepts only `instructions` (others refused with `profile`); `POST pages/profile/restore` restores only the instructions; `DELETE` of the subject is refused with `profile`. Verify in `test/routes.test.ts` the "Restore the profile's instructions", "Summary is not editable" and "Subject cannot be deleted" scenarios and the new `GET pages` fields
-- [ ] 4.2 Update the README `curl` example for `GET pages` and verify it matches a response from the test host
+- [x] 4.1 Update `src/routes.ts`: `GET pages` returns the instructions, the subject id and the summary's tokens and budget; `GET pages/:id` and `GET pages/:id/revisions/:revision` include the profile's instructions; `PUT pages/profile` accepts only `instructions` (others refused with `profile`); `POST pages/profile/restore` restores only the instructions; `DELETE` of the subject is refused with `profile`. Verify in `test/routes.test.ts` the "Restore the profile's instructions", "Summary is not editable" and "Subject cannot be deleted" scenarios and the new `GET pages` fields
+- [x] 4.2 Update the README `curl` example for `GET pages` and verify it matches a response from the test host
 - [ ] 4.3 Run the brain module's tests and typecheck and verify both pass
 
 ## 5. Nightly extraction and consolidation

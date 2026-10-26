@@ -1,5 +1,6 @@
 /** HTTP routes under /api/modules/brain/ (design D7). The portal is the only place memories are deleted. */
 import type { ModuleContext, RouteRequest, RouteResponse } from "@friday/sdk";
+import { PROFILE_ID } from "./schema.js";
 import { estimateTokens } from "./text.js";
 import { BrainError, type BrainErrorCode, type BrainStore, type Page, type PageFields } from "./store.js";
 
@@ -58,7 +59,7 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
     const used = estimateTokens(profile.body);
     const budgetTokens = budget();
     res.json({
-      profile: { id: profile.id, usedTokens: used, budgetTokens, overBudget: used > budgetTokens },
+      profile: { id: profile.id, usedTokens: used, budgetTokens, overBudget: used > budgetTokens, instructions: profile.instructions ?? "", subjectId: profile.subjectId },
       pages: store.list().map(summary),
       deleted: store.deleted().map((p) => ({ id: p.id, name: p.name, deletedAt: p.deletedAt })),
     });
@@ -82,14 +83,25 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
   });
 
   route("PUT", "pages/:id", async (req, res, { id }) => {
-    const b = await body<PageFields & { baseRevision: number; keepOldName: boolean }>(req);
+    const b = await body<PageFields & { baseRevision: number; keepOldName: boolean; instructions: string }>(req);
     const base = revisionNumber(b.baseRevision, "baseRevision");
+    if (id === PROFILE_ID) {
+      // The profile takes only its instructions; the summary is generated (hybrid-profile D8).
+      const p = store.profile();
+      const changed = (["name", "type", "body"] as const).some((k) => b[k] !== undefined && b[k] !== p[k]) || (b.aliases !== undefined && JSON.stringify(b.aliases) !== JSON.stringify(p.aliases));
+      if (changed) throw new BrainError("profile", "only the profile's instructions can be edited; its summary is generated from the pages");
+      res.json(store.saveInstructions(b.instructions, base));
+      return;
+    }
     res.json(store.save(id, { name: b.name, type: b.type, aliases: b.aliases, body: b.body }, "user", { base, keepOldName: b.keepOldName !== false }));
   });
 
   route("POST", "pages/:id/restore", async (req, res, { id }) => {
     const b = await body<{ revisionId: number; baseRevision: number }>(req);
-    res.json(store.restore(id, revisionNumber(b.revisionId, "revisionId"), "user", revisionNumber(b.baseRevision, "baseRevision")));
+    const revisionId = revisionNumber(b.revisionId, "revisionId");
+    const base = revisionNumber(b.baseRevision, "baseRevision");
+    // On the profile only the instructions come back; the summary stays as generated.
+    res.json(id === PROFILE_ID ? store.restoreInstructions(revisionId, base) : store.restore(id, revisionId, "user", base));
   });
 
   route("DELETE", "pages/:id", (_req, res, { id }) => {

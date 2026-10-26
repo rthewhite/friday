@@ -210,7 +210,8 @@ It prints `PASS` or `FAIL` per expectation and is never part of CI.
 Over HTTP (the portal's API; see `modules/brain/src/routes.ts` and `src/nightly/review.ts`):
 
 ```sh
-curl -s localhost:8080/api/modules/brain/pages               # {"profile":{"usedTokens","budgetTokens","overBudget"},"pages":[...],"deleted":[...]}
+curl -s localhost:8080/api/modules/brain/pages               # {"profile":{"id","usedTokens","budgetTokens","overBudget","instructions","subjectId"},"pages":[...],"deleted":[...]}
+curl -s -X PUT localhost:8080/api/modules/brain/pages/profile -H 'content-type: application/json' -d '{"instructions":"Call me Ray.","baseRevision":<revisionId>}'   # only the instructions are editable
 curl -s 'localhost:8080/api/modules/brain/runs?limit=14'     # nightly runs, newest first
 curl -s localhost:8080/api/modules/brain/runs/<id>           # the pages a run changed, with before/after, dropped lines and sources
 curl -s localhost:8080/api/modules/brain/pages/profile       # one page with revisions, links and backlinks
