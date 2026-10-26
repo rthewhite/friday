@@ -59,4 +59,4 @@
 - [x] 8.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` and verify all pass
 - [x] 8.2 Upgrade a local brain whose profile holds the text of the migrated-subject fixture from 5.4: start the dev server, verify the subject page `Me` holds the old profile, run `brain/nightly` from the portal, and review in the `Nightly` tab that hub, item and stub pages were created, the subject page links them, and the summary is backed and linked. Stop the dev server
 - [x] 8.3 Run `pnpm --filter @friday/module-brain eval` against `FRIDAY_TEXT_MODEL` and verify the extraction, consolidation and summary fixtures pass, recording any failures with their output
-- [ ] 8.4 After deployment (user): rename `Me` in the portal, add instructions, run nightly now, and review the result in the `Nightly` tab
+- [x] 8.4 After deployment (user): rename `Me` in the portal, add instructions, run nightly now, and review the result in the `Nightly` tab
