@@ -91,7 +91,9 @@ test("the brain rendering lists dangling links and forgotten names, and an overs
   const store = new BrainStore(t.h.db);
   const text = renderBrain(store, "what was the wifi router password again?");
   assert.ok(text.length <= 60000, `${text.length}`);
-  assert.match(text, /### Profile \(the user and the household\)\n\(empty\)/);
+  // The user's page comes first; the profile's summary is not shown.
+  assert.match(text, /^### Me \(person; the user's own page, entity "me"\)\n\(empty\)/);
+  assert.doesNotMatch(text, /### Profile/);
   assert.match(text, /### Home \(place\)\nWifi password is on the router label/);
   assert.match(text, /### Other pages \(index only\)\n- Big \d \(other\)/);
   assert.match(text, /## Links to pages that don't exist yet\n- Utrecht/);
@@ -115,17 +117,20 @@ test("a fact said in passing becomes a sourced extraction note dated with the co
   assert.deepEqual([t.extractions[0]!.model, t.extractions[0]!.temperature, t.extractions[0]!.maxOutputTokens], ["standard", 0.2, 4096]);
 });
 
-test("a first-person fact about a named relative lands on a new page for them, a fact about the speaker on the profile", async () => {
+test("a first-person fact about a named relative lands on a new page for them, a fact about the speaker on the user's page", async () => {
   const f = fixture("relative-first-person");
   const t = await host(() => f.fake);
   await seedFixture(t.h, f);
   const before = brainText(t.h);
   const r = await t.run();
   assert.equal(r.outcome, "ok");
-  assert.equal(t.body("Lisa"), "## Notes\n- 2026-09-29: The user's wife; teaches at De Regenboog.");
+  // The relation names the user, and the mention of their page is linked.
+  assert.equal(t.body("Lisa"), "## Notes\n- 2026-09-29: [[Raymond]]'s wife; teaches at De Regenboog.");
+  assert.match(t.extractions[0]!.system!, /"Raymond's sister; works at the library\."/);
   assert.equal((t.h.db.prepare("SELECT type FROM brain__pages WHERE name = 'Lisa'").get() as { type: string }).type, "person");
   for (const c of checkFixture(t.h, f, before)) assert.ok(c.ok, c.expectation);
-  assert.doesNotMatch(t.body("profile")!, /Regenboog/, "the wife's job is not on the profile");
+  assert.doesNotMatch(t.body("me")!, /Regenboog/, "the wife's job is not on the user's page");
+  assert.equal(t.body("profile"), "", "nothing is noted on the profile");
 });
 
 test("the date shown to the model is the date the notes get, even if the zone changes during the model call", async () => {

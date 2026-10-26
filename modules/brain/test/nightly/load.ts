@@ -22,7 +22,10 @@ export interface Fixture {
   name: string;
   description: string;
   kind: "extraction" | "consolidation";
-  profile?: string;
+  /** The body of the user's own page (the subject page). */
+  me?: string;
+  /** A name for the user's page instead of `Me` (the old name stays an alias). */
+  meName?: string;
   pages?: FixturePage[];
   /** Names purged before the conversation (they end up tombstoned). */
   tombstones?: string[];
@@ -66,11 +69,12 @@ async function ok(r: Promise<{ status: number; body: unknown }>, what: string) {
   return res.body as { id: string; revisionId: number };
 }
 
-/** Seeds a test host with the fixture's profile, pages, tombstones and conversation (quiet). Returns the conversation id. */
+/** Seeds a test host with the fixture's user page, pages, tombstones and conversation (quiet). Returns the conversation id. */
 export async function seedFixture(h: TestHost, fx: Fixture): Promise<string | undefined> {
-  if (fx.profile !== undefined) {
-    const cur = (await h.request("GET", "pages/profile")).body as { revisionId: number };
-    await ok(h.request("PUT", "pages/profile", { name: "Profile", type: "other", aliases: [], body: fx.profile, baseRevision: cur.revisionId }), `${fx.name}: profile`);
+  if (fx.me !== undefined || fx.meName !== undefined) {
+    const id = ((await h.request("GET", "pages")).body as { profile: { subjectId: string } }).profile.subjectId;
+    const cur = (await h.request("GET", `pages/${id}`)).body as { name: string; body: string; revisionId: number };
+    await ok(h.request("PUT", `pages/${id}`, { name: fx.meName ?? cur.name, type: "person", aliases: [], body: fx.me ?? cur.body, baseRevision: cur.revisionId }), `${fx.name}: user's page`);
   }
   for (const name of fx.tombstones ?? []) {
     const p = await ok(h.request("POST", "pages", { name }), `${fx.name}: tombstone ${name}`);
@@ -102,7 +106,7 @@ export function brainText(h: TestHost): string {
     .toLowerCase();
 }
 
-/** The body of the live page whose name or alias is `entity` ("profile" for the profile). */
+/** The body of the live page whose name or alias is `entity` ("me" for the user's page while it has its first name or keeps it as an alias). */
 export function bodyOf(h: TestHost, entity: string): string | undefined {
   const row = h.db.prepare("SELECT p.body FROM brain__names n JOIN brain__pages p ON p.id = n.page_id WHERE n.key = ?").get(entity.trim().toLowerCase()) as { body: string } | undefined;
   return row?.body;
@@ -117,7 +121,9 @@ export interface Check {
 export function checkFixture(h: TestHost, fx: Fixture, before: string): Check[] {
   const after = brainText(h);
   const out: Check[] = [];
-  for (const m of fx.mustNote ?? []) out.push({ expectation: `note on ${m.entity} contains "${m.contains}"`, ok: (bodyOf(h, m.entity) ?? "").toLowerCase().includes(m.contains.toLowerCase()) });
+  // Links the brain added don't change what a page says: "[[Raymond]]'s brother" contains "Raymond's brother".
+  const says = (body: string, text: string) => [body, body.replace(/\[\[([^[\]\n]+)\]\]/g, "$1")].some((b) => b.toLowerCase().includes(text.toLowerCase()));
+  for (const m of fx.mustNote ?? []) out.push({ expectation: `note on ${m.entity} contains "${m.contains}"`, ok: says(bodyOf(h, m.entity) ?? "", m.contains) });
   for (const p of fx.mustNotNote ?? []) {
     const needle = p.toLowerCase();
     out.push({ expectation: `nothing new mentions "${p}"`, ok: !after.includes(needle) || before.includes(needle) });

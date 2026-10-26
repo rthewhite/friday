@@ -65,7 +65,7 @@ test("no model call when no page changed, and consolidation's own writes don't c
 
 const GUIDANCE = "consolidate:guidance";
 
-test("an older guidance version reconsiders the profile once, even when no page changed", async () => {
+test("an older guidance version reconsiders the user's page once, even when no page changed", async () => {
   const t = await host();
   await seedFixture(t.h, fixture("fold-notes"));
   await t.run();
@@ -76,9 +76,10 @@ test("an older guidance version reconsiders the profile once, even when no page 
   await t.run();
   assert.equal(t.requests.length, 2, "the model is called although no page changed");
   const p = t.requests[1]!.messages![0]!.text;
-  assert.match(p, /### Profile \[id profile, revision \d+\] \(changed\)/);
-  assert.match(p, /The guidance changed since the last tidy-up; check the profile against it\./);
-  assert.doesNotMatch(p, /### Anouk \[id [^\]]+\] \(changed\)/, "only the profile counts as changed");
+  assert.match(p, /### Me \[id [^\]]+, revision \d+\] \(changed\)\ntype person; aliases: none; this is the user's own page/);
+  assert.match(p, /The guidance changed since the last tidy-up; check the pages, starting with Me, against it\./);
+  assert.doesNotMatch(p, /### Anouk \[id [^\]]+\] \(changed\)/, "only the user's page counts as changed");
+  assert.doesNotMatch(p, /### Profile/, "the profile is not in the plan's input");
   const third = await t.run();
   assert.equal(t.requests.length, 2, "once the plan is applied the guidance counts as handled");
   assert.match(third.summary!, /nothing to consolidate/);
@@ -96,10 +97,10 @@ test("a guidance change whose plans are refused twice is tried again on the next
   let refuse = false;
   const t = await host(() => {
     if (!refuse) return { actions: [], note: "" };
-    const p = t.page("Profile")!;
+    const p = t.page("Me")!;
     return { actions: [{ kind: "rewrite", page: p.id, base: p.revision_id, body: "Lives in Utrecht.", dropped: [] }], note: "" };
   });
-  await seedFixture(t.h, { ...fixture("fold-notes"), profile: "Lives in Amsterdam with two cats." });
+  await seedFixture(t.h, { ...fixture("fold-notes"), me: "Lives in Amsterdam with two cats." });
   await t.run();
   await t.h.storage.set(GUIDANCE, GUIDANCE_VERSION - 1);
   refuse = true;
@@ -119,7 +120,7 @@ test("an empty brain records the guidance without a model call", async () => {
   assert.equal(await t.h.storage.get(GUIDANCE), GUIDANCE_VERSION);
 });
 
-test("the request marks changed pages and carries revisions, the budget, and forgotten names", async () => {
+test("the request marks changed pages and carries revisions and forgotten names, not the profile", async () => {
   const t = await host();
   await seedFixture(t.h, fixture("fold-notes"));
   const job = (await t.h.request("POST", "pages", { name: "Old job" })).body as { id: string };
@@ -129,7 +130,8 @@ test("the request marks changed pages and carries revisions, the budget, and for
   const p = t.requests[0]!.messages![0]!.text;
   const anouk = t.page("Anouk")!;
   assert.match(p, new RegExp(`### Anouk \\[id ${anouk.id}, revision ${anouk.revision_id}\\] \\(changed\\)\\ntype person; aliases: Noukie\\nMy sister\\. Lives in Amsterdam\\.`));
-  assert.match(p, /^Profile budget: about 0 of 800 tokens\./);
+  assert.match(p, /^Only pages shown in full may be rewritten or merged\./);
+  assert.doesNotMatch(p, /budget|### Profile/);
   assert.match(p, /## Deliberately forgotten names \(never use\)\n- Old job/);
   assert.equal(t.requests[0]!.system!.includes("rewrite:"), true);
   assert.deepEqual([t.requests[0]!.model, t.requests[0]!.maxOutputTokens, t.requests[0]!.timeoutMs], ["standard", 32768, 300000]);
@@ -148,7 +150,7 @@ test("beyond the bound, changed pages and their link neighbours stay in full and
   const anouk = store.create({ name: "Anouk", body: "Sister, see [[Family]]" }, "user");
   store.create({ name: "Family", body: "The family page" }, "user");
   for (let i = 0; i < 5; i++) store.create({ name: `Filler ${i}`, body: "x".repeat(3000) }, "user");
-  const text = renderConsolidation(store, new Set([anouk.id]), 800, 5000);
+  const text = renderConsolidation(store, new Set([anouk.id]), 5000);
   assert.match(text, /### Anouk \[[^\]]+\] \(changed\)/);
   assert.match(text, /### Family \[[^\]]+\]\n/);
   assert.match(text, /## Other pages \(index only, not in full\)\n- Filler/);
@@ -163,7 +165,7 @@ function scene() {
   const noukie = s.store.create({ name: "Noukie", type: "person", body: "Also Anouk?" }, "user");
   return { ...s, anouk, home, noukie };
 }
-const reasonsFor = (store: BrainStore, plan: Plan, budget = 800) => validatePlan(store, plan, budget).join("\n");
+const reasonsFor = (store: BrainStore, plan: Plan) => validatePlan(store, plan).join("\n");
 
 test("a plan is refused for stale bases, unknown or deleted pages and empty bodies", (t) => {
   const { store, close, anouk, home } = scene();
@@ -176,12 +178,18 @@ test("a plan is refused for stale bases, unknown or deleted pages and empty bodi
   assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: anouk.id, base: anouk.revisionId, body: "  ", dropped: [] }], note: "" }), /the body is empty/);
 });
 
-test("a plan may not rename or merge the profile, or use a forgotten or taken name", (t) => {
+test("a plan may not touch the profile, rename, retype or merge away the user's page, or use a forgotten or taken name", (t) => {
   const { store, close, anouk, noukie } = scene();
   t.after(close);
   const profile = store.profile();
-  assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: profile.id, base: profile.revisionId, name: "Me", body: "x" }], note: "" }), /the profile's name and type can't change/);
-  assert.match(reasonsFor(store, { actions: [{ kind: "merge", from: noukie.id, into: profile.id, fromBase: noukie.revisionId, intoBase: profile.revisionId, body: "Also Anouk?" }], note: "" }), /the profile can't be merged/);
+  assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: profile.id, base: profile.revisionId, body: "Lives in Almere." }], note: "" }), /the profile is generated from the pages; a plan can't change it/);
+  assert.match(reasonsFor(store, { actions: [{ kind: "merge", from: noukie.id, into: profile.id, fromBase: noukie.revisionId, intoBase: profile.revisionId, body: "Also Anouk?" }], note: "" }), /the profile is generated from the pages/);
+  const me = store.subject();
+  assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: me.id, base: me.revisionId, name: "Raymond", body: "x" }], note: "" }), /Me is the user's own page; its name and type can't change/);
+  assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: me.id, base: me.revisionId, type: "other", body: "x" }], note: "" }), /its name and type can't change/);
+  assert.match(reasonsFor(store, { actions: [{ kind: "merge", from: me.id, into: anouk.id, fromBase: me.revisionId, intoBase: anouk.revisionId, body: "x" }], note: "" }), /Me is the user's own page and can't be merged into another page/);
+  // Merging another page into the user's page is fine.
+  assert.equal(reasonsFor(store, { actions: [{ kind: "merge", from: noukie.id, into: me.id, fromBase: noukie.revisionId, intoBase: me.revisionId, body: "Also Anouk?" }], note: "" }), "");
   const job = store.create({ name: "Old job" }, "user");
   store.softDelete(job.id, "user");
   store.purge(job.id, "Old job", "user");
@@ -195,14 +203,6 @@ test("a plan may not rename or merge the profile, or use a forgotten or taken na
     ],
     note: "",
   }), "");
-});
-
-test("a plan may not make an over-budget profile larger", (t) => {
-  const { store, close } = scene();
-  t.after(close);
-  const profile = store.save("profile", { ...store.profile(), body: "x".repeat(400) }, "user");
-  assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: profile.id, base: profile.revisionId, body: "x".repeat(420) }], note: "" }, 50), /the profile is over budget \(100 of 50 tokens\) and the plan makes it larger/);
-  assert.equal(reasonsFor(store, { actions: [{ kind: "rewrite", page: profile.id, base: profile.revisionId, body: "x".repeat(400) }], note: "" }, 50), "");
 });
 
 test("an undeclared loss is refused, naming the page and the line; a declared supersession and a faithful rephrasing pass", (t) => {
@@ -222,73 +222,72 @@ test("an undeclared loss is refused, naming the page and the line; a declared su
   assert.match(reasonsFor(store, { actions: [{ kind: "rewrite", page: anouk.id, base: anouk.revisionId, body: "My sister.", dropped: [] }], note: "" }), /Anouk loses the line "My sister\. Lives in Amsterdam\."[^]*Anouk loses the line "- 2026-09-29: Moved to Utrecht\."/);
 });
 
-// ---- profile-as-summary 2.2 the loss check sees the pages a line names ----
+// ---- the loss check sees the pages a line names (on the user's page, where detail used to sit on the profile) ----
+
+/** The user's page with these lines, saved by the user. */
+const setMe = (store: BrainStore, body: string) => store.save(store.subjectId(), { name: "Me", type: "person", aliases: [], body }, "user");
 
 function household() {
   const s = brainStore();
-  const profile = s.store.save("profile", { name: "Profile", type: "other", aliases: [], body: "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nMy brother Mark plays the cello in an orchestra." }, "user");
+  const me = setMe(s.store, "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nMy brother Mark plays the cello in an orchestra.");
   const lisa = s.store.create({ name: "Lisa", type: "person", body: "The user's wife. Teaches at De Regenboog." }, "user");
   const mark = s.store.create({ name: "Mark", type: "person", aliases: ["Markie"], body: "The user's brother." }, "user");
   const tennis = s.store.create({ name: "Tennis club", type: "place", body: "Mark's orchestra plays the cello concerts there." }, "user");
-  return { ...s, profile, lisa, mark, tennis };
+  return { ...s, me, lisa, mark, tennis };
 }
-const trimProfile = (p: { id: string; revisionId: number }, body: string): Plan => ({ actions: [{ kind: "rewrite", page: p.id, base: p.revisionId, body, dropped: [] }], note: "" });
+const trimMe = (p: { id: string; revisionId: number }, body: string): Plan => ({ actions: [{ kind: "rewrite", page: p.id, base: p.revisionId, body, dropped: [] }], note: "" });
 
-test("a line removed from the profile counts as kept when the page it links to states it", (t) => {
-  const { store, close, profile } = household();
+test("a line removed from the user's page counts as kept when the page it links to states it", (t) => {
+  const { store, close, me } = household();
   t.after(close);
-  const r = reasonsFor(store, trimProfile(profile, "Engineer.\nWife: [[Lisa]].\nMy brother Mark plays the cello in an orchestra."));
+  const r = reasonsFor(store, trimMe(me, "Engineer.\nWife: [[Lisa]].\nMy brother Mark plays the cello in an orchestra."));
   assert.equal(r, "");
 });
 
-test("a line removed from the profile is refused when the page it names doesn't state it", (t) => {
-  const { store, close, profile, lisa } = household();
+test("a line removed from the user's page is refused when the page it names doesn't state it", (t) => {
+  const { store, close, lisa } = household();
   t.after(close);
   store.save(lisa.id, { name: "Lisa", type: "person", aliases: [], body: "The user's wife." }, "user");
-  const fresh = store.profile();
-  assert.match(reasonsFor(store, trimProfile(fresh, "Engineer.\nWife: [[Lisa]].\nMy brother Mark plays the cello in an orchestra.")), /Profile loses the line "My wife \[\[Lisa\]\] teaches at De Regenboog\." without declaring it in dropped/);
+  const fresh = store.subject();
+  assert.match(reasonsFor(store, trimMe(fresh, "Engineer.\nWife: [[Lisa]].\nMy brother Mark plays the cello in an orchestra.")), /Me loses the line "My wife \[\[Lisa\]\] teaches at De Regenboog\." without declaring it in dropped/);
 });
 
 test("a name without a link counts too, but a line naming no page, or only an unrelated page with its words, is refused", (t) => {
-  const { store, close, profile, mark } = household();
+  const { store, close, mark } = household();
   t.after(close);
   // "Markie" is an alias of Mark, named as a whole word; Mark's page then states the fact.
   store.save(mark.id, { name: "Mark", type: "person", aliases: ["Markie"], body: "The user's brother. Plays the cello in an orchestra." }, "user");
-  let p = store.profile();
-  store.save(p.id, { name: "Profile", type: "other", aliases: [], body: "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nMy brother Markie plays the cello in an orchestra." }, "user");
-  p = store.profile();
-  assert.equal(reasonsFor(store, trimProfile(p, "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nBrother: [[Mark]].")), "");
+  let p = setMe(store, "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nMy brother Markie plays the cello in an orchestra.");
+  assert.equal(reasonsFor(store, trimMe(p, "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nBrother: [[Mark]].")), "");
   // "Engineer." names no page: it is still lost.
-  assert.match(reasonsFor(store, trimProfile(p, "My wife [[Lisa]] teaches at De Regenboog.\nMy brother Markie plays the cello in an orchestra.")), /Profile loses the line "Engineer\."/);
+  assert.match(reasonsFor(store, trimMe(p, "My wife [[Lisa]] teaches at De Regenboog.\nMy brother Markie plays the cello in an orchestra.")), /Me loses the line "Engineer\."/);
   // The words are on "Tennis club", which the line doesn't name, and Mark's page (named) no longer states them.
   store.save(mark.id, { name: "Mark", type: "person", aliases: ["Markie"], body: "The user's brother." }, "user");
-  p = store.profile();
-  assert.match(reasonsFor(store, trimProfile(p, "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nBrother: [[Mark]].")), /Profile loses the line "My brother Markie plays the cello in an orchestra\."/);
-  void profile;
+  p = store.subject();
+  assert.match(reasonsFor(store, trimMe(p, "Engineer.\nMy wife [[Lisa]] teaches at De Regenboog.\nBrother: [[Mark]].")), /Me loses the line "My brother Markie plays the cello in an orchestra\."/);
 });
 
 test("the named page's own name doesn't count toward the line's words: the fact itself must be on the page", (t) => {
-  const { store, close, profile } = household();
+  const { store, close } = household();
   t.after(close);
-  store.save(profile.id, { name: "Profile", type: "other", aliases: [], body: "Engineer.\nMy brother Mark is a cellist.\nLisa and Tim go to De Regenboog." }, "user");
-  const p = store.profile();
-  const r = reasonsFor(store, trimProfile(p, "Engineer."));
+  const p = setMe(store, "Engineer.\nMy brother Mark is a cellist.\nLisa and Tim go to De Regenboog.");
+  const r = reasonsFor(store, trimMe(p, "Engineer."));
   // Mark's page says "The user's brother." and Lisa's says she teaches at De Regenboog, but neither states these facts.
-  assert.match(r, /Profile loses the line "My brother Mark is a cellist\."/);
-  assert.match(r, /Profile loses the line "Lisa and Tim go to De Regenboog\."/);
+  assert.match(r, /Me loses the line "My brother Mark is a cellist\."/);
+  assert.match(r, /Me loses the line "Lisa and Tim go to De Regenboog\."/);
 });
 
 test("a named page the plan rewrites is judged by its new body, not its old one", (t) => {
-  const { store, close, profile, lisa } = household();
+  const { store, close, me, lisa } = household();
   t.after(close);
   const plan: Plan = {
     actions: [
-      { kind: "rewrite", page: profile.id, base: profile.revisionId, body: "Engineer.\nWife: [[Lisa]].\nMy brother Mark plays the cello in an orchestra.", dropped: [] },
+      { kind: "rewrite", page: me.id, base: me.revisionId, body: "Engineer.\nWife: [[Lisa]].\nMy brother Mark plays the cello in an orchestra.", dropped: [] },
       { kind: "rewrite", page: lisa.id, base: lisa.revisionId, body: "The user's wife.", dropped: [{ line: "The user's wife. Teaches at De Regenboog.", reason: "test" }] },
     ],
     note: "",
   };
-  assert.match(reasonsFor(store, plan), /Profile loses the line "My wife \[\[Lisa\]\] teaches at De Regenboog\."/);
+  assert.match(reasonsFor(store, plan), /Me loses the line "My wife \[\[Lisa\]\] teaches at De Regenboog\."/);
 });
 
 test("a plan of more than 20 actions is refused (the schema can't cap it: Gemini rejects maxItems there)", (t) => {
@@ -417,7 +416,7 @@ test("changed pages beyond the bound stay pending, and only pages shown in full 
   const { store, close } = brainStore();
   try {
     const p = store.create({ name: "Hidden", body: "text" }, "user");
-    assert.match(validatePlan(store, { actions: [{ kind: "rewrite", page: p.id, base: p.revisionId, body: "text!" }], note: "" }, 800, new Set()).join("\n"), /Hidden was only in the index, not shown in full/);
+    assert.match(validatePlan(store, { actions: [{ kind: "rewrite", page: p.id, base: p.revisionId, body: "text!" }], note: "" }, new Set()).join("\n"), /Hidden was only in the index, not shown in full/);
   } finally {
     close();
   }
@@ -445,8 +444,8 @@ test("a reverted page is not rewritten again on the next night", async () => {
   assert.match(again.summary!, /nothing to consolidate/);
 });
 
-test("the fixture plans apply: notes folded with a declared drop, detail moved off the profile, over budget or not", async () => {
-  for (const name of ["fold-notes", "profile-over-budget", "profile-summary"]) {
+test("the fixture plans apply: notes folded with a declared drop, detail moved off the user's page into linked entity pages", async () => {
+  for (const name of ["fold-notes", "migrated-subject"]) {
     const f = fixture(name);
     const t = await host(() => fill(t.h, f.fake!.plan), f.env ?? {});
     await seedFixture(t.h, f);

@@ -62,7 +62,7 @@ export function createBrainModule(opts: BrainOptions = {}) {
       const extractDeps = { store, conversations: ctx.conversations, llm: ctx.llm, storage: ctx.storage, log: ctx.log, maxConversations, zone };
       const steps: NightlySteps = {
         extract: (signal) => runExtract(extractDeps, signal),
-        consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage: ctx.storage, log: ctx.log, budget }, signal),
+        consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage: ctx.storage, log: ctx.log }, signal),
       };
       defineBrainTools(ctx, store, today, zone);
       registerBrainRoutes(ctx, store, budget);

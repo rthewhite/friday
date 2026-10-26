@@ -9,6 +9,7 @@ const fixtures = loadFixtures();
 test("the fixture set covers the cases design D7 lists", () => {
   assert.deepEqual(fixtures.map((f) => f.name), [
     "already-remembered",
+    "belonging-first-person",
     "birthday-in-passing",
     "correction",
     "device-name",
@@ -17,9 +18,8 @@ test("the fixture set covers the cases design D7 lists", () => {
     "injected-tool-result",
     "media-session",
     "merge-duplicates",
+    "migrated-subject",
     "no-facts",
-    "profile-over-budget",
-    "profile-summary",
     "relative-first-person",
     "resumed",
   ]);
@@ -48,7 +48,9 @@ for (const f of fixtures) {
     const id = await seedFixture(h, f);
     const names = (h.db.prepare("SELECT name FROM brain__pages WHERE deleted_at IS NULL").all() as { name: string }[]).map((r) => r.name);
     for (const p of f.pages ?? []) assert.ok(names.includes(p.name), `${p.name} seeded`);
-    if (f.profile !== undefined) assert.equal((h.db.prepare("SELECT body FROM brain__pages WHERE id = 'profile'").get() as { body: string }).body, f.profile);
+    const me = h.db.prepare("SELECT p.name, p.body FROM brain__pages p JOIN brain__pages pr ON pr.subject_id = p.id").get() as { name: string; body: string };
+    if (f.me !== undefined) assert.equal(me.body, f.me);
+    if (f.meName !== undefined) assert.equal(me.name, f.meName);
     if (f.conversation) {
       const c = await h.conversations.get(id!);
       assert.equal(c?.state, "quiet");

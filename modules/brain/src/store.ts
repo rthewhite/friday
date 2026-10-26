@@ -82,6 +82,11 @@ export interface WriteOptions {
   note?: string;
   /** On a rename, add the old name as an alias (default true). */
   keepOldName?: boolean;
+  /**
+   * Names of pages a nightly plan creates in the same transaction: a `consolidation` write links them too,
+   * so a page written before them in the plan still links to them.
+   */
+  alsoLink?: LinkName[];
 }
 
 /** Write options only the store's own write paths set. */
@@ -504,7 +509,12 @@ export class BrainStore {
     // The nightly pass's text gets its links from code, not from the model remembering to add them (hybrid-profile D7).
     if (author === "consolidation" && !page.deletedAt) {
       const own = new Set(keysOf(fields));
-      fields.body = autolink(fields.body, this.linkNames(page.id).filter((n) => !own.has(nameKey(n.name))), this.linkedPages(fields.body));
+      // A page the plan already created is a live page by now, linked under its own id.
+      const upcoming = (opts.alsoLink ?? []).filter((n) => !this.owner(nameKey(n.name)));
+      const names = [...this.linkNames(page.id), ...upcoming].filter((n) => !own.has(nameKey(n.name)));
+      // Links to a page the plan creates later don't resolve yet: count them by name, as the pseudo ids `alsoLink` uses.
+      const linked = new Set([...this.linkedPages(fields.body), ...parseLinks(fields.body).map((l) => `new:${nameKey(l.target)}`)]);
+      fields.body = autolink(fields.body, names, linked);
     }
     const renamed = page.name !== "" && nameKey(fields.name) !== nameKey(page.name);
     if (renamed && opts.keepOldName !== false && !fields.aliases.some((a) => nameKey(a) === nameKey(page.name))) {

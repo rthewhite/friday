@@ -24,7 +24,7 @@ export const NOTES_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          entity: { type: "string", description: "Page name or alias, or \"profile\"" },
+          entity: { type: "string", description: "Page name or alias, or \"me\" for the user" },
           fact: { type: "string", description: "One lasting fact, readable on its own" },
           type: { type: "string", enum: [...PAGE_TYPES], description: "Kind of page, for a new page" },
           reason: { type: "string", description: "Why this is a lasting fact (not stored)" },
@@ -75,7 +75,7 @@ export async function extractConversation(deps: ExtractDeps, c: Conversation, se
   // FRIDAY_TIMEZONE changes during the (up to two minute) model call.
   const zone = deps.zone();
   const r = await deps.llm.generate<{ notes: ExtractedNote[] }>({
-    system: extractionSystem(renderBrain(deps.store, userText)),
+    system: extractionSystem(renderBrain(deps.store, userText), deps.store.subject().name),
     prompt: `${renderTranscript(c, seenSeq, zone)}\n\nList the notes (usually none).`,
     schema: NOTES_SCHEMA,
     model: "standard",

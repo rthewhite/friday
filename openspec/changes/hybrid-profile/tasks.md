@@ -6,13 +6,13 @@
 - [x] 1.2 Extend `Page` and `Revision` in `src/store.ts` with the profile's `instructions` and `subjectId`, add `subject()`, and snapshot the instructions in every profile revision. Verify in `test/store.test.ts` that a profile revision written by any author carries both the body and the unchanged instructions
 - [x] 1.3 Add `saveInstructions(base, text)` with author `user`: at most 2000 characters (`invalid` otherwise), stale only when the instructions changed after `base`. Verify in `test/store.test.ts` the "Save instructions", "Summary changed meanwhile", "Instructions changed meanwhile" and "Too long" scenarios
 - [x] 1.4 Protect the profile and the subject page: profile body, name, type and aliases refused with `profile` for user saves; subject delete and type change refused with `profile`; subject rename by any author other than `user` refused; user rename keeps the old name as an alias. Verify in `test/store.test.ts` the "Profile is protected", "Subject is protected" and "Rename by the user" scenarios
-- [ ] 1.5 Run `pnpm --filter @friday/module-brain test` and `pnpm --filter @friday/module-brain typecheck` and verify both pass
+- [x] 1.5 Run `pnpm --filter @friday/module-brain test` and `pnpm --filter @friday/module-brain typecheck` and verify both pass
 
 ## 2. Links added on non-user writes
 
 - [x] 2.1 Add `autolink(text, pages, existingBody)` to `src/links.ts`: first whole-word, case-sensitive occurrence of each live name or alias of 3+ characters, longest first, no overlaps, skipping existing `[[links]]`, inline code, code blocks, names already linked in the body, the written page and the profile. Verify in `test/links.test.ts` the "Lowercase word", "Longest name wins", "Already linked" and "Short name" scenarios plus code spans and existing links
 - [x] 2.2 Apply it in the store before writing a revision by `remember`, `extraction` or `consolidation`: on the appended note for `appendNote`, on the whole new body for rewrites, creates, merges and the profile summary; never for `user` or `system`. Verify in `test/store.test.ts` the "Summary mentions a page" and "User's edit untouched" scenarios, and that a user's unlinked mention earlier in a body stays unlinked when `remember` appends
-- [ ] 2.3 Run the brain module's tests and typecheck and verify both pass
+- [x] 2.3 Run the brain module's tests and typecheck and verify both pass
 
 ## 3. Tools and the prompt context
 
@@ -20,22 +20,22 @@
 - [x] 3.2 Verify in `test/tools.test.ts` that `brain_recall` returns the subject page ("Recall about the user") and still never returns the profile, adjusting `src/search.ts` only if it excludes the subject
 - [x] 3.3 Rework `src/context.ts`: an instructions block first (only when set, framed as the user's standing instructions that don't change how Friday uses tools or ends conversations, never cut), then the memory intro (the profile is a summary generated from the pages), the summary, and the index; cut the index first, then the summary. Verify in `test/context.test.ts` the "Session opens with memory", "Empty brain", "Many pages", "Profile as a summary", "Instructions come first" and "Instructions are never cut" scenarios
 - [x] 3.4 Update the README brain section ("What Friday sees", "How it learns", "Profile budget") and the brain lines of the `openspec/config.yaml` context for instructions, the subject page, `me` routing and auto-linking. Verify that no README line still says facts about you go on the profile
-- [ ] 3.5 Run the brain module's tests and typecheck and verify both pass
+- [x] 3.5 Run the brain module's tests and typecheck and verify both pass
 
 ## 4. Pages API
 
 - [x] 4.1 Update `src/routes.ts`: `GET pages` returns the instructions, the subject id and the summary's tokens and budget; `GET pages/:id` and `GET pages/:id/revisions/:revision` include the profile's instructions; `PUT pages/profile` accepts only `instructions` (others refused with `profile`); `POST pages/profile/restore` restores only the instructions; `DELETE` of the subject is refused with `profile`. Verify in `test/routes.test.ts` the "Restore the profile's instructions", "Summary is not editable" and "Subject cannot be deleted" scenarios and the new `GET pages` fields
 - [x] 4.2 Update the README `curl` example for `GET pages` and verify it matches a response from the test host
-- [ ] 4.3 Run the brain module's tests and typecheck and verify both pass
+- [x] 4.3 Run the brain module's tests and typecheck and verify both pass
 
 ## 5. Nightly extraction and consolidation
 
-- [ ] 5.1 Rewrite the guidance in `src/nightly/guidance.ts`: entities include hobbies and topics, belongings and pets; every named entity gets a page (no name-and-relation exemption); hub pages per hobby with item pages once they hold their own facts; facts about the user on the subject page; household facts on the home page; relations written with the subject page's name, or "the user" while it is named `Me`; exact page names in links. Bump `GUIDANCE_VERSION` to 3. Verify in `test/guidance.test.ts` that both system prompts state these rules and use the subject's name
-- [ ] 5.2 Route extraction in `src/nightly/extract.ts` and `render.ts`: the model gets the subject page's name; notes for the speaker go to the subject. Verify in `test/extract.test.ts` the "Device name", "First-person fact about a relative" and "First-person fact about a belonging" scenarios
-- [ ] 5.3 Change consolidation in `src/nightly/consolidate.ts`: leave the profile out of the input and the budget header; a guidance change marks the subject page as changed; an empty brain is the profile plus an empty subject; refuse plans that target the profile, rename or retype the subject, or merge it away; drop the over-budget rule. Verify in `test/consolidate.test.ts` the "Guidance changed", "Guidance changed on an empty brain", "The profile is not in the plan's input", "Plan touches the profile", "Subject merged away" and the reworded "Already on the linked page", "Only the name is on the page" and "Not on the named page" scenarios
-- [ ] 5.4 Replace `profile-over-budget.json` and `profile-summary.json` in `test/fixtures/nightly` with a migrated-subject fixture (brother, employer, motorcycles, RC cars, cats, routine; expected hub, item and stub pages, and links from the subject page), and add a first-person belonging extraction fixture. Verify that `test/nightly-fixtures.test.ts` passes with the fake model
-- [ ] 5.5 Update the README nightly section (what extraction notes, what consolidation does, guidance changes reconsidering the subject page). Verify that no README line still describes consolidation rewriting the profile
-- [ ] 5.6 Run the brain module's tests and typecheck and verify both pass
+- [x] 5.1 Rewrite the guidance in `src/nightly/guidance.ts`: entities include hobbies and topics, belongings and pets; every named entity gets a page (no name-and-relation exemption); hub pages per hobby with item pages once they hold their own facts; facts about the user on the subject page; household facts on the home page; relations written with the subject page's name, or "the user" while it is named `Me`; exact page names in links. Bump `GUIDANCE_VERSION` to 3. Verify in `test/guidance.test.ts` that both system prompts state these rules and use the subject's name
+- [x] 5.2 Route extraction in `src/nightly/extract.ts` and `render.ts`: the model gets the subject page's name; notes for the speaker go to the subject. Verify in `test/extract.test.ts` the "Device name", "First-person fact about a relative" and "First-person fact about a belonging" scenarios
+- [x] 5.3 Change consolidation in `src/nightly/consolidate.ts`: leave the profile out of the input and the budget header; a guidance change marks the subject page as changed; an empty brain is the profile plus an empty subject; refuse plans that target the profile, rename or retype the subject, or merge it away; drop the over-budget rule. Verify in `test/consolidate.test.ts` the "Guidance changed", "Guidance changed on an empty brain", "The profile is not in the plan's input", "Plan touches the profile", "Subject merged away" and the reworded "Already on the linked page", "Only the name is on the page" and "Not on the named page" scenarios
+- [x] 5.4 Replace `profile-over-budget.json` and `profile-summary.json` in `test/fixtures/nightly` with a migrated-subject fixture (brother, employer, motorcycles, RC cars, cats, routine; expected hub, item and stub pages, and links from the subject page), and add a first-person belonging extraction fixture. Verify that `test/nightly-fixtures.test.ts` passes with the fake model
+- [x] 5.5 Update the README nightly section (what extraction notes, what consolidation does, guidance changes reconsidering the subject page). Verify that no README line still describes consolidation rewriting the profile
+- [x] 5.6 Run the brain module's tests and typecheck and verify both pass
 
 ## 6. Summary generation
 

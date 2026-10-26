@@ -8,7 +8,6 @@ import { indexLine } from "../context.js";
 import { nameKey } from "../links.js";
 import { fold, significantWords } from "../search.js";
 import { BrainError, validateFields, type BrainStore, type Page, type PageType } from "../store.js";
-import { estimateTokens } from "../text.js";
 import { PAGE_TYPES } from "../types.js";
 import { consolidationSystem, GUIDANCE_VERSION } from "./guidance.js";
 import type { ConsolidateOutcome } from "./job.js";
@@ -88,31 +87,28 @@ export interface ConsolidateDeps {
   llm: ModuleLlm;
   storage: ModuleStorage;
   log: ModuleLogger;
-  /** BRAIN_PROFILE_TOKEN_BUDGET. */
-  budget: () => number;
 }
 
-function pageBlock(p: Page, changed: boolean): string {
-  return `### ${p.name} [id ${p.id}, revision ${p.revisionId}]${changed ? " (changed)" : ""}\ntype ${p.type}; aliases: ${p.aliases.join(", ") || "none"}${p.isProfile ? "; this is the profile" : ""}\n${p.body.trim() || "(empty)"}`;
+function pageBlock(p: Page, changed: boolean, subject: boolean): string {
+  return `### ${p.name} [id ${p.id}, revision ${p.revisionId}]${changed ? " (changed)" : ""}\ntype ${p.type}; aliases: ${p.aliases.join(", ") || "none"}${subject ? "; this is the user's own page" : ""}\n${p.body.trim() || "(empty)"}`;
 }
 
 /**
- * The plan's input: the profile budget, pages in full (the profile, changed pages and their link
- * neighbours first, then the rest until `max`), an index of pages beyond the bound, and forgotten names.
+ * The plan's input: pages in full (the user's page, changed pages and their link neighbours first, then the
+ * rest until `max`), an index of pages beyond the bound, and forgotten names. The profile is not shown: its
+ * summary is generated from these pages in a step of its own (hybrid-profile D5).
  */
-export function renderConsolidation(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX, guidanceChanged = false): string {
-  return consolidationInput(store, changed, budget, max, guidanceChanged).text;
+export function renderConsolidation(store: BrainStore, changed: ReadonlySet<string>, max = BRAIN_MAX, guidanceChanged = false): string {
+  return consolidationInput(store, changed, max, guidanceChanged).text;
 }
 
 /** `renderConsolidation`, plus the ids of the pages shown in full (the only ones a plan may change). */
-export function consolidationInput(store: BrainStore, changed: ReadonlySet<string>, budget: number, max = BRAIN_MAX, guidanceChanged = false): { text: string; full: Set<string> } {
-  const pages = store.list();
-  const profile = pages.find((p) => p.isProfile)!;
-  const used = estimateTokens(profile.body);
+export function consolidationInput(store: BrainStore, changed: ReadonlySet<string>, max = BRAIN_MAX, guidanceChanged = false): { text: string; full: Set<string> } {
+  const subject = store.subjectId();
+  const pages = store.list().filter((p) => !p.isProfile);
   const header = [
-    `Profile budget: about ${used} of ${budget} tokens${used > budget ? " (over budget: move detail to entity pages; don't make it longer)" : ""}.`,
     "Only pages shown in full may be rewritten or merged.",
-    ...(guidanceChanged ? ["The guidance changed since the last tidy-up; check the profile against it."] : []),
+    ...(guidanceChanged ? [`The guidance changed since the last tidy-up; check the pages, starting with ${store.subject().name}, against it.`] : []),
   ].join("\n");
   const forgotten = store.tombstones().map((t) => t.name);
   const tail = `## Deliberately forgotten names (never use)\n${forgotten.length ? forgotten.map((n) => `- ${n}`).join("\n") : "(none)"}`;
@@ -124,7 +120,7 @@ export function consolidationInput(store: BrainStore, changed: ReadonlySet<strin
     for (const l of store.links(p)) if (l.pageId) neighbours.add(l.pageId);
     for (const b of store.backlinks(p)) neighbours.add(b.pageId);
   }
-  const rank = (p: Page) => (p.isProfile ? 0 : changed.has(p.id) ? 1 : neighbours.has(p.id) ? 2 : 3);
+  const rank = (p: Page) => (p.id === subject ? 0 : changed.has(p.id) ? 1 : neighbours.has(p.id) ? 2 : 3);
   const ordered = [...pages].sort((a, b) => rank(a) - rank(b) || b.updatedAt.localeCompare(a.updatedAt));
 
   const blocks: string[] = [];
@@ -132,8 +128,8 @@ export function consolidationInput(store: BrainStore, changed: ReadonlySet<strin
   const full = new Set<string>();
   let size = header.length + tail.length + 100;
   for (const p of ordered) {
-    const b = pageBlock(p, changed.has(p.id));
-    if (!index.length && (size + b.length + 2 <= max || p.isProfile)) {
+    const b = pageBlock(p, changed.has(p.id), p.id === subject);
+    if (!index.length && (size + b.length + 2 <= max || p.id === subject)) {
       blocks.push(b);
       full.add(p.id);
       size += b.length + 2;
@@ -210,9 +206,10 @@ function statedOn(line: string, page: Page): boolean {
 
 /** Everything wrong with `plan`, as reasons for the model; empty when it may be applied. */
 /** `shown`: the pages the model saw in full; only those may be rewritten or merged (all when omitted). */
-export function validatePlan(store: BrainStore, plan: Plan, budget: number, shown?: ReadonlySet<string>): string[] {
+export function validatePlan(store: BrainStore, plan: Plan, shown?: ReadonlySet<string>): string[] {
   const reasons: string[] = [];
   if (!plan || !Array.isArray(plan.actions)) return ["the answer has no list of actions"];
+  const subject = store.subjectId();
   if (plan.actions.length > MAX_ACTIONS) reasons.push(`the plan has ${plan.actions.length} actions; at most ${MAX_ACTIONS}`);
   const tombstoned = new Set(store.tombstones().map((t) => t.key));
   const touched = new Map<string, number>();
@@ -229,6 +226,7 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number, show
   const live = (i: number, a: PlanAction, id: string | undefined, base: number | undefined, role: string): Page | undefined => {
     const p = id ? store.get(id) : undefined;
     if (!p) return void reasons.push(`${label(i, a)}: ${role} ${JSON.stringify(id)} doesn't exist`);
+    if (p.isProfile) return void reasons.push(`${label(i, a)}: the profile is generated from the pages; a plan can't change it`);
     if (p.deletedAt) return void reasons.push(`${label(i, a)}: ${role} ${p.name} is deleted`);
     if (base !== p.revisionId) return void reasons.push(`${label(i, a)}: ${role} ${p.name} is stale: its current revision is ${p.revisionId}, not ${base}`);
     if (shown && !shown.has(p.id)) return void reasons.push(`${label(i, a)}: ${p.name} was only in the index, not shown in full, so it can't be changed tonight`);
@@ -261,16 +259,12 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number, show
     if (a.kind === "rewrite") {
       const p = live(i, a, a.page, a.base, "page");
       if (!p) return;
-      if (p.isProfile && ((a.name !== undefined && a.name !== p.name) || (a.type !== undefined && a.type !== p.type))) reasons.push(`${label(i, a)}: the profile's name and type can't change`);
+      if (p.id === subject && ((a.name !== undefined && a.name !== p.name) || (a.type !== undefined && a.type !== p.type))) reasons.push(`${label(i, a)}: ${p.name} is the user's own page; its name and type can't change`);
       if (a.name !== undefined && nameKey(a.name) !== nameKey(p.name)) nameOk(i, a, a.name, p.id);
       try {
-        validateFields({ name: a.name ?? p.name, type: a.type ?? p.type, aliases: a.aliases ?? p.aliases, body: a.body }, p.isProfile);
+        validateFields({ name: a.name ?? p.name, type: a.type ?? p.type, aliases: a.aliases ?? p.aliases, body: a.body });
       } catch (e) {
         reasons.push(`${label(i, a)}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      if (p.isProfile) {
-        const before = estimateTokens(p.body);
-        if (before > budget && estimateTokens(a.body ?? "") > before) reasons.push(`${label(i, a)}: the profile is over budget (${before} of ${budget} tokens) and the plan makes it larger`);
       }
       lossCheck(i, a, [p]);
     } else if (a.kind === "create") {
@@ -286,7 +280,7 @@ export function validatePlan(store: BrainStore, plan: Plan, budget: number, show
       const into = live(i, a, a.into, a.intoBase, "into");
       if (!from || !into) return;
       if (from.id === into.id) return void reasons.push(`${label(i, a)}: a page can't be merged into itself`);
-      if (from.isProfile || into.isProfile) return void reasons.push(`${label(i, a)}: the profile can't be merged`);
+      if (from.id === subject) return void reasons.push(`${label(i, a)}: ${from.name} is the user's own page and can't be merged into another page`);
       lossCheck(i, a, [from, into]);
     }
   });
@@ -305,17 +299,21 @@ export function applyPlan(store: BrainStore, db: ModuleDb, plan: Plan): Applied 
   return db.transaction(() => {
     const out: Applied = { rewrites: 0, creates: 0, merges: [], dropped: [] };
     const note = typeof plan.note === "string" && plan.note.trim() ? plan.note.trim().slice(0, 300) : "nightly consolidation";
+    // Every write links the pages this plan creates, also the writes that come before their create.
+    const alsoLink = plan.actions
+      .filter((a) => a.kind === "create" && typeof a.name === "string")
+      .flatMap((a) => [a.name!, ...(a.aliases ?? [])].map((name) => ({ name, pageId: `new:${nameKey(a.name!)}` })));
     const dropped = (p: Page, a: PlanAction) => {
       for (const d of a.dropped ?? []) out.dropped.push({ pageId: p.id, page: p.name, line: String(d.line), reason: String(d.reason) });
     };
     for (const a of plan.actions) {
       if (a.kind === "rewrite") {
         const p = store.get(a.page!)!;
-        store.save(p.id, { name: a.name ?? p.name, type: a.type ?? p.type, aliases: a.aliases ?? p.aliases, body: a.body }, "consolidation", { base: a.base, note });
+        store.save(p.id, { name: a.name ?? p.name, type: a.type ?? p.type, aliases: a.aliases ?? p.aliases, body: a.body }, "consolidation", { base: a.base, note, alsoLink });
         dropped(p, a);
         out.rewrites++;
       } else if (a.kind === "create") {
-        store.create({ name: a.name, type: a.type ?? "other", aliases: a.aliases ?? [], body: a.body }, "consolidation", { note });
+        store.create({ name: a.name, type: a.type ?? "other", aliases: a.aliases ?? [], body: a.body }, "consolidation", { note, alsoLink });
         out.creates++;
       } else {
         const from = store.get(a.from!)!;
@@ -323,7 +321,7 @@ export function applyPlan(store: BrainStore, db: ModuleDb, plan: Plan): Applied 
         // Free the absorbed page's names first, so they can become the target's aliases.
         store.softDelete(from.id, "consolidation", { base: a.fromBase, note: `merged into ${into.name}` });
         const aliases = [...into.aliases, ...(a.aliases ?? []), from.name, ...from.aliases].filter((n) => nameKey(n) !== nameKey(into.name));
-        store.save(into.id, { name: into.name, type: into.type, aliases, body: a.body }, "consolidation", { base: a.intoBase, note, keepOldName: false });
+        store.save(into.id, { name: into.name, type: into.type, aliases, body: a.body }, "consolidation", { base: a.intoBase, note, keepOldName: false, alsoLink });
         dropped(into, a);
         out.merges.push({ from: from.id, into: into.id });
       }
@@ -339,27 +337,28 @@ export async function runConsolidate(deps: ConsolidateDeps, signal: AbortSignal)
   const since = (await deps.storage.get<number>(WATERMARK)) ?? 0;
   // Taken before the model is asked: a change made while it thinks (minutes) is still "changed" next time.
   const seenUpTo = deps.store.lastRevisionId();
+  // The profile isn't consolidated: an instructions edit is no reason to tidy the pages.
   const changes = deps.store.changesSince(since);
+  changes.delete(deps.store.profile().id);
   const changed = new Set(changes.keys());
-  // A brain consolidated under older guidance is reconsidered once, with the profile as the changed page (design D2).
+  // A brain consolidated under older guidance is reconsidered once, with the user's page as the changed page (design D2).
   const guidanceChanged = ((await deps.storage.get<number>(GUIDANCE)) ?? 1) < GUIDANCE_VERSION;
   if (guidanceChanged) {
-    const profile = deps.store.profile();
-    if (!changed.size && !profile.body.trim() && deps.store.count() === 0) {
-      // Only an empty profile: nothing to reconsider, and no model call on a fresh install's first night.
+    const subject = deps.store.subject();
+    if (!changed.size && !subject.body.trim() && deps.store.count() === 1) {
+      // Only an empty subject page: nothing to reconsider, and no model call on a fresh install's first night.
       await deps.storage.set(GUIDANCE, GUIDANCE_VERSION);
       return { ran: false, ...EMPTY };
     }
-    changed.add(profile.id);
+    changed.add(subject.id);
   }
   if (!changed.size) return { ran: false, ...EMPTY };
-  const budget = deps.budget();
-  const input = consolidationInput(deps.store, changed, budget, BRAIN_MAX, guidanceChanged);
+  const input = consolidationInput(deps.store, changed, BRAIN_MAX, guidanceChanged);
   const prompt = `${input.text}\n\nPropose the plan (an empty plan is fine when the pages are tidy).`;
   // Changed pages beyond the bound were only indexed: stop the watermark before their first change.
   const unseen = [...changes].filter(([id]) => !input.full.has(id)).map(([, first]) => first);
   const nextWatermark = unseen.length ? Math.min(...unseen) - 1 : seenUpTo;
-  const request = { system: consolidationSystem(), schema: PLAN_SCHEMA, model: "standard" as const, temperature: 0.2, maxOutputTokens: 32768, timeoutMs: 300_000, signal };
+  const request = { system: consolidationSystem(deps.store.subject().name), schema: PLAN_SCHEMA, model: "standard" as const, temperature: 0.2, maxOutputTokens: 32768, timeoutMs: 300_000, signal };
 
   const attempt = async (messages: LlmMessage[]): Promise<{ plan?: Plan; raw: string; reasons: string[]; applied?: Applied; fatal?: string }> => {
     let raw = "";
@@ -373,7 +372,7 @@ export async function runConsolidate(deps: ConsolidateDeps, signal: AbortSignal)
       if (e.kind === "invalid_output" || e.kind === "blocked") return { raw: e.raw ?? "", reasons: [`the answer was not a valid plan (${e.kind}: ${e.message})`] };
       return { raw, reasons: [], fatal: e.kind === "cancelled" ? "cancelled" : `model ${e.kind}: ${e.message}` };
     }
-    const reasons = validatePlan(deps.store, plan!, budget, input.full);
+    const reasons = validatePlan(deps.store, plan!, input.full);
     if (reasons.length) return { plan, raw, reasons };
     try {
       return { plan, raw, reasons: [], applied: applyPlan(deps.store, deps.db, plan!) };

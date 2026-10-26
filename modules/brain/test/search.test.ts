@@ -48,7 +48,7 @@ test("a name or alias hit outranks a body mention; ties go to the most recently 
 test("the profile and deleted pages are never hits", (t) => {
   const { store, close } = brainStore();
   t.after(close);
-  store.save("profile", { ...store.profile(), body: "Likes boats" }, "user");
+  store.writeSummary("Likes boats", "consolidation");
   const gone = store.create({ name: "Boat", body: "boats" }, "user");
   store.softDelete(gone.id, "user");
   assert.deepEqual(names(store, "boats"), []);

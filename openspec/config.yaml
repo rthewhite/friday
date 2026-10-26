@@ -116,10 +116,14 @@ context: |
   ctx.storage, tool results never sent) and consolidates with one validated all-or-nothing plan (declared drops,
   mechanical loss check that also accepts a removed line stated on an untouched page the line names, one repair
   round); runs are recorded in brain__runs and reviewed/reverted in the Nightly tab (/api/modules/brain/runs).
-  The profile is a summary backed by entity pages: facts go on the entity they're about (also in the first person),
-  and consolidation moves entity detail off the profile whatever the budget (guidance in src/nightly/guidance.ts).
-  GUIDANCE_VERSION there, stored as consolidate:guidance in ctx.storage, makes the next run reconsider the profile
-  once after a guidance change; bump it when existing brains should be redone. Fixtures in test/fixtures/nightly;
+  Facts go on the entity they're about (also in the first person; people, places, projects, organisations,
+  hobbies, belongings, pets), every named entity gets a page (hub pages for hobbies), relations name the user
+  by the subject page's name ("the user" while it is "Me"); consolidation never sees or touches the profile and
+  may not rename, retype or merge away the subject (guidance in src/nightly/guidance.ts, blocks take the
+  subject's name). GUIDANCE_VERSION there, stored as consolidate:guidance in ctx.storage, makes the next run
+  reconsider the subject page once after a guidance change; bump it when existing brains should be redone.
+  applyPlan passes the plan's created names to every write (alsoLink) so autolink reaches pages created later
+  in the same plan. Fixtures in test/fixtures/nightly (fixture fields me/meName seed the subject page);
   `pnpm --filter @friday/module-brain eval`.
   Portal (packages/portal): Vue 3 + Vite + Tailwind 4 SPA served by core from packages/portal/dist
   (FRIDAY_WEB_DIR) with SPA fallback (a page whose chunk or CSS a deploy removed: router.onError reloads at the
