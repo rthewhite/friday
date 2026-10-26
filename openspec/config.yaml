@@ -98,10 +98,18 @@ context: |
   test/fake-icloud.ts and test/fake-intake.ts (fixtures in test/fixtures/intake).
   Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
   tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
-  extraction|consolidation). Tools brain_remember (append-only dated notes under ## Notes) and brain_recall
+  extraction|consolidation). The profile row (id profile, migration 3) holds the user's instructions (user-only,
+  2000 chars, saveInstructions stale only when the instructions changed) and, as its body, the summary the nightly
+  pass generates (writeSummary; any other body write refused with code profile); profile revisions snapshot
+  both. subject_id points at the subject page (person, seeded "Me", undeletable, type fixed, renamed only by the
+  user), where facts about the user live. Writes by remember/extraction (the note only) and consolidation (the
+  whole body) get links from links.ts autolink: first whole-word same-case mention of each live name/alias of
+  3+ chars, longest first, outside code and links. Tools brain_remember (append-only dated notes under ## Notes;
+  entity me/profile = the subject page) and brain_recall
   (name/alias match plus substring search), and brain_recall_conversations (ctx.conversations.search with
   brain_recall's word rules, YYYY-MM-DD since/until as whole days in FRIDAY_TIMEZONE via startOfLocalDay, the
-  call's own conversation excluded, 5 conversations, 8000 JSON chars, never tool results); its prompt context (profile + index of 50 recent pages, under 10000
+  call's own conversation excluded, 5 conversations, 8000 JSON chars, never tool results); its prompt context (the
+  instructions as directives, never cut, then the summary + index of 50 recent pages, under 10000
   chars) goes into every voice/chat prompt; no tool deletes. Portal /m/brain curates (edit with stale check,
   history/restore, soft delete, purge with tombstones); routes under /api/modules/brain/. The job brain/nightly
   (src/nightly/, BRAIN_NIGHTLY_CRON) extracts sourced notes from quiet conversations (watermark and progress in
