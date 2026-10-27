@@ -209,7 +209,8 @@ test("a streaming call holds its slot until it ends and shares the bound with ge
   const streaming = s.streamCall("chat", req(), () => {});
   await waitFor(() => f.calls.length === 1);
   const queued = s.forOwner("brain").generate({ prompt: "p" });
-  await new Promise((r) => setTimeout(r, 20));
+  // Without the queue the call would reach the model within the pending microtasks; one macrotask covers them.
+  await new Promise((r) => setImmediate(r));
   assert.equal(generated, false, "the module call waits while the chat call streams");
   release();
   await streaming;

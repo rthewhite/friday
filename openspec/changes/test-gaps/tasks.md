@@ -2,15 +2,15 @@
 
 ## 1. Core test hygiene
 
-- [ ] 1.1 Remove the leaked `process.env.JELLYFIN_URL = "x"` from `packages/core/test/app.test.ts` (the `ModuleHost` there gets its own `env`). Verify the module-routes test still passes and nothing in core's tests sets `JELLYFIN_URL` on `process.env`: `grep -rn "process.env.JELLYFIN_URL" packages/core/test` prints nothing.
-- [ ] 1.2 Replace the real-time waits in core's tests (design decision 8). The 17 `setTimeout(r, n)` waits are in `agent-runtime`, `agent-approvals`, `agent-triggers`, `session`, `platform-api`, `mcp`, `llm-stream`, `conversations-store`, `chat-api` and `chat-engine`.
+- [x] 1.1 Remove the leaked `process.env.JELLYFIN_URL = "x"` from `packages/core/test/app.test.ts` (the `ModuleHost` there gets its own `env`). Verify the module-routes test still passes and nothing in core's tests sets `JELLYFIN_URL` on `process.env`: `grep -rn "process.env.JELLYFIN_URL" packages/core/test` prints nothing.
+- [x] 1.2 Replace the real-time waits in core's tests (design decision 8). The 17 `setTimeout(r, n)` waits are in `agent-runtime`, `agent-approvals`, `agent-triggers`, `session`, `platform-api`, `mcp`, `llm-stream`, `conversations-store`, `chat-api` and `chat-engine`.
   - Waits for something to happen become `waitFor(() => condition)`.
   - Slow handlers that set an order become a deferred promise the test resolves.
   - A wait that tests a real timeout stays, with a comment.
 
   Verify that `pnpm --filter @friday/core test` passes 5 times in a row, and once more while `yes > /dev/null` loads every core.
-- [ ] 1.3 Cover the untested paths in `packages/core/src/oauth/flow.ts`: an unreadable client secret at start (409), a client without PKCE, and an expired or unknown pending state at finish. Also cover `packages/core/src/secrets/crypto.ts`: a wrong key, a tampered tag, and a scope/key mismatch on decrypt. Verify with a coverage run of core (`node --import tsx --test --experimental-test-coverage test/*.test.ts`) that lists no uncovered lines for either file.
-- [ ] 1.4 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
+- [x] 1.3 Cover the untested paths in `packages/core/src/oauth/flow.ts`: an unreadable client secret at start (409), a client without PKCE, and an expired or unknown pending state at finish. Also cover `packages/core/src/secrets/crypto.ts`: a wrong key, a tampered tag, and a scope/key mismatch on decrypt. Verify with a coverage run of core (`node --import tsx --test --experimental-test-coverage test/*.test.ts`) that lists no uncovered lines for either file.
+- [x] 1.4 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
 
 ## 2. SDK and media coverage gaps
 

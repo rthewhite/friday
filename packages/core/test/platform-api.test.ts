@@ -263,7 +263,8 @@ test("keys: create returns plaintext once, listing hides it, stored key authenti
     assert.equal(list[0].key, undefined);
     assert.equal(list[0].lastSeenAt, null);
 
-    handle = runRemote(mod, { url: s.ws, key: rec.key, env: {}, log: quiet, minBackoffMs: 10, maxBackoffMs: 20 });
+    const runnerErrors: string[] = [];
+    handle = runRemote(mod, { url: s.ws, key: rec.key, env: {}, log: { ...quiet, error: (m: string) => void runnerErrors.push(m) }, minBackoffMs: 10, maxBackoffMs: 20 });
     await handle.connected();
     await waitFor(() => s.registry.names().includes("sim__pos"));
     assert.notEqual(((await (await s.j("/api/keys")).json()) as any[])[0].lastSeenAt, null);
@@ -277,7 +278,7 @@ test("keys: create returns plaintext once, listing hides it, stored key authenti
     await waitFor(() => !s.registry.names().includes("sim__pos"));
     assert.equal(((await (await s.j("/api/keys")).json()) as any[])[0].revoked, true);
     assert.equal((await s.j(`/api/keys/${rec.id}`, { method: "DELETE" })).status, 404);
-    await new Promise((r) => setTimeout(r, 150));
+    await waitFor(() => runnerErrors.some((m) => /not retrying/.test(m)));
     assert.equal(s.remote.connected().length, 0, "the runner does not get back in with a revoked key");
   } finally {
     await handle?.stop();

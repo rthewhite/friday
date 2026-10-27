@@ -93,7 +93,6 @@ test("FRIDAY_MODULES=builtin shows media as disabled with no tools", async () =>
 });
 
 test("module routes: dispatch, params, JSON body, status, 404 for unknown module, 405, 500, 204", async () => {
-  process.env.JELLYFIN_URL = "x";
   const registry = new ToolRegistry(quiet);
   const host = new ModuleHost(registry, { env: { JELLYFIN_URL: "http://jf" }, log: quiet });
   const media = defineModule({

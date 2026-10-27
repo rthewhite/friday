@@ -122,6 +122,7 @@ Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the def
 ### 7. Coverage: Node's built-in coverage, report only
 
 - Every package with `node:test` tests gets `test:coverage`: its test command with `--experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='**/node_modules/**' --test-coverage-exclude='**/dist/**'`.
+- `--enable-source-maps` is required too. Without it, Node maps tsx's output to the wrong lines: an earlier run blamed the interface fields of `oauth/flow.ts` and called fully tested code in `secrets/crypto.ts` uncovered.
 - `portal-ui` gets `vitest run --coverage` with `@vitest/coverage-v8`.
 - The portal reports only its `node:test` part.
 - The root `test:coverage` is `pnpm -r build && pnpm -r test:coverage`.

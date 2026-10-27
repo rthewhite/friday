@@ -196,6 +196,7 @@ test("speech cancels the idle timer", async () => {
   try {
     await t.turn("Lights are on.");
     t.s.handle(msg({ inputTranscription: { text: "And the kitchen" } }));
+    // Real time on purpose: the idle timer is a real timer, and nothing may close for longer than its timeout.
     await new Promise((r) => setTimeout(r, 50));
     assert.deepEqual(closedWith(t.events), []);
   } finally {
@@ -210,6 +211,7 @@ test("the idle timer is not armed while a tool is still running", async () => {
   try {
     t.s.handle({ toolCall: { functionCalls: [{ id: "slow", name: "slow", args: {} }] } } as LiveServerMessage);
     await t.turn("Timer set.");
+    // Real time on purpose: the idle timer is a real timer, and nothing may close for longer than its timeout.
     await new Promise((r) => setTimeout(r, 50));
     assert.deepEqual(closedWith(t.events), []);
   } finally {
@@ -262,6 +264,7 @@ test("a dropped end with the idle timeout disabled leaves the session open", asy
   const t = await endingSession(0);
   try {
     await t.turn("Which room?", "request done");
+    // Real time on purpose: the idle timer is a real timer, and nothing may close for longer than its timeout.
     await new Promise((r) => setTimeout(r, 30));
     assert.deepEqual(closedWith(t.events), []);
   } finally {

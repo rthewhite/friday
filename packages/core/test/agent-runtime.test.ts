@@ -6,6 +6,7 @@ import type { StreamChunk, StreamEnd, TextModel, TextStream } from "../src/llm/g
 import { LlmService } from "../src/llm/service.js";
 import { agentHarness, entries, quiet } from "./agent-harness.js";
 import { call, text } from "./fake-stream.js";
+import { waitFor } from "./helpers.js";
 
 const started = (r: ReturnType<ReturnType<typeof agentHarness>["runtime"]["start"]>) => {
   if (!r.ok) throw new Error(`not started: ${r.reason}`);
@@ -83,7 +84,7 @@ test("cancelling stops the model call in flight and records the run as cancelled
   const t = agentHarness([{ waitMs: Infinity }]);
   t.define();
   const r = started(t.runtime.start("weekly-review", "portal"));
-  await new Promise((res) => setTimeout(res, 5));
+  await waitFor(() => t.stream.requests.length === 1);
   assert.equal(t.runtime.cancel(r.run.id), true);
   const run = await r.done;
   assert.equal(run.outcome, "cancelled");
@@ -204,16 +205,17 @@ test("two running agents hold one of the two shared slots; a chat call starts at
   t.define({ name: "security-sweep" });
   const a = started(t.runtime.start("weekly-review", "schedule"));
   const b = started(t.runtime.start("security-sweep", "schedule"));
-  await new Promise((r) => setTimeout(r, 10));
+  await waitFor(() => held.open === 1);
   assert.equal(held.open, 1, "one agent model call in flight, the other waits at the agent gate");
 
   const chat = llm.streamCall("chat", { model: "m", contents: [{ role: "user", parts: [{ text: "hi" }] }] }, () => {});
-  await new Promise((r) => setTimeout(r, 10));
+  await waitFor(() => held.open === 2);
   assert.equal(held.open, 2, "the chat call took the free slot at once");
 
   while (held.releases.length) held.releases.shift()!();
   await chat;
-  await new Promise((r) => setTimeout(r, 10));
+  // The second agent gets the gate once the first finishes.
+  await waitFor(() => held.releases.length > 0);
   while (held.releases.length) held.releases.shift()!();
   assert.deepEqual([(await a.done).outcome, (await b.done).outcome], ["ok", "ok"]);
   assert.equal(held.max, 2);
