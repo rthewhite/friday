@@ -5,7 +5,12 @@ import { Scheduler } from "../src/jobs/scheduler.js";
 import { JobStore } from "../src/jobs/store.js";
 import { agentHarness, quiet } from "./agent-harness.js";
 import { FakeClock } from "./fake-clock.js";
-import { call, text } from "./fake-stream.js";
+import { call, fakeStream, text } from "./fake-stream.js";
+import { parseAgent } from "../src/agents/definition.js";
+import { AgentRuntime } from "../src/agents/runtime.js";
+import { AgentRunStore, AgentStore } from "../src/agents/store.js";
+import { ConversationStore } from "../src/conversations/store.js";
+import { admin, member, startAuthApp } from "./auth-harness.js";
 
 const PR = { repo: "friday", title: "Bump vite" };
 const sanne = { id: "u2", name: "Sanne" };
@@ -72,6 +77,43 @@ test("run_agent from chat starts the run for the chat user; from a voice device 
   await t.runtime.stop();
   const runs = t.runs.list("weekly-review").reverse();
   assert.deepEqual(runs.map((r) => [r.trigger, r.user]), [["chat", sanne], ["voice", null]]);
+});
+
+test("over HTTP: a member starts an agent from its page and an admin approves its action, each recorded", async () => {
+  let runtime: AgentRuntime | undefined;
+  const app = await startAuthApp({
+    deps: ({ db, registry }) => {
+      const agents = new AgentStore(db);
+      const runs = new AgentRunStore(db);
+      registry.add("test", { name: "github__list_alerts", description: "", handler: () => ({ alerts: 1 }) });
+      registry.add("test", { name: "github__create_pull_request", description: "", channels: ["agent"], handler: () => ({ url: "u" }) });
+      const stream = fakeStream({ chunks: [call("github__list_alerts"), call("github__create_pull_request", PR)] }, { chunks: [text("done")] });
+      runtime = new AgentRuntime({ agents, runs, registry, conversations: new ConversationStore(db, { log: quiet }), llm: stream.llm, model: "m", timezone: () => "Europe/Amsterdam", toolTimeoutMs: 1000, log: quiet });
+      agents.create(parseAgent({ name: "security-sweep", description: "d", instructions: "i", tools: [{ pattern: "github__*", mode: "auto" }, { pattern: "github__create_pull_request", mode: "approve" }] }));
+      return { agents: { agents, runs, runtime, registry, nextRun: () => null } };
+    },
+  });
+  try {
+    const sanne = app.browser();
+    await sanne.login("/", member);
+    const owner = app.browser();
+    await owner.login("/", admin);
+    const ids = new Map(app.users.list().map((u) => [u.name, u.id]));
+    const started = await sanne.fetch("/api/agents/security-sweep/run", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal(started.status, 202);
+    const { runId } = (await started.json()) as { runId: string };
+    type Run = { outcome: string; user: unknown; actions: { id: string }[] };
+    let run: Run;
+    do run = (await (await owner.fetch(`/api/agents/runs/${runId}`)).json()) as Run;
+    while (run.outcome === "running");
+    assert.equal(run.outcome, "ok");
+    assert.deepEqual(run.user, { id: ids.get("Sanne"), name: "Sanne" });
+    const approved = await owner.fetch(`/api/agents/actions/${run.actions[0].id}/approve`, { method: "POST" });
+    assert.equal(approved.status, 200);
+    assert.deepEqual(((await approved.json()) as { decidedBy: unknown }).decidedBy, { id: ids.get("Owner"), name: "Owner" });
+  } finally {
+    await app.close();
+  }
 });
 
 test("rejecting records who decided", async () => {
