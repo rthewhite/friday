@@ -36,5 +36,5 @@
 
 ## 7. End to end
 
-- [ ] 7.1 With a Spotify app whose redirect URI is the dev portal's `http://127.0.0.1:<port>/api/oauth/spotify/callback`: create the connection, grant `spotify`, connect, ask Chat "which Spotify playlists do I have?" and "search Spotify for Radiohead", then revoke and ask again (grant message). Needs the user to create the Spotify app and log in
-- [ ] 7.2 After deploy, do the same at `https://friday.thewhite.nl` with the production redirect URI, and check that a token refresh happens after an hour (connection still `connected`, `expiresAt` moved). Needs the user
+- [x] 7.1 With a Spotify app whose redirect URI is the dev portal's `http://127.0.0.1:<port>/api/oauth/spotify/callback`: create the connection, grant `spotify`, connect, ask Chat "which Spotify playlists do I have?" and "search Spotify for Radiohead", then revoke and ask again (grant message). Needs the user to create the Spotify app and log in. Covered by 7.2 on production
+- [x] 7.2 After deploy, do the same at `https://friday.thewhite.nl` with the production redirect URI, and check that a token refresh happens after an hour (connection still `connected`, `expiresAt` moved). Needs the user
