@@ -5,7 +5,7 @@
  * `requestUser(req)`.
  */
 import type { IncomingMessage } from "node:http";
-import { isLoopback, type AuthMode, type OidcSettings } from "./config.js";
+import { isLocalHostHeader, isLoopback, type AuthMode, type OidcSettings } from "./config.js";
 import { readCookie, sessionCookieName } from "./cookies.js";
 import type { SessionStore } from "./sessions.js";
 import type { Role, User, UserStore } from "./users.js";
@@ -108,7 +108,8 @@ export class Auth {
   }
 
   private devUser(req: IncomingMessage): Authenticated | undefined {
-    return isLoopback(req.socket?.remoteAddress) ? { user: this.opts.users.devUser() } : undefined;
+    // From this machine, and addressed to it: a proxy or rebinding page on the same machine names another host.
+    return isLoopback(req.socket?.remoteAddress) && isLocalHostHeader(req.headers.host) ? { user: this.opts.users.devUser() } : undefined;
   }
 
   private async fromSession(req: IncomingMessage, settings: OidcSettings): Promise<Authenticated | undefined> {

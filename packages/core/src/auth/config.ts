@@ -75,6 +75,16 @@ export function authMode(env: Env, publicUrl: string | undefined, hasMasterKey: 
 export const loginRedirectUri = (publicUrl: string): string => `${publicUrl.trim().replace(/\/+$/, "")}/auth/callback`;
 
 /**
+ * A Host header naming the local machine: `localhost`, `127.0.0.1` or `[::1]`, with any port. A reverse proxy on the
+ * same machine passes the public name it was reached at, and a DNS-rebinding page its own name, so neither does.
+ */
+export function isLocalHostHeader(host: string | undefined): boolean {
+  if (!host) return false;
+  const name = host.trim().toLowerCase().replace(/:\d+$/, "");
+  return name === "localhost" || name === "127.0.0.1" || name === "[::1]";
+}
+
+/**
  * A peer address of the local machine: 127.0.0.0/8, ::1, or an IPv4-mapped loopback. Only the socket's own address
  * counts; forwarded headers are never consulted.
  */

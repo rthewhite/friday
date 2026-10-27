@@ -24,7 +24,7 @@ Core SHALL read its OpenID Connect settings from `FRIDAY_AUTH_ISSUER` (the provi
 
 ### Requirement: Without configured authentication only the local machine gets in
 
-When authentication is not configured, core SHALL treat a request or WebSocket upgrade whose peer address is a loopback address (`127.0.0.1`, any `127.0.0.0/8` address, `::1`, or an IPv4-mapped loopback) as made by a fixed dev user with id `dev`, name `Dev` and role `admin`, created on first use like any user. Requests from any other address SHALL be treated as having no session. Forwarded headers SHALL NOT be used to decide this. Core SHALL log a warning at startup that authentication is off and only the local machine has access. When authentication is not configured and `FRIDAY_PUBLIC_URL` is set to anything other than an `http://localhost` or `http://127.0.0.1` URL (any port and path), core SHALL refuse to start.
+When authentication is not configured, core SHALL treat a request or WebSocket upgrade whose peer address is a loopback address (`127.0.0.1`, any `127.0.0.0/8` address, `::1`, or an IPv4-mapped loopback) and whose `Host` header names the local machine (`localhost`, `127.0.0.1` or `[::1]`, any port) as made by a fixed dev user with id `dev`, name `Dev` and role `admin`, created on first use like any user. Requests from any other address SHALL be treated as having no session. Forwarded headers SHALL NOT be used to decide this. Core SHALL log a warning at startup that authentication is off and only the local machine has access. When authentication is not configured and `FRIDAY_PUBLIC_URL` is set to anything other than an `http://localhost` or `http://127.0.0.1` URL (any port and path), core SHALL refuse to start.
 
 #### Scenario: Local development
 - **WHEN** authentication is not configured and the Vite dev server proxies `GET /api/conversations` from `127.0.0.1`
@@ -32,6 +32,10 @@ When authentication is not configured, core SHALL treat a request or WebSocket u
 
 #### Scenario: Another machine on the LAN
 - **WHEN** authentication is not configured and `192.168.1.40` requests `GET /api/conversations`
+- **THEN** the response is 401
+
+#### Scenario: Reverse proxy on the same machine
+- **WHEN** authentication is not configured and a reverse proxy on the same machine forwards a request for `friday.example` from `127.0.0.1`
 - **THEN** the response is 401
 
 #### Scenario: Forged forwarding header

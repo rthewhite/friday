@@ -16,7 +16,7 @@ function devAuth() {
   return { users, auth: new Auth({ mode: { kind: "dev" }, users, publicUrl: () => undefined }) };
 }
 
-const req = (remoteAddress: string, headers: Record<string, string> = {}) => ({ socket: { remoteAddress }, headers }) as unknown as IncomingMessage;
+const req = (remoteAddress: string, headers: Record<string, string> = { host: "localhost:5173" }) => ({ socket: { remoteAddress }, headers }) as unknown as IncomingMessage;
 
 test("without auth configured, the local machine is the dev admin", async () => {
   const { auth } = devAuth();
@@ -37,9 +37,16 @@ test("without auth configured, another machine on the LAN has no user", async ()
   assert.equal(users.list().length, 0, "no dev user created for it");
 });
 
+test("a request from this machine addressed to another host (a local reverse proxy, DNS rebinding) is no dev user", async () => {
+  const { auth } = devAuth();
+  for (const host of ["friday.thewhite.nl", "evil.example:8080", "localhost.evil.example"]) assert.equal(await auth.authenticate(req("127.0.0.1", { host })), undefined, host);
+  assert.equal(await auth.authenticate(req("127.0.0.1", {})), undefined, "no Host header");
+  for (const host of ["localhost", "127.0.0.1:8080", "[::1]:5173", "LOCALHOST:1"]) assert.equal((await auth.authenticate(req("::1", { host })))?.user.id, "dev", host);
+});
+
 test("a forged forwarding header does not make a LAN request local", async () => {
   const { auth } = devAuth();
-  assert.equal(await auth.authenticate(req("192.168.1.40", { "x-forwarded-for": "127.0.0.1", "x-real-ip": "127.0.0.1" })), undefined);
+  assert.equal(await auth.authenticate(req("192.168.1.40", { host: "localhost", "x-forwarded-for": "127.0.0.1", "x-real-ip": "127.0.0.1" })), undefined);
 });
 
 test("cookies: the session cookie name follows the public URL's scheme; values round-trip", () => {
