@@ -68,18 +68,22 @@
 
 ## 6. CI: firmware tests and the boot check
 
-- [ ] 6.1 Check that the self-hosted runner has a C++17 compiler (`c++ --version` in a `workflow_dispatch` run, or on the runner host). If it doesn't, stop and ask the user to install one (`build-essential`); that's a homelab change. Verify with the compiler version in the run's log.
-- [ ] 6.2 Add `esphome/test/run.sh` as a step in `deploy.yml`'s `test` job, after the package tests. Add `.github/workflows/firmware.yml`, which triggers on push to `esphome/**` and on `workflow_dispatch` and runs only `run.sh` on the homelab runner. Verify with `actionlint` (or a YAML parse if it isn't installed) and by reading both workflows' triggers against the spec's firmware-only scenario.
-- [ ] 6.3 Write `scripts/smoke.env` with `.invalid` placeholders for `JELLYFIN_URL`, `JELLYFIN_API_KEY`, `TOMTOM_API_KEY`, `HA_URL`, `HA_TOKEN`, `INTAKE_URL` and `INTAKE_KEY`. It has no iCloud keys and no Gemini key, and a comment says why. Write `scripts/smoke.sh <image>` as in design decision 1:
-  - `docker run -d` with `--tmpfs` for the data directory, the env file, and a generated `FRIDAY_MASTER_KEY`
+- [x] 6.1 Check that the self-hosted runner has a C++17 compiler (`c++ --version` in a `workflow_dispatch` run, or on the runner host). If it doesn't, stop and ask the user to install one (`build-essential`); that's a homelab change. Verify with the compiler version in the run's log.
+
+  Outcome: the homelab's `build-host` role installs no compiler. The user chose to run the tests in a digest-pinned `gcc:14` image instead (design decision 2). GCC 14 passes them locally with `-Werror`. The run on the runner itself is checked in 9.2.
+- [x] 6.2 Add `esphome/test/run.sh` as a step in `deploy.yml`'s `test` job, after the package tests, run in the `gcc:14` image. Add `.github/workflows/firmware.yml`, which triggers on push to `esphome/**` and on `workflow_dispatch` and runs only that step on the homelab runner. Verify with `actionlint` (or a YAML parse if it isn't installed) and by reading both workflows' triggers against the spec's firmware-only scenario.
+- [x] 6.3 Write `scripts/smoke.env` with `.invalid` placeholders for `JELLYFIN_URL`, `JELLYFIN_API_KEY`, `TOMTOM_API_KEY`, `HA_URL`, `HA_TOKEN`, `INTAKE_URL` and `INTAKE_KEY`. It has no iCloud keys and no Gemini key, and a comment says why. Write `scripts/smoke.sh <image>` as in design decision 1:
+  - `docker run -d` in a fresh container (its own empty `/data`), with the env file and a generated `FRIDAY_MASTER_KEY`
   - every probe through `docker exec … node -e fetch(...)` to `127.0.0.1:8080`
   - `/health` within 60 s, `/` as the portal's HTML, and `/api/modules` with `core` first and everything `loaded`
-  - `docker stop -t 10`, then exit code 0 from `docker wait`
+  - `docker stop -t 10`, then exit code 0
   - logs printed on failure, and the container always removed
 
-  Verify by building the image locally (`docker build -t friday:smoke .`): `scripts/smoke.sh friday:smoke` passes. Then make a scratch image with `JELLYFIN_URL` removed from the env file, and one with `FRIDAY_WEB_DIR=/nope`. Verify each fails with the expected message and the log printed.
-- [ ] 6.4 In `deploy.yml`'s `build` job, replace `buildx build --push` with three steps: `buildx build --load --tag "$IMAGE:$GITHUB_SHA"`, then `scripts/smoke.sh "$IMAGE:$GITHUB_SHA"`, then `docker push "$IMAGE:$GITHUB_SHA"`, keeping the registry login and logout. Verify with `actionlint` and by reading the job: push comes after the check, and no `--push` remains.
-- [ ] 6.5 Document the boot check and the runner's compiler in `infra/README.md`. Update `openspec/config.yaml`'s context: the firmware tests and the boot check run in CI. Verify that `openspec validate test-gaps --strict` passes.
+  Fix `.dockerignore` so no `.env` or `data/` at any depth enters the image.
+
+  Verify by building the image locally (`docker build -t friday:smoke .`): `scripts/smoke.sh friday:smoke` passes, and the image has no `/app/.env`. Then make a scratch image with `JELLYFIN_URL` removed from the env file, and one with `FRIDAY_WEB_DIR=/nope`. Verify each fails with the expected message and the log printed.
+- [x] 6.4 In `deploy.yml`'s `build` job, replace `buildx build --push` with three steps: `buildx build --load --tag "$IMAGE:$GITHUB_SHA"`, then `scripts/smoke.sh "$IMAGE:$GITHUB_SHA"`, then `docker push "$IMAGE:$GITHUB_SHA"`, keeping the registry login and logout. Verify with `actionlint` and by reading the job: push comes after the check, and no `--push` remains.
+- [x] 6.5 Document the boot check and the `gcc` image in `infra/README.md`. Update `openspec/config.yaml`'s context: the firmware tests and the boot check run in CI. Verify that `openspec validate test-gaps --strict` passes.
 
 ## 7. Weekly live checks
 

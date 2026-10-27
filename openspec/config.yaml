@@ -256,11 +256,17 @@ context: |
   microphone). friday_client's protocol decisions (URIs, alert ids, which messages it acts on, its reports, the
   key fingerprint) live in the pure friday_protocol.h; JSON parsing (ArduinoJson) and SHA-256 (mbedtls) stay in
   friday_client.cpp. The pure headers (friday_protocol.h, xvf3800_protocol.h, decimator.h) have plain C++17 host
-  tests run by esphome/test/run.sh, outside pnpm test and CI. friday_protocol_test.cpp checks the header against
+  tests run by esphome/test/run.sh, outside pnpm test. friday_protocol_test.cpp checks the header against
   core's packages/core/test/fixtures/device-protocol.json, which core's device-protocol.test.ts checks from the
   server's side (device ids: core's DEVICE_ID and __init__.py's pattern must match). Change the protocol in the
-  fixture first. The firmware isn't built in CI. One container image built with pnpm deploy; tests use node:test
-  via `pnpm test`.
+  fixture first. The firmware isn't built in CI. One container image built with pnpm deploy.
+  Testing and CI (ci-pipeline spec): tests use node:test via `pnpm test` (portal-ui: vitest); `pnpm test:coverage`
+  is c8 --all per package, report only. deploy.yml's test job runs build, typecheck, test and the firmware host
+  tests (in a digest-pinned gcc:14 image; the runner has Docker, no compiler); firmware.yml runs those for
+  esphome/-only pushes. The build job builds with --load, runs scripts/smoke.sh (boot check: fresh container,
+  generated FRIDAY_MASTER_KEY, scripts/smoke.env placeholders on .invalid hosts, every module loaded, probes via
+  docker exec to 127.0.0.1, clean SIGTERM) and only then pushes. A module with new required config needs a
+  smoke.env placeholder. .dockerignore excludes .env and data/ at any depth (worktrees keep them in packages/core).
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

@@ -1,0 +1,24 @@
+# Firmware host tests for pushes that touch only esphome/. deploy.yml runs the same tests in its test job, but it
+# isn't triggered by firmware changes: that would rebuild and redeploy an unchanged image for every firmware commit.
+
+name: firmware
+
+on:
+  push:
+    paths:
+      - esphome/**
+      - .github/workflows/firmware.yml
+  workflow_dispatch:
+
+env:
+  # The runner has Docker but no compiler. Keep in step with deploy.yml.
+  GCC_IMAGE: gcc:14@sha256:435c3cbc2ad1c25fbc1684c367808ff0ca2035a1bed56734a40165ab5cd7e3bd
+
+jobs:
+  host-tests:
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v7
+      # Includes the check against core's device protocol fixture (packages/core/test/fixtures/).
+      - name: Firmware host tests
+        run: docker run --rm -v "$GITHUB_WORKSPACE:/w:ro" -w /w "$GCC_IMAGE" sh esphome/test/run.sh

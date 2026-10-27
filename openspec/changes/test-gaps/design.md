@@ -33,8 +33,8 @@
 **Where it runs.** `scripts/smoke.sh <image>` runs the image with `docker run` and no published port. Every probe runs inside the container with `docker exec <c> node -e "fetch('http://127.0.0.1:8080/…')"`; the image already has Node. Probing from inside means no port is used on the shared runner, and the requests come from a loopback address, which matters for `auth-users` (see Risks). In `deploy.yml`'s `build` job, `buildx build --push` becomes three steps: `buildx build --load`, then `smoke.sh`, then `docker push`. Pushing only after the check means a broken image is never in the registry under a SHA, so it can't be deployed by hand either.
 
 **How it works:**
-- A fresh `--tmpfs` data directory.
-- `FRIDAY_MASTER_KEY` generated per run (`openssl rand -base64 32`), so the encrypted-config path initializes too.
+- An empty data directory: a fresh container's own `/data`, which the image creates for user `node`. (A `--tmpfs` mount would be owned by root and refuse writes.)
+- `FRIDAY_MASTER_KEY` generated per run (32 bytes from `/dev/urandom`, base64), so the encrypted-config path initializes too.
 - No `GEMINI_API_KEY`.
 - Placeholders from `scripts/smoke.env` for every module's required keys:
   - `JELLYFIN_URL`, `JELLYFIN_API_KEY`
@@ -43,8 +43,11 @@
   - `INTAKE_URL`, `INTAKE_KEY`
 
   URLs use `.invalid` hosts (RFC 2606), which fail DNS at once.
-- The script polls `/health` for up to 60 s, checks that `/` is HTML containing the portal's root element, and checks with `node -e` that `/api/modules` is `core` first and every entry `loaded`. Then it runs `docker stop -t 10` and expects exit code 0 from `docker wait`.
+- The script polls `/health` for up to 60 s, checks that `/` holds the portal's `#app` and a built `/assets/` script, and checks with `node -e` that `/api/modules` is `core` first and every entry `loaded`. Then it runs `docker stop -t 10` and expects exit code 0 from `docker inspect`.
 - On any failure it prints `docker logs` and exits non-zero. A trap always removes the container.
+- `deploy.yml` also triggers on `scripts/**`, so a change to the check runs it.
+
+**Local images must not carry a `.env`.** Building the image in a worktree first passed the check for the wrong reason. `.dockerignore` excluded only the root `.env`, so `packages/core/.env`, where `CLAUDE.md` puts it in worktrees, went into the image. dotenv then loaded your real configuration there. `.dockerignore` now excludes `.env`, `.env.*` and `data/` at any depth. CI checkouts never have a `.env`, so images in the registry weren't affected.
 
 **Alternatives considered:**
 - *Accept `failed` for modules missing configuration.* Each module words that error differently (calendar names its sources), so the check would have to parse messages, and a real init crash in an unconfigured module would pass.
@@ -56,7 +59,7 @@
 
 - **`deploy.yml`.** The `test` job runs `esphome/test/run.sh`, so a core-side change to the contract fixture is checked against the firmware in the same gate that guards deploys.
 - **`firmware.yml`.** Adding `esphome/**` to `deploy.yml`'s paths would rebuild and redeploy an identical image on every firmware commit, restarting Friday on `main` for nothing. So `firmware.yml` triggers on `esphome/**` and runs only `run.sh`.
-- **Compiler.** The runner needs `c++`. The task checks this first; if it's missing, the user installs `build-essential` on the runner. That's a homelab change and not done from here.
+- **Compiler.** The runner has Docker but no compiler: the homelab's `build-host` role installs only base packages. So both workflows run `run.sh` in a `gcc:14` image pinned by digest (`GCC_IMAGE`), with the checkout mounted read-only. That needs no homelab change and pins the compiler in the repository. GCC 14 passes the tests with `-Werror` (checked locally). *Alternative considered:* `build-essential` on the runner via the homelab's Ansible. That's a change outside this repository, and the compiler would follow Ubuntu's version.
 
 ### 3. `friday_protocol.h`: decisions in a pure header, JSON and SHA-256 stay in ESPHome
 

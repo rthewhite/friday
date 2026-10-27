@@ -43,7 +43,9 @@ None. The brain eval stays opt-in and outside `pnpm test`, as `brain-maintenance
   - New `.github/workflows/firmware.yml`: firmware-only pushes, which don't trigger `deploy.yml`.
   - New `.github/workflows/live-checks.yml`.
   - New `scripts/smoke.sh` and `scripts/smoke.env`.
-- **Secrets:** a new repository secret `GEMINI_API_KEY`, documented in `infra/README.md`. The self-hosted runner needs a C++17 compiler (`c++`).
+  - The firmware tests run in a digest-pinned `gcc:14` image, because the runner has Docker but no compiler.
+- **`.dockerignore`:** excludes `.env`, `.env.*` and `data/` at any depth. A local build from a worktree put `packages/core/.env` into the image. CI images were not affected.
+- **Secrets:** a new repository secret `GEMINI_API_KEY`, documented in `infra/README.md`.
 - **Firmware:** new `esphome/components/friday_client/friday_protocol.h`, `friday_client.cpp` using it, and new `esphome/test/friday_protocol_test.cpp` with a small test-only fixture reader. Needs a check on a device at home (Voice PE or reSpeaker: onboarding, a voice turn, a timer that rings) before archiving.
 - **Contract:** new `packages/core/test/fixtures/device-protocol.json`, read by a new core test and by the firmware host test.
 - **Core:** tests only, plus a `test:live` script. `server.ts` is unchanged.
@@ -54,7 +56,7 @@ None. The brain eval stays opt-in and outside `pnpm test`, as `brain-maintenance
   - The `test` script runs `node:test` and then vitest.
 - **SDK, media:** tests only.
 - **Coverage:** every package with tests gets a `test:coverage` script, and the root gets one too. New root dev dependency `c8`; `portal-ui` gets `@vitest/coverage-v8`. The `coverage/` folders are ignored.
-- **Docs:** README (testing section), `infra/README.md` (the secret, the runner's compiler), and the `openspec/config.yaml` context: the firmware tests and the boot check now run in CI.
+- **Docs:** README (testing section), `infra/README.md` (the secret, the boot check, the gcc image), and the `openspec/config.yaml` context: the firmware tests and the boot check now run in CI.
 - **Overlap with `auth-users`** (planned, with a worktree):
   - After it lands, `/api/*` answers 401 without a session.
   - The boot check sends its requests from inside the container, a loopback address, which `auth-users` gives the dev admin when auth isn't configured. So it should work unchanged. Whichever change merges second re-runs it after the rebase.
