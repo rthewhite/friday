@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { connect } from "node:net";
 import { once } from "node:events";
 import WebSocket from "ws";
 import { ToolRegistry } from "@friday/sdk";
@@ -35,5 +36,34 @@ test("audio and remote endpoints coexist on one server; unknown paths get 404", 
     await remote.closeAll();
     server.close();
     await once(server, "close");
+  }
+});
+
+test("a malformed upgrade target is refused with 400 and doesn't take the server down; a throwing check answers 500", async () => {
+  const server = createServer();
+  attachAudioWs(server, { pingMs: 0, createSession: (e) => new StubSession(e), auth: { authenticate: async () => { throw new Error("boom"); } } });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = (server.address() as { port: number }).port;
+  const raw = (target: string) =>
+    new Promise<string>((resolve, reject) => {
+      const sock = connect(port, "127.0.0.1", () => {
+        sock.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`);
+      });
+      let out = "";
+      sock.on("data", (d) => (out += d.toString()));
+      sock.on("close", () => resolve(out));
+      sock.on("error", reject);
+    });
+  const errors: unknown[] = [];
+  const origError = console.error;
+  console.error = (...a: unknown[]) => void errors.push(a);
+  try {
+    assert.match(await raw("//["), /^HTTP\/1\.1 400/);
+    assert.match(await raw("/ws/audio"), /^HTTP\/1\.1 500/, "the check threw");
+    assert.match(await raw("/ws/nope"), /^HTTP\/1\.1 404/, "still serving");
+  } finally {
+    console.error = origError;
+    server.close();
   }
 });

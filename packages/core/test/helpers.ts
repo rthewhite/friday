@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { DeviceStore, fingerprint, type DeviceSnapshot } from "../src/devices/store.js";
 import { DeviceSessions } from "../src/devices/sessions.js";
+import type { CallUser } from "@friday/sdk";
 import { hashKey } from "../src/remote/key-store.js";
 import { migrate, migrations } from "../src/storage/db.js";
 
@@ -17,7 +18,7 @@ export class StubSession implements AudioSession {
   texts: string[] = [];
   closed = 0;
   failOpen = false;
-  constructor(public emit: (e: Event) => void, public recorder?: ConversationRecorder, public device?: DeviceSnapshot, public alert?: AlertSessionOptions) {
+  constructor(public emit: (e: Event) => void, public recorder?: ConversationRecorder, public device?: DeviceSnapshot, public alert?: AlertSessionOptions, public user?: CallUser) {
     StubSession.instances.push(this);
   }
   async open() {
@@ -56,7 +57,7 @@ export async function startHarness(opts: Omit<AudioWsOptions, "createSession"> =
   console.error = (...a) => logs.push(a.map(String).join(" "));
 
   const server = createServer();
-  const wss = attachAudioWs(server, { pingMs: 0, ...opts, createSession: (e, r, d, a) => new StubSession(e, r, d, a) });
+  const wss = attachAudioWs(server, { pingMs: 0, ...opts, createSession: (e, r, d, a, u) => new StubSession(e, r, d, a, u) });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;

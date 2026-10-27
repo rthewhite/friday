@@ -124,7 +124,12 @@ export interface AgentRun {
   toolCalls: number;
   tokens: number;
   conversationId: string | null;
+  /** Who started the run (portal, chat, the Talk page); null for a scheduled run, a device, or older runs. */
+  user: RunUser;
 }
+
+/** A user as runs and actions record them, with their current name. */
+export type RunUser = { id: string; name: string } | null;
 
 export interface AgentAction {
   id: string;
@@ -137,6 +142,8 @@ export interface AgentAction {
   decidedAt: string | null;
   result: unknown;
   error: string | null;
+  /** Who approved or rejected it; null while pending, when it expired, and for older decisions. */
+  decidedBy: RunUser;
 }
 
 /** Runs kept per agent; runs with a pending action are kept beyond it. */
@@ -157,6 +164,8 @@ interface RunRow {
   tool_calls: number;
   tokens: number;
   conversation_id: string | null;
+  user_id: string | null;
+  user_name: string | null;
 }
 
 interface ActionRow {
@@ -170,7 +179,14 @@ interface ActionRow {
   decided_at: string | null;
   result_json: string | null;
   error: string | null;
+  decided_by: string | null;
+  decided_by_name: string | null;
 }
+
+/** Runs with the name of the user who started them. */
+const RUN_SELECT = "SELECT r.*, u.name AS user_name FROM agent_runs r LEFT JOIN users u ON u.id = r.user_id";
+/** Actions with the name of the user who decided them. */
+const ACTION_SELECT = "SELECT a.*, u.name AS decided_by_name FROM agent_actions a LEFT JOIN users u ON u.id = a.decided_by";
 
 /** What `claim` and `reject` found: done, unknown id, already decided, or too old. */
 export type Decision = "ok" | "missing" | "conflict" | "expired";
@@ -178,11 +194,11 @@ export type Decision = "ok" | "missing" | "conflict" | "expired";
 export class AgentRunStore {
   constructor(private readonly db: DatabaseSync, private readonly now: Now = () => new Date()) {}
 
-  start(r: { agent: string; trigger: RunTrigger; request?: string }): AgentRun {
+  start(r: { agent: string; trigger: RunTrigger; request?: string; userId?: string }): AgentRun {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO agent_runs (id, agent, trigger, request, started_at, outcome) VALUES (?, ?, ?, ?, ?, 'running')")
-      .run(id, r.agent, r.trigger, r.request ?? null, this.iso());
+      .prepare("INSERT INTO agent_runs (id, agent, trigger, request, started_at, outcome, user_id) VALUES (?, ?, ?, ?, ?, 'running', ?)")
+      .run(id, r.agent, r.trigger, r.request ?? null, this.iso(), r.userId ?? null);
     return this.get(id)!;
   }
 
@@ -203,13 +219,13 @@ export class AgentRunStore {
   }
 
   get(id: string): AgentRun | undefined {
-    const row = this.db.prepare("SELECT * FROM agent_runs WHERE id = ?").get(id) as RunRow | undefined;
+    const row = this.db.prepare(`${RUN_SELECT} WHERE r.id = ?`).get(id) as RunRow | undefined;
     return row && toRun(row);
   }
 
   /** An agent's runs, newest first. */
   list(agent: string, limit = KEEP_RUNS): AgentRun[] {
-    return (this.db.prepare("SELECT * FROM agent_runs WHERE agent = ? ORDER BY started_at DESC, rowid DESC LIMIT ?").all(agent, limit) as unknown as RunRow[]).map(toRun);
+    return (this.db.prepare(`${RUN_SELECT} WHERE r.agent = ? ORDER BY r.started_at DESC, r.rowid DESC LIMIT ?`).all(agent, limit) as unknown as RunRow[]).map(toRun);
   }
 
   last(agent: string): AgentRun | undefined {
@@ -252,13 +268,13 @@ export class AgentRunStore {
 
   action(id: string): AgentAction | undefined {
     this.expire();
-    const row = this.db.prepare("SELECT * FROM agent_actions WHERE id = ?").get(id) as ActionRow | undefined;
+    const row = this.db.prepare(`${ACTION_SELECT} WHERE a.id = ?`).get(id) as ActionRow | undefined;
     return row && toAction(row);
   }
 
   actions(runId: string): AgentAction[] {
     this.expire();
-    return (this.db.prepare("SELECT * FROM agent_actions WHERE run_id = ? ORDER BY created_at, rowid").all(runId) as unknown as ActionRow[]).map(toAction);
+    return (this.db.prepare(`${ACTION_SELECT} WHERE a.run_id = ? ORDER BY a.created_at, a.rowid`).all(runId) as unknown as ActionRow[]).map(toAction);
   }
 
   pendingCount(agent: string): number {
@@ -266,13 +282,13 @@ export class AgentRunStore {
     return (this.db.prepare("SELECT COUNT(*) AS n FROM agent_actions WHERE agent = ? AND state = 'pending'").get(agent) as { n: number }).n;
   }
 
-  /** Move a pending action to `approving`, so only one approval can ever execute it. */
-  claim(id: string): Decision {
-    return this.decide(id, "approving");
+  /** Move a pending action to `approving`, so only one approval can ever execute it. `by` is who approved it. */
+  claim(id: string, by?: string): Decision {
+    return this.decide(id, "approving", by);
   }
 
-  reject(id: string): Decision {
-    return this.decide(id, "rejected");
+  reject(id: string, by?: string): Decision {
+    return this.decide(id, "rejected", by);
   }
 
   /** The outcome of an approved action. */
@@ -289,9 +305,11 @@ export class AgentRunStore {
     this.db.prepare("UPDATE agent_actions SET state = 'expired', decided_at = ? WHERE state = 'pending' AND created_at <= ?").run(this.iso(), before);
   }
 
-  private decide(id: string, state: "approving" | "rejected"): Decision {
+  private decide(id: string, state: "approving" | "rejected", by: string | undefined): Decision {
     this.expire();
-    const changed = this.db.prepare("UPDATE agent_actions SET state = ?, decided_at = ? WHERE id = ? AND state = 'pending'").run(state, this.iso(), id).changes;
+    const changed = this.db
+      .prepare("UPDATE agent_actions SET state = ?, decided_at = ?, decided_by = ? WHERE id = ? AND state = 'pending'")
+      .run(state, this.iso(), by ?? null, id).changes;
     if (changed) return "ok";
     const row = this.db.prepare("SELECT state FROM agent_actions WHERE id = ?").get(id) as { state: ActionState } | undefined;
     if (!row) return "missing";
@@ -316,6 +334,7 @@ const toRun = (r: RunRow): AgentRun => ({
   toolCalls: r.tool_calls,
   tokens: r.tokens,
   conversationId: r.conversation_id,
+  user: r.user_id && r.user_name !== null ? { id: r.user_id, name: r.user_name } : null,
 });
 
 const toAction = (r: ActionRow): AgentAction => ({
@@ -329,4 +348,5 @@ const toAction = (r: ActionRow): AgentAction => ({
   decidedAt: r.decided_at,
   result: r.result_json === null ? null : JSON.parse(r.result_json),
   error: r.error,
+  decidedBy: r.decided_by && r.decided_by_name !== null ? { id: r.decided_by, name: r.decided_by_name } : null,
 });

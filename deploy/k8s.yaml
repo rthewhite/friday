@@ -42,10 +42,13 @@ spec:
               value: "8080"
             - name: FRIDAY_DATA_DIR
               value: /data
-            # OAuth redirect URIs (Settings > Connections) are built from this, not from forwarded headers.
+            # OAuth redirect URIs (Settings > Connections) and the login's redirect URI (<this>/auth/callback) are built
+            # from this, not from forwarded headers. Without FRIDAY_AUTH_ISSUER Friday refuses to start with this set.
             - name: FRIDAY_PUBLIC_URL
               value: https://friday.thewhite.nl
-          # GEMINI_API_KEY and FRIDAY_MASTER_KEY are required here. Module config
+          # GEMINI_API_KEY and FRIDAY_MASTER_KEY are required here, and so are the login's FRIDAY_AUTH_ISSUER,
+          # FRIDAY_AUTH_CLIENT_ID and FRIDAY_AUTH_CLIENT_SECRET (the Authentik provider `friday`, see infra/README.md;
+          # optional FRIDAY_AUTH_USER_GROUP / FRIDAY_AUTH_ADMIN_GROUP, default friday-users / friday-admins). Module config
           # (JELLYFIN_*, HA_*, TOMTOM_API_KEY, ICLOUD_*) and FRIDAY_MODULE_KEYS may also live here as a
           # fallback, but the portal's Settings pages are the primary place now.
           # The `intake` Secret holds INTAKE_URL and INTAKE_KEY for the Work calendar. Reading the intake
@@ -122,6 +125,8 @@ spec:
     # devices (wss://friday.thewhite.nl/ws/audio), /ws/device for the voice
     # devices' long-lived control connections (timers ring over it), and
     # /ws/modules for remote modules (wss://friday.thewhite.nl/ws/modules).
+    # No Authentik forward-auth middleware: Friday logs browsers in itself (/auth/*) and checks every /api request
+    # and Talk page connection; devices and remote modules keep their own keys.
     - match: Host(`friday.thewhite.nl`)
       kind: Rule
       services:

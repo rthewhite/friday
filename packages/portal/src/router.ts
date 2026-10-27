@@ -17,6 +17,7 @@ export function createPortalRouter(uis: ModuleUi[]) {
     { path: "/settings/keys", name: "settings-keys", component: () => import("./pages/settings/RemoteModulesPage.vue") },
     { path: "/settings/alerts", name: "settings-alerts", component: () => import("./pages/settings/AlertsPage.vue") },
     { path: "/settings/jobs", name: "settings-jobs", component: () => import("./pages/settings/JobsPage.vue") },
+    { path: "/settings/users", name: "settings-users", component: () => import("./pages/settings/UsersPage.vue") },
     ...uis.map<RouteRecordRaw>((ui) => ({
       path: `/m/${ui.id}`,
       component: () => import("./shell/ModuleGate.vue"),

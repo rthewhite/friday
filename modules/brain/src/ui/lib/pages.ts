@@ -38,6 +38,8 @@ export function arrangePages(list: PageList, query: string): { profile?: PageSum
 export interface RevisionSummary {
   id: number;
   author: string;
+  /** Who made a portal edit (author `user`), when known. */
+  user?: { id: string; name: string };
   createdAt: string;
   note?: string;
   sources: string[];

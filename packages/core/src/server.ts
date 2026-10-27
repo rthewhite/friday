@@ -40,6 +40,12 @@ import { OAuthTokens } from "./oauth/tokens.js";
 import { registerOAuthKeepalive } from "./oauth/keepalive.js";
 import { OAuthFlow } from "./oauth/flow.js";
 import { FALLBACK_BASE, publicBase, redirectUri } from "./oauth/redirect.js";
+import { AuthConfigError, authMode, loginRedirectUri, type AuthMode } from "./auth/config.js";
+import { Auth } from "./auth/auth.js";
+import { OidcClient } from "./auth/oidc.js";
+import { UserConnections } from "./auth/connections.js";
+import { UserStore } from "./auth/users.js";
+import { SessionStore } from "./auth/sessions.js";
 
 const db = openDatabase(settings.dataDir);
 const masterKey = parseMasterKey(settings.masterKey);
@@ -56,6 +62,29 @@ const deviceLinks = new DeviceLinks();
 // Core's own key: stored for core or globally in the portal, else the environment; read at each use.
 const coreKey = coreConfig(configStore, process.env);
 const geminiKey = () => coreKey("GEMINI_API_KEY");
+// Browser auth: OIDC when FRIDAY_AUTH_ISSUER is set, else the dev user for this machine only. A deployment without
+// auth (a public URL that isn't localhost) must not start.
+let auth: AuthMode;
+try {
+  auth = authMode(process.env, coreKey("FRIDAY_PUBLIC_URL"), masterKey !== undefined);
+} catch (e) {
+  if (!(e instanceof AuthConfigError)) throw e;
+  console.error(`auth: ${e.message}`);
+  process.exit(1);
+}
+if (auth.kind === "dev") console.warn("auth: FRIDAY_AUTH_ISSUER is not set, so authentication is off: only this machine (loopback) gets in, as the dev user");
+else console.log(`auth: users log in through ${auth.oidc.issuer}`);
+const users = new UserStore(db);
+const sessions = new SessionStore(db, masterKey);
+const authPublicUrl = () => coreKey("FRIDAY_PUBLIC_URL");
+const oidc = auth.kind === "oidc" ? new OidcClient(auth.oidc, () => loginRedirectUri(authPublicUrl() ?? "")) : undefined;
+const browserAuth = new Auth({ mode: auth, users, sessions, oidc, publicUrl: authPublicUrl });
+// Talk page connections by user: disabling a user closes them.
+const userConnections = new UserConnections();
+// A session that ends (logout, a refused refresh) closes the Talk connections it opened.
+sessions.onEnd((ids) => ids.forEach((id) => userConnections.closeSession(id)));
+const purged = sessions.purgeIdle();
+if (purged) console.log(`auth: ended ${purged} session(s) idle for 30 days`);
 const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
@@ -158,14 +187,15 @@ const chat = new ChatEngine({
   registry,
   llm,
   model: settings.chatModel,
-  system: systemPrompt(promptContext, "chat"),
+  system: (user) => systemPrompt(promptContext, "chat", undefined, user)(),
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 
 const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs),
   agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) },
-  oauth: { store: oauthStore, requests: oauthRequests, flow: new OAuthFlow({ store: oauthStore, requests: oauthRequests }), publicUrl } }));
-attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts });
+  oauth: { store: oauthStore, requests: oauthRequests, flow: new OAuthFlow({ store: oauthStore, requests: oauthRequests }), publicUrl },
+  auth: { auth: browserAuth, users, sessions, oidc, publicUrl: authPublicUrl, onDisabled: (id) => userConnections.closeUser(id) } }));
+attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts, auth: browserAuth, userConnections });
 attachDeviceWs(server, { devices, links: deviceLinks, onReport: (id, type, alert) => alerts.deviceReport(id, type, alert) });
 remote.attach(server);
 

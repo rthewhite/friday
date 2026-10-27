@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { Icon } from "@friday/portal-ui";
+import { useSession } from "../composables/useSession.js";
 
 export interface NavItem {
   to: string;
@@ -8,6 +10,20 @@ export interface NavItem {
   group: string;
 }
 defineProps<{ items: NavItem[]; groups: string[] }>();
+
+const { me, logout } = useSession();
+const leaving = ref(false);
+const error = ref<string | null>(null);
+async function logOut() {
+  leaving.value = true;
+  error.value = null;
+  try {
+    await logout();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+    leaving.value = false;
+  }
+}
 </script>
 
 <template>
@@ -30,5 +46,20 @@ defineProps<{ items: NavItem[]; groups: string[] }>();
         <span>{{ item.label }}</span>
       </RouterLink>
     </template>
+    <div v-if="me" class="mt-auto border-t border-f-border-subtle pt-3 px-3 flex items-center gap-3">
+      <span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-f-surface-hover text-f-text-bright text-sm font-semibold">{{ me.name.slice(0, 1).toUpperCase() }}</span>
+      <span class="min-w-0 flex-1">
+        <span class="block truncate text-sm text-f-text-bright">{{ me.name }}</span>
+        <span class="block text-xs text-f-text-muted">{{ me.role === "admin" ? "Admin" : "Member" }}{{ me.authEnabled ? "" : " · no login (dev)" }}</span>
+      </span>
+      <button
+        v-if="me.authEnabled"
+        type="button"
+        class="rounded-md px-2 py-1 text-sm text-f-text-muted hover:text-f-text-bright hover:bg-f-surface-hover disabled:opacity-50"
+        :disabled="leaving"
+        @click="logOut"
+      >Log out</button>
+    </div>
+    <p v-if="error" class="px-3 text-xs text-f-error">{{ error }}</p>
   </nav>
 </template>

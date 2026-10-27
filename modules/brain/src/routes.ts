@@ -48,6 +48,8 @@ const summary = (p: Page) => ({ id: p.id, name: p.name, type: p.type, aliases: p
 
 export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budget: () => number): void {
   const route = (method: Parameters<ModuleContext["http"]["route"]>[0], path: string, fn: Handler) => ctx.http.route(method, path, handle(fn));
+  // Portal writes record who made them; the store is synchronous, so the user is set around each call only.
+  const as = <T>(req: RouteRequest, fn: () => T): T => store.asUser(req.user, fn);
   const found = (id: string): Page => {
     const p = store.get(id);
     if (!p) throw new BrainError("not_found", "no such page");
@@ -79,7 +81,7 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
 
   route("POST", "pages", async (req, res) => {
     const b = await body<PageFields>(req);
-    res.status(201).json(store.create({ name: b.name, type: b.type, aliases: b.aliases, body: b.body }, "user"));
+    res.status(201).json(as(req, () => store.create({ name: b.name, type: b.type, aliases: b.aliases, body: b.body }, "user")));
   });
 
   route("PUT", "pages/:id", async (req, res, { id }) => {
@@ -90,10 +92,10 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
       const p = store.profile();
       const changed = (["name", "type", "body"] as const).some((k) => b[k] !== undefined && b[k] !== p[k]) || (b.aliases !== undefined && JSON.stringify(b.aliases) !== JSON.stringify(p.aliases));
       if (changed) throw new BrainError("profile", "only the profile's instructions can be edited; its summary is generated from the pages");
-      res.json(store.saveInstructions(b.instructions, base));
+      res.json(as(req, () => store.saveInstructions(b.instructions, base)));
       return;
     }
-    res.json(store.save(id, { name: b.name, type: b.type, aliases: b.aliases, body: b.body }, "user", { base, keepOldName: b.keepOldName !== false }));
+    res.json(as(req, () => store.save(id, { name: b.name, type: b.type, aliases: b.aliases, body: b.body }, "user", { base, keepOldName: b.keepOldName !== false })));
   });
 
   route("POST", "pages/:id/restore", async (req, res, { id }) => {
@@ -101,20 +103,20 @@ export function registerBrainRoutes(ctx: ModuleContext, store: BrainStore, budge
     const revisionId = revisionNumber(b.revisionId, "revisionId");
     const base = revisionNumber(b.baseRevision, "baseRevision");
     // On the profile only the instructions come back; the summary stays as generated.
-    res.json(id === PROFILE_ID ? store.restoreInstructions(revisionId, base) : store.restore(id, revisionId, "user", base));
+    res.json(as(req, () => (id === PROFILE_ID ? store.restoreInstructions(revisionId, base) : store.restore(id, revisionId, "user", base))));
   });
 
-  route("DELETE", "pages/:id", (_req, res, { id }) => {
-    store.softDelete(id, "user");
+  route("DELETE", "pages/:id", (req, res, { id }) => {
+    as(req, () => store.softDelete(id, "user"));
     res.status(204);
   });
 
-  route("POST", "pages/:id/undelete", (_req, res, { id }) => {
-    res.json(store.undelete(id, "user"));
+  route("POST", "pages/:id/undelete", (req, res, { id }) => {
+    res.json(as(req, () => store.undelete(id, "user")));
   });
 
   route("POST", "pages/:id/purge", async (req, res, { id }) => {
     const b = await body<{ confirm: string }>(req);
-    res.json({ unlinked: store.purge(id, b.confirm, "user") });
+    res.json({ unlinked: as(req, () => store.purge(id, b.confirm, "user")) });
   });
 }

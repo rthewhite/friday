@@ -9,7 +9,7 @@
  * client only stops receiving events.
  */
 import type { Content, FunctionDeclaration } from "@google/genai";
-import { LlmError, type ToolRegistry } from "@friday/sdk";
+import { LlmError, type CallUser, type ToolRegistry } from "@friday/sdk";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
 import type { LlmService } from "../llm/service.js";
@@ -37,10 +37,10 @@ export interface ChatEngineOptions {
   /** The chat model (FRIDAY_CHAT_MODEL, falling back to the text model). */
   model: string;
   /**
-   * The chat system prompt (shared base, chat part, module context). Built once when a turn starts
-   * and used for every model call of that turn.
+   * The chat system prompt (shared base, chat part, module context for the turn's user). Built once when a turn
+   * starts and used for every model call of that turn.
    */
-  system: () => string;
+  system: (user?: CallUser) => string;
   /** A tool call that has not settled after this long is answered with a timeout error. */
   toolTimeoutMs: number;
   log?: Pick<Console, "log" | "warn" | "error">;
@@ -62,8 +62,11 @@ export class ChatEngine {
     this.log = opts.log ?? console;
   }
 
-  /** Validate and store the message. Synchronous up to the stored user entry, so the busy check can't race. */
-  begin(msg: ChatMessage): BeginResult {
+  /**
+   * Validate and store the message of `user`. Synchronous up to the stored user entry, so the busy check can't
+   * race. The turn's prompt and tool calls are for that user.
+   */
+  begin(msg: ChatMessage, user?: CallUser): BeginResult {
     const text = typeof msg?.text === "string" ? msg.text.trim() : "";
     if (!text) return { ok: false, status: 400, error: "text is required" };
     const id = msg.conversationId;
@@ -73,7 +76,8 @@ export class ChatEngine {
       if (store.channelOf(id) !== "chat") return { ok: false, status: 404, error: "unknown chat conversation" };
       if (store.isLive(id)) return { ok: false, status: 409, error: "a turn is still running in this conversation" };
     }
-    const recorder = store.recorder({ channel: "chat" }, this.log);
+    // A new thread belongs to its sender; a resumed one keeps the user who started it.
+    const recorder = store.recorder({ channel: "chat", userId: user?.id ?? null }, this.log);
     if (id && !recorder.resume(id)) return { ok: false, status: 404, error: "unknown chat conversation" };
     // The recorder logs and swallows store failures; the turn must not run without its message.
     const before = id ? this.nextSeq(id) : undefined;
@@ -85,7 +89,7 @@ export class ChatEngine {
       recorder.release();
       return { ok: false, status: 503, error: "the message could not be stored" };
     }
-    return { ok: true, turn: new ChatTurn(this.opts, this.log, recorder, conversationId, text) };
+    return { ok: true, turn: new ChatTurn(this.opts, this.log, recorder, conversationId, text, user && { id: user.id, name: user.name }) };
   }
 
   private nextSeq(id: string): number | undefined {
@@ -104,6 +108,7 @@ export class ChatTurn {
     private readonly recorder: ConversationRecorder,
     readonly conversationId: string,
     private readonly text: string,
+    private readonly user?: CallUser,
   ) {}
 
   /** Stream the turn to `listener`; resolves once it is recorded. Never rejects. */
@@ -122,7 +127,7 @@ export class ChatTurn {
         llm: this.opts.llm,
         owner: "chat",
         model: this.opts.model,
-        system: this.opts.system(),
+        system: this.opts.system(this.user),
         contents: this.history(),
         tools: this.opts.registry.declarations("chat") as FunctionDeclaration[],
         thoughts: true,
@@ -178,7 +183,7 @@ export class ChatTurn {
     const ms = this.opts.toolTimeoutMs;
     let timer: NodeJS.Timeout | undefined;
     const timedOut = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), ms)));
-    const call = this.opts.registry.callTool(name, args, { channel: "chat", conversationId: this.conversationId });
+    const call = this.opts.registry.callTool(name, args, { channel: "chat", conversationId: this.conversationId, user: this.user });
     const outcome = await Promise.race([call, timedOut]);
     clearTimeout(timer);
     let result: Record<string, unknown>;

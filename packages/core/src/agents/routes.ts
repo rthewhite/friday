@@ -4,7 +4,8 @@
  * reserves those names).
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ToolRegistry } from "@friday/sdk";
+import type { CallUser, ToolRegistry } from "@friday/sdk";
+import { requestUser } from "../auth/auth.js";
 import { readBody, sendJson, type NodeHandler, type Router } from "../router.js";
 import { AgentInputError, parseAgent, resolveTools } from "./definition.js";
 import { MAX_REQUEST, type AgentRuntime, type DecideResult } from "./runtime.js";
@@ -20,6 +21,12 @@ export interface AgentsApi {
 }
 
 const MAX_BODY = 100_000;
+
+/** The user who made the request, as the runtime records them. */
+const callUser = (req: IncomingMessage): CallUser | undefined => {
+  const u = requestUser(req);
+  return u && { id: u.id, name: u.name };
+};
 
 export function mountAgentRoutes(router: Router, api: AgentsApi | undefined): void {
   const need = (handler: (api: AgentsApi, req: IncomingMessage, res: ServerResponse, params: Record<string, string>) => void | Promise<void>): NodeHandler =>
@@ -53,8 +60,8 @@ export function mountAgentRoutes(router: Router, api: AgentsApi | undefined): vo
       if (!a.runtime.cancel(id)) return sendJson(res, { error: "the run is not running" }, 409);
       sendJson(res, { cancelling: true }, 202);
     }))
-    .add("POST", "/api/agents/actions/:id/approve", need(async (a, _req, res, { id }) => decided(res, await a.runtime.approve(id))))
-    .add("POST", "/api/agents/actions/:id/reject", need((a, _req, res, { id }) => decided(res, a.runtime.reject(id))))
+    .add("POST", "/api/agents/actions/:id/approve", need(async (a, req, res, { id }) => decided(res, await a.runtime.approve(id, callUser(req)))))
+    .add("POST", "/api/agents/actions/:id/reject", need((a, req, res, { id }) => decided(res, a.runtime.reject(id, callUser(req)))))
     .add("GET", "/api/agents/:name", need((a, _req, res, { name }) => {
       const s = a.agents.get(name);
       if (!s) return sendJson(res, { error: `unknown agent "${name}"` }, 404);
@@ -84,7 +91,7 @@ export function mountAgentRoutes(router: Router, api: AgentsApi | undefined): vo
       const request = (body as { request?: unknown }).request;
       if (request !== undefined && request !== null && typeof request !== "string") return sendJson(res, { error: "request must be text" }, 400);
       if (typeof request === "string" && request.length > MAX_REQUEST) return sendJson(res, { error: `request is longer than ${MAX_REQUEST} characters` }, 400);
-      const r = a.runtime.start(name, "portal", request ?? undefined);
+      const r = a.runtime.start(name, "portal", request ?? undefined, callUser(req));
       if (!r.ok && r.reason === "unknown") return sendJson(res, { error: `unknown agent "${name}"` }, 404);
       if (!r.ok) return sendJson(res, { error: "the agent is already running", since: r.since, runId: r.runId }, 409);
       sendJson(res, { runId: r.run.id }, 202);

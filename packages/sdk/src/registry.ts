@@ -1,5 +1,6 @@
 import type { ConversationChannel } from "./conversations.js";
 import { CHANNELS, SCHEDULINGS, type FunctionDeclaration, type Scheduling, type Tool, type ToolCallContext, type ToolResult } from "./tool.js";
+import type { CallUser } from "./user.js";
 
 export interface CallResult {
   result: ToolResult;
@@ -15,6 +16,8 @@ export interface CallOptions {
   conversationId?: string;
   /** The voice device the call comes from, handed to the handler in its call context. */
   device?: string;
+  /** The user the call is for, handed to the handler in its call context. */
+  user?: CallUser;
 }
 
 export interface ToolEntry {
@@ -112,11 +115,12 @@ export class ToolRegistry {
   }
 }
 
-function context({ channel, conversationId, device }: CallOptions): ToolCallContext {
+function context({ channel, conversationId, device, user }: CallOptions): ToolCallContext {
   const call: ToolCallContext = {};
   if (channel) call.channel = channel;
   if (conversationId) call.conversationId = conversationId;
   if (device) call.device = device;
+  if (user) call.user = { id: user.id, name: user.name };
   return call;
 }
 

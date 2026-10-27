@@ -55,7 +55,7 @@ Alternatives considered:
 - **Forward-auth plus trusting `X-authentik-*` headers in Friday.** On a route without the middleware, Traefik passes on whatever headers the client sent, and any pod in the cluster can reach the Service directly. Identity would rest on config, not on code.
 - **Both Friday's login and forward-auth.** This brings back the expiry and CORS problem and the route split for very little gain.
 
-The flow uses `arctic`'s Authentik provider, as oauth-connections does. The ID token comes straight from the token endpoint over TLS, so Friday checks its claims (`iss`, `aud`, `exp`, `nonce`) without verifying the signature against JWKS, as OIDC Core 3.1.3.7 allows. The `groups` claim comes from Authentik's default `profile` scope mapping.
+The flow uses `arctic`, as oauth-connections does, but its generic `OAuth2Client` with the endpoints from OIDC discovery (`<issuer>/.well-known/openid-configuration`), not its Authentik provider. That provider hard-codes Authentik's global endpoints and doesn't expose the end-session endpoint the logout page links to. Discovery also lets the tests run against a fake provider. The ID token comes straight from the token endpoint over TLS, so Friday checks its claims (`iss`, `aud`, `exp`, `nonce`) without verifying the signature against JWKS, as OIDC Core 3.1.3.7 allows. The `groups` claim comes from Authentik's default `profile` scope mapping.
 
 ### Sessions
 
@@ -63,7 +63,12 @@ The flow uses `arctic`'s Authentik provider, as oauth-connections does. The ID t
 - The cookie is `__Host-friday_session`: `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`. Over plain-HTTP localhost the cookie is named `friday_session`, without `Secure` (dev only; see below).
 - `SameSite=Lax` plus the existing cross-origin write check is the CSRF defence. No separate CSRF token.
 - The browser `/ws/audio` upgrade also checks `Origin` against `Host`. `SameSite=Lax` still sends the cookie from another `*.thewhite.nl` host, because that counts as same-site. Without the check, a compromised app on the same domain could open a voice session as the user.
-- **Lifetime:** a session ends after 30 days without use. Every 24 hours, on the next request, Friday refreshes its claims with the refresh token (scope `offline_access`). This updates the name, email and role. When Authentik refuses the refresh (user deactivated, removed from the groups, or token revoked), the session ends and the next request gets 401. The refresh token is stored encrypted with `FRIDAY_MASTER_KEY`, like OAuth connections. Configured auth therefore requires the master key.
+- **Lifetime:** a session ends after 30 days without use. Every 24 hours, on the next request, Friday refreshes its claims with the refresh token (scope `offline_access`). This updates the name, email and role. When Authentik refuses the refresh (user deactivated, removed from the groups, or token revoked), the session ends and the next request gets 401. The refresh token is stored encrypted with `FRIDAY_MASTER_KEY`, like OAuth connections. Configured auth therefore requires the master key. A session without a usable refresh token (the provider issued none, or it can't be decrypted any more) ends when its claims are due, and the next visit logs in again through Authentik's SSO. Refreshes are single-flight per session: the portal sends several requests at once, and Authentik rotates refresh tokens, so a second use of the same token would be refused.
+- Every call to the provider is bounded (10 s). When the provider can't be reached (a timeout, a network error, a 5xx, also from userinfo), the session is kept and its requests don't wait for a refresh again for 5 minutes. A refresh token the token endpoint already rotated before userinfo failed is kept, or the next try would present a used one.
+- Sessions idle for 30 days are purged at startup and at every login, also those whose cookie the browser dropped and that would never be presented again, so their sealed refresh tokens don't linger.
+- A session that ends (logout, a refused refresh, idle) closes the Talk connections it opened, like disabling the user does.
+- Each login attempt has its own login cookie, named by its state, so several tabs sent to the login at once each complete.
+- The cookie gets `Max-Age` 30 days at login and isn't renewed. After 30 days of continuous use the browser drops it, and the next request bounces silently through Authentik's SSO.
 - Logout (`POST /auth/logout`) deletes the session and clears the cookie. It doesn't end the Authentik SSO session. The portal can then link to Authentik's end-session endpoint.
 - `return_to` only accepts a path on the same origin (it starts with `/` and not with `//`), so it can't be used as an open redirect.
 
@@ -112,6 +117,8 @@ When `FRIDAY_AUTH_ISSUER` is not set:
 - Any other request gets 401. Core binds `0.0.0.0` by default, so another device on the LAN must not inherit the dev admin.
 - At startup Friday logs a loud warning. It **refuses to start** when `FRIDAY_PUBLIC_URL` is set to anything other than an `http://localhost` or `http://127.0.0.1` URL, because that means a deployment without auth configured.
 
+The request must also be addressed to the local machine (`Host` is `localhost`, `127.0.0.1` or `[::1]`): a reverse proxy on the same machine forwards its public name, and a DNS-rebinding page its own, so neither gets the dev admin.
+
 In k8s, requests come from Traefik and never from loopback, so even a misconfiguration falls back to 401 for everyone rather than to admin access.
 
 ### The user in the SDK, explicitly
@@ -132,7 +139,7 @@ Nullable `user_id` columns, set from this change on, never backfilled:
 - `conversations.user_id`: chat and the Talk page. Device sessions stay `NULL` until change 5.
 - `agent_runs.user_id`: who started a run from the portal, chat or the Talk page. `NULL` for a scheduled run.
 - `agent_actions.decided_by`: who approved or rejected.
-- `brain__revisions.user_id` (a brain module migration): set for revisions with author `user` made through the portal, from `req.user`.
+- `brain__revisions.user_id` and `user_name` (brain module migration 4): set for revisions with author `user` made through the portal, from `req.user`. The name is a snapshot, because a module may not read core's `users` table (`module-database`). The store is synchronous, so the routes set the user around each store call (`store.asUser`), never around a whole async handler, where overlapping requests could swap users.
 
 ### Portal
 

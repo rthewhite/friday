@@ -15,7 +15,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
   const search = ["conversation_search", "conversation_search_config", "conversation_search_data", "conversation_search_docsize", "conversation_search_idx"];
-  assert.deepEqual(tables, ["agent_actions", "agent_runs", "agents", "alerts", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "oauth_connections", "oauth_grants", "schema_version"]);
+  assert.deepEqual(tables, ["agent_actions", "agent_runs", "agents", "alerts", "auth_owner", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_keys", "module_kv", "oauth_connections", "oauth_grants", "schema_version", "sessions", "users"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -235,5 +235,31 @@ test("a version-9 database gains the empty OAuth tables, and grants cascade with
   `);
   assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM oauth_grants").get() }, { n: 0 });
   assert.deepEqual({ ...db.prepare("SELECT id FROM devices").get() }, { id: "friday-kitchen" });
+  db.close();
+});
+
+test("a version-10 database gains the user tables, and existing rows keep no user", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  migrate(old, migrations.filter((m) => m.version <= 10), quiet);
+  old.exec(`
+    INSERT INTO conversations (id, channel, started_at, last_activity_at) VALUES ('c1', 'chat', 't', 't');
+    INSERT INTO agents (name, description, instructions, enabled, startable, tools_json, budgets_json, created_at, updated_at) VALUES ('a', '', '', 1, 1, '[]', '{}', 't', 't');
+    INSERT INTO agent_runs (id, agent, trigger, started_at, outcome) VALUES ('r1', 'a', 'portal', 't', 'ok');
+  `);
+  old.close();
+
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
+  assert.deepEqual({ ...db.prepare("SELECT user_id FROM conversations WHERE id = 'c1'").get() }, { user_id: null });
+  assert.deepEqual({ ...db.prepare("SELECT user_id FROM agent_runs WHERE id = 'r1'").get() }, { user_id: null });
+  db.exec(`
+    INSERT INTO users (id, issuer, subject, name, role, first_login_at, last_login_at) VALUES ('u1', 'i', 's', 'U', 'admin', 't', 't');
+    INSERT INTO sessions (token_hash, user_id, created_at, last_used_at, refreshed_at) VALUES ('h', 'u1', 't', 't', 't');
+  `);
+  assert.throws(() => db.exec("INSERT INTO users (id, issuer, subject, name, role, first_login_at, last_login_at) VALUES ('u2', 'i', 's', 'V', 'member', 't', 't')"), /UNIQUE/);
+  assert.throws(() => db.exec("INSERT INTO users (id, issuer, subject, name, role, first_login_at, last_login_at) VALUES ('u3', 'i', 's3', 'W', 'root', 't', 't')"), /CHECK/);
+  db.exec("DELETE FROM users WHERE id = 'u1'");
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM sessions").get() }, { n: 0 }, "sessions cascade with their user");
   db.close();
 });

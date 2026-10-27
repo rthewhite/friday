@@ -3,16 +3,23 @@ import { computed, inject, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import type { ModuleUi } from "@friday/portal-ui";
 import Sidebar, { type NavItem } from "./Sidebar.vue";
+import AdminOnly from "./AdminOnly.vue";
 import { useModules } from "../composables/useModules.js";
+import { useSession } from "../composables/useSession.js";
+import { isAdminPath, visibleItems } from "../lib/auth.js";
 
 const uis = inject<ModuleUi[]>("moduleUis", []);
 const { isEnabled } = useModules();
 const route = useRoute();
+const { me } = useSession();
+// Members get no System section, and a settings URL opened directly shows a notice instead of the page (whose API
+// calls would only be refused).
+const blocked = computed(() => isAdminPath(route.path) && me.value?.role !== "admin");
 const open = ref(false);
 watch(() => route.fullPath, () => (open.value = false));
 
 const groups = ["Assistant", "Modules", "System"];
-const items = computed<NavItem[]>(() => [
+const items = computed<NavItem[]>(() => visibleItems<NavItem>([
   { to: "/", label: "Talk", icon: "mic", group: "Assistant" },
   { to: "/chat", label: "Chat", icon: "message", group: "Assistant" },
   { to: "/conversations", label: "Conversations", icon: "chat", group: "Assistant" },
@@ -28,7 +35,8 @@ const items = computed<NavItem[]>(() => [
   { to: "/settings/alerts", label: "Alerts", icon: "bell", group: "System" },
   { to: "/settings/keys", label: "Remote modules", icon: "key", group: "System" },
   { to: "/settings/jobs", label: "Jobs", icon: "clock", group: "System" },
-]);
+  { to: "/settings/users", label: "Users", icon: "user", group: "System" },
+], me.value?.role));
 </script>
 
 <template>
@@ -39,7 +47,8 @@ const items = computed<NavItem[]>(() => [
     </header>
     <Sidebar :items="items" :groups="groups" :class="[open ? 'block' : 'hidden', 'md:block']" />
     <main class="flex-1 min-w-0">
-      <RouterView />
+      <AdminOnly v-if="blocked" />
+      <RouterView v-else />
     </main>
   </div>
 </template>

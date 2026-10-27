@@ -24,6 +24,13 @@ import { CORE_ID, coreManifest } from "./core-config.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { chatRoute } from "./chat/route.js";
 import { addOAuthRoutes, type OAuthDeps } from "./oauth/routes.js";
+import { requestUser, type Auth } from "./auth/auth.js";
+import type { UserStore } from "./auth/users.js";
+import type { SessionStore } from "./auth/sessions.js";
+import type { OidcClient } from "./auth/oidc.js";
+import { addAuthRoutes } from "./auth/routes.js";
+import { addUserRoutes } from "./auth/user-routes.js";
+import { adminOnly, isApiPath, isCrossOrigin } from "./auth/access.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -39,7 +46,7 @@ const MIME: Record<string, string> = {
 };
 
 /** Paths that must never fall back to index.html. */
-const RESERVED = ["/api", "/ws", "/health"];
+const RESERVED = ["/api", "/auth", "/ws", "/health"];
 
 export interface AppDeps {
   registry: ToolRegistry;
@@ -73,6 +80,20 @@ export interface AppDeps {
   onConfigChange?: (scope: string, key: string) => void;
   /** OAuth connections; without it `/api/oauth/connections` and the login answer 503. */
   oauth?: OAuthDeps;
+  /** Who may use the API. Without it every request counts as the local dev admin (tests of other features). */
+  auth?: AppAuth;
+}
+
+export interface AppAuth {
+  auth: Auth;
+  users: UserStore;
+  sessions: SessionStore;
+  /** The provider client; absent in dev mode, which serves no `/auth/*` routes. */
+  oidc?: OidcClient;
+  publicUrl: () => string | undefined;
+  log?: Pick<Console, "log" | "warn">;
+  /** Called after a user is disabled and their sessions ended, to close what they still have open. */
+  onDisabled?: (userId: string) => void;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -367,7 +388,8 @@ export function createApp(deps: AppDeps) {
         const channel = url.searchParams.get("channel") || undefined;
         const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined, channel: channel as ConversationChannel | undefined });
         const page = rows.slice(0, limit);
-        sendJson(res, { conversations: page, next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
+        const users = deps.conversations.usersOf(page.map((c) => c.id));
+        sendJson(res, { conversations: page.map((c) => ({ ...c, user: users.get(c.id) ?? null })), next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
       } catch (e) {
         if (e instanceof InvalidQuery) return sendJson(res, { error: e.message }, 400);
         throw e;
@@ -376,7 +398,7 @@ export function createApp(deps: AppDeps) {
     .add("GET", "/api/conversations/:id", (_req, res, { id }) => {
       const c = deps.conversations?.get(id);
       if (!c) return sendJson(res, { error: "unknown conversation" }, 404);
-      sendJson(res, c);
+      sendJson(res, { ...c, user: deps.conversations!.usersOf([id]).get(id) ?? null });
     })
     .add("DELETE", "/api/conversations/:id", (_req, res, { id }) => {
       const outcome = deps.conversations?.delete(id) ?? "missing";
@@ -497,7 +519,7 @@ export function createApp(deps: AppDeps) {
     }
     const out = adaptResponse(res);
     try {
-      await hit.handler(adaptRequest(req, url, sub), out, hit.params);
+      await hit.handler(adaptRequest(req, url, sub, requestUser(req)), out, hit.params);
       if (!out.sent) {
         res.statusCode = res.statusCode === 200 ? 204 : res.statusCode;
         res.end();
@@ -510,11 +532,20 @@ export function createApp(deps: AppDeps) {
   };
 
   mountAgentRoutes(router, deps.agents);
+  if (deps.auth?.oidc) addAuthRoutes(router, { ...deps.auth, oidc: deps.auth.oidc });
+  if (deps.auth) addUserRoutes(router, deps.auth);
 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://x");
-    if (url.pathname.startsWith("/api/") && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
+    if ((isApiPath(url.pathname) || url.pathname.startsWith("/auth/")) && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
       return sendJson(res, { error: "cross-origin requests may not change Friday" }, 403);
+    }
+    // Every API request needs a user, before routing, so unknown paths can't be probed; the household's setup needs
+    // an admin. Without `auth` (tests of other features) nothing is checked; the server always passes it.
+    if (deps.auth && isApiPath(url.pathname)) {
+      const who = await deps.auth.auth.authenticate(req);
+      if (!who) return sendJson(res, { error: "unauthenticated" }, 401);
+      if (who.user.role !== "admin" && adminOnly(req.method ?? "GET", url.pathname)) return sendJson(res, { error: "forbidden" }, 403);
     }
     if (await router.dispatch(req, res, url)) return;
     if (await moduleRoute(req, res, url)) return;
@@ -559,23 +590,6 @@ export function createApp(deps: AppDeps) {
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-
-/**
- * True when a browser sent this request from another site. The portal has no login, so without this a
- * web page visited on the LAN could POST to the API (a CORS "simple request" needs no preflight) and,
- * for example, add an MCP server or overwrite configuration. Non-browser clients send neither header and pass.
- */
-export function isCrossOrigin(req: IncomingMessage): boolean {
-  const site = req.headers["sec-fetch-site"];
-  if (typeof site === "string" && site !== "same-origin" && site !== "none") return true;
-  const origin = req.headers.origin;
-  if (typeof origin !== "string") return false;
-  try {
-    return new URL(origin).host !== req.headers.host;
-  } catch {
-    return true; // "null" and other opaque origins
-  }
-}
 
 async function serveFile(res: ServerResponse, file: string, immutable: boolean): Promise<boolean> {
   try {

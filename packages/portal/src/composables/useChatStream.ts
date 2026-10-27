@@ -5,6 +5,7 @@
  */
 import { ref } from "vue";
 import { SseParser } from "../lib/sse.js";
+import { loginGuard } from "./useSession.js";
 
 export type LiveItem =
   | { id: number; kind: "thinking"; text: string }
@@ -43,6 +44,8 @@ export function useChatStream() {
     /** Set once the server started the turn (and stored the message). */
     let id: string | undefined;
     let ok = false;
+    // A session that ends meanwhile sends the browser to the login only once this reply has finished.
+    const release = loginGuard.hold();
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -93,6 +96,7 @@ export function useChatStream() {
       t.error = e instanceof Error ? e.message : String(e);
     } finally {
       t.running = false;
+      release();
     }
     return { conversationId: id, ok };
   }

@@ -34,7 +34,7 @@ test("a second start on the same data runs no migration and keeps the profile an
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = join(dir, "friday.db");
   const first = openModuleDb(file, "brain");
-  assert.deepEqual(first.migrate(migrations), [1, 2, 3]);
+  assert.deepEqual(first.migrate(migrations), [1, 2, 3, 4]);
   first.close();
   const second = openModuleDb(file, "brain");
   assert.deepEqual(second.migrate(migrations), []);
@@ -47,7 +47,7 @@ function upgrade(setup: (db: ReturnType<typeof openModuleDb>["db"]) => void) {
   const d = openModuleDb(":memory:", "brain");
   d.migrate(migrations.slice(0, 2));
   setup(d.db);
-  assert.deepEqual(d.migrate(migrations), [3]);
+  assert.deepEqual(d.migrate(migrations.slice(0, 3)), [3]);
   const subject = d.db.prepare("SELECT p.id, p.name, p.type, p.body FROM brain__pages p JOIN brain__pages pr ON pr.subject_id = p.id WHERE pr.id = 'profile'").get() as { id: string; name: string; type: string; body: string };
   return { db: d.db, subject, close: () => d.close() };
 }

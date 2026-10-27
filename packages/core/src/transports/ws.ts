@@ -10,7 +10,9 @@
  *                      recorded for the portal to accept); 1011 internal error when the device
  *                      store fails. An accepted device is logged, recorded
  *                      as the conversation's device and gets its device block in the prompt.
- *                      Without `device` no key is needed (the portal's Talk page). Unknown query
+ *                      Without `device` it is the portal's Talk page: no key, but the upgrade needs a
+ *                      user's session (401 otherwise) and an Origin of this host (403 otherwise),
+ *                      checked before the socket opens; disabling the user closes it with 4401. Unknown query
  *                      parameters are ignored, and so is `alert` without `device`.
  *                      `alert` answers a ring from /ws/device: the session announces every alert
  *                      ringing on the device, opening with the alert tone, and the user's first
@@ -31,7 +33,7 @@
  */
 import type { IncomingMessage, Server } from "node:http";
 import type { WebSocketServer, WebSocket } from "ws";
-import type { PromptContext, ToolRegistry } from "@friday/sdk";
+import type { CallUser, PromptContext, ToolRegistry } from "@friday/sdk";
 import { settings } from "../config.js";
 import { systemPrompt } from "../prompt-context.js";
 import { GeminiSession, type Event, type SessionOptions } from "../session.js";
@@ -42,6 +44,9 @@ import type { ConversationStore } from "../conversations/store.js";
 import type { DeviceSnapshot, DeviceStore } from "../devices/store.js";
 import type { DeviceSessions } from "../devices/sessions.js";
 import { authenticateDevice } from "./device-auth.js";
+import { requestAuth, requestUser, type Auth } from "../auth/auth.js";
+import { isCrossOrigin } from "../auth/access.js";
+import type { UserConnections } from "../auth/connections.js";
 import { keepAlive } from "./keep-alive.js";
 import { mountWs } from "./mount.js";
 
@@ -60,7 +65,7 @@ export interface AudioWsOptions {
    * Receives the connection's recorder (when a conversation store is given), its accepted device, if any, and for
    * an alert session the opening and the wait for the user.
    */
-  createSession?: (onEvent: (e: Event) => void, recorder?: ConversationRecorder, device?: DeviceSnapshot, alert?: AlertSessionOptions) => AudioSession;
+  createSession?: (onEvent: (e: Event) => void, recorder?: ConversationRecorder, device?: DeviceSnapshot, alert?: AlertSessionOptions, user?: CallUser) => AudioSession;
   /** Registry new GeminiSessions snapshot their tools from. Required unless createSession is given. */
   registry?: ToolRegistry;
   /** Maximum inbound frame size in bytes. Defaults to the ws library default (100 MiB). */
@@ -77,7 +82,22 @@ export interface AudioWsOptions {
   deviceSessions?: DeviceSessions;
   /** Claims ringing alerts for `?alert=` sessions. Without it every alert session is closed with 4410. */
   alerts?: Pick<AlertService, "claim">;
+  /**
+   * Checks browser connections (no `device` parameter) before the upgrade: a foreign Origin is refused with 403, no
+   * session with 401. Without it browser connections are not checked (tests of other features).
+   */
+  auth?: Pick<Auth, "authenticate">;
+  /** Tracks accepted browser connections by user, so disabling a user closes them. */
+  userConnections?: UserConnections;
 }
+
+/** The upgrade check for browser connections; device connections are authenticated by their key afterwards. */
+export const verifyBrowser = (auth: Pick<Auth, "authenticate">) => async (req: IncomingMessage): Promise<number | undefined> => {
+  // A `device` parameter that is present, even empty, always means device authentication, never a browser session.
+  if (new URL(req.url ?? "/", "http://x").searchParams.has("device")) return undefined;
+  if (isCrossOrigin(req)) return 403;
+  return (await auth.authenticate(req)) ? undefined : 401;
+};
 
 /** What makes a session an alert session. */
 export type AlertSessionOptions = Required<Pick<SessionOptions, "opening" | "awaitUser">>;
@@ -89,7 +109,7 @@ const DEVICE_EVENTS: ReadonlySet<Event["kind"]> = new Set(["audio", "interrupted
 
 /** Mount the audio WebSocket on an HTTP server at /ws/audio. */
 export function attachAudioWs(server: Server, opts: AudioWsOptions = {}): WebSocketServer {
-  const wss = mountWs(server, "/ws/audio", { maxPayload: opts.maxPayload });
+  const wss = mountWs(server, "/ws/audio", { maxPayload: opts.maxPayload }, opts.auth && verifyBrowser(opts.auth));
   keepAlive(wss, opts.pingMs ?? settings.wsPingMs);
   wss.on("connection", (ws, req) => void serveWs(ws, req, opts));
   return wss;
@@ -103,6 +123,9 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     device = authenticateDevice(ws, req, opts.devices, claimed);
     if (!device) return;
   }
+  // A browser connection belongs to the user its upgrade was checked for, for its whole life.
+  const user = device || !req ? undefined : requestUser(req);
+  if (user) opts.userConnections?.add(user.id, ws, req && requestAuth(req)?.sessionId);
   const tag = device ? `[${device.id}] ` : "";
   // A device answering a ring: the session announces its ringing alerts, or there is nothing left to announce.
   const alertId = device ? params.get("alert") : null;
@@ -126,17 +149,18 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
   };
   const create =
     opts.createSession ??
-    ((onEvent, recorder, device, alert) => {
+    ((onEvent, recorder, device, alert, user) => {
       if (!opts.registry) throw new Error("attachAudioWs needs a registry or createSession");
       return new GeminiSession(onEvent, opts.registry, {
         recorder,
         geminiKey: opts.geminiKey,
-        systemPrompt: systemPrompt(opts.promptContext, "voice", device),
+        systemPrompt: systemPrompt(opts.promptContext, "voice", device, user),
         device: device?.id,
+        user,
         ...alert,
       });
     });
-  const recorder = opts.conversations?.recorder({ channel: "voice", device: device?.id ?? null });
+  const recorder = opts.conversations?.recorder({ channel: "voice", device: device?.id ?? null, userId: user?.id ?? null });
   if (device && opts.deviceSessions) {
     const { id } = device, sessions = opts.deviceSessions;
     sessions.add(id, ws);
@@ -153,7 +177,7 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     if (ev.kind === "audio") ws.send(ev.data);
     else ws.send(JSON.stringify({ type: ev.kind, data: "data" in ev ? ev.data : undefined }));
     if (ev.kind === "closed") ws.close();
-  }, recorder, device, alert);
+  }, recorder, device, alert, user && { id: user.id, name: user.name });
 
   try {
     await g.open();

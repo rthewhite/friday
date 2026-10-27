@@ -8,6 +8,7 @@
 import type { NodeHandler } from "../router.js";
 import { readBody, sendJson } from "../router.js";
 import type { ChatEngine } from "./engine.js";
+import { requestUser } from "../auth/auth.js";
 
 export const HEARTBEAT_MS = 15_000;
 const MAX_BODY = 100_000;
@@ -28,7 +29,7 @@ export function chatRoute(engine: ChatEngine | undefined, opts: { heartbeatMs?: 
     } catch {
       return sendJson(res, { error: "invalid JSON body" }, 400);
     }
-    const begun = engine.begin((typeof body === "object" && body !== null ? body : {}) as Parameters<ChatEngine["begin"]>[0]);
+    const begun = engine.begin((typeof body === "object" && body !== null ? body : {}) as Parameters<ChatEngine["begin"]>[0], requestUser(req));
     if (!begun.ok) return sendJson(res, { error: begun.error }, begun.status);
 
     res.writeHead(200, {

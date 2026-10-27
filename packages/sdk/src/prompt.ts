@@ -5,6 +5,7 @@
 import type { ConversationChannel } from "./conversations.js";
 import type { ModuleLogger } from "./module.js";
 import { isThenable } from "./thenable.js";
+import type { CallUser } from "./user.js";
 
 /** The prompts module context goes into. Agent runs never include module context. */
 export type PromptChannel = Exclude<ConversationChannel, "agent">;
@@ -12,6 +13,8 @@ export type PromptChannel = Exclude<ConversationChannel, "agent">;
 export interface PromptContextInfo {
   /** The prompt being built: `voice` when a Live session opens, `chat` when a chat turn starts. */
   channel: PromptChannel;
+  /** Who the prompt is for: the chat or Talk page user. Absent for a voice device's session. */
+  user?: CallUser;
 }
 
 /**
@@ -73,13 +76,14 @@ export class PromptContext {
     if (this.owners.has(owner)) this.owners.set(owner, []);
   }
 
-  /** Module context for `channel`: each module's non-empty output, capped, separated by blank lines. */
-  render(channel: PromptChannel): string {
+  /** Module context for `channel` (and `user`): each module's non-empty output, capped, separated by blank lines. */
+  render(channel: PromptChannel, user?: CallUser): string {
+    const info: PromptContextInfo = user ? { channel, user: { id: user.id, name: user.name } } : { channel };
     const blocks: string[] = [];
     for (const [owner, providers] of this.owners) {
       const parts: string[] = [];
       for (const { fn } of providers) {
-        const out = this.call(owner, fn, channel);
+        const out = this.call(owner, fn, info);
         if (out) parts.push(out);
       }
       if (!parts.length) continue;
@@ -93,10 +97,10 @@ export class PromptContext {
     return blocks.join("\n\n");
   }
 
-  private call(owner: string, fn: PromptContextProvider, channel: PromptChannel): string | undefined {
+  private call(owner: string, fn: PromptContextProvider, info: PromptContextInfo): string | undefined {
     const started = this.now();
     try {
-      const out: unknown = fn({ channel });
+      const out: unknown = fn(info);
       if (isThenable(out)) {
         void Promise.resolve(out).catch(() => {});
         this.log.warn(`prompt context provider of ${owner} returned a promise and was skipped; providers must be synchronous`);

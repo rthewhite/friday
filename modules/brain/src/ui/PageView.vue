@@ -107,7 +107,7 @@ async function save() {
       try {
         const current = await api<PageDetail>("GET", `pages/${encodeURIComponent(id.value)}`);
         const latest = current.revisions[0];
-        conflict.value = { author: latest?.author ?? "someone", at: latest?.createdAt ?? current.updatedAt, revisionId: current.revisionId };
+        conflict.value = { author: latest?.user?.name ?? latest?.author ?? "someone", at: latest?.createdAt ?? current.updatedAt, revisionId: current.revisionId };
       } catch (again) {
         saveError.value = `The page changed since you opened it, and reloading it failed: ${again instanceof Error ? again.message : String(again)}. Your text is still here.`;
       }
@@ -329,6 +329,7 @@ watch(id, () => {
                 <button type="button" :class="['flex w-full flex-col gap-1 py-2 text-left', selected?.rev.id === r.id && 'text-f-accent-bright']" @click="selectRevision(r.id)">
                   <span class="flex items-center gap-2">
                     <Badge :tone="authorTone(r.author)">{{ r.author }}</Badge>
+                    <span v-if="r.user" class="text-sm text-f-text">{{ r.user.name }}</span>
                     <span class="text-sm text-f-text-muted">{{ formatDateTime(r.createdAt) }}</span>
                     <span v-if="r.id === page.revisionId" class="ml-auto text-xs text-f-text-muted">current</span>
                   </span>
