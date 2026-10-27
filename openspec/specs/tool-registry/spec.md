@@ -48,7 +48,7 @@ A tool SHALL have a unique `name`, a `description`, either a Gemini `parameters`
 
 ### Requirement: Calls are dispatched by name with scheduling resolution
 
-`callTool` SHALL invoke the handler with the given args (empty object if none) and a call context, and return `{ result, scheduling, endConversation? }`. The call context SHALL carry the `channel`, `conversationId` and `device` passed in `callTool`'s options, each absent when not given. A voice session SHALL pass channel `voice` and a chat turn SHALL pass channel `chat`, each with the id of the conversation the call is recorded in once that conversation is stored, and without one before. A voice session of a registered voice device SHALL also pass that device's id as `device`; other sessions and chat turns SHALL NOT pass one. Tools served by MCP servers and remote modules SHALL NOT receive the call context. Scheduling SHALL be resolved in order: a `scheduling` key in the handler's returned object (which is then stripped from the result), the tool's default `scheduling`, then `INTERRUPT`. Valid values are `INTERRUPT`, `WHEN_IDLE`, `SILENT`. If the handler's returned object has a string `endConversation` key, it SHALL be stripped from the result and returned as `endConversation`.
+`callTool` SHALL invoke the handler with the given args (empty object if none) and a call context, and return `{ result, scheduling, endConversation? }`. The call context SHALL carry the `channel`, `conversationId`, `device` and `user` passed in `callTool`'s options, each absent when not given. A voice session SHALL pass channel `voice` and a chat turn SHALL pass channel `chat`, each with the id of the conversation the call is recorded in once that conversation is stored, and without one before. A voice session of a registered voice device SHALL also pass that device's id as `device`; other sessions and chat turns SHALL NOT pass one. A chat turn and a voice session opened by a browser SHALL pass the user they belong to as `user` (`{ id, name }`); a voice device's session, a scheduled agent run, and calls without a user SHALL NOT pass one. An agent run started by a user SHALL pass that user. Tools served by MCP servers and remote modules SHALL NOT receive the call context. Scheduling SHALL be resolved in order: a `scheduling` key in the handler's returned object (which is then stripped from the result), the tool's default `scheduling`, then `INTERRUPT`. Valid values are `INTERRUPT`, `WHEN_IDLE`, `SILENT`. If the handler's returned object has a string `endConversation` key, it SHALL be stripped from the result and returned as `endConversation`.
 
 #### Scenario: Default scheduling
 - **WHEN** a tool without `scheduling` returns a plain result
@@ -92,11 +92,19 @@ A tool SHALL have a unique `name`, a `description`, either a Gemini `parameters`
 
 #### Scenario: No context given
 - **WHEN** `callTool("get_current_time", {})` is invoked without options
-- **THEN** the handler runs, and its call context has no channel, no conversationId and no device
+- **THEN** the handler runs, and its call context has no channel, no conversationId, no device and no user
 
 #### Scenario: Handlers that ignore the context
 - **WHEN** a tool's handler takes only its args
 - **THEN** it behaves exactly as before
+
+#### Scenario: Handler sees its user
+- **WHEN** the model calls a tool in a chat turn of member `u2`
+- **THEN** the handler's call context has channel `chat` and user `{ id: "u2", name }`
+
+#### Scenario: Device session has no user
+- **WHEN** the model calls a tool in a voice session of device `friday-kitchen`
+- **THEN** the handler's call context has no user
 
 ### Requirement: Total tool count stays within Gemini limits
 

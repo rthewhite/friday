@@ -8,7 +8,7 @@ The Node HTTP server that hosts Friday: it serves the static web client from `we
 
 ### Requirement: HTTP server serves the web client and tool declarations
 
-The server SHALL listen on `FRIDAY_HOST`:`FRIDAY_PORT` (default `0.0.0.0:8080`), serve the built portal from `FRIDAY_WEB_DIR` (default: the portal package's `dist`) with `/` mapping to `index.html`, return the current tool declarations as JSON at `/api/tools`, and fall back to `index.html` for any GET that is not under `/api`, `/ws`, `/health` and does not match a file. Requests resolving outside the web directory SHALL be rejected with 400.
+The server SHALL listen on `FRIDAY_HOST`:`FRIDAY_PORT` (default `0.0.0.0:8080`), serve the built portal from `FRIDAY_WEB_DIR` (default: the portal package's `dist`) with `/` mapping to `index.html`, return the current tool declarations as JSON at `/api/tools` to a request with a session (as specified in `user-auth`), and fall back to `index.html` for any GET that is not under `/api`, `/auth`, `/ws`, `/health` and does not match a file. Requests resolving outside the web directory SHALL be rejected with 400. The portal's files and the fallback SHALL be served without a session.
 
 #### Scenario: Root request
 - **WHEN** a client requests `/`
@@ -27,7 +27,11 @@ The server SHALL listen on `FRIDAY_HOST`:`FRIDAY_PORT` (default `0.0.0.0:8080`),
 - **THEN** `index.html` is served (SPA fallback) rather than 404
 
 #### Scenario: Missing API path
-- **WHEN** a client requests `/api/nope`
+- **WHEN** a client with a session requests `/api/nope`
+- **THEN** the server responds 404, not `index.html`
+
+#### Scenario: Unknown auth path
+- **WHEN** a client requests `/auth/nope`
 - **THEN** the server responds 404, not `index.html`
 
 #### Scenario: Path traversal
@@ -35,8 +39,12 @@ The server SHALL listen on `FRIDAY_HOST`:`FRIDAY_PORT` (default `0.0.0.0:8080`),
 - **THEN** the server responds 400
 
 #### Scenario: Tool declarations
-- **WHEN** a client requests `/api/tools`
+- **WHEN** a client with a session requests `/api/tools`
 - **THEN** the server responds with the JSON array of Gemini function declarations
+
+#### Scenario: Portal without a session
+- **WHEN** a client without a session requests `/` or a file under the web directory
+- **THEN** the file is served, so the portal can load and send the user to log in
 
 ### Requirement: Startup loads tools and warns on missing API key
 
@@ -137,3 +145,15 @@ An error that a route handler does not handle SHALL be logged and answered with 
 #### Scenario: Storage failure during a write
 - **WHEN** storing an MCP server throws an unexpected database error
 - **THEN** the response is 500 and the server keeps serving later requests
+
+### Requirement: API requests are checked before they are routed
+
+The server SHALL check the session and role of every `/api/` request, as specified in `user-auth`, before dispatching it to a core route or a module route. An unknown path under `/api/` SHALL answer 401 to a request without a session, and 404 only to a request with one, so that unauthenticated clients cannot discover routes. The cross-origin check SHALL run before the session check.
+
+#### Scenario: Unknown path without a session
+- **WHEN** a client without a session requests `/api/nope`
+- **THEN** the server responds 401
+
+#### Scenario: Cross-site write without a session
+- **WHEN** a request to `POST /api/chat` carries `Origin: https://evil.example` and no session
+- **THEN** the server responds 403
