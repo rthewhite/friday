@@ -53,9 +53,9 @@
 
 ## 9. Deployment and documentation
 
-- [ ] 9.1 `deploy/k8s.yaml`: comment that `friday-secrets` must hold `FRIDAY_AUTH_ISSUER`, `FRIDAY_AUTH_CLIENT_ID` and `FRIDAY_AUTH_CLIENT_SECRET`, and that `FRIDAY_PUBLIC_URL` builds the login redirect URI. Verify that `kubectl apply --dry-run=client -f deploy/k8s.yaml` (with `IMAGE_TAG` substituted) succeeds.
-- [ ] 9.2 `infra/README.md`: the Authentik set-up from design.md's Migration Plan (groups, OAuth2/OpenID provider with redirect URI, scopes, subject mode "hashed user ID" and why it must not change, application bound to the groups), adding the keys to `friday-secrets`, and that the first admin to log in becomes the owner. Update the endpoint table: the browser needs a login, devices and remote modules are unchanged. Verify by reading it against the design.
-- [ ] 9.3 README: a section on logging in, roles, the dev user, and that scripts calling `/api` now get 401. `openspec/config.yaml` context: auth in core (`packages/core/src/auth/`), users and sessions, the user on `RouteRequest`, `ToolCallContext` and `PromptContextInfo`, attribution, owner. Verify that `openspec validate --strict auth-users` still passes.
+- [x] 9.1 `deploy/k8s.yaml`: comment that `friday-secrets` must hold `FRIDAY_AUTH_ISSUER`, `FRIDAY_AUTH_CLIENT_ID` and `FRIDAY_AUTH_CLIENT_SECRET`, and that `FRIDAY_PUBLIC_URL` builds the login redirect URI. Verify that `kubectl apply --dry-run=client -f deploy/k8s.yaml` (with `IMAGE_TAG` substituted) succeeds.
+- [x] 9.2 `infra/README.md`: the Authentik set-up from design.md's Migration Plan (groups, OAuth2/OpenID provider with redirect URI, scopes, subject mode "hashed user ID" and why it must not change, application bound to the groups), adding the keys to `friday-secrets`, and that the first admin to log in becomes the owner. Update the endpoint table: the browser needs a login, devices and remote modules are unchanged. Verify by reading it against the design.
+- [x] 9.3 README: a section on logging in, roles, the dev user, and that scripts calling `/api` now get 401. `openspec/config.yaml` context: auth in core (`packages/core/src/auth/`), users and sessions, the user on `RouteRequest`, `ToolCallContext` and `PromptContextInfo`, attribution, owner. Verify that `openspec validate --strict auth-users` still passes.
 
 ## 10. Integration
 

@@ -91,13 +91,55 @@ modules; the key is shown once). `FRIDAY_MODULE_KEYS` in the secret still works 
 a fallback, as `<module id>=<key>` pairs separated by commas. When neither has a
 key, `/ws/modules` rejects every connection and startup logs a warning.
 
+### The login (Authentik)
+
+Browsers log in through the homelab's Authentik at `auth.thewhite.nl`. Friday is the
+OpenID Connect client itself: there is no Traefik forward-auth middleware on its
+route. Voice devices and remote modules keep their own keys and never log in.
+Friday refuses to start without `FRIDAY_AUTH_ISSUER` while `FRIDAY_PUBLIC_URL` is
+set to anything but a localhost URL. Set it up once, before deploying:
+
+1. **Groups** (Directory > Groups): create `friday-users` (may log in) and
+   `friday-admins` (may log in and use Settings), and put yourself in
+   `friday-admins`. Other names work with `FRIDAY_AUTH_USER_GROUP` and
+   `FRIDAY_AUTH_ADMIN_GROUP`.
+2. **Provider** (Applications > Providers > Create > OAuth2/OpenID Provider):
+   - Name `friday`, authorization flow `default-provider-authorization-implicit-consent`.
+   - Client type **Confidential**. Copy the client ID and secret.
+   - Redirect URI (strict): `https://friday.thewhite.nl/auth/callback`.
+   - Scopes: `openid`, `email`, `profile` (Authentik's profile mapping carries the
+     `groups` claim) and `offline_access` (the refresh token Friday re-checks the
+     claims with every day).
+   - Subject mode: **Based on the User's hashed ID** (the default). Do not change it
+     later: Friday knows people by issuer and subject, so a new subject mode turns
+     everyone into a new person. Friday refuses such a login when the email belongs
+     to an existing user, and logs both subjects.
+3. **Application** (Applications > Applications > Create): name and slug `friday`,
+   provider `friday`. Under Policy / Group / User Bindings, bind `friday-users` and
+   `friday-admins`, so other accounts can't even complete the login. Friday checks
+   the groups itself too.
+4. **Secret**: add the keys to `friday-secrets` (recreate it from your `.env` as in
+   step 3, then `kubectl -n friday rollout restart deploy/friday`):
+   ```bash
+   FRIDAY_AUTH_ISSUER=https://auth.thewhite.nl/application/o/friday/
+   FRIDAY_AUTH_CLIENT_ID=<client id>
+   FRIDAY_AUTH_CLIENT_SECRET=<client secret>
+   ```
+   `FRIDAY_MASTER_KEY` must be there as well: sessions seal the refresh token with it.
+
+Friday creates a user at their first login. The **first admin** to log in is
+recorded as the household owner (shown on Settings > Users); later per-user
+features give existing data to the owner. Roles follow the Authentik groups at each
+login and within a day of a change. Disabling a user under Settings > Users locks
+them out at once. Scripts that called `/api` without logging in now get 401.
+
 ## 4. Endpoints
 
 | Client | URL |
 |---|---|
-| Browser | `https://friday.thewhite.nl` (websecure) |
-| Voice devices | `wss://friday.thewhite.nl/ws/audio?device=<id>` (websecure, whole-host route; key in `Authorization`) |
-| Remote modules | `wss://friday.thewhite.nl/ws/modules` (websecure, whole-host route) |
+| Browser | `https://friday.thewhite.nl` (websecure; log in through Authentik, `/auth/*`) |
+| Voice devices | `wss://friday.thewhite.nl/ws/audio?device=<id>` (websecure, whole-host route; key in `Authorization`, no login) |
+| Remote modules | `wss://friday.thewhite.nl/ws/modules` (websecure, whole-host route; module key, no login) |
 
 `*.thewhite.nl` resolves to Traefik on the LAN via AdGuard. Voice devices accepted
 under Settings > Voice devices connect over TLS like everything else; there is no
