@@ -10,7 +10,9 @@
  *                      recorded for the portal to accept); 1011 internal error when the device
  *                      store fails. An accepted device is logged, recorded
  *                      as the conversation's device and gets its device block in the prompt.
- *                      Without `device` no key is needed (the portal's Talk page). Unknown query
+ *                      Without `device` it is the portal's Talk page: no key, but the upgrade needs a
+ *                      user's session (401 otherwise) and an Origin of this host (403 otherwise),
+ *                      checked before the socket opens; disabling the user closes it with 4401. Unknown query
  *                      parameters are ignored, and so is `alert` without `device`.
  *                      `alert` answers a ring from /ws/device: the session announces every alert
  *                      ringing on the device, opening with the alert tone, and the user's first
@@ -42,6 +44,9 @@ import type { ConversationStore } from "../conversations/store.js";
 import type { DeviceSnapshot, DeviceStore } from "../devices/store.js";
 import type { DeviceSessions } from "../devices/sessions.js";
 import { authenticateDevice } from "./device-auth.js";
+import { requestUser, type Auth } from "../auth/auth.js";
+import { foreignOrigin } from "../auth/access.js";
+import type { UserConnections } from "../auth/connections.js";
 import { keepAlive } from "./keep-alive.js";
 import { mountWs } from "./mount.js";
 
@@ -77,7 +82,22 @@ export interface AudioWsOptions {
   deviceSessions?: DeviceSessions;
   /** Claims ringing alerts for `?alert=` sessions. Without it every alert session is closed with 4410. */
   alerts?: Pick<AlertService, "claim">;
+  /**
+   * Checks browser connections (no `device` parameter) before the upgrade: a foreign Origin is refused with 403, no
+   * session with 401. Without it browser connections are not checked (tests of other features).
+   */
+  auth?: Pick<Auth, "authenticate">;
+  /** Tracks accepted browser connections by user, so disabling a user closes them. */
+  userConnections?: UserConnections;
 }
+
+/** The upgrade check for browser connections; device connections are authenticated by their key afterwards. */
+export const verifyBrowser = (auth: Pick<Auth, "authenticate">) => async (req: IncomingMessage): Promise<number | undefined> => {
+  // A `device` parameter that is present, even empty, always means device authentication, never a browser session.
+  if (new URL(req.url ?? "/", "http://x").searchParams.has("device")) return undefined;
+  if (foreignOrigin(req.headers)) return 403;
+  return (await auth.authenticate(req)) ? undefined : 401;
+};
 
 /** What makes a session an alert session. */
 export type AlertSessionOptions = Required<Pick<SessionOptions, "opening" | "awaitUser">>;
@@ -89,7 +109,7 @@ const DEVICE_EVENTS: ReadonlySet<Event["kind"]> = new Set(["audio", "interrupted
 
 /** Mount the audio WebSocket on an HTTP server at /ws/audio. */
 export function attachAudioWs(server: Server, opts: AudioWsOptions = {}): WebSocketServer {
-  const wss = mountWs(server, "/ws/audio", { maxPayload: opts.maxPayload });
+  const wss = mountWs(server, "/ws/audio", { maxPayload: opts.maxPayload }, opts.auth && verifyBrowser(opts.auth));
   keepAlive(wss, opts.pingMs ?? settings.wsPingMs);
   wss.on("connection", (ws, req) => void serveWs(ws, req, opts));
   return wss;
@@ -103,6 +123,9 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     device = authenticateDevice(ws, req, opts.devices, claimed);
     if (!device) return;
   }
+  // A browser connection belongs to the user its upgrade was checked for, for its whole life.
+  const user = device || !req ? undefined : requestUser(req);
+  if (user) opts.userConnections?.add(user.id, ws);
   const tag = device ? `[${device.id}] ` : "";
   // A device answering a ring: the session announces its ringing alerts, or there is nothing left to announce.
   const alertId = device ? params.get("alert") : null;

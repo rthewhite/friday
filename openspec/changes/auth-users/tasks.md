@@ -28,8 +28,8 @@
 
 ## 5. The browser voice connection
 
-- [ ] 5.1 Authenticate the browser `/ws/audio` upgrade: a session is required (401 otherwise, before any Gemini session), `Origin` must match `Host` (403), and a present `device` parameter, even an empty one, always goes to device auth. Verify with `ws.test.ts` cases: logged in, no session, empty device parameter, cross-site page.
-- [ ] 5.2 Track the user of each browser connection, and close them with `4401` when the user is disabled. Verify with the "user disabled mid-session" scenario.
+- [x] 5.1 Authenticate the browser `/ws/audio` upgrade: a session is required (401 otherwise, before any Gemini session), `Origin` must match `Host` (403), and a present `device` parameter, even an empty one, always goes to device auth. Verify with `ws-auth.test.ts` cases: logged in, no session, empty device parameter, cross-site page.
+- [x] 5.2 Track the user of each browser connection, and close them with `4401` when the user is disabled. Verify with the "user disabled mid-session" scenario.
 
 ## 6. The user in the SDK and core's call paths
 

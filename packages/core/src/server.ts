@@ -43,6 +43,7 @@ import { FALLBACK_BASE, publicBase, redirectUri } from "./oauth/redirect.js";
 import { AuthConfigError, authMode, loginRedirectUri, type AuthMode } from "./auth/config.js";
 import { Auth } from "./auth/auth.js";
 import { OidcClient } from "./auth/oidc.js";
+import { UserConnections } from "./auth/connections.js";
 import { UserStore } from "./auth/users.js";
 import { SessionStore } from "./auth/sessions.js";
 
@@ -78,6 +79,8 @@ const sessions = new SessionStore(db, masterKey);
 const authPublicUrl = () => coreKey("FRIDAY_PUBLIC_URL");
 const oidc = auth.kind === "oidc" ? new OidcClient(auth.oidc, () => loginRedirectUri(authPublicUrl() ?? "")) : undefined;
 const browserAuth = new Auth({ mode: auth, users, sessions, oidc, publicUrl: authPublicUrl });
+// Talk page connections by user: disabling a user closes them.
+const userConnections = new UserConnections();
 const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
@@ -187,8 +190,8 @@ const chat = new ChatEngine({
 const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs),
   agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) },
   oauth: { store: oauthStore, requests: oauthRequests, flow: new OAuthFlow({ store: oauthStore, requests: oauthRequests }), publicUrl },
-  auth: { auth: browserAuth, users, sessions, oidc, publicUrl: authPublicUrl } }));
-attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts });
+  auth: { auth: browserAuth, users, sessions, oidc, publicUrl: authPublicUrl, onDisabled: (id) => userConnections.closeUser(id) } }));
+attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts, auth: browserAuth, userConnections });
 attachDeviceWs(server, { devices, links: deviceLinks, onReport: (id, type, alert) => alerts.deviceReport(id, type, alert) });
 remote.attach(server);
 
