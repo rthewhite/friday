@@ -5,12 +5,23 @@
  */
 import * as arctic from "arctic";
 import { OAuthError, type ModuleOAuth } from "@friday/sdk";
-import { buildClient as defaultBuildClient, clientConfig, providerName, type BuildClient } from "./catalogue.js";
-import type { OAuthRequests } from "./requests.js";
+import { buildClient as defaultBuildClient, clientConfig, providerName, type BuildClient, type OAuthClient } from "./catalogue.js";
+import type { OAuthRequests, RequestSet } from "./requests.js";
 import { OAuthDecryptError, type OAuthStore, type StoredConnection } from "./store.js";
 
 /** A token expiring sooner than this is refreshed first. */
 export const REFRESH_MARGIN_MS = 60_000;
+
+/**
+ * What `refreshNow` did: `error` left the connection in state `error` (refused, or unreadable), `retry` left it
+ * `connected` (network failure or provider server error), `changed` discarded a refresh for a client that was replaced.
+ */
+export type RefreshOutcome =
+  | { result: "refreshed" }
+  | { result: "skipped"; reason: string }
+  | { result: "error"; message: string }
+  | { result: "retry"; message: string }
+  | { result: "changed" };
 
 const WHERE = "under Settings > Connections";
 
@@ -29,6 +40,9 @@ export const reportedScopes = (tokens: arctic.OAuth2Tokens): string[] | undefine
 
 /** The provider's own words for an OAuth error response, e.g. `invalid_grant: Refresh token revoked`. */
 export const providerMessage = (e: arctic.OAuth2RequestError): string => (e.description ? `${e.code}: ${e.description}` : e.code);
+
+/** The connection's error after the provider refused a refresh. */
+const refusedMessage = (e: arctic.OAuth2RequestError): string => `refreshing the login was refused: ${providerMessage(e)}`;
 
 export interface OAuthTokensOptions {
   store: OAuthStore;
@@ -78,11 +92,56 @@ export class OAuthTokens {
     const secrets = this.secrets(provider, name);
     if (!secrets.accessToken) throw new OAuthError("not_connected", `${name} is not connected yet. Connect it ${WHERE}.`);
     if (!expiresSoon(conn, this.now())) return secrets.accessToken;
+    return this.sharedRefresh(conn, name, secrets.refreshToken, () => this.moduleScopes(conn, requests), () => this.client(conn, secrets.clientSecret));
+  }
 
+  /**
+   * Refreshes a connection now, on behalf of no module: the nightly keep-alive. Shares an in-flight refresh with
+   * `token()` and follows its rules, but reports the outcome instead of throwing, and skips a connection it cannot
+   * refresh without putting it in `error` (that still happens when its token expires and a module asks for it).
+   * It asks for the scopes the stored token was granted, so keeping a login alive never narrows it, even when no
+   * module holds a grant; providers that don't report scopes get the scopes a module's refresh would ask for.
+   */
+  async refreshNow(provider: string): Promise<RefreshOutcome> {
+    const { store } = this.o;
+    if (!store.secretsEnabled) return { result: "skipped", reason: "FRIDAY_MASTER_KEY is not set" };
+    const conn = store.get(provider);
+    if (conn?.state !== "connected" || !conn.hasTokens) return { result: "skipped", reason: "not connected" };
+    try {
+      const secrets = store.secrets(provider);
+      const client = this.client(conn, secrets.clientSecret);
+      if (!client.refresh) return { result: "skipped", reason: "does not refresh logins" };
+      if (!secrets.refreshToken) return { result: "skipped", reason: "no refresh token was stored" };
+      const scopes = () => (conn.grantedScopes?.length ? conn.grantedScopes : this.moduleScopes(conn, this.o.requests.snapshot()));
+      await this.sharedRefresh(conn, providerName(provider), secrets.refreshToken, scopes, () => client);
+      return { result: "refreshed" };
+    } catch (e) {
+      if (e instanceof OAuthDecryptError) return { result: "error", message: e.message };
+      if (!(e instanceof OAuthError)) {
+        // A provider answer without a token, a client that can't be built, a database error: this login only.
+        return { result: "retry", message: e instanceof Error ? e.message : "unknown error" };
+      }
+      if (e.kind === "not_connected") return { result: "changed" };
+      if (e.cause instanceof arctic.OAuth2RequestError) return { result: "error", message: refusedMessage(e.cause) };
+      return { result: "retry", message: errorSummary(e.cause) };
+    }
+  }
+
+  /** The scopes a refresh for a module asks for: the granted modules' scopes plus the extras. */
+  private moduleScopes(conn: StoredConnection, requests: RequestSet): string[] {
+    return requests.requestedScopes(conn.provider, this.o.store.grants(conn.provider), conn.extraScopes);
+  }
+
+  private client(conn: StoredConnection, clientSecret: string | undefined): OAuthClient {
+    return this.buildClient(clientConfig(conn, clientSecret), this.o.redirectUri(conn.provider));
+  }
+
+  /** One refresh per connection at a time: a caller arriving while one is out gets its outcome. */
+  private sharedRefresh(conn: StoredConnection, name: string, refreshToken: string | undefined, scopes: () => string[], client: () => OAuthClient): Promise<string> {
+    const provider = conn.provider;
     let refresh = this.inflight.get(provider);
     if (!refresh) {
-      const scopes = requests.requestedScopes(provider, store.grants(provider), conn.extraScopes);
-      refresh = this.refresh(conn, name, secrets.clientSecret, secrets.refreshToken, scopes).finally(() => this.inflight.delete(provider));
+      refresh = this.refresh(conn, name, client, refreshToken, scopes).finally(() => this.inflight.delete(provider));
       this.inflight.set(provider, refresh);
     }
     return refresh;
@@ -97,10 +156,10 @@ export class OAuthTokens {
     }
   }
 
-  private async refresh(conn: StoredConnection, name: string, clientSecret: string | undefined, refreshToken: string | undefined, scopes: string[]): Promise<string> {
+  private async refresh(conn: StoredConnection, name: string, buildClient: () => OAuthClient, refreshToken: string | undefined, scopes: () => string[]): Promise<string> {
     const { store } = this.o;
     const provider = conn.provider;
-    const client = this.buildClient(clientConfig(conn, clientSecret), this.o.redirectUri(provider));
+    const client = buildClient();
     if (!client.refresh || !refreshToken) {
       const message = client.refresh ? "the login expired and no refresh token was stored" : `the login expired and ${name} does not refresh logins`;
       store.setError(provider, message);
@@ -111,11 +170,11 @@ export class OAuthTokens {
     const changedError = () => new OAuthError("not_connected", `${name} was changed while its login was being refreshed. Connect it ${WHERE}.`);
     let tokens: arctic.OAuth2Tokens;
     try {
-      tokens = await client.refreshToken(refreshToken, scopes);
+      tokens = await client.refreshToken(refreshToken, scopes());
     } catch (e) {
       if (changed()) throw changedError();
       if (e instanceof arctic.OAuth2RequestError) {
-        const message = `refreshing the login was refused: ${providerMessage(e)}`;
+        const message = refusedMessage(e);
         store.setError(provider, message);
         throw needsReconnect(name, message, e);
       }

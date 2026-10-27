@@ -37,6 +37,7 @@ import { CORE_ID } from "./core-config.js";
 import { OAuthStore } from "./oauth/store.js";
 import { enabledManifests, OAuthRequests } from "./oauth/requests.js";
 import { OAuthTokens } from "./oauth/tokens.js";
+import { registerOAuthKeepalive } from "./oauth/keepalive.js";
 import { OAuthFlow } from "./oauth/flow.js";
 import { FALLBACK_BASE, publicBase, redirectUri } from "./oauth/redirect.js";
 
@@ -138,6 +139,7 @@ console.log(`tools (${registry.names().length}):`, registry.names().join(", "));
 conversations.start();
 alerts.start();
 registerRetention(jobs, conversations, settings.conversationRetentionDays);
+registerOAuthKeepalive(jobs, oauthTokens, oauthStore);
 
 let shuttingDown = false;
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

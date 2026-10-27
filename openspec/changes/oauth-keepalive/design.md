@@ -22,7 +22,9 @@ See proposal.md for the motivation and `specs/oauth-connections/spec.md` for the
 
 ### Split a module-free refresh out of `token()`
 
-Add `OAuthTokens.refreshNow(provider)`. It reads the connection and its secrets and computes the scopes the same way `token()` does (`requests.requestedScopes(provider, store.grants(provider), conn.extraScopes)`). It then goes through the same `inflight` map and the same private `refresh()`. `token()` keeps its request, grant and state checks, and calls the shared piece when the token expires soon.
+Add `OAuthTokens.refreshNow(provider)`. It reads the connection and its secrets, builds the client once, and then goes through the same `inflight` map and the same private `refresh()` (which takes the client and the scopes as thunks, so a caller that joins an in-flight refresh builds nothing). `token()` keeps its request, grant and state checks, and calls the shared piece when the token expires soon.
+
+**Scopes.** `token()` asks for the granted modules' scopes plus the extras (`requests.requestedScopes(...)`), as before. `refreshNow` asks for the scopes the provider reported granting the stored token (`conn.grantedScopes`), and only falls back to the module scopes when the provider reported none. For providers that refresh with scopes (DonationAlerts, start.gg), asking for the module scopes would narrow the token of a connection whose grants were revoked or whose module is disabled, and the nightly job would do that silently. Keeping a login alive shouldn't change what it can do.
 
 `refreshNow` returns an outcome instead of an access token:
 
@@ -30,11 +32,11 @@ Add `OAuthTokens.refreshNow(provider)`. It reads the connection and its secrets 
 refreshNow(provider) --> { result: "refreshed" }
                      |   { result: "skipped", reason }      not connected, no refresh token, can't refresh
                      |   { result: "error", message }       refused or undecryptable: state is now error
-                     |   { result: "retry", message }       network or 5xx: state unchanged
+                     |   { result: "retry", message }       network, 5xx or anything unexpected: state unchanged
                      |   { result: "changed" }              saved with another client or deleted meanwhile
 ```
 
-It maps the `OAuthError`s that `refresh()` throws by looking at the connection's state afterwards. If the state is `error`, the outcome is `error`; otherwise it's `retry`. That way the error rules aren't copied.
+It maps what `refresh()` throws by the error itself, not by re-reading the state, which another caller may have changed meanwhile: an `OAuthError` whose cause is the provider's `OAuth2RequestError` is `error`, `not_connected` is `changed`, and the rest is `retry`. Errors that aren't `OAuthError`s (a token response without an access token, a client that can't be built, a database error) are `retry` too, so one bad connection never ends the run for the others. `refreshNow` never throws.
 
 Alternatives:
 - Calling `token(provider, someModule)` from the job: it needs a granted module, and it would skip connections that no module has a grant for. Those are exactly the connections that are going unused.
@@ -50,23 +52,26 @@ Alternatives:
 run({ signal })
   if !store.secretsEnabled --> return { summary: "nothing refreshed: FRIDAY_MASTER_KEY is not set" }
   for conn of store.list() (connected only), stop when signal.aborted:
-      outcome = await tokens.refreshNow(conn.provider)
-  summary = "refreshed 2; needs reconnect: microsoft (refreshing the login was refused: invalid_grant: ...); retry: none"
+      outcome = await within(tokens.refreshNow(conn.provider), 30 s)    (late --> retry, the refresh carries on)
+  summary = "refreshed 2; skipped: AniList (does not refresh logins); needs reconnect: Microsoft (refreshing the
+             login was refused: invalid_grant: ...); retry next run: GitHub (HTTP 503); still needs reconnect: Dropbox"
   any "error" outcome --> throw new Error(summary)   (run recorded as failed, message = summary)
   else                --> return { summary }
 ```
+
+The 30-second limit per provider exists because Arctic's fetch takes no abort signal. Without it, one token endpoint that accepts the connection and never answers would use up the whole run, and since `store.list()` is ordered by provider, it would starve the same later providers every night until their refresh tokens went idle. Refusals and retries are also written to the job's log, prefixed with the provider.
 
 `registerOAuthKeepalive(jobs, tokens, store)` registers it as a `core` job in `server.ts`, right after `registerRetention`. It is always registered, also without a master key, so the Jobs page shows why nothing happens.
 
 ### `failed` only for a new `error`
 
-A run is `failed` only when a connection went to `error` during that run. A connection that was already in `error` is skipped, and doesn't keep every later run red. The Connections page keeps showing the error until the user reconnects. Alternative: fail while any connection is in `error`. That keeps the Jobs page red until a fix, but a connection you leave broken on purpose would make it red forever.
+A run is `failed` only when a connection went to `error` during that run. A connection that was already in `error` is skipped, and doesn't keep every later run red, but every later summary ends with `still needs reconnect: <provider>` until it's reconnected, so the Jobs page keeps naming it. The Connections page keeps showing the error too. Alternative: fail while any connection is in `error`. That keeps the Jobs page red until a fix, but a connection you leave broken on purpose would make it red forever.
 
 ## Risks / Trade-offs
 
 - [The "updated" column on the Connections page now moves every night, so it no longer means "last changed by the user"] → Acceptable. It shows the login is alive, and `expiresAt` already moved on every refresh.
 - [Refresh-token rotation: if a provider rotates the token and storing the new one fails, the old one may already be invalid] → The same risk `token()` has today. `storeTokens` is one statement. Refreshing once a day instead of only when used doesn't change the odds much.
-- [A refresh request that hangs: Arctic's fetch takes no abort signal] → `timeoutMs` marks the run `failed`. The next run is skipped until the request settles, which is bounded by the fetch's own timeouts. A hung refresh would block `token()` for that provider the same way it does today.
+- [A refresh request that hangs: Arctic's fetch takes no abort signal] → The run gives up on that provider after 30 seconds and moves on; the request itself carries on until the fetch's own timeouts end it. Meanwhile a `token()` call for that provider joins the hanging refresh, the same as today. `timeoutMs` (5 minutes) is the backstop for the run as a whole.
 - [Refreshing more often than needed could trip a provider's rate limit] → One request per connection per day is far below any provider's limit.
 
 ## Migration Plan
