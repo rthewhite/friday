@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { admin, member, startAuthApp, type AuthApp } from "./auth-harness.js";
+import { REFRESH_RETRY_MS } from "../src/auth/auth.js";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -106,7 +107,11 @@ test("when the provider is down the session is kept and the refresh is tried aga
     assert.ok(app.logs.some((l) => /could not refresh the claims .* keeping the session/.test(l)));
     app.provider.down = false;
     app.provider.person = { ...member, name: "Sanne V." };
-    assert.equal((await me(app, b)).body?.name, "Sanne V.", "retried on the next request");
+    const calls = app.provider.calls.refresh_token;
+    assert.equal((await me(app, b)).body?.name, "Sanne", "requests don't wait for the provider again right away");
+    assert.equal(app.provider.calls.refresh_token, calls);
+    app.advance(REFRESH_RETRY_MS);
+    assert.equal((await me(app, b)).body?.name, "Sanne V.", "retried after the backoff");
   } finally {
     await app.close();
   }
@@ -155,6 +160,40 @@ test("requests arriving together refresh the claims once, so a rotated refresh t
     const all = await Promise.all([1, 2, 3, 4, 5].map(() => me(app, b)));
     assert.deepEqual(all.map((r) => r.status), [200, 200, 200, 200, 200]);
     assert.equal(app.provider.calls.refresh_token, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a userinfo outage during the refresh keeps the session instead of ending it", async () => {
+  const app = await startAuthApp({ person: member });
+  try {
+    app.provider.groupsOnlyInUserinfo = true;
+    const b = app.browser();
+    await b.login();
+    app.advance(25 * HOUR);
+    app.provider.userinfoDown = true;
+    assert.equal((await me(app, b)).status, 200);
+    assert.ok(app.logs.some((l) => /keeping the session/.test(l) && /userinfo answered 503/.test(l)));
+    app.provider.userinfoDown = false;
+    app.advance(REFRESH_RETRY_MS);
+    assert.equal((await me(app, b)).status, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a provider that never answers the refresh is given up on, and the request is served", async () => {
+  const app = await startAuthApp({ person: member });
+  try {
+    const b = app.browser();
+    await b.login();
+    app.advance(25 * HOUR);
+    app.provider.hang = true;
+    const started = Date.now();
+    assert.equal((await me(app, b)).status, 200);
+    assert.ok(Date.now() - started < 3000, "bounded by the provider timeout");
+    assert.ok(app.logs.some((l) => /timed out/.test(l)));
   } finally {
     await app.close();
   }

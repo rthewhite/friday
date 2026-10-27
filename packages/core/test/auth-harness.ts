@@ -74,8 +74,9 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
   const publicUrl = () => o.publicUrl ?? base;
   const logs: string[] = [];
   const log = { log: (...a: unknown[]) => logs.push(a.join(" ")), warn: (...a: unknown[]) => logs.push(a.join(" ")) };
-  const oidc = new OidcClient(settings, () => loginRedirectUri(publicUrl()));
-  const auth = new Auth({ mode: { kind: "oidc", oidc: settings }, users, sessions, oidc, publicUrl, log });
+  // A short provider timeout, so a hung provider is noticed quickly.
+  const oidc = new OidcClient(settings, () => loginRedirectUri(publicUrl()), () => new Date(), 300);
+  const auth = new Auth({ mode: { kind: "oidc", oidc: settings }, users, sessions, oidc, publicUrl, log, now });
   const registry = new ToolRegistry(quiet);
   const host = new ModuleHost(registry, { env: {}, log: quiet });
   if (o.modules) await host.load(o.modules);

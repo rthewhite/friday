@@ -22,8 +22,11 @@ export interface IdentityClaims {
 
 export type RefreshOutcome =
   | { ok: true; claims: IdentityClaims; refreshToken?: string }
-  /** `refused`: the provider said no (revoked, deactivated). `unreachable`: try again later. */
-  | { ok: false; reason: "refused" | "unreachable"; error?: string };
+  /**
+   * `refused`: the provider said no (revoked, deactivated). `unreachable`: try again later; `refreshToken` is set when
+   * the token endpoint already rotated it before a later step (userinfo) failed, and must be kept.
+   */
+  | { ok: false; reason: "refused" | "unreachable"; error?: string; refreshToken?: string };
 
 /** The part of the OIDC client the session check needs. */
 export interface ClaimsRefresher {
@@ -45,6 +48,9 @@ export function roleFromGroups(groups: readonly string[], s: Pick<OidcSettings, 
 
 const known = new WeakMap<IncomingMessage, Authenticated>();
 
+/** After an unreachable provider, a session's requests don't wait for a refresh again for this long. */
+export const REFRESH_RETRY_MS = 5 * 60 * 1000;
+
 /** The user `Auth.authenticate` found for this request; undefined before it ran or when there is none. */
 export const requestUser = (req: IncomingMessage): User | undefined => known.get(req)?.user;
 export const requestAuth = (req: IncomingMessage): Authenticated | undefined => known.get(req);
@@ -57,6 +63,7 @@ export interface AuthOptions {
   /** Core's resolved FRIDAY_PUBLIC_URL, for the cookie name. */
   publicUrl: () => string | undefined;
   log?: Pick<Console, "log" | "warn">;
+  now?: () => Date;
 }
 
 export class Auth {
@@ -66,9 +73,15 @@ export class Auth {
    * refresh tokens refuses the second use of the same one, which would end the session.
    */
   private readonly refreshing = new Map<string, Promise<User | "ended" | undefined>>();
+  /** Sessions whose provider was unreachable, with the time to try again: until then requests don't wait for it. */
+  private readonly retryAt = new Map<string, number>();
 
   constructor(private readonly opts: AuthOptions) {
     this.log = opts.log ?? console;
+  }
+
+  private now(): number {
+    return (this.opts.now?.() ?? new Date()).getTime();
   }
 
   /** True when users log in through the provider; false in dev mode. */
@@ -108,7 +121,7 @@ export class Auth {
       sessions.end(session.id);
       return undefined;
     }
-    if (session.refreshDue) {
+    if (session.refreshDue && (this.retryAt.get(session.id) ?? 0) <= this.now()) {
       let pending = this.refreshing.get(session.id);
       if (!pending) {
         pending = this.refreshClaims(session.id, user, settings).finally(() => this.refreshing.delete(session.id));
@@ -134,9 +147,12 @@ export class Auth {
     const outcome = await oidc.refresh(refreshToken, subject);
     if (!outcome.ok) {
       if (outcome.reason === "unreachable") {
-        this.log.warn(`auth: could not refresh the claims of ${user.id}, keeping the session: ${outcome.error ?? "provider unreachable"}`);
+        this.retryAt.set(sessionId, this.now() + REFRESH_RETRY_MS);
+        if (outcome.refreshToken) sessions!.replaceRefreshToken(sessionId, outcome.refreshToken);
+        this.log.warn(`auth: could not refresh the claims of ${user.id}, keeping the session and trying again in ${REFRESH_RETRY_MS / 60_000} minutes: ${outcome.error ?? "provider unreachable"}`);
         return undefined;
       }
+      this.retryAt.delete(sessionId);
       sessions!.end(sessionId);
       this.log.log(`auth: session of ${user.id} ended: the provider refused the refresh${outcome.error ? ` (${outcome.error})` : ""}`);
       return "ended";

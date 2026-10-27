@@ -275,3 +275,20 @@ test("without OIDC configured, /auth paths answer 404 and never the portal", asy
   }
   assert.equal(readCookie("a=b", "a"), "b");
 });
+
+test("a userinfo outage during login shows the login error page, not a bare 500", async () => {
+  const app = await startAuthApp();
+  try {
+    app.provider.groupsOnlyInUserinfo = true;
+    app.provider.userinfoDown = true;
+    const b = app.browser();
+    const res = await b.login();
+    assert.equal(res.status, 400);
+    const html = await res.text();
+    assert.match(html, /Login failed/);
+    assert.match(html, /can&#39;t be reached/);
+    assert.equal(b.cookies.get("friday_session"), undefined);
+  } finally {
+    await app.close();
+  }
+});

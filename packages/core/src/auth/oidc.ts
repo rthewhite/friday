@@ -22,6 +22,8 @@ import type { ClaimsRefresher, IdentityClaims, RefreshOutcome } from "./auth.js"
 export const LOGIN_SCOPES = ["openid", "email", "profile", "offline_access"];
 /** Seconds of clock difference tolerated on `exp`. */
 const CLOCK_SKEW_S = 60;
+/** The longest any call to the provider may take; after that it counts as unreachable. */
+export const PROVIDER_TIMEOUT_MS = 10_000;
 
 interface Discovery {
   authorization_endpoint: string;
@@ -32,6 +34,16 @@ interface Discovery {
 
 /** The login failed; `message` is safe to show on the error page. */
 export class LoginError extends Error {}
+
+/** The provider didn't answer in time, failed on the network, or answered 5xx: it may answer later. */
+export class ProviderUnreachable extends Error {}
+
+/** `p`, or a `ProviderUnreachable` once `ms` have passed (arctic's token calls take no abort signal). */
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new ProviderUnreachable(`${what} timed out after ${ms} ms`)), ms)));
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
 
 export interface LoginStart {
   url: URL;
@@ -56,6 +68,8 @@ export class OidcClient implements ClaimsRefresher {
     /** The redirect URI, built from FRIDAY_PUBLIC_URL at each use. */
     private readonly redirectUri: () => string,
     private readonly now: () => Date = () => new Date(),
+    /** The longest a call to the provider may take (tests shorten it). */
+    private readonly timeoutMs = PROVIDER_TIMEOUT_MS,
   ) {}
 
   /** Where to send the browser to log in, with the values the callback must check. */
@@ -72,16 +86,22 @@ export class OidcClient implements ClaimsRefresher {
   /** Exchange the code and check the ID token; throws `LoginError`. */
   async finish(code: string, codeVerifier: string, nonce: string): Promise<LoginResult> {
     const d = await this.discovery().catch((e) => {
-      throw new LoginError(`the login provider can't be reached (${e instanceof Error ? e.message : e})`);
+      throw new LoginError(`the login provider can't be reached (${describe(e)})`);
     });
     let tokens: OAuth2Tokens;
     try {
-      tokens = await this.client().validateAuthorizationCode(d.token_endpoint, code, codeVerifier);
+      tokens = await withTimeout(this.client().validateAuthorizationCode(d.token_endpoint, code, codeVerifier), this.timeoutMs, "the code exchange");
     } catch (e) {
+      if (e instanceof ProviderUnreachable || unreachable(e)) throw new LoginError(`the login provider can't be reached (${describe(e)})`);
       throw new LoginError(`the login provider refused the login (${describe(e)})`);
     }
-    const claims = await this.claims(tokens, d, { nonce });
-    return { claims, refreshToken: tokens.hasRefreshToken() ? tokens.refreshToken() : undefined };
+    try {
+      const claims = await this.claims(tokens, d, { nonce });
+      return { claims, refreshToken: tokens.hasRefreshToken() ? tokens.refreshToken() : undefined };
+    } catch (e) {
+      if (e instanceof LoginError) throw e;
+      throw new LoginError(e instanceof ProviderUnreachable ? `the login provider can't be reached (${e.message})` : `the login could not be read (${describe(e)})`);
+    }
   }
 
   async refresh(refreshToken: string, subject: string): Promise<RefreshOutcome> {
@@ -93,14 +113,17 @@ export class OidcClient implements ClaimsRefresher {
     }
     let tokens: OAuth2Tokens;
     try {
-      tokens = await this.client().refreshAccessToken(d.token_endpoint, refreshToken, []);
+      tokens = await withTimeout(this.client().refreshAccessToken(d.token_endpoint, refreshToken, []), this.timeoutMs, "the refresh");
     } catch (e) {
-      return { ok: false, reason: unreachable(e) ? "unreachable" : "refused", error: describe(e) };
+      return { ok: false, reason: e instanceof ProviderUnreachable || unreachable(e) ? "unreachable" : "refused", error: describe(e) };
     }
     try {
       const claims = await this.claims(tokens, d, { subject });
       return { ok: true, claims, refreshToken: tokens.hasRefreshToken() ? tokens.refreshToken() : undefined };
     } catch (e) {
+      // A userinfo call that failed on the network or with 5xx says nothing about the person: keep the session, and
+      // the refresh token the provider already rotated, or the next try would present a used one.
+      if (e instanceof ProviderUnreachable) return { ok: false, reason: "unreachable", error: describe(e), ...(tokens.hasRefreshToken() ? { refreshToken: tokens.refreshToken() } : {}) };
       return { ok: false, reason: "refused", error: describe(e) };
     }
   }
@@ -122,7 +145,7 @@ export class OidcClient implements ClaimsRefresher {
   private discovery(): Promise<Discovery> {
     this.discovered ??= (async () => {
       const url = `${stripSlash(this.settings.issuer)}/.well-known/openid-configuration`;
-      const res = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+      const res = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(this.timeoutMs) });
       if (!res.ok) throw new Error(`discovery at ${url} answered ${res.status}`);
       const doc = (await res.json()) as Partial<Discovery> & { issuer?: string };
       if (!str(doc.authorization_endpoint) || !str(doc.token_endpoint)) throw new Error(`discovery at ${url} has no authorization or token endpoint`);
@@ -169,10 +192,21 @@ export class OidcClient implements ClaimsRefresher {
     };
   }
 
+  /** Userinfo for an access token; `ProviderUnreachable` on a network error, a timeout or 5xx, `LoginError` otherwise. */
   private async userinfo(endpoint: string, accessToken: string): Promise<Record<string, unknown>> {
-    const res = await fetch(endpoint, { headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+    let res: Response;
+    try {
+      res = await fetch(endpoint, { headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" }, signal: AbortSignal.timeout(this.timeoutMs) });
+    } catch (e) {
+      throw new ProviderUnreachable(`userinfo: ${describe(e)}`);
+    }
+    if (res.status >= 500) throw new ProviderUnreachable(`userinfo answered ${res.status}`);
     if (!res.ok) throw new LoginError(`userinfo answered ${res.status}`);
-    return (await res.json()) as Record<string, unknown>;
+    try {
+      return (await res.json()) as Record<string, unknown>;
+    } catch {
+      throw new LoginError("userinfo sent no JSON");
+    }
   }
 }
 

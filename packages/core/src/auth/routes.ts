@@ -99,9 +99,9 @@ export function addAuthRoutes(router: Router, deps: AuthRouteDeps): void {
     try {
       result = await oidc.finish(code, login.codeVerifier, login.nonce);
     } catch (e) {
-      if (!(e instanceof LoginError)) throw e;
-      log.warn(`auth: login failed: ${e.message}`);
-      return failed(res, `The login could not be completed: ${e.message}.`);
+      log.warn(`auth: login failed: ${e instanceof Error ? e.message : e}`);
+      // Only a LoginError's message is meant for the page; anything else is described generically.
+      return failed(res, e instanceof LoginError ? `The login could not be completed: ${e.message}.` : "The login could not be completed. Try again in a moment.", e instanceof LoginError ? 400 : 502);
     }
     const { claims, refreshToken } = result;
     const role = roleFromGroups(claims.groups, auth.settings!);

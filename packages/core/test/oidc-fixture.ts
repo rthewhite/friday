@@ -35,6 +35,10 @@ export interface FakeProvider {
   refuseRefresh: boolean;
   /** The token endpoint answers 503. */
   down: boolean;
+  /** The token endpoint never answers. */
+  hang: boolean;
+  /** The userinfo endpoint answers 503. */
+  userinfoDown: boolean;
   /** Leave groups out of the ID token, so they must come from userinfo. */
   groupsOnlyInUserinfo: boolean;
   /** Extra or overriding ID token claims for the next code exchange (iss, aud, exp, nonce...). */
@@ -69,6 +73,8 @@ export async function startFakeProvider(person: Person = { sub: "sub-owner", ema
     person,
     refuseRefresh: false,
     down: false,
+    hang: false,
+    userinfoDown: false,
     groupsOnlyInUserinfo: false,
     noRefreshToken: false,
     calls: { authorization_code: 0, refresh_token: 0 },
@@ -131,12 +137,14 @@ export async function startFakeProvider(person: Person = { sub: "sub-owner", ema
       });
     }
     if (url.pathname === "/userinfo") {
+      if (p.userinfoDown) return json(503, { error: "temporarily_unavailable" });
       const token = req.headers.authorization?.replace(/^Bearer /, "");
       if (!token || !accessTokens.has(token)) return json(401, { error: "invalid_token" });
       return json(200, { ...p.person, groups: p.person.groups ?? [] });
     }
     if (url.pathname === "/token" && req.method === "POST") {
       if (p.down) return json(503, { error: "temporarily_unavailable" });
+      if (p.hang) return; // never answers; the client's timeout has to give up
       const form = await body(req);
       const basic = Buffer.from(`${p.clientId}:${p.clientSecret}`).toString("base64");
       if (req.headers.authorization !== `Basic ${basic}`) return json(401, { error: "invalid_client" });

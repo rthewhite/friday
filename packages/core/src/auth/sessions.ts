@@ -105,6 +105,14 @@ export class SessionStore {
     }
   }
 
+  /** Keep a rotated refresh token without counting the claims as refreshed (a later step of the refresh failed). */
+  replaceRefreshToken(id: string, refreshToken: string): void {
+    const sealed = this.seal(refreshToken);
+    this.db
+      .prepare("UPDATE sessions SET refresh_token_ct = ?, refresh_token_iv = ?, refresh_token_tag = ? WHERE token_hash = ?")
+      .run(sealed?.ciphertext ?? null, sealed?.iv ?? null, sealed?.tag ?? null, id);
+  }
+
   /** Record a successful claim refresh; a rotated refresh token replaces the stored one. */
   markRefreshed(id: string, refreshToken?: string): void {
     const at = this.now().toISOString();
