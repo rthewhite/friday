@@ -121,7 +121,7 @@
 
 ## 9. Integration
 
-- [ ] 9.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`, `esphome/test/run.sh`, and `scripts/smoke.sh` against a freshly built local image. Verify all are green.
+- [x] 9.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`, `esphome/test/run.sh`, and `scripts/smoke.sh` against a freshly built local image. Verify all are green.
 - [ ] 9.2 With the user's approval, push the branch: a branch push builds an image, which now has to pass the boot check before it is pushed. Verify in the Actions run that `test` (with the firmware step) and the boot check pass and the image is pushed after it.
 - [ ] 9.3 Needs the user: add the `GEMINI_API_KEY` repository secret and start `live-checks` by hand (`gh workflow run live-checks.yml`). Verify that the run passes, or that its failures are real model drift recorded as follow-ups.
 - [ ] 9.4 Needs the user, at home: flash the firmware built from this branch to the Voice PE (OTA) and the reSpeaker. Check that onboarding still shows the same fingerprint, that a voice turn with barge-in works, and that a timer rings and is acknowledged. Verify by the user confirming each.
