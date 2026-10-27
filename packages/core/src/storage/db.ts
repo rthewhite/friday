@@ -20,6 +20,47 @@ const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE($
 
 export const migrations: Migration[] = [
   {
+    version: 11,
+    name: "users",
+    // Users log in through OIDC and are keyed on (issuer, subject); the dev user has issuer and subject `dev`.
+    // A session stores only the SHA-256 of its cookie token; the provider's refresh token is AES-256-GCM sealed
+    // (AAD `auth:session` / `refresh_token`). auth_owner holds the household owner: one row, written once.
+    // The user columns elsewhere are attribution only: nullable, never backfilled, no foreign key.
+    sql: `
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        email TEXT,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+        disabled INTEGER NOT NULL DEFAULT 0,
+        first_login_at TEXT NOT NULL,
+        last_login_at TEXT NOT NULL,
+        UNIQUE (issuer, subject)
+      );
+      CREATE TABLE sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        refresh_token_ct BLOB,
+        refresh_token_iv BLOB,
+        refresh_token_tag BLOB,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT NOT NULL,
+        refreshed_at TEXT NOT NULL
+      );
+      CREATE INDEX sessions_user ON sessions (user_id);
+      CREATE TABLE auth_owner (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        user_id TEXT NOT NULL REFERENCES users (id),
+        recorded_at TEXT NOT NULL
+      );
+      ALTER TABLE conversations ADD COLUMN user_id TEXT;
+      ALTER TABLE agent_runs ADD COLUMN user_id TEXT;
+      ALTER TABLE agent_actions ADD COLUMN decided_by TEXT;
+    `,
+  },
+  {
     // agents merged first with 9, so this change took 10 at its rebase.
     version: 10,
     name: "oauth-connections",
