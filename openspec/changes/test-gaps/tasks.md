@@ -54,7 +54,7 @@
 
 ## 5. Firmware protocol header and host tests
 
-- [ ] 5.1 Write `esphome/components/friday_client/friday_protocol.h` with only the standard library:
+- [x] 5.1 Write `esphome/components/friday_client/friday_protocol.h` with only the standard library:
   - `audio_uri` and `control_uri`
   - `valid_alert_id` (device ids are checked by `__init__.py`; see design decision 3)
   - `audio_event` and `control_event` (enums with `Ignore`)
@@ -62,9 +62,9 @@
   - `format_fingerprint`
 
   Each is behaviour-identical to the code it replaces in `friday_client.cpp`. Verify that it compiles with `c++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only`.
-- [ ] 5.2 Add `esphome/test/fixture.h`, a test-only reader for the fixture's flat shape that fails loudly on anything else. Add `esphome/test/friday_protocol_test.cpp`, which checks every fixture section against the header. Pass the fixture path to the test from `run.sh` (path relative to the script). Verify that `esphome/test/run.sh` passes all three test files. Then change one expected message in a scratch copy of the fixture, verify the firmware test fails, and revert.
-- [ ] 5.3 Make `friday_client.cpp` use the header: the URI building, `valid_alert_id`, the `type` dispatch after `json::parse_json` on both sockets, `ctrl_send_`'s message, and the fingerprint formatting after `mbedtls_sha256`. Verify that `esphome config` and `esphome compile` succeed locally for `friday-voice-pe.yaml` and `friday-respeaker.yaml`. Verify that `run.sh` still passes.
-- [ ] 5.4 Update the `openspec/config.yaml` context: `friday_client` has a pure `friday_protocol.h`, and the host tests check it against core's protocol fixture. Verify that `openspec validate test-gaps --strict` passes.
+- [x] 5.2 Add `esphome/test/fixture.h`, a test-only reader for the fixture's flat shape that fails loudly on anything else. Add `esphome/test/friday_protocol_test.cpp`, which checks every fixture section against the header. Pass the fixture path to the test from `run.sh` (path relative to the script). Verify that `esphome/test/run.sh` passes all three test files. Then change one expected message in a scratch copy of the fixture, verify the firmware test fails, and revert.
+- [x] 5.3 Make `friday_client.cpp` use the header: the URI building, `valid_alert_id`, the `type` dispatch after `json::parse_json` on both sockets, `ctrl_send_`'s message, and the fingerprint formatting after `mbedtls_sha256`. Verify that `esphome config` and `esphome compile` succeed locally for `friday-voice-pe.yaml` and `friday-respeaker.yaml`. Verify that `run.sh` still passes.
+- [x] 5.4 Update the `openspec/config.yaml` context: `friday_client` has a pure `friday_protocol.h`, and the host tests check it against core's protocol fixture. Verify that `openspec validate test-gaps --strict` passes.
 
 ## 6. CI: firmware tests and the boot check
 

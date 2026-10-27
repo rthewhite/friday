@@ -1,4 +1,5 @@
 #include "friday_client.h"
+#include "friday_protocol.h"
 
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -49,16 +50,6 @@ static constexpr uint32_t CONTROL_BACKOFF_MAX_MS = 60000;
 static constexpr uint32_t CONTROL_STABLE_MS = 30000;
 // The local ring repeats the chime (~220 ms) this often.
 static constexpr uint32_t RING_PERIOD_MS = 1000;
-// Alert ids are short base32 strings Friday made; anything else in a control message is ignored.
-static bool valid_alert_id(const char *id) {
-  if (id == nullptr) return false;
-  size_t n = strlen(id);
-  if (n == 0 || n > 16) return false;
-  for (size_t i = 0; i < n; i++) {
-    if (!((id[i] >= 'a' && id[i] <= 'z') || (id[i] >= '0' && id[i] <= '9'))) return false;
-  }
-  return true;
-}
 
 // The device key in NVS, under a fixed id so renaming the node keeps it. Bump the version to force a new key.
 struct KeyBlob {
@@ -101,9 +92,7 @@ static std::string base64url(const uint8_t *data, size_t len) {
 static std::string fingerprint_of(const std::string &key) {
   uint8_t digest[32];
   mbedtls_sha256(reinterpret_cast<const unsigned char *>(key.data()), key.size(), digest, 0);
-  char buf[10];
-  snprintf(buf, sizeof(buf), "%02x%02x-%02x%02x", digest[0], digest[1], digest[2], digest[3]);
-  return buf;
+  return protocol::format_fingerprint(digest);
 }
 
 // ------------------------------------------------------------------ lifecycle
@@ -138,20 +127,10 @@ void FridayClient::setup() {
   this->client_mutex_ = xSemaphoreCreateMutex();
   this->ctrl_mutex_ = xSemaphoreCreateMutex();
   // The control connection's url: configured, or the session url with /ws/audio replaced by /ws/device.
-  std::string base = this->control_url_;
-  if (base.empty()) {
-    static const std::string AUDIO = "/ws/audio";
-    size_t q = this->url_.find('?');
-    std::string path = this->url_.substr(0, q), rest = q == std::string::npos ? "" : this->url_.substr(q);
-    if (path.size() >= AUDIO.size() && path.compare(path.size() - AUDIO.size(), AUDIO.size(), AUDIO) == 0) {
-      base = path.substr(0, path.size() - AUDIO.size()) + "/ws/device" + rest;
-    }
-  }
-  if (base.empty()) {
+  this->ctrl_uri_ = protocol::control_uri(this->url_, this->control_url_, this->device_id_);
+  if (this->ctrl_uri_.empty()) {
     ESP_LOGW(TAG, "url does not end in /ws/audio and no control_url is set: Friday can't ring this device");
     this->ctrl_disabled_ = true;
-  } else {
-    this->ctrl_uri_ = base + ((base.find('?') == std::string::npos) ? "?device=" : "&device=") + this->device_id_;
   }
   this->mic_rb_ = xRingbufferCreateWithCaps(MIC_RB_BYTES, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (this->mic_rb_ == nullptr) this->mic_rb_ = xRingbufferCreate(MIC_RB_BYTES, RINGBUF_TYPE_BYTEBUF);
@@ -361,13 +340,7 @@ void FridayClient::go_idle_() {
 // ------------------------------------------------------------------ websocket
 
 bool FridayClient::connect_() {
-  std::string uri = this->url_;
-  uri += (uri.find('?') == std::string::npos) ? "?device=" : "&device=";
-  uri += this->device_id_;
-  if (this->alert_session_) {
-    uri += "&alert=";
-    uri += this->alert_id_;
-  }
+  std::string uri = protocol::audio_uri(this->url_, this->device_id_, this->alert_session_ ? this->alert_id_ : std::string());
   this->close_code_ = 0;
   esp_websocket_client_config_t cfg = {};
   cfg.uri = uri.c_str();
@@ -479,22 +452,28 @@ void FridayClient::on_text_frame_(const std::string &raw) {
   bool ok = json::parse_json(raw, [this](JsonObject root) -> bool {
     const char *type = root["type"];
     if (type == nullptr) return false;
-    if (strcmp(type, "interrupted") == 0) {
-      ESP_LOGD(TAG, "interrupted");
-      this->speaker_flush_();
-      this->turn_done_ = false;
-      if (this->get_state() == State::SPEAKING) this->set_state_(State::LISTENING);
-    } else if (strcmp(type, "turn_complete") == 0) {
-      this->turn_done_ = true;
-    } else if (strcmp(type, "closed") == 0) {
-      const char *reason = root["data"];
-      ESP_LOGI(TAG, "session closed by server: %s", reason ? reason : "");
-      this->mic_stop_();
-      this->drain_started_at_ = millis();
-      this->draining_ = true;
-      if (this->speaker_started_) this->speaker_->finish();
-    } else {
-      ESP_LOGV(TAG, "ignoring event %s", type);
+    switch (protocol::audio_event(type)) {
+      case protocol::AudioEvent::INTERRUPTED:
+        ESP_LOGD(TAG, "interrupted");
+        this->speaker_flush_();
+        this->turn_done_ = false;
+        if (this->get_state() == State::SPEAKING) this->set_state_(State::LISTENING);
+        break;
+      case protocol::AudioEvent::TURN_COMPLETE:
+        this->turn_done_ = true;
+        break;
+      case protocol::AudioEvent::CLOSED: {
+        const char *reason = root["data"];
+        ESP_LOGI(TAG, "session closed by server: %s", reason ? reason : "");
+        this->mic_stop_();
+        this->drain_started_at_ = millis();
+        this->draining_ = true;
+        if (this->speaker_started_) this->speaker_->finish();
+        break;
+      }
+      case protocol::AudioEvent::IGNORE:
+        ESP_LOGV(TAG, "ignoring event %s", type);
+        break;
     }
     return true;
   });
@@ -642,9 +621,11 @@ void FridayClient::on_ctrl_message_(const std::string &raw) {
   json::parse_json(raw, [this](JsonObject root) -> bool {
     const char *type = root["type"];
     const char *alert = root["data"]["alert"];
-    if (type == nullptr || !valid_alert_id(alert)) return true;
-    if (strcmp(type, "ring") == 0) this->on_ring_(alert);
-    else if (strcmp(type, "stop") == 0) this->on_stop_(alert);
+    switch (protocol::control_event(type, alert)) {
+      case protocol::ControlEvent::RING: this->on_ring_(alert); break;
+      case protocol::ControlEvent::STOP: this->on_stop_(alert); break;
+      case protocol::ControlEvent::IGNORE: break;
+    }
     return true;
   });
 }
@@ -652,17 +633,15 @@ void FridayClient::on_ctrl_message_(const std::string &raw) {
 /// Report on an alert. While the control connection is down the report waits (a few at most) and goes out, in
 /// order, as soon as it is back, so a button press during a Wi-Fi hiccup still reaches Friday.
 void FridayClient::ctrl_send_(const char *type, const std::string &alert) {
-  if (alert.empty()) return;
-  char buf[96];
-  int n = snprintf(buf, sizeof(buf), "{\"type\":\"%s\",\"alert\":\"%s\"}", type, alert.c_str());
-  if (n <= 0 || n >= int(sizeof(buf))) return;
+  std::string msg = protocol::control_message(type, alert);
+  if (msg.empty()) return;
   if (this->ctrl_client_ == nullptr || !this->ctrl_connected_) {
     if (this->ctrl_outbox_.size() >= 8) this->ctrl_outbox_.erase(this->ctrl_outbox_.begin());
-    this->ctrl_outbox_.emplace_back(buf, n);
+    this->ctrl_outbox_.push_back(msg);
     ESP_LOGD(TAG, "control: not connected, %s for %s kept until it is", type, alert.c_str());
     return;
   }
-  if (esp_websocket_client_send_text(this->ctrl_client_, buf, n, pdMS_TO_TICKS(500)) < 0) ESP_LOGW(TAG, "control: could not send %s", type);
+  if (esp_websocket_client_send_text(this->ctrl_client_, msg.data(), msg.size(), pdMS_TO_TICKS(500)) < 0) ESP_LOGW(TAG, "control: could not send %s", type);
 }
 
 // ------------------------------------------------------------------ alerts

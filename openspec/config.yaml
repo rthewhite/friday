@@ -253,9 +253,14 @@ context: |
   (friday-voice-pe.yaml) and the reSpeaker XVF3800 (friday-respeaker.yaml), both on the friday_client
   component. The reSpeaker adds two components: xvf3800 (I2C hub for XVF3800 firmware 1.0.9 only: version check,
   routing, mute polled from GPO 30 and kept in flash, LED ring light platform) and decimating (48 -> 16 kHz FIR
-  microphone). Their pure headers (xvf3800_protocol.h, decimator.h) have plain C++17 host tests run by
-  esphome/test/run.sh, outside pnpm test and CI. The firmware isn't built in CI. One container image
-  built with pnpm deploy; tests use node:test via `pnpm test`.
+  microphone). friday_client's protocol decisions (URIs, alert ids, which messages it acts on, its reports, the
+  key fingerprint) live in the pure friday_protocol.h; JSON parsing (ArduinoJson) and SHA-256 (mbedtls) stay in
+  friday_client.cpp. The pure headers (friday_protocol.h, xvf3800_protocol.h, decimator.h) have plain C++17 host
+  tests run by esphome/test/run.sh, outside pnpm test and CI. friday_protocol_test.cpp checks the header against
+  core's packages/core/test/fixtures/device-protocol.json, which core's device-protocol.test.ts checks from the
+  server's side (device ids: core's DEVICE_ID and __init__.py's pattern must match). Change the protocol in the
+  fixture first. The firmware isn't built in CI. One container image built with pnpm deploy; tests use node:test
+  via `pnpm test`.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
