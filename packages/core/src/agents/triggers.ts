@@ -125,7 +125,8 @@ export class AgentTriggers {
     if (!this.startable().some((a) => a.name === name)) return { error: `there is no agent "${name}" that can be started by voice or chat` };
     if (args.request !== undefined && typeof args.request !== "string") return { error: "request must be text" };
     if (typeof args.request === "string" && args.request.length > MAX_REQUEST) return { error: `request is longer than ${MAX_REQUEST} characters` };
-    const r = this.o.runtime.start(name, call.channel === "chat" ? "chat" : "voice", args.request);
+    // Started by the chat or Talk page user (a voice device's session has none).
+    const r = this.o.runtime.start(name, call.channel === "chat" ? "chat" : "voice", args.request, call.user);
     if (!r.ok) return r.reason === "busy" ? { error: `${name} is already running, since ${this.clock(r.since)}` } : { error: `there is no agent "${name}"` };
     return { started: true, agent: name, note: "It runs in the background; its result is not returned here." };
   }

@@ -77,9 +77,10 @@ test("conversations: list summary shape and the full conversation with entries",
     assert.match(c.startedAt, /^\d{4}-/);
     assert.deepEqual(c, {
       id, channel: "voice", device: "kitchen", startedAt: c.startedAt, lastActivityAt: c.lastActivityAt, endedAt: c.endedAt, endReason: "ended: done",
-      quietAt: c.quietAt, state: "quiet", entryCount: 3, preview: "Play Dune.",
+      quietAt: c.quietAt, state: "quiet", entryCount: 3, preview: "Play Dune.", user: null,
     });
     const full = await (await s.j(`/api/conversations/${id}`)).json();
+    assert.equal(full.user, null, "a device's conversation has no user");
     assert.deepEqual(full.entries.map(({ seq, at, ...e }: any) => e), [
       { kind: "user", input: "speech", text: "Play Dune." },
       { kind: "tool", name: "media_play", args: { query: "Dune" }, result: { playing: "Dune" }, truncated: false },

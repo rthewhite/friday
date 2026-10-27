@@ -47,7 +47,7 @@ export interface Browser {
 export interface AuthAppOptions {
   person?: Person;
   /** Extra app dependencies (registry, host and mcp are provided). */
-  deps?: (base: { registry: ToolRegistry; host: ModuleHost }) => Partial<AppDeps>;
+  deps?: (base: { registry: ToolRegistry; host: ModuleHost; db: DatabaseSync }) => Partial<AppDeps>;
   /** Public URL; defaults to the app's own http://127.0.0.1:<port>. */
   publicUrl?: string;
   settings?: Partial<OidcSettings>;
@@ -75,7 +75,7 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
   const host = new ModuleHost(registry, { env: {}, log: quiet });
   if (o.modules) await host.load(o.modules);
   const mcp = new McpSource(registry, new McpServerStore(db, undefined), { log: quiet });
-  const server: Server = createServer(createApp({ registry, host, mcp, webDir: "/nonexistent", ...o.deps?.({ registry, host }), auth: { auth, users, sessions, oidc, publicUrl, log } }));
+  const server: Server = createServer(createApp({ registry, host, mcp, webDir: "/nonexistent", ...o.deps?.({ registry, host, db }), auth: { auth, users, sessions, oidc, publicUrl, log } }));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

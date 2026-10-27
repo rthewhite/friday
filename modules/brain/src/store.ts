@@ -62,13 +62,20 @@ export interface Revision extends PageFields {
   /** Profile revisions only: the instructions at this revision. */
   instructions?: string;
   author: Author;
+  /** Who made a portal edit (author `user`), when known. */
+  user?: RevisionUser;
   baseRevisionId?: number;
   sources: string[];
   note?: string;
   createdAt: string;
 }
 
-export type RevisionSummary = Pick<Revision, "id" | "author" | "createdAt" | "note" | "sources">;
+export interface RevisionUser {
+  id: string;
+  name: string;
+}
+
+export type RevisionSummary = Pick<Revision, "id" | "author" | "user" | "createdAt" | "note" | "sources">;
 
 export interface WriteOptions {
   /** The revision the writer based its change on; refused as `stale` when it is no longer current. */
@@ -139,7 +146,12 @@ interface RevisionRow {
   note: string | null;
   instructions: string | null;
   created_at: string;
+  user_id: string | null;
+  user_name: string | null;
 }
+
+const revisionUser = (r: Pick<RevisionRow, "user_id" | "user_name">): { user?: RevisionUser } =>
+  r.user_id && r.user_name !== null ? { user: { id: r.user_id, name: r.user_name } } : {};
 
 const toPage = (r: PageRow): Page => ({
   id: r.id,
@@ -159,6 +171,7 @@ const toRevision = (r: RevisionRow): Revision => ({
   id: r.id,
   pageId: r.page_id,
   author: r.author as Author,
+  ...revisionUser(r),
   ...(r.base_revision_id !== null ? { baseRevisionId: r.base_revision_id } : {}),
   name: r.name,
   type: r.type as PageType,
@@ -214,6 +227,20 @@ export interface BrainStoreOptions {
 }
 
 export class BrainStore {
+  /** The user a portal write is made for, set by `asUser` for the duration of one synchronous store call. */
+  private actor?: RevisionUser;
+
+  /** Run `fn` (store calls, synchronous) with `user` recorded on the revisions it writes with author `user`. */
+  asUser<T>(user: RevisionUser | undefined, fn: () => T): T {
+    const before = this.actor;
+    this.actor = user && { id: user.id, name: user.name };
+    try {
+      return fn();
+    } finally {
+      this.actor = before;
+    }
+  }
+
   private readonly now: () => Date;
   private readonly newId: () => string;
 
@@ -269,8 +296,8 @@ export class BrainStore {
   }
 
   revisions(pageId: string): RevisionSummary[] {
-    const rows = this.db.prepare("SELECT id, author, created_at, note, sources_json FROM brain__revisions WHERE page_id = ? ORDER BY id DESC").all(pageId) as unknown as RevisionRow[];
-    return rows.map((r) => ({ id: r.id, author: r.author as Author, createdAt: r.created_at, ...(r.note !== null ? { note: r.note } : {}), sources: JSON.parse(r.sources_json) as string[] }));
+    const rows = this.db.prepare("SELECT id, author, user_id, user_name, created_at, note, sources_json FROM brain__revisions WHERE page_id = ? ORDER BY id DESC").all(pageId) as unknown as RevisionRow[];
+    return rows.map((r) => ({ id: r.id, author: r.author as Author, ...revisionUser(r), createdAt: r.created_at, ...(r.note !== null ? { note: r.note } : {}), sources: JSON.parse(r.sources_json) as string[] }));
   }
 
   revision(pageId: string, revisionId: number): Revision | undefined {
@@ -549,9 +576,11 @@ export class BrainStore {
     const at = this.now().toISOString();
     // A profile revision snapshots both parts; other pages have no instructions.
     const instructions = page.isProfile ? (opts.instructions ?? page.instructions ?? "") : null;
+    // Only portal edits carry the user; tools, the nightly pass and the system act on their own.
+    const user = author === "user" ? this.actor : undefined;
     const rev = Number(this.db
-      .prepare("INSERT INTO brain__revisions (page_id, author, base_revision_id, name, type, aliases_json, body, instructions, sources_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(page.id, author, page.revisionId || null, fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, JSON.stringify(opts.sources ?? []), opts.note ?? null, at).lastInsertRowid);
+      .prepare("INSERT INTO brain__revisions (page_id, author, base_revision_id, name, type, aliases_json, body, instructions, sources_json, note, created_at, user_id, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(page.id, author, page.revisionId || null, fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, JSON.stringify(opts.sources ?? []), opts.note ?? null, at, user?.id ?? null, user?.name ?? null).lastInsertRowid);
     this.db
       .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, instructions = ?, revision_id = ?, updated_at = ? WHERE id = ?")
       .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, rev, at, page.id);

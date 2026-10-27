@@ -160,7 +160,7 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
         ...alert,
       });
     });
-  const recorder = opts.conversations?.recorder({ channel: "voice", device: device?.id ?? null });
+  const recorder = opts.conversations?.recorder({ channel: "voice", device: device?.id ?? null, userId: user?.id ?? null });
   if (device && opts.deviceSessions) {
     const { id } = device, sessions = opts.deviceSessions;
     sessions.add(id, ws);

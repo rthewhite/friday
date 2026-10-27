@@ -113,6 +113,18 @@ export const migrations: ModuleMigration[] = [
       moveProfileToSubject(db);
     },
   },
+  {
+    version: 4,
+    name: "revision-user",
+    // Who made a portal edit (author `user`): the id and the name at the time. A module can't read core's users,
+    // so the name is kept with the revision. Earlier revisions and other authors have none.
+    up(db) {
+      db.exec(`
+        ALTER TABLE brain__revisions ADD COLUMN user_id TEXT;
+        ALTER TABLE brain__revisions ADD COLUMN user_name TEXT;
+      `);
+    },
+  },
 ];
 
 /**

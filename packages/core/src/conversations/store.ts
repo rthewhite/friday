@@ -37,7 +37,12 @@ export type NewEntry =
 export interface ConversationMeta {
   channel: ConversationChannel;
   device?: string | null;
+  /** The user the conversation belongs to: chat, the Talk page, an agent run a user started. Kept on resume. */
+  userId?: string | null;
 }
+
+/** Who a conversation belongs to, with their current name; null when nobody (a device, a scheduled run, older ones). */
+export type ConversationUser = { id: string; name: string } | null;
 
 export interface ListOptions extends ListConversationsOptions {
   /** Opaque cursor from `cursorOf` (the last row of the previous page); recent-first listing only. */
@@ -183,8 +188,8 @@ export class ConversationStore {
   create(meta: ConversationMeta, startedAt = this.iso()): string {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO conversations (id, channel, device, started_at, last_activity_at, entry_count) VALUES (?, ?, ?, ?, ?, 0)")
-      .run(id, meta.channel, meta.device || null, startedAt, this.iso());
+      .prepare("INSERT INTO conversations (id, channel, device, user_id, started_at, last_activity_at, entry_count) VALUES (?, ?, ?, ?, ?, ?, 0)")
+      .run(id, meta.channel, meta.device || null, meta.userId || null, startedAt, this.iso());
     return id;
   }
 
@@ -232,6 +237,17 @@ export class ConversationStore {
   /** The channel of a stored conversation, or undefined when it is unknown. Does not read entries. */
   channelOf(id: string): ConversationChannel | undefined {
     return (this.db.prepare("SELECT channel FROM conversations WHERE id = ?").get(id) as { channel: ConversationChannel } | undefined)?.channel;
+  }
+
+  /** The user of each conversation in `ids` (attribution only: nothing is filtered by it). */
+  usersOf(ids: readonly string[]): Map<string, ConversationUser> {
+    const out = new Map<string, ConversationUser>();
+    if (!ids.length) return out;
+    const rows = this.db
+      .prepare(`SELECT c.id, u.id AS user_id, u.name FROM conversations c LEFT JOIN users u ON u.id = c.user_id WHERE c.id IN (${ids.map(() => "?").join(", ")})`)
+      .all(...ids) as { id: string; user_id: string | null; name: string | null }[];
+    for (const r of rows) out.set(r.id, r.user_id && r.name !== null ? { id: r.user_id, name: r.name } : null);
+    return out;
   }
 
   get(id: string): Conversation | undefined {

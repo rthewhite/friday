@@ -388,7 +388,8 @@ export function createApp(deps: AppDeps) {
         const channel = url.searchParams.get("channel") || undefined;
         const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined, channel: channel as ConversationChannel | undefined });
         const page = rows.slice(0, limit);
-        sendJson(res, { conversations: page, next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
+        const users = deps.conversations.usersOf(page.map((c) => c.id));
+        sendJson(res, { conversations: page.map((c) => ({ ...c, user: users.get(c.id) ?? null })), next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
       } catch (e) {
         if (e instanceof InvalidQuery) return sendJson(res, { error: e.message }, 400);
         throw e;
@@ -397,7 +398,7 @@ export function createApp(deps: AppDeps) {
     .add("GET", "/api/conversations/:id", (_req, res, { id }) => {
       const c = deps.conversations?.get(id);
       if (!c) return sendJson(res, { error: "unknown conversation" }, 404);
-      sendJson(res, c);
+      sendJson(res, { ...c, user: deps.conversations!.usersOf([id]).get(id) ?? null });
     })
     .add("DELETE", "/api/conversations/:id", (_req, res, { id }) => {
       const outcome = deps.conversations?.delete(id) ?? "missing";

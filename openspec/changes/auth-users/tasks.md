@@ -39,9 +39,9 @@
 
 ## 7. Attribution
 
-- [ ] 7.1 Record the user on conversations (chat threads keep their starter, browser voice sessions their user, agent runs their starter) and include `user` in `GET /api/conversations` and `/:id`. Verify with `conversations-store.test.ts` and `chat-api.test.ts` cases for chat, voice device and "not filtered".
-- [ ] 7.2 Record the starting user on agent runs and `decidedBy` on approved or rejected actions, and include them in the agents API. Verify with `agents-api.test.ts` and `agent-approvals.test.ts` cases for portal start, scheduled run and approval.
-- [ ] 7.3 Add brain module migration 4: nullable user id and name on `brain__revisions`. Record `req.user` on revisions with author `user` written through the brain's routes, return it in the history API, and show the name in the portal history. Verify with brain tests for the "edit in the portal" and "remembered by a tool" scenarios, and `pnpm --filter @friday/module-brain test typecheck`.
+- [x] 7.1 Record the user on conversations (chat threads keep their starter, browser voice sessions their user, agent runs their starter) and include `user` in `GET /api/conversations` and `/:id`. Verify with `conversation-users.test.ts` cases for chat (over HTTP), the Talk page, a voice device, resumed threads and "not filtered", and the updated `platform-api.test.ts` shape.
+- [x] 7.2 Record the starting user on agent runs and `decidedBy` on approved or rejected actions, and include them in the agents API. Pass the run's user to its tool calls and to approved actions, and the chat or Talk page user to `run_agent`. Verify with `agent-users.test.ts` cases for portal start, scheduled run, `run_agent`, approval and rejection.
+- [x] 7.3 Add brain module migration 4: nullable user id and name on `brain__revisions`. Record `req.user` on revisions with author `user` written through the brain's routes, return it in the history API, and show the name in the portal history. Verify with `revision-user.test.ts` for the "edit in the portal" and "remembered by a tool" scenarios and the upgrade, and `pnpm --filter @friday/module-brain test typecheck`.
 
 ## 8. Portal
 

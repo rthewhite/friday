@@ -4,7 +4,7 @@
  * a time; agent model calls pass one gate, so together they hold at most one of the shared LLM slots.
  */
 import type { FunctionDeclaration } from "@google/genai";
-import type { ToolRegistry } from "@friday/sdk";
+import type { CallUser, ToolRegistry } from "@friday/sdk";
 import { agentPrompt } from "../config.js";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
@@ -76,13 +76,13 @@ export class AgentRuntime {
    * Start a run in the background. Synchronous up to registering the run, so two starts can't both pass the
    * busy check. A stored definition that no longer validates gives a run that fails before any model call.
    */
-  start(name: string, trigger: RunTrigger, request?: string): StartResult {
+  start(name: string, trigger: RunTrigger, request?: string, user?: CallUser): StartResult {
     const busy = this.active.get(name);
     if (busy) return { ok: false, reason: "busy", since: busy.run.startedAt, runId: busy.run.id };
     const stored = this.o.agents.get(name);
     if (!stored) return { ok: false, reason: "unknown" };
     const text = request?.trim().slice(0, MAX_REQUEST) || undefined;
-    const run = this.o.runs.start({ agent: name, trigger, request: text });
+    const run = this.o.runs.start({ agent: name, trigger, request: text, userId: user?.id });
     const controller = new AbortController();
     const entry: Active = { run, controller, done: Promise.resolve(run) };
     entry.done = this.execute(stored, entry, text)
@@ -114,17 +114,21 @@ export class AgentRuntime {
     await Promise.all(runs.map((a) => a.done));
   }
 
-  /** Approve a pending action: execute exactly the stored call, with no model involved. */
-  async approve(actionId: string): Promise<DecideResult> {
-    const decision = this.o.runs.claim(actionId);
+  /**
+   * Approve a pending action as `by`: execute exactly the stored call, with no model involved. The call is for the
+   * user who started the run, like the run's own calls.
+   */
+  async approve(actionId: string, by?: CallUser): Promise<DecideResult> {
+    const decision = this.o.runs.claim(actionId, by?.id);
     if (decision !== "ok") return { status: decision };
     const action = this.o.runs.action(actionId)!;
-    const conversationId = this.o.runs.get(action.runId)?.conversationId ?? undefined;
+    const run = this.o.runs.get(action.runId);
+    const conversationId = run?.conversationId ?? undefined;
     let settled: AgentAction | undefined;
     if (!this.o.registry.declarations("agent").some((d) => d.name === action.tool)) {
       settled = this.o.runs.settle(actionId, { state: "failed", error: `tool ${action.tool} is not available` });
     } else {
-      const result = await this.callRegistry(action.tool, action.args, conversationId);
+      const result = await this.callRegistry(action.tool, action.args, conversationId, undefined, run?.user ?? undefined);
       const error = typeof result.error === "string" ? result.error : undefined;
       settled = this.o.runs.settle(actionId, error ? { state: "failed", result, error } : { state: "executed", result });
     }
@@ -133,8 +137,8 @@ export class AgentRuntime {
     return settled ? { status: "ok", action: settled } : { status: "missing" };
   }
 
-  reject(actionId: string): DecideResult {
-    const decision = this.o.runs.reject(actionId);
+  reject(actionId: string, by?: CallUser): DecideResult {
+    const decision = this.o.runs.reject(actionId, by?.id);
     return decision === "ok" ? { status: "ok", action: this.o.runs.action(actionId)! } : { status: decision };
   }
 
@@ -150,7 +154,7 @@ export class AgentRuntime {
     const { tools } = resolveTools(def, this.o.registry);
     const declarations = this.o.registry.declarations("agent").filter((d) => tools.has(d.name)) as FunctionDeclaration[];
     const first = request ?? START_MESSAGE;
-    const recorder = this.o.conversations.recorder({ channel: "agent" }, this.log);
+    const recorder = this.o.conversations.recorder({ channel: "agent", userId: run.user?.id ?? null }, this.log);
     recorder.user(first, "text");
     recorder.commitUser();
     const conversationId = recorder.conversationId;
@@ -183,7 +187,7 @@ export class AgentRuntime {
         onText: (text) => recorder.assistant(text),
         callTool: async (c) => {
           const handle = recorder.tool(c.name, c.args);
-          const out = await this.callTool(def, tools.get(c.name), c, run.id, conversationId, a.controller.signal);
+          const out = await this.callTool(def, tools.get(c.name), c, run, conversationId, a.controller.signal);
           handle.result(out);
           return out;
         },
@@ -236,20 +240,20 @@ export class AgentRuntime {
   }
 
   /** One call of a run: refused outside the agent's tools, parked for `approve`, run (timed out, cancellable) for `auto`. */
-  private async callTool(def: AgentDefinition, mode: ToolMode | undefined, c: LoopCall, runId: string, conversationId: string | undefined, signal: AbortSignal): Promise<Record<string, unknown>> {
+  private async callTool(def: AgentDefinition, mode: ToolMode | undefined, c: LoopCall, run: AgentRun, conversationId: string | undefined, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (!mode) return { error: `tool ${c.name} is not available to this agent` };
     if (mode === "approve") {
-      const action = this.o.runs.park({ runId, agent: def.name, tool: c.name, args: c.args });
+      const action = this.o.runs.park({ runId: run.id, agent: def.name, tool: c.name, args: c.args });
       return { queued: true, actionId: action.id, note: "Queued for the user's approval. It has not run; continue without its result." };
     }
-    return this.callRegistry(c.name, c.args, conversationId, signal);
+    return this.callRegistry(c.name, c.args, conversationId, signal, run.user ?? undefined);
   }
 
-  private async callRegistry(name: string, args: Record<string, unknown>, conversationId: string | undefined, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  private async callRegistry(name: string, args: Record<string, unknown>, conversationId: string | undefined, signal?: AbortSignal, user?: CallUser): Promise<Record<string, unknown>> {
     const ms = this.o.toolTimeoutMs;
     let timer: NodeJS.Timeout | undefined;
     let onAbort: (() => void) | undefined;
-    const call = this.o.registry.callTool(name, args, { channel: "agent", ...(conversationId ? { conversationId } : {}) });
+    const call = this.o.registry.callTool(name, args, { channel: "agent", ...(conversationId ? { conversationId } : {}), ...(user ? { user } : {}) });
     const timedOut = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), ms)));
     const aborted = new Promise<"aborted">((r) => {
       onAbort = () => r("aborted");

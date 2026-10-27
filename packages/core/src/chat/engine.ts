@@ -76,7 +76,8 @@ export class ChatEngine {
       if (store.channelOf(id) !== "chat") return { ok: false, status: 404, error: "unknown chat conversation" };
       if (store.isLive(id)) return { ok: false, status: 409, error: "a turn is still running in this conversation" };
     }
-    const recorder = store.recorder({ channel: "chat" }, this.log);
+    // A new thread belongs to its sender; a resumed one keeps the user who started it.
+    const recorder = store.recorder({ channel: "chat", userId: user?.id ?? null }, this.log);
     if (id && !recorder.resume(id)) return { ok: false, status: 404, error: "unknown chat conversation" };
     // The recorder logs and swallows store failures; the turn must not run without its message.
     const before = id ? this.nextSeq(id) : undefined;
