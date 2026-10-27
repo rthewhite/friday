@@ -123,6 +123,11 @@ export class UserStore {
     return row && toUser(row);
   }
 
+  /** The issuer and subject a user logs in with; never leaves core. */
+  identity(id: string): { issuer: string; subject: string } | undefined {
+    return this.db.prepare("SELECT issuer, subject FROM users WHERE id = ?").get(id) as { issuer: string; subject: string } | undefined;
+  }
+
   /** Every user, by name. */
   list(): User[] {
     return (this.db.prepare(`SELECT ${COLUMNS} FROM users ORDER BY name COLLATE NOCASE, id`).all() as unknown as Row[]).map(toUser);

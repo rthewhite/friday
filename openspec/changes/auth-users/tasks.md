@@ -8,9 +8,9 @@
 
 ## 2. Configuration, startup checks and the dev user
 
-- [ ] 2.1 Read `FRIDAY_AUTH_ISSUER`, `FRIDAY_AUTH_CLIENT_ID`, `FRIDAY_AUTH_CLIENT_SECRET`, `FRIDAY_AUTH_USER_GROUP` and `FRIDAY_AUTH_ADMIN_GROUP` from the environment only, not as stored configuration keys. Changing them in the portal could lock everyone out, and Settings itself sits behind the login. Add the startup checks: missing client id, secret, master key or `FRIDAY_PUBLIC_URL` with auth configured, and a non-localhost `FRIDAY_PUBLIC_URL` without auth. Verify with `core-config.test.ts` cases for each "Authentication is configured" and "Deployed without authentication" scenario.
-- [ ] 2.2 Resolve the request's user without auth configured: the dev user for a loopback peer address (IPv4, `127.0.0.0/8`, `::1`, IPv4-mapped), and no user otherwise, ignoring forwarded headers, plus the startup warning. Verify with unit tests for the address rules and the forged `X-Forwarded-For` scenario.
-- [ ] 2.3 Document the keys in `.env.example`, with a comment that leaving `FRIDAY_AUTH_ISSUER` empty means only the local machine gets in. Verify that `pnpm dev` with the example `.env` starts and logs the warning.
+- [x] 2.1 Read `FRIDAY_AUTH_ISSUER`, `FRIDAY_AUTH_CLIENT_ID`, `FRIDAY_AUTH_CLIENT_SECRET`, `FRIDAY_AUTH_USER_GROUP` and `FRIDAY_AUTH_ADMIN_GROUP` from the environment only, not as stored configuration keys. Changing them in the portal could lock everyone out, and Settings itself sits behind the login. Add the startup checks: missing client id, secret, master key or `FRIDAY_PUBLIC_URL` with auth configured, and a non-localhost `FRIDAY_PUBLIC_URL` without auth. Verify with `auth-config.test.ts` cases for each "Authentication is configured" and "Deployed without authentication" scenario.
+- [x] 2.2 Resolve the request's user without auth configured: the dev user for a loopback peer address (IPv4, `127.0.0.0/8`, `::1`, IPv4-mapped), and no user otherwise, ignoring forwarded headers, plus the startup warning. Verify with unit tests for the address rules and the forged `X-Forwarded-For` scenario.
+- [x] 2.3 Document the keys in `.env.example`, with a comment that leaving `FRIDAY_AUTH_ISSUER` empty means only the local machine gets in. Verify that `pnpm dev` with the example `.env` starts and logs the warning.
 
 ## 3. Login, callback and logout
 

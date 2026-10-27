@@ -40,6 +40,9 @@ import { OAuthTokens } from "./oauth/tokens.js";
 import { registerOAuthKeepalive } from "./oauth/keepalive.js";
 import { OAuthFlow } from "./oauth/flow.js";
 import { FALLBACK_BASE, publicBase, redirectUri } from "./oauth/redirect.js";
+import { AuthConfigError, authMode, type AuthMode } from "./auth/config.js";
+import { UserStore } from "./auth/users.js";
+import { SessionStore } from "./auth/sessions.js";
 
 const db = openDatabase(settings.dataDir);
 const masterKey = parseMasterKey(settings.masterKey);
@@ -56,6 +59,20 @@ const deviceLinks = new DeviceLinks();
 // Core's own key: stored for core or globally in the portal, else the environment; read at each use.
 const coreKey = coreConfig(configStore, process.env);
 const geminiKey = () => coreKey("GEMINI_API_KEY");
+// Browser auth: OIDC when FRIDAY_AUTH_ISSUER is set, else the dev user for this machine only. A deployment without
+// auth (a public URL that isn't localhost) must not start.
+let auth: AuthMode;
+try {
+  auth = authMode(process.env, coreKey("FRIDAY_PUBLIC_URL"), masterKey !== undefined);
+} catch (e) {
+  if (!(e instanceof AuthConfigError)) throw e;
+  console.error(`auth: ${e.message}`);
+  process.exit(1);
+}
+if (auth.kind === "dev") console.warn("auth: FRIDAY_AUTH_ISSUER is not set, so authentication is off: only this machine (loopback) gets in, as the dev user");
+else console.log(`auth: users log in through ${auth.oidc.issuer}`);
+const users = new UserStore(db);
+const sessions = new SessionStore(db, masterKey);
 const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
