@@ -44,7 +44,7 @@ test("login redirects to the provider with PKCE, state, nonce, the scopes and th
     assert.equal(q.get("code_challenge_method"), "S256");
     assert.ok(q.get("code_challenge") && q.get("state") && q.get("nonce"));
     assert.deepEqual(q.get("scope")?.split(" "), ["openid", "email", "profile", "offline_access"]);
-    const cookie = res.headers.getSetCookie().find((c) => c.startsWith("friday_login="))!;
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith(`friday_login_${q.get("state")}=`))!;
     assert.match(cookie, /HttpOnly/);
     assert.match(cookie, /SameSite=Lax/);
     assert.match(cookie, /Max-Age=600/);
@@ -61,7 +61,7 @@ test("login and back: a session cookie is set and the browser lands on the retur
     assert.equal(res.status, 302);
     assert.equal(res.headers.get("location"), "/chat/abc");
     const set = res.headers.getSetCookie();
-    assert.ok(set.some((c) => /^friday_login=;.*Max-Age=0/.test(c)), "login cookie cleared");
+    assert.ok(set.some((c) => /^friday_login_[A-Za-z0-9_-]+=;.*Max-Age=0/.test(c)), "login cookie cleared");
     const session = set.find((c) => c.startsWith("friday_session="))!;
     assert.match(session, /HttpOnly; SameSite=Lax/);
     assert.match(session, /Max-Age=2592000/);
@@ -78,7 +78,7 @@ test("on https the session cookie is __Host- and Secure", async () => {
   try {
     const b = app.browser();
     const start = await b.fetch("/auth/login");
-    assert.ok(start.headers.getSetCookie().some((c) => c.startsWith("__Host-friday_login=") && /; Secure/.test(c)));
+    assert.ok(start.headers.getSetCookie().some((c) => c.startsWith("__Host-friday_login_") && /; Secure/.test(c)));
     const { code, state } = app.provider.authorize(start.headers.get("location")!);
     const res = await b.fetch(`/auth/callback?code=${code}&state=${state}`);
     assert.equal(res.status, 302);
@@ -110,7 +110,8 @@ test("a callback whose state doesn't match the login cookie shows an error page 
     assert.equal(res.status, 400);
     assert.match(await res.text(), /Login failed/);
     assert.equal(sessionToken(b.cookies), undefined);
-    assert.equal(b.cookies.get("friday_login"), undefined, "login cookie cleared");
+    const unknown = await b.fetch(`/auth/callback?code=${code}&state=${"A".repeat(43)}`);
+    assert.equal(unknown.status, 400, "a well-formed state without its own login cookie");
     // without any login cookie
     const other = await app.browser().fetch(`/auth/callback?code=x&state=y`);
     assert.equal(other.status, 400);
@@ -288,6 +289,21 @@ test("a userinfo outage during login shows the login error page, not a bare 500"
     assert.match(html, /Login failed/);
     assert.match(html, /can&#39;t be reached/);
     assert.equal(b.cookies.get("friday_session"), undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test("tabs logging in at the same time each complete their own login", async () => {
+  const app = await startAuthApp();
+  try {
+    const b = app.browser();
+    const starts = [await b.fetch("/auth/login?return_to=/chat"), await b.fetch("/auth/login?return_to=/agents"), await b.fetch("/auth/login?return_to=/conversations")];
+    const grants = starts.map((s) => app.provider.authorize(s.headers.get("location")!));
+    const landed: (string | null)[] = [];
+    for (const g of grants) landed.push((await b.fetch(`/auth/callback?code=${g.code}&state=${g.state}`)).headers.get("location"));
+    assert.deepEqual(landed, ["/chat", "/agents", "/conversations"]);
+    assert.ok(![...b.cookies.keys()].some((k) => k.startsWith("friday_login")), "every login cookie used once and cleared");
   } finally {
     await app.close();
   }

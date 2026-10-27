@@ -29,13 +29,16 @@ export interface LoginGuardDeps {
 export class LoginGuard {
   private holds = 0;
   private pending = false;
-  private done = false;
+  /** Already sent to the login. */
+  private gone = false;
+  /** Logging out: the portal shows its own page instead. */
+  private stopped = false;
 
   constructor(private readonly deps: LoginGuardDeps) {}
 
   /** A request answered 401: go to the login now, or as soon as the last hold is released. */
   unauthenticated(): void {
-    if (this.done) return;
+    if (this.gone || this.stopped) return;
     if (this.holds > 0) {
       this.pending = true;
       return;
@@ -55,13 +58,18 @@ export class LoginGuard {
     };
   }
 
-  /** Never go to the login again (after logging out, the portal shows its own page). */
+  /** Don't go to the login while logging out (the portal shows its own page); `resume` undoes it if logout failed. */
   stop(): void {
-    this.done = true;
+    this.stopped = true;
+  }
+
+  resume(): void {
+    this.stopped = false;
   }
 
   private go(): void {
-    this.done = true;
+    if (this.stopped) return;
+    this.gone = true;
     this.deps.navigate(loginUrl(this.deps.here()));
   }
 }

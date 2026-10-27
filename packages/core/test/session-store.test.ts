@@ -92,3 +92,20 @@ test("a refresh token sealed with another master key can't be read", () => {
   const none = new SessionStore(db, undefined);
   assert.equal(none.refreshToken(s.id), undefined);
 });
+
+test("sessions idle for 30 days are purged at once, also those whose cookie never comes back", () => {
+  const { db, sessions, userId, advance } = setup();
+  const ended: string[][] = [];
+  sessions.onEnd((ids) => ended.push(ids));
+  sessions.create(userId, "r-old");
+  advance(10 * DAY);
+  const recent = sessions.create(userId, "r-new");
+  advance(21 * DAY);
+  assert.equal(sessions.purgeIdle(), 1);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n, 1);
+  assert.ok(sessions.resolve(recent));
+  assert.equal(ended.length, 1, "the purge is announced, so its Talk connections close");
+  advance(31 * DAY);
+  sessions.create(userId);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n, 1, "a login purges too");
+});

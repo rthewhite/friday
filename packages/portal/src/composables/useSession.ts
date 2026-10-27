@@ -17,7 +17,14 @@ export const loggedOut = ref<{ endSessionUrl: string | null } | null>(null);
 
 export async function logout(): Promise<void> {
   loginGuard.stop();
-  const endSessionUrl = await postLogout(fetch);
+  let endSessionUrl: string | null;
+  try {
+    endSessionUrl = await postLogout(fetch);
+  } catch (e) {
+    // Still logged in: an ended session must send the browser to the login again.
+    loginGuard.resume();
+    throw e;
+  }
   me.value = undefined;
   loggedOut.value = { endSessionUrl };
 }

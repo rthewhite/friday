@@ -64,6 +64,10 @@ The flow uses `arctic`, as oauth-connections does, but its generic `OAuth2Client
 - `SameSite=Lax` plus the existing cross-origin write check is the CSRF defence. No separate CSRF token.
 - The browser `/ws/audio` upgrade also checks `Origin` against `Host`. `SameSite=Lax` still sends the cookie from another `*.thewhite.nl` host, because that counts as same-site. Without the check, a compromised app on the same domain could open a voice session as the user.
 - **Lifetime:** a session ends after 30 days without use. Every 24 hours, on the next request, Friday refreshes its claims with the refresh token (scope `offline_access`). This updates the name, email and role. When Authentik refuses the refresh (user deactivated, removed from the groups, or token revoked), the session ends and the next request gets 401. The refresh token is stored encrypted with `FRIDAY_MASTER_KEY`, like OAuth connections. Configured auth therefore requires the master key. A session without a usable refresh token (the provider issued none, or it can't be decrypted any more) ends when its claims are due, and the next visit logs in again through Authentik's SSO. Refreshes are single-flight per session: the portal sends several requests at once, and Authentik rotates refresh tokens, so a second use of the same token would be refused.
+- Every call to the provider is bounded (10 s). When the provider can't be reached (a timeout, a network error, a 5xx, also from userinfo), the session is kept and its requests don't wait for a refresh again for 5 minutes. A refresh token the token endpoint already rotated before userinfo failed is kept, or the next try would present a used one.
+- Sessions idle for 30 days are purged at startup and at every login, also those whose cookie the browser dropped and that would never be presented again, so their sealed refresh tokens don't linger.
+- A session that ends (logout, a refused refresh, idle) closes the Talk connections it opened, like disabling the user does.
+- Each login attempt has its own login cookie, named by its state, so several tabs sent to the login at once each complete.
 - The cookie gets `Max-Age` 30 days at login and isn't renewed. After 30 days of continuous use the browser drops it, and the next request bounces silently through Authentik's SSO.
 - Logout (`POST /auth/logout`) deletes the session and clears the cookie. It doesn't end the Authentik SSO session. The portal can then link to Authentik's end-session endpoint.
 - `return_to` only accepts a path on the same origin (it starts with `/` and not with `//`), so it can't be used as an open redirect.
@@ -112,6 +116,8 @@ When `FRIDAY_AUTH_ISSUER` is not set:
 - A request from a **loopback address** (`127.0.0.1`, `::1`) gets a fixed dev user (`dev`, role `admin`), stored like any other user. This covers the Vite proxy and a browser on the same machine.
 - Any other request gets 401. Core binds `0.0.0.0` by default, so another device on the LAN must not inherit the dev admin.
 - At startup Friday logs a loud warning. It **refuses to start** when `FRIDAY_PUBLIC_URL` is set to anything other than an `http://localhost` or `http://127.0.0.1` URL, because that means a deployment without auth configured.
+
+The request must also be addressed to the local machine (`Host` is `localhost`, `127.0.0.1` or `[::1]`): a reverse proxy on the same machine forwards its public name, and a DNS-rebinding page its own, so neither gets the dev admin.
 
 In k8s, requests come from Traefik and never from loopback, so even a misconfiguration falls back to 401 for everyone rather than to admin access.
 

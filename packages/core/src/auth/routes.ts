@@ -53,7 +53,9 @@ function page(res: ServerResponse, status: number, title: string, message: strin
 export function addAuthRoutes(router: Router, deps: AuthRouteDeps): void {
   const { auth, oidc, users, sessions, publicUrl } = deps;
   const log = deps.log ?? console;
-  const cookieName = () => loginCookieName(publicUrl());
+  // One login cookie per login attempt, named by its state, so tabs logging in at the same time don't overwrite
+  // each other's state and verifier. States are arctic's base64url values; anything else names no cookie.
+  const cookieName = (state: string | null): string | undefined => (state && /^[A-Za-z0-9_-]{16,128}$/.test(state) ? `${loginCookieName(publicUrl())}_${state}` : undefined);
 
   const noAccess = async (res: ServerResponse, reason: string) => {
     const end = await oidc.endSessionUrl();
@@ -75,7 +77,7 @@ export function addAuthRoutes(router: Router, deps: AuthRouteDeps): void {
       return failed(res, "The login provider can't be reached. Try again in a moment.", 502);
     }
     const login: LoginState = { state: start.state, codeVerifier: start.codeVerifier, nonce: start.nonce, returnTo: safeReturnTo(url.searchParams.get("return_to")) };
-    res.setHeader("set-cookie", serializeCookie(cookieName(), Buffer.from(JSON.stringify(login)).toString("base64url"), { maxAge: LOGIN_COOKIE_MAX_AGE_S, publicUrl: publicUrl() }));
+    res.setHeader("set-cookie", serializeCookie(cookieName(start.state)!, Buffer.from(JSON.stringify(login)).toString("base64url"), { maxAge: LOGIN_COOKIE_MAX_AGE_S, publicUrl: publicUrl() }));
     res.setHeader("cache-control", "no-store");
     res.statusCode = 302;
     res.setHeader("location", start.url.toString());
@@ -83,10 +85,11 @@ export function addAuthRoutes(router: Router, deps: AuthRouteDeps): void {
   });
 
   router.add("GET", "/auth/callback", async (req, res, _params, url) => {
-    const login = readLogin(req, cookieName());
-    // The login cookie is single use, whatever happens next.
-    res.setHeader("set-cookie", clearCookie(cookieName(), publicUrl()));
     const q = url.searchParams;
+    const loginCookie = cookieName(q.get("state"));
+    const login = loginCookie ? readLogin(req, loginCookie) : undefined;
+    // The login cookie is single use, whatever happens next.
+    if (loginCookie) res.setHeader("set-cookie", clearCookie(loginCookie, publicUrl()));
     const providerError = q.get("error");
     if (providerError) {
       const description = q.get("error_description");
@@ -123,7 +126,7 @@ export function addAuthRoutes(router: Router, deps: AuthRouteDeps): void {
     const token = sessions.create(user.id, refreshToken);
     log.log(`auth: ${user.name} (${user.id}, ${user.role}) logged in${created ? " for the first time" : ""}`);
     res.setHeader("set-cookie", [
-      clearCookie(cookieName(), publicUrl()),
+      clearCookie(loginCookie!, publicUrl()),
       serializeCookie(auth.cookieName(), token, { maxAge: SESSION_IDLE_MS / 1000, publicUrl: publicUrl() }),
     ]);
     res.setHeader("cache-control", "no-store");

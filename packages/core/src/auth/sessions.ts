@@ -47,8 +47,20 @@ export class SessionStore {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /**
+   * End every session idle for 30 days, including those whose cookie the browser dropped and that will never be
+   * presented again, so their sealed refresh tokens don't linger. Runs at startup and at every login.
+   */
+  purgeIdle(): number {
+    const before = new Date(this.now().getTime() - SESSION_IDLE_MS).toISOString();
+    const ids = (this.db.prepare("DELETE FROM sessions WHERE last_used_at <= ? RETURNING token_hash").all(before) as { token_hash: string }[]).map((r) => r.token_hash);
+    this.announce(ids);
+    return ids.length;
+  }
+
   /** Start a session for `userId`; returns the cookie token, which is not kept. */
   create(userId: string, refreshToken?: string): string {
+    this.purgeIdle();
     const token = randomBytes(32).toString("base64url");
     const at = this.now().toISOString();
     const sealed = this.seal(refreshToken);

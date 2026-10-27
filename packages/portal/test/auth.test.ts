@@ -97,3 +97,13 @@ test("logout posts to /auth/logout and returns the end-session URL", async () =>
   assert.equal(await logout(respond(200, { endSessionUrl: null })), null);
   await assert.rejects(logout(respond(403)), /logout failed: 403/);
 });
+
+test("a failed logout resumes the guard, so a later 401 still goes to the login", () => {
+  const { went, g } = guard("/chat");
+  g.stop();
+  g.unauthenticated();
+  assert.deepEqual(went, [], "no login while logging out");
+  g.resume();
+  g.unauthenticated();
+  assert.deepEqual(went, ["/auth/login?return_to=%2Fchat"]);
+});

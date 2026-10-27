@@ -83,6 +83,8 @@ const browserAuth = new Auth({ mode: auth, users, sessions, oidc, publicUrl: aut
 const userConnections = new UserConnections();
 // A session that ends (logout, a refused refresh) closes the Talk connections it opened.
 sessions.onEnd((ids) => ids.forEach((id) => userConnections.closeSession(id)));
+const purged = sessions.purgeIdle();
+if (purged) console.log(`auth: ended ${purged} session(s) idle for 30 days`);
 const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);
