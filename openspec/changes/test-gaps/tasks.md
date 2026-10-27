@@ -101,11 +101,11 @@
 ## 8. Portal tests
 
 - [x] 8.1 Extract the pure parts of `ConnectionsPage.vue` into `src/lib/connections.ts`: redirect URI, provider id, dirty, can-save and the save body. Do the same for `McpServersTab.vue` into `src/lib/mcp-servers.ts`: can-save, body and the `?server=` query. The pages use them, and their behaviour is unchanged. Verify with `test/connections.test.ts` and `test/mcp-servers.test.ts` (generic vs catalogue provider, an unchanged stored secret not sent, headers kept secret) and `pnpm --filter @friday/portal typecheck`.
-- [ ] 8.2 Test `useChatStream` under `node:test`, with a fake `fetch` returning a streamed `Response`. Verify `test/use-chat-stream.test.ts` covers:
+- [x] 8.2 Test `useChatStream` under `node:test`, with a fake `fetch` returning a streamed `Response`. Verify `test/use-chat-stream.test.ts` covers:
   - text deltas, tool events, and the conversation id from `start`
   - a 4xx answer and a stream that breaks mid-turn
-  - aborting a send
-- [ ] 8.3 Test `useVoiceSession` under `node:test`, with fake `WebSocket`, `AudioContext`, `AudioWorkletNode` and `navigator.mediaDevices` on `globalThis`, restored after each test. Verify `test/use-voice-session.test.ts` covers:
+  - a request that fails on the network. (Planned as "aborting a send", but `useChatStream` has no abort.)
+- [x] 8.3 Test `useVoiceSession` under `node:test`, with fake `WebSocket`, `AudioContext`, `AudioWorkletNode` and `navigator.mediaDevices` on `globalThis`, restored after each test. Verify `test/use-voice-session.test.ts` covers:
   - connecting, then live
   - a transcript entry for each event type
   - `interrupted` dropping queued playback
