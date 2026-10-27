@@ -19,6 +19,9 @@ import { SessionStore } from "../src/auth/sessions.js";
 import { OidcClient } from "../src/auth/oidc.js";
 import { loginRedirectUri, type OidcSettings } from "../src/auth/config.js";
 import { startFakeProvider, type FakeProvider, type Person } from "./oidc-fixture.js";
+import { UserConnections } from "../src/auth/connections.js";
+import { attachAudioWs } from "../src/transports/ws.js";
+import { StubSession } from "./helpers.js";
 
 export const quiet = { log() {}, warn() {}, error() {} };
 
@@ -53,6 +56,8 @@ export interface AuthAppOptions {
   settings?: Partial<OidcSettings>;
   /** In-process modules to load, for their routes and tools. */
   modules?: FridayModule[];
+  /** Mount the Talk socket (/ws/audio) with stub sessions, checked like core does; disabling a user closes theirs. */
+  talk?: boolean;
 }
 
 export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
@@ -75,7 +80,11 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
   const host = new ModuleHost(registry, { env: {}, log: quiet });
   if (o.modules) await host.load(o.modules);
   const mcp = new McpSource(registry, new McpServerStore(db, undefined), { log: quiet });
-  const server: Server = createServer(createApp({ registry, host, mcp, webDir: "/nonexistent", ...o.deps?.({ registry, host, db }), auth: { auth, users, sessions, oidc, publicUrl, log } }));
+  const userConnections = new UserConnections();
+  const server: Server = createServer(
+    createApp({ registry, host, mcp, webDir: "/nonexistent", ...o.deps?.({ registry, host, db }), auth: { auth, users, sessions, oidc, publicUrl, log, onDisabled: (id) => userConnections.closeUser(id) } }),
+  );
+  if (o.talk) attachAudioWs(server, { pingMs: 0, auth, userConnections, registry, createSession: (e, r, d, a, u) => new StubSession(e, r, d, a, u) });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

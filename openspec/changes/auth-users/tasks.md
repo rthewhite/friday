@@ -59,6 +59,6 @@
 
 ## 10. Integration
 
-- [ ] 10.1 End-to-end test against the fake provider: log in as an admin (becomes owner), then a member. The member chats (conversation records the member, tool call context carries the user), gets 403 on `/api/config`, and is disabled by the admin. The member's next request gets 401 and their Talk connection closes. Verify the test passes in `pnpm --filter @friday/core test`.
-- [ ] 10.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify all green.
+- [x] 10.1 End-to-end test against the fake provider: log in as an admin (becomes owner), then a member. The member chats (conversation records the member, tool call context carries the user), gets 403 on `/api/config`, and is disabled by the admin. The member's next request gets 401 and their Talk connection closes. Verify the test passes in `pnpm --filter @friday/core test`.
+- [x] 10.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify all green.
 - [ ] 10.3 (user, after deploy) Set up the provider and application in Authentik, add the keys to `friday-secrets`, deploy, and log in at `https://friday.thewhite.nl`. Verify that the owner is recorded, a second account outside the groups gets the no-access page, a member sees no System section and can't open a settings page, disabling a user from the Users drawer logs them out, the Voice PE and the reSpeaker still connect, and a remote module still connects.
