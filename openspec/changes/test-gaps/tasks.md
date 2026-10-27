@@ -32,12 +32,12 @@
 
 ## 3. Coverage report
 
-- [ ] 3.1 Add `test:coverage` to every package with `node:test` tests (core, sdk, portal, brain, builtin, calendar, media, sonos, spotify, travel, simracing): the package's test command plus `--experimental-test-coverage` and the excludes from design decision 7.
+- [x] 3.1 Add `test:coverage` to every package with `node:test` tests (core, sdk, portal, brain, builtin, calendar, media, sonos, spotify, travel, simracing): c8 with `--all` around the package's test command, as in design decision 7. (Changed from Node's built-in coverage during apply, with the user's go-ahead, because it misreports tsx code.) Stop `secrets.test.ts` from loading `crypto.ts` a second time through `createRequire`.
   - In `portal-ui`, add `vitest run --coverage` with `@vitest/coverage-v8`, pinned to the installed vitest's version.
   - At the root, add `"test:coverage": "pnpm -r build && pnpm -r test:coverage"`.
 
   Verify that `pnpm test:coverage` prints a per-file table for every package and exits 0.
-- [ ] 3.2 Add a "Testing" section to the README: `pnpm test`, `pnpm test:coverage`, that coverage only counts files a test loads and has no threshold, the live tests and the eval, and `esphome/test/run.sh`. Verify each command in it runs as written.
+- [x] 3.2 Add a "Testing" section to the README: `pnpm test`, `pnpm test:coverage`, that coverage lists files no test loads at 0% and has no threshold, the live tests and the eval, and `esphome/test/run.sh`. Verify each command in it runs as written.
 
 ## 4. Device protocol contract (core side)
 

@@ -9,7 +9,8 @@
     "dev": "pnpm gen && vite",
     "build": "pnpm gen && vite build",
     "typecheck": "pnpm gen && vue-tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test test/*.test.mjs test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.mjs test/*.test.ts",
+    "test:coverage": "c8 --all --src src --include 'src/**' --exclude 'src/**/*.d.ts' --exclude 'src/modules.gen.ts' --reporter text --clean node --import tsx --test test/*.test.mjs test/*.test.ts"
   },
   "dependencies": {
     "@friday/module-brain": "workspace:*",

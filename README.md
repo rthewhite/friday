@@ -63,6 +63,27 @@ Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturin
 
 Gemini interrupts itself when it detects the user speaking. On speaker devices a little of Friday's own voice leaks back into the microphone before echo cancellation converges, which Gemini can mistake for speech. `FRIDAY_VAD_START_SENSITIVITY` (default `LOW`) and `FRIDAY_VAD_PREFIX_MS` (default 200) tune how eagerly Gemini treats sound as the user talking; raise sensitivity to `HIGH` or lower the padding if barge-in feels sluggish on headphones or the browser.
 
+## Testing
+
+```bash
+pnpm test                                    # build, then every package's tests (what CI runs)
+pnpm --filter @friday/core test              # one package (build the workspace first)
+pnpm test:coverage                           # the same tests with a per-file coverage table per package
+pnpm --filter @friday/core test:coverage     # coverage for one package
+esphome/test/run.sh                          # the firmware's C++ host tests (needs a C++17 compiler)
+```
+
+Tests use `node:test` through `tsx` and live in each package's `test/` folder. `portal-ui` uses vitest, because its tests render `.vue` files.
+
+**Coverage** comes from c8. It lists every `.ts` file under a package's `src`, and a file no test loads shows at 0%: core's `server.ts`, for example, only runs in the real server. A file of types only, such as travel's `types.ts`, always reads 0%. `.vue` files aren't counted. There is no threshold, and coverage doesn't gate CI: the table is for finding gaps, not for a number. Import source files in tests; don't `require` them, or the file is loaded twice and its coverage misreported.
+
+**Against the real model.** These need `GEMINI_API_KEY`, cost a little, and stay out of `pnpm test`:
+
+```bash
+FRIDAY_LIVE_TESTS=1 pnpm --filter @friday/core test   # core's live Gemini tests (otherwise skipped)
+pnpm --filter @friday/module-brain eval              # the brain's nightly-pass fixtures (see Memory)
+```
+
 ## Add a module
 
 A module is a workspace package that depends only on `@friday/sdk` and exports a `defineModule`. Core never imports a module's internals; the module gets everything through `ctx`.

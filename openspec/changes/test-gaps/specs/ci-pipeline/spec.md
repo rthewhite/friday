@@ -105,11 +105,15 @@ A scheduled workflow SHALL run once a week and on manual dispatch. It SHALL run 
 
 ### Requirement: Coverage can be reported per package
 
-Every package with tests SHALL offer a coverage command. It SHALL run the same tests as the package's test command and report line, branch and function coverage for each source file the tests load. A root command SHALL run it for every package. Coverage SHALL NOT have a threshold and SHALL NOT gate CI.
+Every package with tests SHALL offer a coverage command. It SHALL run the same tests as the package's test command and report line, branch and function coverage for each TypeScript and JavaScript source file of the package. Files no test loads SHALL be listed at 0% rather than left out. Line numbers SHALL refer to the TypeScript source, and lines that hold only types SHALL NOT count as uncovered. A root command SHALL run it for every package. Coverage SHALL NOT have a threshold and SHALL NOT gate CI.
 
 #### Scenario: Coverage for one package
 - **WHEN** a developer runs the coverage command for a package
 - **THEN** its tests run and a per-file coverage table is printed, excluding test files and dependencies
+
+#### Scenario: A file no test loads
+- **WHEN** a source file is never imported by any test, such as core's `server.ts`
+- **THEN** the table lists it at 0% with all its lines uncovered
 
 #### Scenario: Coverage does not gate CI
 - **WHEN** a change lowers coverage while all tests pass

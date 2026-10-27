@@ -24,7 +24,7 @@ The package tests are strong: about 1,420 tests, 92–99% line coverage of the f
   - Core tests that wait on real `setTimeout` sleeps wait on a condition or a controlled promise instead.
   - The leaked `process.env.JELLYFIN_URL` in `app.test.ts` is removed.
   - The untested paths in `oauth/flow.ts`, `secrets/crypto.ts`, the SDK's `remote/runner.ts` and `modules/media` get tests.
-  - Each package gets a `test:coverage` script, which reports coverage and enforces no threshold.
+  - Each package gets a `test:coverage` script, based on c8. It reports coverage, lists files no test loads at 0%, and enforces no threshold.
 
 ## Capabilities
 
@@ -52,7 +52,8 @@ None. The brain eval stays opt-in and outside `pnpm test`, as `brain-maintenance
   - New `src/lib/connections.ts` and `src/lib/mcp-servers.ts`.
   - Dev dependencies on `vitest`, `@vue/test-utils` and `happy-dom`, matching `portal-ui`'s vitest version.
   - The `test` script runs `node:test` and then vitest.
-- **SDK, media:** tests only. Every package with tests gets a `test:coverage` script, and the root gets one too.
+- **SDK, media:** tests only.
+- **Coverage:** every package with tests gets a `test:coverage` script, and the root gets one too. New root dev dependency `c8`; `portal-ui` gets `@vitest/coverage-v8`. The `coverage/` folders are ignored.
 - **Docs:** README (testing section), `infra/README.md` (the secret, the runner's compiler), and the `openspec/config.yaml` context: the firmware tests and the boot check now run in CI.
 - **Overlap with `auth-users`** (planned, with a worktree):
   - After it lands, `/api/*` answers 401 without a session.

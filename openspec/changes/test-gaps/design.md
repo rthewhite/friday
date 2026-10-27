@@ -119,15 +119,22 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 
 Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the default alias, which is the point. The workflow has no build or deploy steps and doesn't write to the registry. A failed run is signalled through GitHub's standard failure notification.
 
-### 7. Coverage: Node's built-in coverage, report only
+### 7. Coverage: c8 with `--all`, report only
 
-- Every package with `node:test` tests gets `test:coverage`: its test command with `--experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='**/node_modules/**' --test-coverage-exclude='**/dist/**'`.
-- `--enable-source-maps` is required too. Without it, Node maps tsx's output to the wrong lines: an earlier run blamed the interface fields of `oauth/flow.ts` and called fully tested code in `secrets/crypto.ts` uncovered.
-- `portal-ui` gets `vitest run --coverage` with `@vitest/coverage-v8`.
-- The portal reports only its `node:test` part.
+- Every package with `node:test` tests gets `test:coverage`: `c8 --all --src src --include 'src/**' --exclude 'src/**/*.d.ts' --exclude 'src/modules.gen.ts' --reporter text --clean`, followed by its test command. c8 is a root dev dependency, and each package writes to its own ignored `coverage/` folder.
+- `portal-ui` gets `vitest run --coverage --coverage.include=src/**` with `@vitest/coverage-v8`, pinned to its vitest version.
+- The portal reports only its `node:test` part. c8 sees `.ts` and `.js` files, not `.vue`.
 - The root `test:coverage` is `pnpm -r build && pnpm -r test:coverage`.
 
-**No threshold.** The report can't see files no test imports, which is how the gaps this change closes stayed hidden. A threshold would then reward the wrong thing. The README says so next to the command.
+**Why c8 over Node's built-in coverage.** We tried Node's built-in coverage first; with tsx it misleads either way:
+- Without `--enable-source-maps`, uncovered line numbers point at the wrong lines. One run blamed the interface fields of `oauth/flow.ts`.
+- With it, some packages count type-only and comment lines as uncovered. The portal read 66.8% for code that is about 99% covered.
+
+c8 reads the same V8 data through the source maps, ignores type-only lines, and with `--all` lists files no test imports at 0%. That puts `server.ts` and the portal's composables, which this change is about, at the top of the list. A file of types only (travel's `types.ts`) always reads 0%; the README says so.
+
+**A module loaded twice is misreported.** `secrets.test.ts` loaded `crypto.ts` both through `import` and through `createRequire`. That gave V8 two copies of the file, and c8's merge reported tested functions as unhit. The test now uses the import. Tests should not `require` source files.
+
+**No threshold.** A threshold would push coverage of what's easy to test rather than what's risky. The report is for finding gaps, like the 0% files above.
 
 ### 8. Real-time waits
 
