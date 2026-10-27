@@ -44,8 +44,8 @@ import type { ConversationStore } from "../conversations/store.js";
 import type { DeviceSnapshot, DeviceStore } from "../devices/store.js";
 import type { DeviceSessions } from "../devices/sessions.js";
 import { authenticateDevice } from "./device-auth.js";
-import { requestUser, type Auth } from "../auth/auth.js";
-import { foreignOrigin } from "../auth/access.js";
+import { requestAuth, requestUser, type Auth } from "../auth/auth.js";
+import { isCrossOrigin } from "../auth/access.js";
 import type { UserConnections } from "../auth/connections.js";
 import { keepAlive } from "./keep-alive.js";
 import { mountWs } from "./mount.js";
@@ -95,7 +95,7 @@ export interface AudioWsOptions {
 export const verifyBrowser = (auth: Pick<Auth, "authenticate">) => async (req: IncomingMessage): Promise<number | undefined> => {
   // A `device` parameter that is present, even empty, always means device authentication, never a browser session.
   if (new URL(req.url ?? "/", "http://x").searchParams.has("device")) return undefined;
-  if (foreignOrigin(req.headers)) return 403;
+  if (isCrossOrigin(req)) return 403;
   return (await auth.authenticate(req)) ? undefined : 401;
 };
 
@@ -125,7 +125,7 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
   }
   // A browser connection belongs to the user its upgrade was checked for, for its whole life.
   const user = device || !req ? undefined : requestUser(req);
-  if (user) opts.userConnections?.add(user.id, ws);
+  if (user) opts.userConnections?.add(user.id, ws, req && requestAuth(req)?.sessionId);
   const tag = device ? `[${device.id}] ` : "";
   // A device answering a ring: the session announces its ringing alerts, or there is nothing left to announce.
   const alertId = device ? params.get("alert") : null;

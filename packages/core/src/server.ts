@@ -81,6 +81,8 @@ const oidc = auth.kind === "oidc" ? new OidcClient(auth.oidc, () => loginRedirec
 const browserAuth = new Auth({ mode: auth, users, sessions, oidc, publicUrl: authPublicUrl });
 // Talk page connections by user: disabling a user closes them.
 const userConnections = new UserConnections();
+// A session that ends (logout, a refused refresh) closes the Talk connections it opened.
+sessions.onEnd((ids) => ids.forEach((id) => userConnections.closeSession(id)));
 const jobStore = new JobStore(db, settings.jobHistory);
 const interrupted = jobStore.markInterrupted(Date.now());
 if (interrupted) console.warn(`jobs: ${interrupted} run(s) interrupted by the last shutdown marked cancelled`);

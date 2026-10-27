@@ -82,6 +82,7 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
   if (o.modules) await host.load(o.modules);
   const mcp = new McpSource(registry, new McpServerStore(db, undefined), { log: quiet });
   const userConnections = new UserConnections();
+  sessions.onEnd((ids) => ids.forEach((id) => userConnections.closeSession(id)));
   const server: Server = createServer(
     createApp({ registry, host, mcp, webDir: "/nonexistent", ...o.deps?.({ registry, host, db }), auth: { auth, users, sessions, oidc, publicUrl, log, onDisabled: (id) => userConnections.closeUser(id) } }),
   );

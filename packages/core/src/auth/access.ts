@@ -4,6 +4,8 @@
  * by their non-empty segments, exactly as the route table matches them, so `/api//config` is still `/api/config`.
  */
 
+import type { IncomingHttpHeaders } from "node:http";
+
 /** Second segments under `/api/` that only admins may use, with everything below them. */
 const ADMIN_AREAS = new Set(["config", "mcp", "keys", "devices", "oauth", "jobs", "alerts", "users"]);
 
@@ -21,16 +23,20 @@ export function adminOnly(method: string, pathname: string): boolean {
 }
 
 /**
- * True when the request carries an Origin header for another host (or an opaque one). Browsers always send Origin on
- * a WebSocket handshake, and the session cookie (SameSite=Lax) still comes along from another *.thewhite.nl host,
- * which counts as the same site, so a page there could otherwise open a voice session as the user.
+ * True when a browser sent this request from another origin: a `Sec-Fetch-Site` other than `same-origin` or `none`,
+ * or an `Origin` whose host differs from `Host` (or an opaque one). The session cookie is SameSite=Lax, so it still
+ * comes along from another *.thewhite.nl host, which counts as the same site. Without this, a page there could change
+ * Friday through the API (a CORS "simple request" needs no preflight) or open a Talk session as the user. Non-browser
+ * clients send neither header and pass.
  */
-export function foreignOrigin(headers: { origin?: string; host?: string }): boolean {
-  const origin = headers.origin;
+export function isCrossOrigin(req: { headers: IncomingHttpHeaders }): boolean {
+  const site = req.headers["sec-fetch-site"];
+  if (typeof site === "string" && site !== "same-origin" && site !== "none") return true;
+  const origin = req.headers.origin;
   if (typeof origin !== "string") return false;
   try {
-    return new URL(origin).host !== headers.host;
+    return new URL(origin).host !== req.headers.host;
   } catch {
-    return true;
+    return true; // "null" and other opaque origins
   }
 }

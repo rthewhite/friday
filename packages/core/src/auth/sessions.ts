@@ -39,6 +39,8 @@ interface Row {
 const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
 
 export class SessionStore {
+  private readonly ended = new Set<(ids: string[]) => void>();
+
   constructor(
     private readonly db: DatabaseSync,
     private readonly masterKey: Buffer | undefined,
@@ -126,9 +128,15 @@ export class SessionStore {
       .run(at, sealed?.ciphertext ?? null, sealed?.iv ?? null, sealed?.tag ?? null, id);
   }
 
+  /** Called with the ids of sessions that ended (logout, idle, refused refresh, a disabled user), to close what they opened. */
+  onEnd(listener: (ids: string[]) => void): () => void {
+    this.ended.add(listener);
+    return () => void this.ended.delete(listener);
+  }
+
   /** End one session by its id. */
   end(id: string): void {
-    this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(id);
+    if (this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(id).changes) this.announce([id]);
   }
 
   /** End the session a cookie token belongs to, if any. */
@@ -138,7 +146,20 @@ export class SessionStore {
 
   /** End every session of a user; returns how many there were. */
   endUser(userId: string): number {
-    return Number(this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId).changes);
+    const ids = (this.db.prepare("DELETE FROM sessions WHERE user_id = ? RETURNING token_hash").all(userId) as { token_hash: string }[]).map((r) => r.token_hash);
+    this.announce(ids);
+    return ids.length;
+  }
+
+  private announce(ids: string[]): void {
+    if (!ids.length) return;
+    for (const l of this.ended) {
+      try {
+        l(ids);
+      } catch (e) {
+        console.error("auth: a session-end listener failed", e);
+      }
+    }
   }
 
   private seal(value: string | undefined) {

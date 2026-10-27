@@ -80,3 +80,30 @@ test("owner and member: login, chat as the member, setup refused, disabled by th
     await app.close();
   }
 });
+
+test("logging out in another tab closes the Talk connection opened with that session; other sessions keep theirs", async () => {
+  StubSession.instances = [];
+  const app = await startAuthApp({ talk: true });
+  try {
+    const laptop = app.browser();
+    await laptop.login("/", member);
+    const phone = app.browser();
+    await phone.login("/", member);
+    const open = async (b: typeof laptop) => {
+      const ws = new WebSocket(`${app.base.replace("http", "ws")}/ws/audio`, { headers: { cookie: [...b.cookies].map(([k, v]) => `${k}=${v}`).join("; ") } });
+      await once(ws, "open");
+      return ws;
+    };
+    const laptopTalk = await open(laptop);
+    const phoneTalk = await open(phone);
+    await waitFor(() => StubSession.instances.length === 2);
+    const closed = once(laptopTalk, "close");
+    assert.equal((await laptop.fetch("/auth/logout", { method: "POST" })).status, 200);
+    const [code] = (await closed) as [number];
+    assert.equal(code, 4401);
+    assert.equal(phoneTalk.readyState, WebSocket.OPEN, "the phone's session is another one");
+    phoneTalk.close();
+  } finally {
+    await app.close();
+  }
+});
