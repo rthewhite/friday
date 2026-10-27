@@ -73,7 +73,7 @@ pnpm --filter @friday/core test:coverage     # coverage for one package
 esphome/test/run.sh                          # the firmware's C++ host tests (needs a C++17 compiler)
 ```
 
-Tests use `node:test` through `tsx` and live in each package's `test/` folder. `portal-ui` uses vitest, because its tests render `.vue` files.
+Tests use `node:test` through `tsx` and live in each package's `test/` folder. Tests that mount `.vue` components use vitest with `@vue/test-utils` and happy-dom instead, because `node:test` can't load `.vue` files: all of `portal-ui`'s, and the portal's in `test/components/`, with `api()` faked. The portal's `pnpm test` runs both. Keep logic in `src/lib/*.ts` with `node:test` tests where you can, and use a component test for what a page does with it: what it sends, and what it shows on an error.
 
 **Coverage** comes from c8. It lists every `.ts` file under a package's `src`, and a file no test loads shows at 0%: core's `server.ts`, for example, only runs in the real server. A file of types only, such as travel's `types.ts`, always reads 0%. `.vue` files aren't counted. There is no threshold, and coverage doesn't gate CI: the table is for finding gaps, not for a number. Import source files in tests; don't `require` them, or the file is loaded twice and its coverage misreported.
 

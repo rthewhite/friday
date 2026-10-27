@@ -111,8 +111,8 @@
   - `interrupted` dropping queued playback
   - a refused microphone giving an `error:` state
   - `stop(true)` draining before close
-- [ ] 8.4 Add `vitest`, `@vue/test-utils` and `happy-dom` as dev dependencies of the portal, with vitest pinned to `portal-ui`'s version. Add `vitest.config.ts` with the Vue plugin, the happy-dom environment and `include: ["test/components/**/*.test.ts"]`. Make `test` run `node:test` and then `vitest run`. Verify that `pnpm --filter @friday/portal test` runs both and that neither picks up the other's files.
-- [ ] 8.5 Add the component tests in `test/components/`, with `api` mocked:
+- [x] 8.4 Add `vitest`, `@vue/test-utils` and `happy-dom` as dev dependencies of the portal, with vitest pinned to `portal-ui`'s version. Add `vitest.config.ts` with the Vue plugin, the happy-dom environment and `include: ["test/components/**/*.test.ts"]`. Make `test` run `node:test` and then `vitest run`. Verify that `pnpm --filter @friday/portal test` runs both and that neither picks up the other's files.
+- [x] 8.5 Add the component tests in `test/components/`, with `api` mocked:
   - **AgentEditor:** saving a new agent sends the expected body and navigates; a 400 shows the server's error.
   - **McpServersTab:** a save error keeps the drawer open with the error.
   - **ConnectionsPage:** a stored client secret isn't shown and isn't sent unless changed.
