@@ -41,28 +41,22 @@
 
 ## 4. Device protocol contract (core side)
 
-- [ ] 4.1 Write `packages/core/test/fixtures/device-protocol.json` with sections `serverMessages`, `deviceMessages`, `uris`, `ids` and `fingerprints`, flat as in design decision 4.
-  - `serverMessages`: `interrupted`, `turn_complete`, `closed`, `ring`, `stop`, each with its meaning.
+- [x] 4.1 Write `packages/core/test/fixtures/device-protocol.json` with sections `serverMessages`, `deviceMessages`, `uris`, `deviceIds`, `alertIds` and `fingerprints`, flat as in design decision 4.
+  - `serverMessages`: `interrupted`, `turn_complete`, `closed`, `ring`, `stop`, each with its meaning, plus one the firmware ignores.
   - `deviceMessages`: `ringing_locally`, `acknowledged`, `unanswered`.
-  - `uris`: audio with and without an alert, control, and a base URL that already has a query.
-  - `ids`: valid and invalid device ids (length 63/64, uppercase, underscore) and alert ids, including one that core generates.
+  - `uris`: audio with and without an alert, control, a base URL that already has a query, and one that doesn't end in `/ws/audio`.
+  - `deviceIds`: valid and invalid (length 63/64, uppercase, underscore). `alertIds`: valid and invalid, including one that core generates.
   - `fingerprints`: at least 3 vectors (key, SHA-256 hex, fingerprint).
 
   Verify that the file parses and that every value is a string, a boolean or a flat object (checked by the test in 4.2).
-- [ ] 4.2 Add `packages/core/test/device-protocol.test.ts`. It checks four things against the fixture:
-  - **Server messages.** It drives the `/ws/device` and `/ws/audio` harnesses until each listed message is sent and compares the raw text.
-  - **Device messages.** It sends each one and checks that `onReport` receives the listed type and alert.
-  - **Ids.** It accepts and refuses the listed device ids, through device auth.
-  - **Fingerprints.** `fingerprint(key)` matches every vector.
-
-  Verify the test passes. Then change `ring`'s shape in a scratch edit of `device-ws.ts`, verify the test fails, and revert the edit.
-- [ ] 4.3 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
+- [x] 4.2 Add `packages/core/test/device-protocol.test.ts`, which checks each part of the fixture as in design decision 4: server messages, device messages, URIs, ids and fingerprints. Verify the test passes. Then change `ring`'s shape in a scratch edit of `alerts/service.ts`, where core builds it, verify the test fails, and revert the edit.
+- [x] 4.3 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
 
 ## 5. Firmware protocol header and host tests
 
 - [ ] 5.1 Write `esphome/components/friday_client/friday_protocol.h` with only the standard library:
   - `audio_uri` and `control_uri`
-  - `valid_device_id` and `valid_alert_id`
+  - `valid_alert_id` (device ids are checked by `__init__.py`; see design decision 3)
   - `audio_event` and `control_event` (enums with `Ignore`)
   - `control_message`
   - `format_fingerprint`

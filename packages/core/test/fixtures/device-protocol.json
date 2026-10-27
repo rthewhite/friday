@@ -1,0 +1,50 @@
+{
+  "about": "The device protocol, as core (packages/core/test/device-protocol.test.ts) and the firmware (esphome/test/friday_protocol_test.cpp) must both see it. Keep it flat: sections are arrays of objects whose values are strings or booleans, so the firmware's test can read it without a JSON library.",
+  "serverMessages": [
+    { "channel": "audio", "type": "interrupted", "raw": "{\"type\":\"interrupted\"}", "meaning": "interrupted" },
+    { "channel": "audio", "type": "turn_complete", "raw": "{\"type\":\"turn_complete\"}", "meaning": "turn_complete" },
+    { "channel": "audio", "type": "closed", "data": "ended: request done", "raw": "{\"type\":\"closed\",\"data\":\"ended: request done\"}", "meaning": "closed" },
+    { "channel": "control", "type": "ring", "alert": "k7m2", "raw": "{\"type\":\"ring\",\"data\":{\"alert\":\"k7m2\"}}", "meaning": "ring" },
+    { "channel": "control", "type": "stop", "alert": "k7m2", "raw": "{\"type\":\"stop\",\"data\":{\"alert\":\"k7m2\"}}", "meaning": "stop" },
+    { "channel": "audio", "type": "user_text", "raw": "{\"type\":\"user_text\",\"data\":\"hi\"}", "meaning": "ignore", "browserOnly": true },
+    { "channel": "control", "type": "ring", "alert": "K7M2", "raw": "{\"type\":\"ring\",\"data\":{\"alert\":\"K7M2\"}}", "meaning": "ignore", "neverSent": true }
+  ],
+  "deviceMessages": [
+    { "type": "ringing_locally", "alert": "k7m2", "raw": "{\"type\":\"ringing_locally\",\"alert\":\"k7m2\"}" },
+    { "type": "acknowledged", "alert": "k7m2", "raw": "{\"type\":\"acknowledged\",\"alert\":\"k7m2\"}" },
+    { "type": "unanswered", "alert": "k7m2", "raw": "{\"type\":\"unanswered\",\"alert\":\"k7m2\"}" }
+  ],
+  "uris": [
+    { "base": "wss://friday.example/ws/audio", "device": "friday-kitchen", "alert": "", "audio": "wss://friday.example/ws/audio?device=friday-kitchen", "control": "wss://friday.example/ws/device?device=friday-kitchen" },
+    { "base": "wss://friday.example/ws/audio", "device": "friday-kitchen", "alert": "k7m2", "audio": "wss://friday.example/ws/audio?device=friday-kitchen&alert=k7m2", "control": "wss://friday.example/ws/device?device=friday-kitchen" },
+    { "base": "ws://192.168.1.10:8080/ws/audio?trace=1", "device": "voice-pe", "alert": "", "audio": "ws://192.168.1.10:8080/ws/audio?trace=1&device=voice-pe", "control": "ws://192.168.1.10:8080/ws/device?trace=1&device=voice-pe" },
+    { "base": "ws://192.168.1.10:8080/friday", "device": "voice-pe", "alert": "", "audio": "ws://192.168.1.10:8080/friday?device=voice-pe", "control": "" }
+  ],
+  "deviceIds": [
+    { "id": "friday-kitchen", "valid": true },
+    { "id": "a", "valid": true },
+    { "id": "0voice", "valid": true },
+    { "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "valid": true },
+    { "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "valid": false },
+    { "id": "", "valid": false },
+    { "id": "Friday-Kitchen", "valid": false },
+    { "id": "friday_kitchen", "valid": false },
+    { "id": "-kitchen", "valid": false },
+    { "id": "kitchen.local", "valid": false }
+  ],
+  "alertIds": [
+    { "id": "k7m2", "valid": true },
+    { "id": "a", "valid": true },
+    { "id": "0123456789abcdef", "valid": true },
+    { "id": "0123456789abcdef0", "valid": false },
+    { "id": "", "valid": false },
+    { "id": "K7M2", "valid": false },
+    { "id": "k7-m2", "valid": false },
+    { "id": "k7m2!", "valid": false }
+  ],
+  "fingerprints": [
+    { "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "sha256": "ea866a757e4c38babfa8127cbe9a409d3e1f93a00ff1488ff735fcf917afffd0", "fingerprint": "ea86-6a75" },
+    { "key": "__________________________________________8", "sha256": "225f7e75329dd45aa354975d73987319309393af3a4c6733bc13601a4f1b8796", "fingerprint": "225f-7e75" },
+    { "key": "ZnJpZGF5LWtpdGNoZW4ga2V5IGZvciB0aGUgZml4dHU", "sha256": "18c61bde8f95f54370d569bea68ae1057f7ae8efbcec6565664e3ead2aeb6d1b", "fingerprint": "18c6-1bde" }
+  ]
+}

@@ -63,7 +63,7 @@
 The new header in `esphome/components/friday_client/` uses only the standard library. It holds:
 
 - `audio_uri(base, device, alert)` and `control_uri(base, device)`
-- `valid_device_id` and `valid_alert_id`, moved from the `.cpp`
+- `valid_alert_id`, moved from the `.cpp`
 - `audio_event(type)`, returning `Interrupted`, `TurnComplete`, `Closed` or `Ignore`
 - `control_event(type, alert)`, returning `Ring`, `Stop` or `Ignore`
 - `control_message(type, alert)`, the exact JSON string the device sends
@@ -71,20 +71,27 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 
 `friday_client.cpp` keeps `json::parse_json` and `mbedtls_sha256` and calls the header for everything after them.
 
+**Device ids aren't checked at runtime.** The firmware checks them when the YAML is validated: `__init__.py`'s `DEVICE_ID` is the same pattern as core's `DEVICE_ID` in `devices/store.ts`. So there's no `valid_device_id` in the header. Instead, core's contract test checks that the two patterns are identical.
+
 **Alternative considered:** move the JSON parsing into the header with a hand-written parser. It would test more, but it replaces a library the device relies on with our own code, for little gain. The messages are flat and small.
 
 ### 4. The contract fixture lives with core, in a flat JSON shape C++ can read
 
-`packages/core/test/fixtures/device-protocol.json` is owned by core, the protocol's server. It has sections `serverMessages`, `deviceMessages`, `uris`, `ids` and `fingerprints`. Every value is a string, a boolean or a flat object, so a test-only reader can extract the values without a JSON library.
+`packages/core/test/fixtures/device-protocol.json` is owned by core, the protocol's server. It has an `about` string and the sections `serverMessages`, `deviceMessages`, `uris`, `deviceIds`, `alertIds` and `fingerprints`. Each section is an array of objects whose values are strings or booleans, so a test-only reader can extract the values without a JSON library.
 
 **C++ side.** That reader, `esphome/test/fixture.h`, is about 80 lines and only handles this shape; it fails loudly on anything else. `run.sh` passes the fixture's path as an argument.
 
 **Core side.** A new `device-protocol.test.ts` covers four parts:
 
-- **Server messages.** It drives the real `/ws/device` and `/ws/audio` harnesses until each listed message is sent, then compares the raw text.
-- **Device messages.** It sends each one and checks that `onReport` receives the listed type and alert.
-- **Ids.** It accepts and refuses the listed device ids, through the existing device-auth checks.
-- **Fingerprints.** `fingerprint(key)` must equal the fixture's value.
+- **Server messages.**
+  - `/ws/audio`: a device connection on the real transport gets each listed message as raw text, and not the browser-only ones.
+  - `/ws/device`: `AlertService` rings and stops a device. Its link socket records the raw text, with the random alert id swapped for the fixture's.
+- **Device messages.** It sends each one on the real `/ws/device` and checks that `onReport` receives the listed type and alert.
+- **URIs.** It connects with each listed audio URI and checks that core read the device, and the alert where there is one. It connects with each control URI and checks that the device comes online.
+- **Ids.**
+  - `DEVICE_ID` accepts exactly the listed device ids, and `__init__.py` uses the same pattern.
+  - The alert ids core generates match the firmware's rule, and the fixture's alert ids follow it.
+- **Fingerprints.** `hashKey(key)` and `fingerprint(...)` must equal the fixture's values.
 
 **Alternative considered:** generate a C++ header from the JSON with a Node script in `run.sh`. That would make `run.sh` need Node and add a generation step. A reader of about 80 lines in the test folder is simpler.
 
