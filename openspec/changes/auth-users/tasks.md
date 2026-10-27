@@ -21,10 +21,10 @@
 
 ## 4. Session check, roles and the users API
 
-- [ ] 4.1 Resolve the session for every request: cookie to session to user, ending sessions that are idle, disabled or refused at refresh. When the session is 24 hours past its last refresh, refresh the claims with the refresh token (update the user and role, apply the group gate). When the provider is unreachable, keep the session. Verify with tests against the fake provider: promoted, demoted, removed in the provider, provider down.
-- [ ] 4.2 Enforce access in the router before dispatch: cross-origin check, then session (401 `unauthenticated`), then the admin-only prefixes (403 `forbidden`). An unknown `/api` path answers 401 without a session and 404 with one. `/health`, `/auth/*` and static files stay open. Verify with an `auth-access.test.ts` table test over every prefix in the spec for no session, member and admin. Run the existing core API tests unchanged; they pass as the loopback dev user.
-- [ ] 4.3 Add `GET /api/me`, `GET /api/users`, `POST /api/users/:id/disable` and `/enable`: 409 on disabling yourself or the dev user, disable ends sessions, and no tokens or subjects in responses. Verify with `users-api.test.ts`.
-- [ ] 4.4 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
+- [x] 4.1 Resolve the session for every request: cookie to session to user, ending sessions that are idle, disabled or refused at refresh. When the session is 24 hours past its last refresh, refresh the claims with the refresh token (update the user and role, apply the group gate). When the provider is unreachable, keep the session. Verify with tests against the fake provider: promoted, demoted, removed in the provider, provider down.
+- [x] 4.2 Enforce access in the router before dispatch: cross-origin check, then session (401 `unauthenticated`), then the admin-only prefixes (403 `forbidden`). An unknown `/api` path answers 401 without a session and 404 with one. `/health`, `/auth/*` and static files stay open. Verify with an `auth-access.test.ts` table test over every prefix in the spec for no session, member and admin. The existing core API tests, which build the app without auth, pass unchanged; the dev user through the whole app is covered in `auth-access.test.ts`.
+- [x] 4.3 Add `GET /api/me`, `GET /api/users`, `POST /api/users/:id/disable` and `/enable`: 409 on disabling yourself or the dev user, disable ends sessions, and no tokens or subjects in responses. Verify with `users-api.test.ts`.
+- [x] 4.4 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
 
 ## 5. The browser voice connection
 

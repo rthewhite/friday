@@ -61,6 +61,11 @@ export interface AuthOptions {
 
 export class Auth {
   private readonly log: Pick<Console, "log" | "warn">;
+  /**
+   * Claim refreshes in flight, by session: the portal sends several requests at once, and a provider that rotates
+   * refresh tokens refuses the second use of the same one, which would end the session.
+   */
+  private readonly refreshing = new Map<string, Promise<User | "ended" | undefined>>();
 
   constructor(private readonly opts: AuthOptions) {
     this.log = opts.log ?? console;
@@ -104,7 +109,12 @@ export class Auth {
       return undefined;
     }
     if (session.refreshDue) {
-      const refreshed = await this.refreshClaims(session.id, user, settings);
+      let pending = this.refreshing.get(session.id);
+      if (!pending) {
+        pending = this.refreshClaims(session.id, user, settings).finally(() => this.refreshing.delete(session.id));
+        this.refreshing.set(session.id, pending);
+      }
+      const refreshed = await pending;
       if (refreshed === "ended") return undefined;
       if (refreshed) user = refreshed;
     }

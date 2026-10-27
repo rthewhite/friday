@@ -29,6 +29,8 @@ import type { UserStore } from "./auth/users.js";
 import type { SessionStore } from "./auth/sessions.js";
 import type { OidcClient } from "./auth/oidc.js";
 import { addAuthRoutes } from "./auth/routes.js";
+import { addUserRoutes } from "./auth/user-routes.js";
+import { adminOnly, isApiPath } from "./auth/access.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -90,6 +92,8 @@ export interface AppAuth {
   oidc?: OidcClient;
   publicUrl: () => string | undefined;
   log?: Pick<Console, "log" | "warn">;
+  /** Called after a user is disabled and their sessions ended, to close what they still have open. */
+  onDisabled?: (userId: string) => void;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -528,11 +532,19 @@ export function createApp(deps: AppDeps) {
 
   mountAgentRoutes(router, deps.agents);
   if (deps.auth?.oidc) addAuthRoutes(router, { ...deps.auth, oidc: deps.auth.oidc });
+  if (deps.auth) addUserRoutes(router, deps.auth);
 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://x");
-    if ((url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
+    if ((isApiPath(url.pathname) || url.pathname.startsWith("/auth/")) && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
       return sendJson(res, { error: "cross-origin requests may not change Friday" }, 403);
+    }
+    // Every API request needs a user, before routing, so unknown paths can't be probed; the household's setup needs
+    // an admin. Without `auth` (tests of other features) nothing is checked; the server always passes it.
+    if (deps.auth && isApiPath(url.pathname)) {
+      const who = await deps.auth.auth.authenticate(req);
+      if (!who) return sendJson(res, { error: "unauthenticated" }, 401);
+      if (who.user.role !== "admin" && adminOnly(req.method ?? "GET", url.pathname)) return sendJson(res, { error: "forbidden" }, 403);
     }
     if (await router.dispatch(req, res, url)) return;
     if (await moduleRoute(req, res, url)) return;
