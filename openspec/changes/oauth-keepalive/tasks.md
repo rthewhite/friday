@@ -12,5 +12,5 @@
 
 ## 3. End to end
 
-- [ ] 3.1 Locally, with Spotify connected: `Run now` on `core/oauth-keepalive` from the Jobs page gives an `ok` run with "refreshed 1", and the connection's `expiresAt` moves. Revoke Friday at Spotify, run it again: the run is `failed` naming Spotify, and the Connections page shows `error` with `Reconnect`. Needs the user to revoke and reconnect
+- [x] 3.1 Locally, with Spotify connected: `Run now` on `core/oauth-keepalive` from the Jobs page gives an `ok` run with "refreshed 1", and the connection's `expiresAt` moves. Revoke Friday at Spotify, run it again: the run is `failed` naming Spotify, and the Connections page shows `error` with `Reconnect`. Needs the user to revoke and reconnect
 - [ ] 3.2 After deploy, check the first scheduled run at 05:00 on the Jobs page at `https://friday.thewhite.nl`. Needs the user
