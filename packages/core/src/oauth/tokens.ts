@@ -6,11 +6,22 @@
 import * as arctic from "arctic";
 import { OAuthError, type ModuleOAuth } from "@friday/sdk";
 import { buildClient as defaultBuildClient, clientConfig, providerName, type BuildClient } from "./catalogue.js";
-import type { OAuthRequests } from "./requests.js";
+import type { OAuthRequests, RequestSet } from "./requests.js";
 import { OAuthDecryptError, type OAuthStore, type StoredConnection } from "./store.js";
 
 /** A token expiring sooner than this is refreshed first. */
 export const REFRESH_MARGIN_MS = 60_000;
+
+/**
+ * What `refreshNow` did: `error` left the connection in state `error` (refused, or unreadable), `retry` left it
+ * `connected` (network failure or provider server error), `changed` discarded a refresh for a client that was replaced.
+ */
+export type RefreshOutcome =
+  | { result: "refreshed" }
+  | { result: "skipped"; reason: string }
+  | { result: "error"; message: string }
+  | { result: "retry"; message: string }
+  | { result: "changed" };
 
 const WHERE = "under Settings > Connections";
 
@@ -78,11 +89,50 @@ export class OAuthTokens {
     const secrets = this.secrets(provider, name);
     if (!secrets.accessToken) throw new OAuthError("not_connected", `${name} is not connected yet. Connect it ${WHERE}.`);
     if (!expiresSoon(conn, this.now())) return secrets.accessToken;
+    return this.sharedRefresh(conn, name, secrets.clientSecret, secrets.refreshToken, requests);
+  }
 
+  /**
+   * Refreshes a connection now, on behalf of no module: the nightly keep-alive. Shares an in-flight refresh with
+   * `token()` and follows its rules, but reports the outcome instead of throwing, and skips a connection it cannot
+   * refresh without putting it in `error` (that still happens when its token expires and a module asks for it).
+   */
+  async refreshNow(provider: string): Promise<RefreshOutcome> {
+    const { store } = this.o;
+    if (!store.secretsEnabled) return { result: "skipped", reason: "FRIDAY_MASTER_KEY is not set" };
+    const conn = store.get(provider);
+    if (conn?.state !== "connected" || !conn.hasTokens) return { result: "skipped", reason: "not connected" };
+    const name = providerName(provider);
+    let secrets;
+    try {
+      secrets = store.secrets(provider);
+    } catch (e) {
+      if (e instanceof OAuthDecryptError) return { result: "error", message: e.message };
+      throw e;
+    }
+    if (!this.buildClient(clientConfig(conn, secrets.clientSecret), this.o.redirectUri(provider)).refresh) {
+      return { result: "skipped", reason: `${name} does not refresh logins` };
+    }
+    if (!secrets.refreshToken) return { result: "skipped", reason: "no refresh token was stored" };
+    try {
+      await this.sharedRefresh(conn, name, secrets.clientSecret, secrets.refreshToken, this.o.requests.snapshot());
+      return { result: "refreshed" };
+    } catch (e) {
+      if (!(e instanceof OAuthError)) throw e;
+      if (e.kind === "not_connected") return { result: "changed" };
+      const after = store.get(provider);
+      if (after?.state === "error") return { result: "error", message: after.error ?? e.message };
+      return { result: "retry", message: errorSummary(e.cause) };
+    }
+  }
+
+  /** One refresh per connection at a time: a caller arriving while one is out gets its outcome. */
+  private sharedRefresh(conn: StoredConnection, name: string, clientSecret: string | undefined, refreshToken: string | undefined, requests: RequestSet): Promise<string> {
+    const provider = conn.provider;
     let refresh = this.inflight.get(provider);
     if (!refresh) {
-      const scopes = requests.requestedScopes(provider, store.grants(provider), conn.extraScopes);
-      refresh = this.refresh(conn, name, secrets.clientSecret, secrets.refreshToken, scopes).finally(() => this.inflight.delete(provider));
+      const scopes = requests.requestedScopes(provider, this.o.store.grants(provider), conn.extraScopes);
+      refresh = this.refresh(conn, name, clientSecret, refreshToken, scopes).finally(() => this.inflight.delete(provider));
       this.inflight.set(provider, refresh);
     }
     return refresh;

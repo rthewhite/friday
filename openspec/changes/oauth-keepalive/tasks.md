@@ -2,7 +2,7 @@
 
 ## 1. Refresh without a module
 
-- [ ] 1.1 In `packages/core/src/oauth/tokens.ts`, add `OAuthTokens.refreshNow(provider)` returning `refreshed`, `skipped` (not `connected`, no refresh token, provider can't refresh), `error` (refused or undecryptable, state now `error`), `retry` (transient, state unchanged) or `changed` (saved with another client or deleted meanwhile). It computes scopes like `token()` and shares the `inflight` refresh with it. `token()` keeps its behaviour and uses the same shared refresh. Verify with new tests in `packages/core/test/oauth-tokens.test.ts` on the fake client and clock: each outcome, a connection with no grants is still refreshed, a `token()` call and a `refreshNow` at the same time make one refresh request, a provider without refresh is `skipped` and stays `connected`, and the existing token tests still pass
+- [x] 1.1 In `packages/core/src/oauth/tokens.ts`, add `OAuthTokens.refreshNow(provider)` returning `refreshed`, `skipped` (not `connected`, no refresh token, provider can't refresh), `error` (refused or undecryptable, state now `error`), `retry` (transient, state unchanged) or `changed` (saved with another client or deleted meanwhile). It computes scopes like `token()` and shares the `inflight` refresh with it. `token()` keeps its behaviour and uses the same shared refresh. Verify with new tests in `packages/core/test/oauth-tokens.test.ts` on the fake client and clock: each outcome, a connection with no grants is still refreshed, a `token()` call and a `refreshNow` at the same time make one refresh request, a provider without refresh is `skipped` and stays `connected`, and the existing token tests still pass
 
 ## 2. Keep-alive job
 
