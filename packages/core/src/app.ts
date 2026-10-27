@@ -24,6 +24,11 @@ import { CORE_ID, coreManifest } from "./core-config.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { chatRoute } from "./chat/route.js";
 import { addOAuthRoutes, type OAuthDeps } from "./oauth/routes.js";
+import type { Auth } from "./auth/auth.js";
+import type { UserStore } from "./auth/users.js";
+import type { SessionStore } from "./auth/sessions.js";
+import type { OidcClient } from "./auth/oidc.js";
+import { addAuthRoutes } from "./auth/routes.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -39,7 +44,7 @@ const MIME: Record<string, string> = {
 };
 
 /** Paths that must never fall back to index.html. */
-const RESERVED = ["/api", "/ws", "/health"];
+const RESERVED = ["/api", "/auth", "/ws", "/health"];
 
 export interface AppDeps {
   registry: ToolRegistry;
@@ -73,6 +78,18 @@ export interface AppDeps {
   onConfigChange?: (scope: string, key: string) => void;
   /** OAuth connections; without it `/api/oauth/connections` and the login answer 503. */
   oauth?: OAuthDeps;
+  /** Who may use the API. Without it every request counts as the local dev admin (tests of other features). */
+  auth?: AppAuth;
+}
+
+export interface AppAuth {
+  auth: Auth;
+  users: UserStore;
+  sessions: SessionStore;
+  /** The provider client; absent in dev mode, which serves no `/auth/*` routes. */
+  oidc?: OidcClient;
+  publicUrl: () => string | undefined;
+  log?: Pick<Console, "log" | "warn">;
 }
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
@@ -510,10 +527,11 @@ export function createApp(deps: AppDeps) {
   };
 
   mountAgentRoutes(router, deps.agents);
+  if (deps.auth?.oidc) addAuthRoutes(router, { ...deps.auth, oidc: deps.auth.oidc });
 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://x");
-    if (url.pathname.startsWith("/api/") && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
+    if ((url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) && !SAFE_METHODS.has(req.method ?? "GET") && isCrossOrigin(req)) {
       return sendJson(res, { error: "cross-origin requests may not change Friday" }, 403);
     }
     if (await router.dispatch(req, res, url)) return;

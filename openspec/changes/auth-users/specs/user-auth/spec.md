@@ -129,7 +129,7 @@ A successful login SHALL start a session identified by a random token of at leas
 
 ### Requirement: Users can log out
 
-`POST /auth/logout` SHALL end the current session, clear the cookie and answer 204, also without a session. It SHALL be subject to the cross-origin rule of `http-server`. It SHALL NOT end the session at the provider. The response SHALL include the provider's end-session URL when the provider advertises one, so the portal can offer it.
+`POST /auth/logout` SHALL end the current session, clear the cookie and answer 200 with `{ "endSessionUrl": <url or null> }`, also without a session. The URL SHALL be the provider's end-session URL when the provider advertises one, so the portal can offer it. It SHALL be subject to the cross-origin rule of `http-server`. It SHALL NOT end the session at the provider.
 
 #### Scenario: Log out
 - **WHEN** a logged-in user posts `/auth/logout`

@@ -14,10 +14,10 @@
 
 ## 3. Login, callback and logout
 
-- [ ] 3.1 Add a test helper that runs a fake OIDC provider on loopback: discovery, authorize redirect, token endpoint with ID tokens and refresh tokens, configurable claims and refusal, and an end-session endpoint. Verify it with a smoke test that runs one code exchange.
-- [ ] 3.2 Implement `GET /auth/login` with the `arctic` Authentik provider (PKCE S256, state, nonce, scopes `openid email profile offline_access`) and the 10-minute login cookie, with `return_to` limited to Friday's own paths. Verify with tests for the redirect parameters and the open-redirect scenarios (`//evil.example/`, `/\evil`).
-- [ ] 3.3 Implement `GET /auth/callback`: state check, code exchange, `iss`/`aud`/`exp`/`nonce` checks, group gate, provisioning, owner, start a session with the right cookie name and attributes (`__Host-` on https, plain on http), and redirect. Provider errors and failures go to an error page and the no-access 403 page, and the login cookie is cleared. Verify with `auth-flow.test.ts` against the fake provider for every login, group and provisioning scenario in `user-auth`.
-- [ ] 3.4 Implement `POST /auth/logout` (ends the session, clears the cookie, answers 204 with the provider's end-session URL when advertised, applies the cross-origin rule) and 404 for `/auth/*` without auth configured. Verify with the logout and cross-site logout scenarios.
+- [x] 3.1 Add a test helper that runs a fake OIDC provider on loopback: discovery, authorize redirect, token endpoint with ID tokens and refresh tokens, configurable claims and refusal, and an end-session endpoint. Verify it with a smoke test that runs one code exchange.
+- [x] 3.2 Implement `GET /auth/login` with the `arctic` Authentik provider (PKCE S256, state, nonce, scopes `openid email profile offline_access`) and the 10-minute login cookie, with `return_to` limited to Friday's own paths. Verify with tests for the redirect parameters and the open-redirect scenarios (`//evil.example/`, `/\evil`).
+- [x] 3.3 Implement `GET /auth/callback`: state check, code exchange, `iss`/`aud`/`exp`/`nonce` checks, group gate, provisioning, owner, start a session with the right cookie name and attributes (`__Host-` on https, plain on http), and redirect. Provider errors and failures go to an error page and the no-access 403 page, and the login cookie is cleared. Verify with `auth-flow.test.ts` against the fake provider for every login, group and provisioning scenario in `user-auth`.
+- [x] 3.4 Implement `POST /auth/logout` (ends the session, clears the cookie, answers 200 with `{ endSessionUrl }`, the provider's end-session URL when advertised, applies the cross-origin rule) and 404 for `/auth/*` without auth configured. Verify with the logout and cross-site logout scenarios.
 
 ## 4. Session check, roles and the users API
 
