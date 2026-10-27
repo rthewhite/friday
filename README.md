@@ -77,12 +77,16 @@ Tests use `node:test` through `tsx` and live in each package's `test/` folder. `
 
 **Coverage** comes from c8. It lists every `.ts` file under a package's `src`, and a file no test loads shows at 0%: core's `server.ts`, for example, only runs in the real server. A file of types only, such as travel's `types.ts`, always reads 0%. `.vue` files aren't counted. There is no threshold, and coverage doesn't gate CI: the table is for finding gaps, not for a number. Import source files in tests; don't `require` them, or the file is loaded twice and its coverage misreported.
 
-**Against the real model.** These need `GEMINI_API_KEY`, cost a little, and stay out of `pnpm test`:
+**Against the real model.** These need `GEMINI_API_KEY`, cost a little, and stay out of `pnpm test`, where the live tests are skipped:
 
 ```bash
-FRIDAY_LIVE_TESTS=1 pnpm --filter @friday/core test   # core's live Gemini tests (otherwise skipped)
-pnpm --filter @friday/module-brain eval              # the brain's nightly-pass fixtures (see Memory)
+pnpm --filter @friday/core test:live      # core's live Gemini tests; fails without the key or if none ran
+pnpm --filter @friday/module-brain eval   # the brain's nightly-pass fixtures (see Memory)
 ```
+
+CI runs both every Monday (`.github/workflows/live-checks.yml`), because the default `gemini-flash-latest` alias moves to newer models without a commit here. See `infra/README.md` for its secret.
+
+**Before an image is pushed**, CI starts it and checks that it serves and loads every module (`scripts/smoke.sh`, see `infra/README.md`). To run that check locally: `docker build -t friday:smoke . && scripts/smoke.sh friday:smoke`.
 
 ## Add a module
 

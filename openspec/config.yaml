@@ -267,6 +267,9 @@ context: |
   generated FRIDAY_MASTER_KEY, scripts/smoke.env placeholders on .invalid hosts, every module loaded, probes via
   docker exec to 127.0.0.1, clean SIGTERM) and only then pushes. A module with new required config needs a
   smoke.env placeholder. .dockerignore excludes .env and data/ at any depth (worktrees keep them in packages/core).
+  live-checks.yml (Mondays 06:00 UTC + dispatch, repo secret GEMINI_API_KEY, no deploy steps) runs core's
+  `test:live` (scripts/test-live.ts: live: tests with FRIDAY_LIVE_TESTS=1; fails without the key or when none ran)
+  and the brain eval, with FRIDAY_TEXT_MODEL at its moving default.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

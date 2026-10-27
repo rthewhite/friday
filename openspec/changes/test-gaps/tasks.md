@@ -87,8 +87,8 @@
 
 ## 7. Weekly live checks
 
-- [ ] 7.1 Add `test:live` to `packages/core`. It runs the live tests with `FRIDAY_LIVE_TESTS=1` and `--test-name-pattern="^live: "`, fails without `GEMINI_API_KEY`, and fails when no test passed, so a rename can't make it pass by matching nothing. Verify that without the key it exits non-zero with a message naming `GEMINI_API_KEY`. With the key from `.env`, verify it runs and passes the 3 live tests.
-- [ ] 7.2 Add `.github/workflows/live-checks.yml` as in design decision 6:
+- [x] 7.1 Add `test:live` to `packages/core`. It runs the live tests with `FRIDAY_LIVE_TESTS=1` and `--test-name-pattern="^live: "`, fails without `GEMINI_API_KEY`, and fails when no test passed, so a rename can't make it pass by matching nothing. Verify that without the key it exits non-zero with a message naming `GEMINI_API_KEY`. With the key from `.env`, verify it runs and passes the 3 live tests.
+- [x] 7.2 Add `.github/workflows/live-checks.yml` as in design decision 6:
   - `schedule` at `0 6 * * 1` and `workflow_dispatch`, on the homelab runner
   - a first step that fails when `secrets.GEMINI_API_KEY` is empty
   - install and build
@@ -96,7 +96,7 @@
   - no registry or kube steps
 
   Verify with `actionlint` and that the file has no `docker`, `kubectl` or registry secret references.
-- [ ] 7.3 Document the `GEMINI_API_KEY` repository secret and the weekly run in `infra/README.md`, and add the live checks to the README's Testing section. Verify that the documented commands run as written.
+- [x] 7.3 Document the `GEMINI_API_KEY` repository secret and the weekly run in `infra/README.md`, and add the live checks to the README's Testing section. Verify that the documented commands run as written.
 
 ## 8. Portal tests
 
