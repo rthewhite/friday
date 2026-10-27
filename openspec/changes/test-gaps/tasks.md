@@ -14,7 +14,7 @@
 
 ## 2. SDK and media coverage gaps
 
-- [ ] 2.1 Cover the reconnect paths in `packages/sdk/src/remote/runner.ts` against a local `ws` server:
+- [x] 2.1 Cover the reconnect paths in `packages/sdk/src/remote/runner.ts` against a local `ws` server:
   - a welcome that isn't JSON
   - a message that isn't `welcome`
   - no welcome before `helloTimeoutMs`
@@ -23,8 +23,12 @@
   - stopping during the wait
 
   Verify with the coverage run of the SDK showing `runner.ts` at 100% of functions.
-- [ ] 2.2 Cover `modules/media/src/index.ts`'s Jellyfin error status (`jellyfin <path> -> <status>`), marking an item played, and `nextEpisode`'s fallbacks (no next-up: first unwatched; all watched: starting over; no episodes: null), against the fake fetch. Verify with the coverage run of media showing no uncovered lines in those functions.
-- [ ] 2.3 Run `pnpm --filter @friday/sdk test`, `pnpm --filter @friday/module-media test` and both typechecks. Verify they are green.
+
+  Done at 91% of functions, plus listing and calling tools over MCP, the tool-list notification, and the socket error log. The two left only swallow errors:
+  - `sendToolListChanged().catch`
+  - `stop()`'s `ready.catch`, after a failed `init`. Today a failed `init` ends in an unhandled rejection, and no spec says what should happen, so it's reported as a follow-up rather than tested.
+- [x] 2.2 Cover `modules/media/src/index.ts`'s Jellyfin error status (`jellyfin <path> -> <status>`), marking an item played, and `nextEpisode`'s fallbacks (no next-up: first unwatched; all watched: starting over; no episodes: null), against the fake fetch. Verify with the coverage run of media showing no uncovered lines in those functions.
+- [x] 2.3 Run `pnpm --filter @friday/sdk test`, `pnpm --filter @friday/module-media test` and both typechecks. Verify they are green.
 
 ## 3. Coverage report
 

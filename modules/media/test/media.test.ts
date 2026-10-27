@@ -117,3 +117,79 @@ test("media reads config at call time, so values saved after init are used", asy
   assert.equal(new URL(calls[0].url).origin, "http://changed.local");
   void h;
 });
+
+const SERIES_ID = "0123456789abcdef0123456789abcdef";
+const ep = (id: string, extra: object = {}) => ({ Id: id, Name: `Episode ${id}`, Type: "Episode", SeriesName: "Dark", ...extra });
+const ids = (r: { result: Record<string, unknown> }) => (r.result.episodes as { id: string }[]).map((e) => e.id);
+const episodeId = (r: { result: Record<string, unknown> }) => (r.result.episode as { id: string }).id;
+
+test("get_next_episode resumes a partially watched episode, looked up by series id without a search", async () => {
+  const calls: Call[] = [];
+  const f = fakeFetch(
+    { "/Users": [{ Id: "u1", Name: "ray" }], "/Shows/NextUp": { Items: [ep("e3", { UserData: { PlaybackPositionTicks: 600_000_000 * 12 } })] } },
+    calls,
+  );
+  const h = await createTestHost(createMediaModule({ fetch: f }), { env });
+  const r = await h.call("get_next_episode", { series: SERIES_ID });
+  assert.deepEqual([r.result.reason, episodeId(r), (r.result.episode as { resume_at_minutes: number }).resume_at_minutes], ["resume partially watched", "e3", 12]);
+  assert.ok(!calls.some((c) => new URL(c.url).pathname === "/Items"), "an id needs no search");
+  assert.equal(new URL(calls.find((c) => c.url.includes("/Shows/NextUp"))!.url).searchParams.get("seriesId"), SERIES_ID);
+});
+
+test("get_next_episode falls back to the first unwatched episode, then to episode 1 when all are watched", async () => {
+  const series = { "/Users": [{ Id: "u1", Name: "ray" }], "/Items": { Items: [{ Id: "s1", Name: "Dark", Type: "Series" }] }, "/Shows/NextUp": { Items: [] } };
+  const watched = { UserData: { Played: true } };
+  const some = await createTestHost(createMediaModule({ fetch: fakeFetch({ ...series, "/Shows/s1/Episodes": { Items: [ep("e1", watched), ep("e2"), ep("e3")] } }) }), { env });
+  const a = await some.call("get_next_episode", { series: "dark" });
+  assert.deepEqual([a.result.series, a.result.reason, episodeId(a)], ["Dark", "first episode", "e2"]);
+
+  const all = await createTestHost(createMediaModule({ fetch: fakeFetch({ ...series, "/Shows/s1/Episodes": { Items: [ep("e1", watched), ep("e2", watched)] } }) }), { env });
+  const b = await all.call("get_next_episode", { series: "dark" });
+  assert.deepEqual([b.result.reason, episodeId(b)], ["all watched, starting over", "e1"]);
+});
+
+test("get_next_episode reports no match, a series without episodes, and other matches", async () => {
+  const base = { "/Users": [{ Id: "u1", Name: "ray" }], "/Shows/NextUp": { Items: [] }, "/Shows/s1/Episodes": { Items: [] } };
+  const none = await createTestHost(createMediaModule({ fetch: fakeFetch({ ...base, "/Items": { Items: [] } }) }), { env });
+  assert.deepEqual((await none.call("get_next_episode", { series: "nope" })).result, { error: 'no series matching "nope"' });
+
+  const dark = { Id: "s1", Name: "Dark", Type: "Series" };
+  const empty = await createTestHost(createMediaModule({ fetch: fakeFetch({ ...base, "/Items": { Items: [dark] } }) }), { env });
+  assert.deepEqual((await empty.call("get_next_episode", { series: "dark" })).result, { error: "Dark has no episodes" });
+
+  const hits = [dark, { Id: "s2", Name: "Dark Matter", Type: "Series", ProductionYear: 2015 }, { Id: "s3", Name: "Dark Angel", Type: "Series" }];
+  const several = await createTestHost(createMediaModule({ fetch: fakeFetch({ ...base, "/Items": { Items: hits } }) }), { env });
+  assert.deepEqual((await several.call("get_next_episode", { series: "dark" })).result, { series: "Dark", error: "series has no episodes", other_matches: ["Dark Matter (2015)", "Dark Angel (?)"] });
+});
+
+test("list_episodes_to_watch gives next up by default and recently added on request", async () => {
+  const calls: Call[] = [];
+  const f = fakeFetch({ "/Users": [{ Id: "u1", Name: "ray" }], "/Shows/NextUp": { Items: [ep("n1")] }, "/Users/u1/Items/Latest": [ep("l1"), ep("l2")] }, calls);
+  const h = await createTestHost(createMediaModule({ fetch: f }), { env });
+  const next = await h.call("list_episodes_to_watch", {});
+  assert.deepEqual([next.result.kind, ids(next)], ["next_up", ["n1"]]);
+  const latest = await h.call("list_episodes_to_watch", { kind: "recently_added", limit: 2 });
+  assert.deepEqual([latest.result.kind, ids(latest)], ["recently_added", ["l1", "l2"]]);
+  const q = new URL(calls.find((c) => c.url.includes("/Items/Latest"))!.url).searchParams;
+  assert.deepEqual([q.get("includeItemTypes"), q.get("limit")], ["Episode", "2"]);
+});
+
+test("play_on_apple_tv still reports a started stream when marking it watched fails (WHEN_IDLE)", async () => {
+  const f = fakeFetch({
+    "/Users": [{ Id: "u1", Name: "ray" }],
+    "/api/states/media_player.tv": { state: "off", attributes: {} },
+    "/api/services/media_player/turn_on": [],
+    "/api/services/media_player/play_media": [],
+  });
+  const h = await createTestHost(createMediaModule({ fetch: f }), { env });
+  const r = await h.call("play_on_apple_tv", { item_id: "ep1" });
+  assert.equal(r.scheduling, "WHEN_IDLE");
+  assert.deepEqual([r.result.started, r.result.marked_watched], [true, false]);
+  assert.match(String(r.result.warning), /could not mark as watched: Error: jellyfin \/UserPlayedItems\/ep1 -> 404/);
+});
+
+test("an unknown Jellyfin user is an error", async () => {
+  const f = fakeFetch({ "/Users": [{ Id: "u1", Name: "someone" }], "/Items": { Items: [] } });
+  const h = await createTestHost(createMediaModule({ fetch: f }), { env });
+  assert.match(String((await h.call("search_library", { query: "x" })).result.error), /jellyfin user ray not found/);
+});
