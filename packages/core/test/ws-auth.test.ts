@@ -48,6 +48,7 @@ test("a browser with a valid session opens the Talk socket, and it belongs to th
     const r = await attempt(h.url, { cookie: f.cookie, origin: `http://${host}` });
     assert.ok(r.ws, `refused with ${r.status}`);
     await waitFor(() => StubSession.instances.length === 1);
+    assert.deepEqual(StubSession.instances[0].user, { id: f.user.id, name: "Sanne" }, "the session is for that user");
     assert.equal(f.userConnections.count(f.user.id), 1);
     r.ws!.close();
     await waitFor(() => f.userConnections.count(f.user.id) === 0);

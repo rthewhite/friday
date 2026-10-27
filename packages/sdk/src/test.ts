@@ -14,6 +14,7 @@ import { MemoryStorage } from "./storage.js";
 import { MemoryConversations } from "./conversations.js";
 import { lazyDb, openModuleDb, type ModuleDatabase, type ModuleDb } from "./db.js";
 import { PromptContext, type PromptChannel } from "./prompt.js";
+import type { CallUser, RequestUser } from "./user.js";
 
 export interface TestHostOptions {
   /** Configuration the module sees. Defaults to an empty environment, not `process.env`. */
@@ -33,7 +34,15 @@ export interface TestHostOptions {
    * with `not_granted`, as in core; a requested provider missing here rejects with `not_connected`.
    */
   oauth?: Record<string, FakeOAuth>;
+  /**
+   * The user behind route requests, tool calls and prompt rendering. Without it, route requests carry an admin test
+   * user (core always sets one) and calls and prompts carry none. Each request, call and render can override it.
+   */
+  user?: RequestUser;
 }
+
+/** The user route requests carry when the test host has no `user` option. */
+export const TEST_USER: RequestUser = { id: "test-user", name: "Test User", role: "admin" };
 
 export type FakeOAuthValue = string | OAuthError;
 export type FakeOAuth = FakeOAuthValue | (() => FakeOAuthValue | Promise<FakeOAuthValue>);
@@ -61,7 +70,10 @@ export interface TestJobRun {
 
 export interface TestHost {
   tools: string[];
-  /** Call a tool; pass `{ channel }` to call it as that channel would (out-of-channel tools are unknown). */
+  /**
+   * Call a tool; pass `{ channel }` to call it as that channel would (out-of-channel tools are unknown). The call
+   * carries the host's `user` unless `opts` has a `user` key (`{ user: undefined }` calls without one).
+   */
   call(name: string, args?: Record<string, unknown>, opts?: CallOptions): Promise<CallResult>;
   /** Names of the tools offered in a channel. */
   toolsIn(channel: ConversationChannel): string[];
@@ -74,8 +86,11 @@ export interface TestHost {
   conversations: MemoryConversations;
   /** Registered module routes as `GET search`. */
   routes: string[];
-  /** Invoke a module route in memory. `path` is relative to the module mount and may carry a query string. */
-  request(method: HttpMethod, path: string, body?: unknown, headers?: Record<string, string>): Promise<TestResponse>;
+  /**
+   * Invoke a module route in memory. `path` is relative to the module mount and may carry a query string. The request
+   * carries the host's `user` (else `TEST_USER`); `opts.user` overrides it, `null` sends none.
+   */
+  request(method: HttpMethod, path: string, body?: unknown, headers?: Record<string, string>, opts?: { user?: RequestUser | null }): Promise<TestResponse>;
   /** Jobs the module scheduled. No timers run; use `runJob`. */
   jobs: TestJob[];
   /** Run a scheduled job's handler once (trigger `manual`) and report how it settled. */
@@ -87,8 +102,11 @@ export interface TestHost {
   db: ModuleDb;
   /** `ctx.oauth.token` calls per provider, including rejected ones. */
   oauthCalls: Record<string, number>;
-  /** The module's prompt context for a channel, rendered as core would (empty when it adds none). */
-  promptContext(channel: PromptChannel): string;
+  /**
+   * The module's prompt context for a channel, rendered as core would (empty when it adds none), for the host's
+   * `user` unless one is given (`null` renders without a user).
+   */
+  promptContext(channel: PromptChannel, user?: CallUser | null): string;
   dispose(): Promise<void>;
 }
 
@@ -140,19 +158,20 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   if (module.migrations?.length) open().migrate(module.migrations, prefixedLogger(id, log));
   const db = lazyDb(open);
   const prompts = new PromptContext({ log });
+  const hostUser: CallUser | undefined = opts.user && { id: opts.user.id, name: opts.user.name };
   const oauthCalls: Record<string, number> = {};
   const oauth = fakeOAuth(module, opts.oauth ?? {}, oauthCalls);
   await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm, db, prompt: prompts.forOwner(id), oauth }));
   return {
     tools: registry.names(module.manifest.id),
-    call: (name, args, opts) => registry.callTool(name, args, opts),
+    call: (name, args, opts = {}) => registry.callTool(name, args, "user" in opts ? opts : { ...opts, user: hostUser }),
     toolsIn: (channel) => registry.declarations(channel).map((d) => d.name),
     registry,
     storage,
     llmRequests,
     conversations,
     routes: table.list().map((r) => `${r.method} ${r.path.replace(/^\//, "")}`),
-    async request(method, pathWithQuery, body, headers = {}) {
+    async request(method, pathWithQuery, body, headers = {}, ropts = {}) {
       const [path, qs = ""] = pathWithQuery.split("?");
       const hit = table.find(method, path);
       if (hit === null) return { status: 404, body: { error: "not found" } };
@@ -162,6 +181,7 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
         path,
         query: new URLSearchParams(qs),
         headers,
+        ...(ropts.user === null ? {} : { user: ropts.user ?? opts.user ?? TEST_USER }),
         json: async <T,>() => body as T,
         text: async () => (typeof body === "string" ? body : JSON.stringify(body ?? "")),
       };
@@ -181,7 +201,7 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
     runJob: (name) => runJob(name, "manual"),
     db,
     oauthCalls,
-    promptContext: (channel) => prompts.render(channel),
+    promptContext: (channel, user) => prompts.render(channel, user === null ? undefined : (user ?? hostUser)),
     dispose: async () => {
       conversations.clearSubscriptions();
       prompts.clear(id);

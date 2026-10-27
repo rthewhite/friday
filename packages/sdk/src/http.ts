@@ -4,6 +4,8 @@
  * types are deliberately small and framework-free so the test host can
  * implement them in memory.
  */
+import type { RequestUser } from "./user.js";
+
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface RouteRequest {
@@ -12,6 +14,11 @@ export interface RouteRequest {
   path: string;
   query: URLSearchParams;
   headers: Record<string, string | undefined>;
+  /**
+   * The user who made the request. Core checks the session before any module route runs, so it is set for every
+   * route core serves; a route that is for admins only checks `user.role` itself.
+   */
+  user?: RequestUser;
   /** Parse the body as JSON; rejects on invalid JSON. Resolves `undefined` for an empty body. */
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;

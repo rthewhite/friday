@@ -33,9 +33,9 @@
 
 ## 6. The user in the SDK and core's call paths
 
-- [ ] 6.1 Add `user` to `RouteRequest` (`{ id, name, role }`), `ToolCallContext` and `PromptContextInfo` (`{ id, name }`), and the `user` option to `createTestHost` (route requests default to an admin test user, calls and prompts to none, overridable per call). Verify with `packages/sdk` tests for the test-host scenarios.
-- [ ] 6.2 Pass the user in core: module routes get `req.user`, and chat turns, browser voice sessions and user-started agent runs pass `user` to `callTool` and to prompt context. Device sessions and scheduled runs pass none, and MCP and remote tools never see it. Verify with core tests for "handler sees its user", "device session has no user", and the prompt context chat and voice-device scenarios.
-- [ ] 6.3 Run `pnpm --filter @friday/sdk test typecheck` and `pnpm --filter @friday/core test typecheck`. Verify both are green, and that every module still typechecks (`pnpm -r typecheck`).
+- [x] 6.1 Add `user` to `RouteRequest` (`{ id, name, role }`), `ToolCallContext` and `PromptContextInfo` (`{ id, name }`), and the `user` option to `createTestHost` (route requests default to an admin test user, calls and prompts to none, overridable per call). Verify with `packages/sdk` tests for the test-host scenarios.
+- [x] 6.2 Pass the user in core: module routes get `req.user`, and chat turns and browser voice sessions pass `user` to `callTool` and to prompt context. Device sessions pass none, and MCP and remote tools never see it. User-started agent runs pass their user in 7.2, where the run stores it (approved actions run later). Verify with core tests for "handler sees its user", "device session has no user", and the prompt context chat and voice-device scenarios.
+- [x] 6.3 Run `pnpm --filter @friday/sdk test typecheck` and `pnpm --filter @friday/core test typecheck`. Verify both are green, and that every module still typechecks (`pnpm -r typecheck`).
 
 ## 7. Attribution
 

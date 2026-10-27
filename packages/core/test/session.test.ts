@@ -427,6 +427,24 @@ test("a device session's tool calls carry the device, a session without a device
   talk.close();
 });
 
+test("a Talk page session's tool calls carry its user, a device session's don't", async () => {
+  const r = new ToolRegistry(quiet);
+  const seen: unknown[] = [];
+  r.add("core", { name: "t", description: "", handler: (_args, call) => (seen.push(call), {}) });
+  const live = fakeLive();
+  const talk = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, user: { id: "u2", name: "Sanne" } });
+  const kitchen = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, device: "friday-kitchen" });
+  await talk.open();
+  await kitchen.open();
+  talk.handle({ toolCall: { functionCalls: [{ id: "1", name: "t", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 1);
+  kitchen.handle({ toolCall: { functionCalls: [{ id: "2", name: "t", args: {} }] } } as LiveServerMessage);
+  await waitFor(() => live.responses.length === 2);
+  assert.deepEqual(seen, [{ channel: "voice", user: { id: "u2", name: "Sanne" } }, { channel: "voice", device: "friday-kitchen" }]);
+  talk.close();
+  kitchen.close();
+});
+
 /** 250 ms of 24 kHz s16le with varied bytes, so chunks can be told apart. */
 const tone = () => Buffer.from(Array.from({ length: 12_000 }, (_, i) => i % 251));
 

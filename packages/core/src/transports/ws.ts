@@ -33,7 +33,7 @@
  */
 import type { IncomingMessage, Server } from "node:http";
 import type { WebSocketServer, WebSocket } from "ws";
-import type { PromptContext, ToolRegistry } from "@friday/sdk";
+import type { CallUser, PromptContext, ToolRegistry } from "@friday/sdk";
 import { settings } from "../config.js";
 import { systemPrompt } from "../prompt-context.js";
 import { GeminiSession, type Event, type SessionOptions } from "../session.js";
@@ -65,7 +65,7 @@ export interface AudioWsOptions {
    * Receives the connection's recorder (when a conversation store is given), its accepted device, if any, and for
    * an alert session the opening and the wait for the user.
    */
-  createSession?: (onEvent: (e: Event) => void, recorder?: ConversationRecorder, device?: DeviceSnapshot, alert?: AlertSessionOptions) => AudioSession;
+  createSession?: (onEvent: (e: Event) => void, recorder?: ConversationRecorder, device?: DeviceSnapshot, alert?: AlertSessionOptions, user?: CallUser) => AudioSession;
   /** Registry new GeminiSessions snapshot their tools from. Required unless createSession is given. */
   registry?: ToolRegistry;
   /** Maximum inbound frame size in bytes. Defaults to the ws library default (100 MiB). */
@@ -149,13 +149,14 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
   };
   const create =
     opts.createSession ??
-    ((onEvent, recorder, device, alert) => {
+    ((onEvent, recorder, device, alert, user) => {
       if (!opts.registry) throw new Error("attachAudioWs needs a registry or createSession");
       return new GeminiSession(onEvent, opts.registry, {
         recorder,
         geminiKey: opts.geminiKey,
-        systemPrompt: systemPrompt(opts.promptContext, "voice", device),
+        systemPrompt: systemPrompt(opts.promptContext, "voice", device, user),
         device: device?.id,
+        user,
         ...alert,
       });
     });
@@ -176,7 +177,7 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     if (ev.kind === "audio") ws.send(ev.data);
     else ws.send(JSON.stringify({ type: ev.kind, data: "data" in ev ? ev.data : undefined }));
     if (ev.kind === "closed") ws.close();
-  }, recorder, device, alert);
+  }, recorder, device, alert, user && { id: user.id, name: user.name });
 
   try {
     await g.open();

@@ -183,7 +183,7 @@ const chat = new ChatEngine({
   registry,
   llm,
   model: settings.chatModel,
-  system: systemPrompt(promptContext, "chat"),
+  system: (user) => systemPrompt(promptContext, "chat", undefined, user)(),
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 

@@ -1,6 +1,6 @@
 /** Tiny HTTP router for core: method + `:param` paths, JSON helpers, node adapters for module routes. */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { RouteTable, type HttpMethod, type RouteHandler, type RouteRequest, type RouteResponse } from "@friday/sdk";
+import { RouteTable, type HttpMethod, type RequestUser, type RouteHandler, type RouteRequest, type RouteResponse } from "@friday/sdk";
 
 export type NodeHandler = (req: IncomingMessage, res: ServerResponse, params: Record<string, string>, url: URL) => void | Promise<void>;
 
@@ -44,8 +44,8 @@ export async function readBody(req: IncomingMessage, limit = 1_000_000): Promise
   return Buffer.concat(chunks).toString("utf8");
 }
 
-/** Adapt a node request/response pair to the sdk's framework-free route shape. */
-export function adaptRequest(req: IncomingMessage, url: URL, path: string): RouteRequest {
+/** Adapt a node request/response pair to the sdk's framework-free route shape, for the user who made it. */
+export function adaptRequest(req: IncomingMessage, url: URL, path: string, user?: RequestUser): RouteRequest {
   let bodyPromise: Promise<string> | undefined;
   const text = () => (bodyPromise ??= readBody(req));
   return {
@@ -53,6 +53,7 @@ export function adaptRequest(req: IncomingMessage, url: URL, path: string): Rout
     path,
     query: url.searchParams,
     headers: Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v])),
+    ...(user ? { user: { id: user.id, name: user.name, role: user.role } } : {}),
     text,
     json: async <T,>() => {
       const t = await text();

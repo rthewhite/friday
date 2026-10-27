@@ -4,6 +4,7 @@
  */
 
 import type { ConversationChannel } from "./conversations.js";
+import type { CallUser } from "./user.js";
 
 /** How Gemini surfaces a tool result once it arrives. */
 export type Scheduling = "INTERRUPT" | "WHEN_IDLE" | "SILENT";
@@ -45,6 +46,11 @@ export interface ToolCallContext {
   conversationId?: string;
   /** The registered voice device whose session the call comes from; absent in chat and the Talk page. */
   device?: string;
+  /**
+   * The user the call is for: in chat, the Talk page, and agent runs a user started. Absent in a voice device's
+   * session and a scheduled run.
+   */
+  user?: CallUser;
 }
 
 export interface Tool<A = any> {

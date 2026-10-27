@@ -13,7 +13,7 @@ import {
   type LiveServerMessage,
   type Session,
 } from "@google/genai";
-import type { ToolRegistry } from "@friday/sdk";
+import type { CallUser, ToolRegistry } from "@friday/sdk";
 import { settings } from "./config.js";
 import type { ConversationRecorder } from "./conversations/recorder.js";
 
@@ -53,6 +53,8 @@ export interface SessionOptions {
   systemPrompt?: () => string;
   /** The registered voice device the session belongs to; tool handlers see it in their call context. */
   device?: string;
+  /** The user a browser session (the Talk page) belongs to; tool handlers see it in their call context. */
+  user?: CallUser;
   /**
    * What the session starts with once Gemini is connected: `audio` (24 kHz PCM, e.g. an alert tone) is emitted
    * before anything from Gemini, then `text` is sent as a turn the user didn't say, so it is never recorded.
@@ -241,7 +243,7 @@ export class GeminiSession {
     this.clearIdle();
     // Absent in the session's first exchange: nothing of it is stored until the turn ends.
     const conversationId = this.opts.recorder?.conversationId;
-    const { result, scheduling, endConversation } = await this.registry.callTool(name, args, { channel: "voice", conversationId, device: this.opts.device });
+    const { result, scheduling, endConversation } = await this.registry.callTool(name, args, { channel: "voice", conversationId, device: this.opts.device, user: this.opts.user });
     this.toolsInFlight--;
     recorded?.result(result);
     this.onEvent({ kind: "tool_result", data: { name, result } });

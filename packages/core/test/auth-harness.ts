@@ -7,7 +7,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { ToolRegistry } from "@friday/sdk";
+import { ToolRegistry, type FridayModule } from "@friday/sdk";
 import { createApp, type AppDeps } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
@@ -51,6 +51,8 @@ export interface AuthAppOptions {
   /** Public URL; defaults to the app's own http://127.0.0.1:<port>. */
   publicUrl?: string;
   settings?: Partial<OidcSettings>;
+  /** In-process modules to load, for their routes and tools. */
+  modules?: FridayModule[];
 }
 
 export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
@@ -71,6 +73,7 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
   const auth = new Auth({ mode: { kind: "oidc", oidc: settings }, users, sessions, oidc, publicUrl, log });
   const registry = new ToolRegistry(quiet);
   const host = new ModuleHost(registry, { env: {}, log: quiet });
+  if (o.modules) await host.load(o.modules);
   const mcp = new McpSource(registry, new McpServerStore(db, undefined), { log: quiet });
   const server: Server = createServer(createApp({ registry, host, mcp, webDir: "/nonexistent", ...o.deps?.({ registry, host }), auth: { auth, users, sessions, oidc, publicUrl, log } }));
   server.listen(0, "127.0.0.1");

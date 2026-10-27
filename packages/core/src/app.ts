@@ -24,7 +24,7 @@ import { CORE_ID, coreManifest } from "./core-config.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { chatRoute } from "./chat/route.js";
 import { addOAuthRoutes, type OAuthDeps } from "./oauth/routes.js";
-import type { Auth } from "./auth/auth.js";
+import { requestUser, type Auth } from "./auth/auth.js";
 import type { UserStore } from "./auth/users.js";
 import type { SessionStore } from "./auth/sessions.js";
 import type { OidcClient } from "./auth/oidc.js";
@@ -518,7 +518,7 @@ export function createApp(deps: AppDeps) {
     }
     const out = adaptResponse(res);
     try {
-      await hit.handler(adaptRequest(req, url, sub), out, hit.params);
+      await hit.handler(adaptRequest(req, url, sub, requestUser(req)), out, hit.params);
       if (!out.sent) {
         res.statusCode = res.statusCode === 200 ? 204 : res.statusCode;
         res.end();
