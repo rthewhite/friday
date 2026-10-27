@@ -105,6 +105,34 @@ test("an unreachable provider is retried next run and leaves the run ok", async 
   s.connect("spotify");
   assert.deepEqual(await s.run(), { summary: "refreshed 0; retry next run: Spotify (network error)" });
   assert.equal(s.store.get("spotify")!.state, "connected");
+  assert.deepEqual(s.logs, ["spotify: refresh failed, retrying next run: network error"]);
+});
+
+test("a login broken on an earlier night is named on later runs without failing them", async () => {
+  const s = setup({ refresh: async (p) => { if (p === "spotify") throw new arctic.OAuth2RequestError("invalid_grant", null, null, null); return fresh(); } });
+  s.connect("github");
+  s.connect("spotify");
+  await assert.rejects(s.run(), /needs reconnect: Spotify/);
+  assert.deepEqual(await s.run(), { summary: "refreshed 1; still needs reconnect: Spotify" });
+});
+
+test("a provider that doesn't answer is given up on for the night, and the others are still refreshed", async () => {
+  const s = setup({ refresh: (p) => (p === "dropbox" ? new Promise(() => {}) : Promise.resolve(fresh())) });
+  s.connect("dropbox");
+  s.connect("spotify");
+  const result = await keepaliveJob(s.tokens, s.store, { refreshLimitMs: 20 }).run({ signal: new AbortController().signal, log: quiet, trigger: "schedule" });
+  assert.deepEqual(result, { summary: "refreshed 1; retry next run: Dropbox (no answer within 0 s)" });
+  assert.deepEqual(s.requests, ["dropbox", "spotify"]);
+  assert.equal(s.store.get("dropbox")!.state, "connected");
+});
+
+test("an unexpected failure for one provider doesn't stop the others", async () => {
+  const s = setup({ refresh: async (p) => (p === "dropbox" ? new arctic.OAuth2Tokens({ token_type: "Bearer" }) : fresh()) });
+  s.connect("dropbox");
+  s.connect("spotify");
+  const result = await s.run();
+  assert.match(result.summary!, /^refreshed 1; retry next run: Dropbox \(.+\)$/);
+  assert.deepEqual(s.requests, ["dropbox", "spotify"]);
 });
 
 test("one broken login among working ones fails the run and still refreshes the others", async () => {
@@ -130,7 +158,7 @@ test("disconnected, broken and non-refreshing connections are left alone", async
   s.store.setError("dropbox", "earlier failure");
   s.connect("anilist"); // cannot refresh
   s.connect("spotify", ""); // no refresh token
-  assert.deepEqual(await s.run(), { summary: "refreshed 0; skipped 2" });
+  assert.deepEqual(await s.run(), { summary: "refreshed 0; skipped: AniList (does not refresh logins), Spotify (no refresh token was stored); still needs reconnect: Dropbox" });
   assert.deepEqual(s.requests, []);
   assert.deepEqual(["github", "dropbox", "anilist", "spotify"].map((p) => s.store.get(p)!.state), ["disconnected", "error", "connected", "connected"]);
   assert.equal(s.store.get("dropbox")!.error, "earlier failure");

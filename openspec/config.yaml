@@ -182,8 +182,10 @@ context: |
   single-flight per provider, OAuth2RequestError -> state error, network/5xx transient, a refresh whose connection got
   a new client meanwhile discarded; OAuthError kinds not_connected|not_granted|refresh_failed
   (@friday/sdk; remote hosts reject with not_connected). refreshNow(provider) is the same shared refresh on behalf of no
-  module, returning refreshed|skipped|error|retry|changed instead of throwing; job core/oauth-keepalive (keepalive.ts,
-  cron 0 5 * * *) runs it for every connected login one at a time and fails when one went to error. Scopes asked for = granted modules' scopes + extras; missing =
+  module with the token's reported granted scopes (else the module scopes), returning
+  refreshed|skipped|error|retry|changed and never throwing; job core/oauth-keepalive (keepalive.ts, cron 0 5 * * *)
+  runs it for every connected login one at a time, 30 s per provider, fails when one went to error, and names
+  logins already in error as "still needs reconnect". Scopes asked for = granted modules' scopes + extras; missing =
   that union minus what the provider granted -> Reconnect. Catalogue (catalogue.ts): Jarvis's table of Arctic 3.7
   classes by name (auth pattern, refresh, public client, scope quirks, Google offline/consent), state added where a
   class sets none, generic = OAuth2Client with PKCE S256; oauth-catalogue.test.ts checks every entry's arity against

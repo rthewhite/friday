@@ -211,18 +211,20 @@ test("refreshNow refreshes a connection that no module asked for or holds a gran
   s.connect(30 * 60_000);
   s.store.revoke("spotify", "spotify");
   assert.deepEqual(await s.tokens.refreshNow("spotify"), { result: "refreshed" });
-  assert.deepEqual(s.refreshes, [{ rt: "RT-1", scopes: [] }], "no grants: only the extra scopes are asked for");
+  assert.deepEqual(s.refreshes, [{ rt: "RT-1", scopes: ["playlist-read-private"] }], "no grants: the token's own scopes, not narrowed to none");
   const conn = s.store.get("spotify")!;
   assert.equal(conn.state, "connected");
   assert.equal(conn.expiresAt, new Date(T0 + 3600_000).toISOString());
   assert.equal(s.store.secrets("spotify").accessToken, "AT-2");
 });
 
-test("refreshNow asks for the granted modules' scopes", async () => {
+test("refreshNow asks for the module scopes when the provider never reported what it granted", async () => {
   const s = setup();
-  s.connect(30 * 60_000);
+  s.store.upsert({ provider: "spotify", clientId: "id", clientSecret: "s", extraScopes: ["user-read-email"] });
+  s.store.storeTokens("spotify", { accessToken: "AT-1", refreshToken: "RT-1", expiresAt: new Date(T0 + 30 * 60_000) });
+  s.store.grant("spotify", "spotify");
   await s.tokens.refreshNow("spotify");
-  assert.deepEqual(s.refreshes, [{ rt: "RT-1", scopes: ["playlist-read-private"] }]);
+  assert.deepEqual(s.refreshes, [{ rt: "RT-1", scopes: ["playlist-read-private", "user-read-email"] }]);
 });
 
 test("refreshNow skips connections it cannot or should not refresh, without changing them", async () => {
@@ -241,7 +243,7 @@ test("refreshNow skips connections it cannot or should not refresh, without chan
 
   const noRefresh = setup({ canRefresh: false });
   noRefresh.connect(0);
-  assert.deepEqual(await noRefresh.tokens.refreshNow("spotify"), { result: "skipped", reason: "Spotify does not refresh logins" });
+  assert.deepEqual(await noRefresh.tokens.refreshNow("spotify"), { result: "skipped", reason: "does not refresh logins" });
   assert.equal(noRefresh.store.get("spotify")!.state, "connected");
 
   const noToken = setup();
@@ -272,6 +274,30 @@ test("refreshNow reports a network failure or server error as retry, leaving the
     assert.deepEqual(await s.tokens.refreshNow("spotify"), { result: "retry", message: reason });
     assert.equal(s.store.get("spotify")!.state, "connected");
   }
+});
+
+test("refreshNow judges a transient failure by the error, not by the state someone else set meanwhile", async () => {
+  const s = setup({ refresh: async () => { s.store.setError("spotify", "set elsewhere"); throw new arctic.ArcticFetchError(new Error("ECONNRESET")); } });
+  s.connect(30 * 60_000);
+  assert.deepEqual(await s.tokens.refreshNow("spotify"), { result: "retry", message: "network error" });
+});
+
+test("refreshNow reports an unexpected failure as retry instead of throwing", async () => {
+  const noToken = setup({ refresh: async () => new arctic.OAuth2Tokens({ token_type: "Bearer" }) });
+  noToken.connect(30 * 60_000);
+  const outcome = await noToken.tokens.refreshNow("spotify");
+  assert.equal(outcome.result, "retry");
+  assert.equal(noToken.store.get("spotify")!.state, "connected");
+
+  const s = setup();
+  s.connect(30 * 60_000);
+  const tokens = new OAuthTokens({
+    store: s.store,
+    requests: new OAuthRequests(() => manifests),
+    redirectUri: () => "https://friday.example/cb",
+    buildClient: () => { throw new Error("OAuth provider spotify: no token URL"); },
+  });
+  assert.deepEqual(await tokens.refreshNow("spotify"), { result: "retry", message: "OAuth provider spotify: no token URL" });
 });
 
 test("refreshNow reports an unreadable token as error", async () => {
