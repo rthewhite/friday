@@ -19,6 +19,7 @@ export default defineConfig({
     // API writes whose Origin differs from Host, so a rewritten Host would 403 every portal write.
     proxy: {
       "/api": { target: core, changeOrigin: false },
+      "/auth": { target: core, changeOrigin: false },
       "/health": { target: core, changeOrigin: false },
       "/ws": { target: core, ws: true },
     },

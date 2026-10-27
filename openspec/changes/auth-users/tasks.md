@@ -45,11 +45,11 @@
 
 ## 8. Portal
 
-- [ ] 8.1 Load `/api/me` before mounting the shell. On 401, navigate to `/auth/login?return_to=<path+query>`. Proxy `/auth` in `vite.config.ts`. Verify by unit-testing the boot helper, and manually with `pnpm dev`: the portal loads as `Dev`.
-- [ ] 8.2 Handle 401 globally: the API fetch helper, module UIs through `@friday/portal-ui` or a shared fetch wrapper, SSE in `lib/sse.ts` (after the streaming reply finishes), and the Talk page's refused upgrade when no session is connected. Show 403 as a page error. Verify with unit tests for the fetch and SSE helpers.
-- [ ] 8.3 Make the shell role-aware: the System section only for admins, the admin-only page for members on `/settings/*` (no API calls), and the user menu with name, role and `Log out`, plus the logged-out page with the Authentik link when one is given. The dev user has no `Log out`. Verify with component tests for member and admin navigation and the dev user menu.
-- [ ] 8.4 Add `System > Users` (`/settings/users`): table, drawer with Disable (confirmation) and Enable, no Disable on your own row or the dev user's row, and help text. Verify with a component test, and manually that disabling a second user works in `pnpm dev` (seeded user).
-- [ ] 8.5 Run `pnpm --filter @friday/portal test typecheck build`. Verify all three are green.
+- [x] 8.1 Load `/api/me` before mounting the shell. On 401, navigate to `/auth/login?return_to=<path+query>`; coming straight back without a session shows a "login didn't stick" page instead of looping. Proxy `/auth` in `vite.config.ts`. Verify by unit-testing the boot helper (`lib/auth.ts`, `test/auth.test.ts`), and manually with `pnpm dev`: the portal loads as `Dev`.
+- [x] 8.2 Handle 401 globally: one guarded `window.fetch` covers the API helper, the `lib/*` calls, module UIs and the chat stream; a streaming chat reply and a live Talk session hold the login back until they end; a refused Talk upgrade or a 4401 close probes `/api/me`. 403 stays a page error. Verify with unit tests for the fetch guard and its holds.
+- [x] 8.3 Make the shell role-aware: the System section only for admins, the admin-only page for members on `/settings/*` (no API calls), and the user menu with name, role and `Log out`, plus the logged-out page with the Authentik link when one is given. The dev user has no `Log out`. The portal has no component test setup, so verify with unit tests for the role rules (`visibleItems`, `isAdminPath`) and a headless screenshot of the admin navigation and the dev user menu in `pnpm dev`. The member view is not seen in a browser (dev mode only has the admin): it is checked at home in 10.3.
+- [x] 8.4 Add `System > Users` (`/settings/users`): table, drawer with Disable (confirmation) and Enable, no Disable on your own row or the dev user's row, and help text. Verify with unit tests for the row actions (`lib/users.ts`), a headless screenshot of the page in `pnpm dev` with a seeded member, and disabling that member through the dev proxy (the drawer's clicks are checked at home in 10.3).
+- [x] 8.5 Run `pnpm --filter @friday/portal test typecheck build`. Verify all three are green.
 
 ## 9. Deployment and documentation
 
@@ -61,4 +61,4 @@
 
 - [ ] 10.1 End-to-end test against the fake provider: log in as an admin (becomes owner), then a member. The member chats (conversation records the member, tool call context carries the user), gets 403 on `/api/config`, and is disabled by the admin. The member's next request gets 401 and their Talk connection closes. Verify the test passes in `pnpm --filter @friday/core test`.
 - [ ] 10.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify all green.
-- [ ] 10.3 (user, after deploy) Set up the provider and application in Authentik, add the keys to `friday-secrets`, deploy, and log in at `https://friday.thewhite.nl`. Verify that the owner is recorded, a second account outside the groups gets the no-access page, the Voice PE and the reSpeaker still connect, and a remote module still connects.
+- [ ] 10.3 (user, after deploy) Set up the provider and application in Authentik, add the keys to `friday-secrets`, deploy, and log in at `https://friday.thewhite.nl`. Verify that the owner is recorded, a second account outside the groups gets the no-access page, a member sees no System section and can't open a settings page, disabling a user from the Users drawer logs them out, the Voice PE and the reSpeaker still connect, and a remote module still connects.

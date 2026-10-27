@@ -4,6 +4,7 @@
  * web-client spec; see openspec/specs/web-client.
  */
 import { onBeforeUnmount, ref } from "vue";
+import { loginGuard } from "./useSession.js";
 
 const OUT_RATE = 24000;
 
@@ -16,6 +17,7 @@ export function useVoiceSession() {
   const log = ref<Entry[]>([]);
 
   let ws: WebSocket | null = null;
+  let releaseLogin: (() => void) | undefined;
   let ctx: AudioContext | null = null;
   let stream: MediaStream | null = null;
   let node: AudioWorkletNode | null = null;
@@ -63,8 +65,16 @@ export function useVoiceSession() {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     const sock = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/audio`);
     sock.binaryType = "arraybuffer";
-    await new Promise<void>((ok, err) => { sock.onopen = () => ok(); sock.onerror = () => err(new Error("websocket failed")); });
+    try {
+      await new Promise<void>((ok, err) => { sock.onopen = () => ok(); sock.onerror = () => err(new Error("websocket failed")); });
+    } catch (e) {
+      // A browser doesn't say why an upgrade was refused: ask the API, whose 401 sends the browser to the login.
+      void fetch("/api/me").catch(() => {});
+      throw e;
+    }
     ws = sock;
+    // While the session is live, an ended login waits for it; it ends when the connection does.
+    releaseLogin = loginGuard.hold();
 
     node = new AudioWorkletNode(ctx, "capture");
     node.port.onmessage = (e) => sock.readyState === WebSocket.OPEN && sock.send(e.data as ArrayBuffer);
@@ -83,7 +93,11 @@ export function useVoiceSession() {
         case "closed": add("tool", `session closed: ${m.data ?? ""}`); stop(true); break;
       }
     };
-    sock.onclose = () => stop(true);
+    sock.onclose = (e) => {
+      stop(true);
+      // 4401: the user was disabled or logged out elsewhere; the API's 401 then sends the browser to the login.
+      if (e.code === 4401) void fetch("/api/me").catch(() => {});
+    };
     state.value = "live";
     live.value = true;
   }
@@ -93,6 +107,8 @@ export function useVoiceSession() {
     stream?.getTracks().forEach((t) => t.stop());
     node?.disconnect();
     if (ws) { ws.onclose = null; ws.close(); }
+    releaseLogin?.();
+    releaseLogin = undefined;
     const c = ctx;
     ws = ctx = stream = node = null;
     live.value = false;
