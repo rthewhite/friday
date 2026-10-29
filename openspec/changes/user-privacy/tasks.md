@@ -80,7 +80,7 @@
 
 ## 12. Integration
 
-- [ ] 12.1 An end-to-end test with the fake provider and two users. The member's chat is invisible to the owner in the API, in `brain_recall_conversations` and in the nightly pass's output into the owner's brain, and the reverse. The member can't see or run the owner's agent and gets no calendar tools. The admin owner can't open the member's conversation. Verify the test passes in `pnpm --filter @friday/core test`.
+- [x] 12.1 An end-to-end test with the fake provider and two users. The member's chat is invisible to the owner in the API, in `brain_recall_conversations` and in the nightly pass's output into the owner's brain, and the reverse. The member can't see or run the owner's agent and gets no calendar tools. The admin owner can't open the member's conversation. Verify the test passes in `pnpm --filter @friday/core test`.
 - [ ] 12.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify all green.
 - [ ] 12.3 (user, after deploy) Back up `friday.db`, deploy, and check:
   - your history, brain and agents are all still there;
