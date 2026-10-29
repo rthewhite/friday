@@ -2,7 +2,7 @@
 
 ### Requirement: Test host fakes users and the owner
 
-`createTestHost` SHALL accept `users` (a list of `{ id, name }`) and `owner` (one of them, or an id) options, served through `ctx.users`. Without `owner`, the test host's `user` option SHALL be the owner, and without that a fixed test owner SHALL be used. Without `users`, the list SHALL hold the owner and the `user`. Calls without a user SHALL count as the owner's in the test host, so modules with owner-only tools stay testable without setting a user. The test host SHALL offer a way to record the owner later, which fires `onOwner` handlers.
+`createTestHost` SHALL accept `users` (a list of `{ id, name }`) and `owner` (one of them, or an id) options, served through `ctx.users`. Without `owner`, the test host's `user` option SHALL be the owner, and without that a fixed test owner SHALL be used. Without `users`, the list SHALL hold the owner and the `user`. Calls without a user SHALL count as the owner's in the test host, so modules with owner-only tools stay testable without setting a user, and prompt context rendered without a user SHALL be rendered for the owner, as core does for a voice device (`null` renders without one). The test host SHALL offer a way to record the owner later, which fires `onOwner` handlers.
 
 #### Scenario: Owner recorded later
 - **WHEN** a test creates a host without an owner and then records owner `u1`
