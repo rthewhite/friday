@@ -1,10 +1,10 @@
-# Spec Delta
+# CI Pipeline
 
 ## Purpose
 
-What Friday's CI checks before an image is pushed and deployed, how the device firmware and core are held to one protocol, and how the real model is checked on a schedule.
+What Friday's CI checks before an image is pushed and deployed, how the device firmware and core are held to one protocol, and that live model checks stay out of CI.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: CI gates every image on the checks
 
