@@ -59,7 +59,23 @@ Pushing `main` deploys to the homelab (`.github/workflows/deploy.yml`), and push
 2. From the main checkout: `git merge --no-ff change/<change> -m "Merge <change>: <one-line summary>"`.
 3. `/opsx:archive <change>` on `main`, and commit it as `Archive <change> change and sync specs`.
 4. Remove the worktree and branch: `ExitWorktree` (`keep`, then `git worktree remove .claude/worktrees/<change> && git branch -d change/<change>`).
-5. Push only when the user says so.
+5. Push only when the user says so. If the deploy is risky (see below), back up the production database first, without asking, right before the push.
+
+### Back up before a risky deploy
+
+A deploy is risky when undoing it needs more than rolling back the image. That covers:
+
+- a migration (core or module) that rebuilds, moves, re-keys or deletes existing rows or columns, rather than only adding tables, columns or indexes;
+- a change after which the previous image would read the data wrongly or show it to the wrong users;
+- anything touching how secrets are encrypted or the master key is used.
+
+When the gate finishes, say in its report whether the deploy is risky and why. When the user then says to push, take the backup first, as in `infra/README.md` (Backup), over `ssh rdewit@192.168.1.81 'sudo -n kubectl -n friday …'`:
+
+1. Run `VACUUM INTO '/data/friday-backup.db'` in the pod with Node. Remove a leftover `/data/friday-backup.db` first.
+2. Stream it to `~/Backups/friday/friday-<YYYY-MM-DD>-before-<change>.db` on this Mac.
+3. Check that the sha256 matches the pod's copy, that `PRAGMA integrity_check` says `ok`, and that `schema_version` / `module_schema` still show the versions from before the change.
+4. Remove `/data/friday-backup.db` from the pod.
+5. Push only after all of this has passed, and tell the user the backup's path. If any step fails, don't push. Report the failure instead.
 
 ## Running several changes at once
 
