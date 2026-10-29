@@ -2,11 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunStore } from "../src/nightly/runs.js";
 import { brainStore } from "./fixtures.js";
+import { TEST_OWNER } from "@friday/sdk/test";
 
 test("a started and finished run round-trips, and its revision range brackets what was written in between", (t) => {
   const { store, db, close } = brainStore();
   t.after(close);
-  const runs = new RunStore(db, () => new Date("2026-09-30T01:00:00Z"));
+  const runs = new RunStore(db, TEST_OWNER.id, () => new Date("2026-09-30T01:00:00Z"));
   store.create({ name: "Before" }, "user");
   const run = runs.start("schedule");
   assert.equal(run.outcome, undefined);
@@ -38,7 +39,7 @@ test("a started and finished run round-trips, and its revision range brackets wh
 test("the revision range stays correct after a purge freed the newest ids", (t) => {
   const { store, db, close } = brainStore();
   t.after(close);
-  const runs = new RunStore(db);
+  const runs = new RunStore(db, TEST_OWNER.id);
   const gone = store.create({ name: "Gone" }, "user");
   store.softDelete(gone.id, "user");
   const highest = store.get(gone.id)!.revisionId;
@@ -53,7 +54,7 @@ test("the revision range stays correct after a purge freed the newest ids", (t) 
 test("a run that writes nothing has an empty range, and runs list newest first", (t) => {
   const { db, close } = brainStore();
   t.after(close);
-  const runs = new RunStore(db);
+  const runs = new RunStore(db, TEST_OWNER.id);
   const first = runs.finish(runs.start("schedule").id, { outcome: "ok" });
   assert.equal(first.lastRevisionId, first.firstRevisionId - 1);
   const second = runs.finish(runs.start("manual").id, { outcome: "failed", error: "boom" });

@@ -54,8 +54,9 @@ test("owner and member: login, chat as the member, setup refused, disabled by th
     assert.match(stream, /event: done/);
     const conversationId = /"conversationId":"([^"]+)"/.exec(stream)![1];
     assert.deepEqual(calls.map((c) => c.user), [{ id: sanneId, name: "Sanne" }], "the tool call is for the member");
-    const listed = (await (await owner.fetch(`/api/conversations/${conversationId}`)).json()) as { user: unknown };
+    const listed = (await (await sanne.fetch(`/api/conversations/${conversationId}`)).json()) as { user: unknown };
     assert.deepEqual(listed.user, { id: sanneId, name: "Sanne" });
+    assert.equal((await owner.fetch(`/api/conversations/${conversationId}`)).status, 404, "not even the admin owner can look in");
 
     // The member may not touch the household's setup.
     assert.equal((await sanne.fetch("/api/config")).status, 403);

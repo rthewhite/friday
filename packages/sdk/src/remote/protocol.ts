@@ -2,6 +2,8 @@ import type { ModuleManifest } from "../module.js";
 
 export const REMOTE_PROTOCOL = 1;
 export const SCHEDULING_META = "friday/scheduling";
+/** `_meta` key on a tool that only the household owner may get; core declares and refuses it as for in-process tools. */
+export const OWNER_ONLY_META = "friday/ownerOnly";
 
 export interface HelloMessage {
   type: "hello";

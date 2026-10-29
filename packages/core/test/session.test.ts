@@ -430,22 +430,26 @@ test("a device session's tool calls carry the device, a session without a device
   talk.close();
 });
 
-test("a Talk page session's tool calls carry its user, a device session's don't", async () => {
+test("a Talk page session's tool calls carry its user, a device session's the owner, or none while there is none", async () => {
   const r = new ToolRegistry(quiet);
   const seen: unknown[] = [];
   r.add("core", { name: "t", description: "", handler: (_args, call) => (seen.push(call), {}) });
   const live = fakeLive();
   const talk = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, user: { id: "u2", name: "Sanne" } });
-  const kitchen = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, device: "friday-kitchen" });
-  await talk.open();
-  await kitchen.open();
-  talk.handle({ toolCall: { functionCalls: [{ id: "1", name: "t", args: {} }] } } as LiveServerMessage);
-  await waitFor(() => live.responses.length === 1);
-  kitchen.handle({ toolCall: { functionCalls: [{ id: "2", name: "t", args: {} }] } } as LiveServerMessage);
-  await waitFor(() => live.responses.length === 2);
-  assert.deepEqual(seen, [{ channel: "voice", user: { id: "u2", name: "Sanne" } }, { channel: "voice", device: "friday-kitchen" }]);
-  talk.close();
-  kitchen.close();
+  const owned = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, device: "friday-kitchen", user: { id: "u1", name: "Raymond" } });
+  const unowned = new GeminiSession(() => {}, r, { connect: live.connect, log: quiet, device: "friday-kitchen" });
+  const sessions = [talk, owned, unowned];
+  for (const [i, s] of sessions.entries()) {
+    await s.open();
+    s.handle({ toolCall: { functionCalls: [{ id: String(i), name: "t", args: {} }] } } as LiveServerMessage);
+    await waitFor(() => live.responses.length === i + 1);
+  }
+  assert.deepEqual(seen, [
+    { channel: "voice", user: { id: "u2", name: "Sanne" } },
+    { channel: "voice", device: "friday-kitchen", user: { id: "u1", name: "Raymond" } },
+    { channel: "voice", device: "friday-kitchen" },
+  ]);
+  for (const s of sessions) s.close();
 });
 
 /** 250 ms of 24 kHz s16le with varied bytes, so chunks can be told apart. */

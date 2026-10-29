@@ -49,7 +49,7 @@ const when = (s: string | null | undefined, fallback = "") => formatDateTime(s, 
 
 <template>
   <AgentEditor v-if="name" :key="name" :name="name" @saved="load" @deleted="router.push('/agents')" />
-  <PageLayout v-else eyebrow="Assistant" title="Agents" subtitle="Tasks Friday runs unattended over the tools you allow, on a schedule or when you ask.">
+  <PageLayout v-else eyebrow="Assistant" title="Agents" subtitle="Tasks Friday runs for you, unattended, over the tools you allow, on a schedule or when you ask. Only you see your agents.">
     <template #actions>
       <Button variant="ghost" :disabled="loading" @click="load"><Icon name="refresh" />Refresh</Button>
       <Button @click="router.push('/agents/new')"><Icon name="plus" />New agent</Button>

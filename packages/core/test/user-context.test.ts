@@ -36,16 +36,18 @@ test("a chat turn's tool calls and system prompt are for the user who sent the m
   assert.deepEqual(systems, [{ id: "u2", name: "Sanne" }]);
 });
 
-test("prompt context gets the user for chat and the Talk page, and none for a voice device", () => {
+test("prompt context gets the user for chat and the Talk page, and the owner for a voice device", () => {
   const context = createPromptContext({ log: quiet });
   const seen: PromptContextInfo[] = [];
   context.forOwner("probe").addContext((info) => (seen.push(info), undefined));
   systemPrompt(context, "chat", undefined, { id: "u2", name: "Sanne" })();
   systemPrompt(context, "voice", undefined, { id: "u2", name: "Sanne" })();
+  systemPrompt(context, "voice", { id: "friday-kitchen", label: "Kitchen", area: null, notes: null }, { id: "u1", name: "Raymond" })();
   systemPrompt(context, "voice", { id: "friday-kitchen", label: "Kitchen", area: null, notes: null })();
   assert.deepEqual(seen, [
     { channel: "chat", user: { id: "u2", name: "Sanne" } },
     { channel: "voice", user: { id: "u2", name: "Sanne" } },
+    { channel: "voice", user: { id: "u1", name: "Raymond" } },
     { channel: "voice" },
   ]);
 });

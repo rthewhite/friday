@@ -182,7 +182,7 @@ test("the sweep quiets idle conversations after the quiet period, but not live o
   assert.equal(store.get(idle)!.endReason, null, "idle quiet has no end reason");
   assert.equal(store.get(live)!.state, "active");
   await tick();
-  assert.deepEqual(seen, [{ id: idle, lastActivityAt: at, quietAt: "2026-10-01T10:31:00.000Z" }]);
+  assert.deepEqual(seen, [{ id: idle, userId: null, lastActivityAt: at, quietAt: "2026-10-01T10:31:00.000Z" }]);
   store.detach(live);
   assert.equal(store.sweep(), 1, "no longer live");
 });
@@ -229,19 +229,23 @@ test("subscribers run after the write, a throwing one does not block others, and
   assert.ok(errors.some((l) => l.includes("of worse") && l.includes("async boom")));
 });
 
-test("forOwner gives read access and removeOwner drops that owner's subscriptions", async () => {
+test("forOwner gives read access to one user's conversations and removeOwner drops that owner's subscriptions", async () => {
   const { store } = setup();
   const m = store.forOwner("brain");
   let a = 0, b = 0;
-  m.onQuiet(() => void a++);
+  const events: QuietEvent[] = [];
+  m.onQuiet((e) => void (a++, events.push(e)));
   const off = store.onQuiet(() => void b++, "other");
-  const id = store.create({ channel: "voice" });
+  const id = store.create({ channel: "voice", userId: "u1" });
   store.append(id, 1, { kind: "user", at, input: "speech", text: "hi" });
   store.markQuiet(id);
   await tick();
   assert.deepEqual([a, b], [1, 1]);
-  assert.deepEqual((await m.list({ quietSince: "2026-01-01T00:00:00Z" })).map((c) => c.id), [id]);
-  assert.equal((await m.get(id))!.entries.length, 1);
+  assert.equal(events[0].userId, "u1");
+  assert.deepEqual((await m.forUser("u1").list({ quietSince: "2026-01-01T00:00:00Z" })).map((c) => c.id), [id]);
+  assert.equal((await m.forUser("u1").get(id))!.entries.length, 1);
+  assert.deepEqual(await m.forUser("u2").list({ quietSince: "2026-01-01T00:00:00Z" }), []);
+  assert.equal(await m.forUser("u2").get(id), undefined);
   store.removeOwner("brain");
   off();
   store.append(id, 2, { kind: "user", at, input: "speech", text: "again" });
@@ -264,8 +268,8 @@ type Store = ReturnType<typeof setup>["store"];
 type Line = [kind: "user" | "assistant", text: string] | [kind: "tool", name: string, args: unknown, result?: unknown];
 
 /** A conversation with one entry per line, all at `when` (or one minute apart from it), last active then. */
-function converse(store: Store, lines: Line[], when = at, meta: { channel?: "voice" | "chat"; device?: string } = {}): string {
-  const id = store.create({ channel: meta.channel ?? "voice", device: meta.device }, when);
+function converse(store: Store, lines: Line[], when = at, meta: { channel?: "voice" | "chat"; device?: string; userId?: string } = {}): string {
+  const id = store.create({ channel: meta.channel ?? "voice", device: meta.device, userId: meta.userId }, when);
   lines.forEach((l, i) => {
     const t = new Date(Date.parse(when) + i * MIN).toISOString();
     if (l[0] === "tool") store.append(id, i + 1, { kind: "tool", at: t, name: l[1], args: l[2], result: l[3] });
@@ -386,7 +390,7 @@ test("search: refused input is an InvalidQuery, and forOwner rejects with it", a
   assert.throws(() => store.search({ since: "2026-09-20T00:00:00Z", until: "2026-09-19T00:00:00Z" }), (e) => e instanceof InvalidQuery && /since is after until/.test(e.message));
   assert.throws(() => store.search({ channel: "email" as never }), InvalidQuery);
   assert.throws(() => store.search({ since: "last week" }), /invalid since/);
-  await assert.rejects(store.forOwner("brain").search({ until: "nope" }), /invalid until/);
+  await assert.rejects(store.forOwner("brain").forUser("u1").search({ until: "nope" }), /invalid until/);
 });
 
 test("search: FTS syntax in the query is read as plain words", () => {
@@ -396,10 +400,43 @@ test("search: FTS syntax in the query is read as plain words", () => {
   assert.deepEqual(store.search({ query: "x* NEAR(" }), []);
 });
 
-test("search: forOwner gives modules the same results", async () => {
+test("search: forOwner gives modules the same results, for one user", async () => {
   const { store } = setup();
-  const id = converse(store, [["user", "boiler"]]);
-  assert.deepEqual(ids(await store.forOwner("brain").search({ query: "boiler" })), [id]);
+  const id = converse(store, [["user", "boiler"]], at, { userId: "u1" });
+  converse(store, [["user", "boiler"]], at, { userId: "u2" });
+  assert.deepEqual(ids(await store.forOwner("brain").forUser("u1").search({ query: "boiler" })), [id]);
+});
+
+test("forUser: another user's conversation is absent from list and search, and missing for get and delete", () => {
+  const { store } = setup();
+  const mine = converse(store, [["user", "the boiler is loud"]], at, { channel: "chat", userId: "u1" });
+  const hers = converse(store, [["user", "book the boiler"]], "2026-10-01T11:00:00.000Z", { channel: "chat", userId: "u2" });
+  const device = converse(store, [["user", "boiler"]], at);
+  const u1 = store.forUser("u1");
+  const u2 = store.forUser("u2");
+  assert.deepEqual(ids(u1.list()), [mine]);
+  assert.deepEqual(ids(u1.list({ channel: "chat" })), [mine]);
+  assert.deepEqual(ids(u2.list()), [hers]);
+  assert.deepEqual(ids(u1.search({ query: "boiler" })), [mine]);
+  assert.deepEqual(ids(u1.search({})), [mine]);
+  assert.equal(u2.get(mine), undefined);
+  assert.equal(u1.get(mine)?.id, mine);
+  assert.equal(u2.owns(mine), false);
+  assert.equal(u2.delete(mine), "missing");
+  assert.ok(store.get(mine), "kept");
+  assert.equal(u1.delete(mine), "deleted");
+  assert.equal(u1.get(device), undefined, "a conversation without a user is nobody's");
+  assert.equal(store.ownerOf(hers), "u2");
+  assert.equal(store.ownerOf(device), null);
+  assert.equal(store.ownerOf("nope"), undefined);
+});
+
+test("forUser: a live conversation of the user answers live on delete, another user's still missing", () => {
+  const { store } = setup();
+  const id = converse(store, [["user", "hi"]], at, { userId: "u1" });
+  store.attach(id);
+  assert.equal(store.forUser("u1").delete(id), "live");
+  assert.equal(store.forUser("u2").delete(id), "missing");
 });
 
 test("agent runs are a channel of their own: listed, searched and live like the others", () => {

@@ -1,20 +1,23 @@
 /**
  * Agents in friday.db: definitions (`AgentStore`), and runs with the actions they parked for approval
- * (`AgentRunStore`). Stores keep rows only; running and approving are the runtime's business.
+ * (`AgentRunStore`). Stores keep rows only; running and approving are the runtime's business. An agent belongs to
+ * the user who created it; names stay unique across the household, because each names a core job.
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { AgentDefinition, Budgets, ToolEntry } from "./definition.js";
 
 export interface StoredAgent extends AgentDefinition {
+  /** The user who created it, whom every run acts for; null only before an owner was recorded. */
+  createdBy: RunUser;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Create with a name that is taken; maps to 409. */
+/** Create with a name that is taken, by anyone; maps to 409. The message says nothing about the other agent. */
 export class AgentExists extends Error {
   constructor(name: string) {
-    super(`agent "${name}" already exists`);
+    super(`the name "${name}" is already in use`);
   }
 }
 
@@ -29,7 +32,12 @@ interface AgentRow {
   budgets_json: string;
   created_at: string;
   updated_at: string;
+  created_by: string | null;
+  creator_name: string | null;
 }
+
+/** Agents with the name of the user who created them. */
+const AGENT_SELECT = "SELECT a.*, u.name AS creator_name FROM agents a LEFT JOIN users u ON u.id = a.created_by";
 
 type Now = () => Date;
 
@@ -38,22 +46,32 @@ export class AgentStore {
 
   constructor(private readonly db: DatabaseSync, private readonly now: Now = () => new Date()) {}
 
-  list(): StoredAgent[] {
-    return (this.db.prepare("SELECT * FROM agents ORDER BY name").all() as unknown as AgentRow[]).map(toAgent);
+  /** Every agent (core's triggers); with `createdBy`, only that user's (what a person sees). */
+  list(createdBy?: string): StoredAgent[] {
+    const rows = createdBy === undefined
+      ? this.db.prepare(`${AGENT_SELECT} ORDER BY a.name`).all()
+      : this.db.prepare(`${AGENT_SELECT} WHERE a.created_by = ? ORDER BY a.name`).all(createdBy);
+    return (rows as unknown as AgentRow[]).map(toAgent);
   }
 
   get(name: string): StoredAgent | undefined {
-    const row = this.db.prepare("SELECT * FROM agents WHERE name = ?").get(name) as AgentRow | undefined;
+    const row = this.db.prepare(`${AGENT_SELECT} WHERE a.name = ?`).get(name) as AgentRow | undefined;
     return row && toAgent(row);
   }
 
+  /** The agent named `name` if `userId` created it; another user's agent is as unknown as a missing one. */
+  getOwn(name: string, userId: string | undefined): StoredAgent | undefined {
+    const a = this.get(name);
+    return a && userId !== undefined && a.createdBy?.id === userId ? a : undefined;
+  }
+
   /** @throws AgentExists */
-  create(def: AgentDefinition): StoredAgent {
+  create(def: AgentDefinition, createdBy?: string): StoredAgent {
     if (this.get(def.name)) throw new AgentExists(def.name);
     const now = this.now().toISOString();
     this.db
-      .prepare("INSERT INTO agents (name, description, instructions, schedule, enabled, startable, tools_json, budgets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(def.name, ...columns(def), now, now);
+      .prepare("INSERT INTO agents (name, description, instructions, schedule, enabled, startable, tools_json, budgets_json, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(def.name, ...columns(def), now, now, createdBy ?? null);
     this.emit(def.name);
     return this.get(def.name)!;
   }
@@ -98,6 +116,7 @@ function toAgent(r: AgentRow): StoredAgent {
     startable: r.startable === 1,
     tools: JSON.parse(r.tools_json) as ToolEntry[],
     budgets: JSON.parse(r.budgets_json) as Budgets,
+    createdBy: r.created_by ? { id: r.created_by, name: r.creator_name ?? r.created_by } : null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -124,7 +143,7 @@ export interface AgentRun {
   toolCalls: number;
   tokens: number;
   conversationId: string | null;
-  /** Who started the run (portal, chat, the Talk page); null for a scheduled run, a device, or older runs. */
+  /** Whom the run acted for: the agent's creator, however it was started; null only before an owner was recorded. */
   user: RunUser;
 }
 

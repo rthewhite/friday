@@ -38,8 +38,14 @@ context: |
   calls with channel agent (FRIDAY_AGENT_TOOL_TIMEOUT_MS), recorded as an `agent` conversation; approve calls are
   parked as exact calls (agent_actions) and executed once on approval (pending -> approving -> executed|failed,
   expired after 7 days, lazily). AgentTriggers (triggers.ts) registers core job agent-<name> per enabled scheduled
-  agent (Scheduler.unregister, JobStore.clearState on a schedule change) and the core tool run_agent for enabled
-  startable agents. /api/agents (routes.ts) and the portal's /agents page (AgentsPage.vue, AgentEditor.vue). Calendar
+  agent (Scheduler.unregister, JobStore.clearState on a schedule change; the job summary is only the outcome) and the
+  core tool run_agent for the caller's enabled startable agents (its declaration names none; core prompt context
+  "## Agents" lists the prompt user's). Agents are private (user-privacy, core migration 13 agents.created_by):
+  AgentStore.create(def, createdBy), list(createdBy), getOwn(name, userId); every run (schedule, portal, run_agent,
+  approved actions) acts as the creator (AgentRuntime.start resolves createdBy; tools resolved for the creator); the
+  routes answer 404 for anyone else's agent, run or action, a taken name 409 "the name ... is already in use", and
+  POST /api/jobs/core/agent-<name>/run 403 for anyone but the creator. /api/agents (routes.ts) and the portal's
+  /agents page (AgentsPage.vue, AgentEditor.vue). Calendar
   changes made by agents have source agent and calendar_undo keeps voice/chat and agent changes apart; the brain's
   nightly extraction passes over agent conversations. Transports (WebSocket /ws/audio, raw PCM 16k in / 24k out) wrap the
   transport-agnostic GeminiSession; a ?device= connection gets only audio and interrupted/turn_complete/closed, the
@@ -102,8 +108,16 @@ context: |
   ctx.storage "settings". Portal /m/calendar (Overview with iCloud and Work rows, Changes); routes status (icloud,
   work, calendar source), settings, agenda, changes, changes/:id/undo, refresh. Fakes for tests in
   test/fake-icloud.ts and test/fake-intake.ts (fixtures in test/fixtures/intake).
-  Memory: modules/brain (id brain) keeps one household brain in brain__* tables (pages, names, revisions,
-  tombstones; BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
+  Memory: modules/brain (id brain) keeps one brain per user in brain__* tables (pages, names, revisions,
+  tombstones; brain migration 5: user_id on pages, names, tombstones and runs, names and tombstones keyed
+  (user_id, key), one profile per user; rows from before users are assigned to the owner by users.ts assignToOwner
+  at init and on ctx.users.onOwner, storage keys moved under user:<id>: (userStorage). Brains.forUser(user) gives
+  a BrainStore(db, userId) and creates the brain on first use (ensure: profile + subject page named after the user,
+  else Me); the store scopes every query to its user, the profile is that user's is_profile row (the owner's legacy
+  one keeps id `profile`), revision ids stay global (lastRevisionId(db)). Tools act for call.user else the owner,
+  prompt context renders info.user's brain (else the owner's), routes act for req.user (pages/profile is the
+  caller's profile, another user's page 404), runs/review/revert per user plus POST runs/now (the caller's pass only,
+  409 while it runs; PassGuard). BrainStore in src/store.ts, every write one writeRevision with author system|user|remember|
   extraction|consolidation). The profile row (id profile, migration 3) holds the user's instructions (user-only,
   2000 chars, saveInstructions stale only when the instructions changed) and, as its body, the summary the nightly
   pass generates (writeSummary; any other body write refused with code profile); profile revisions snapshot
@@ -112,13 +126,15 @@ context: |
   whole body) get links from links.ts autolink: first whole-word same-case mention of each live name/alias of
   3+ chars, longest first, outside code and links. Tools brain_remember (append-only dated notes under ## Notes;
   entity me/profile = the subject page) and brain_recall
-  (name/alias match plus substring search), and brain_recall_conversations (ctx.conversations.search with
+  (name/alias match plus substring search), and brain_recall_conversations (ctx.conversations.forUser(user).search with
   brain_recall's word rules, YYYY-MM-DD since/until as whole days in FRIDAY_TIMEZONE via startOfLocalDay, the
   call's own conversation excluded, 5 conversations, 8000 JSON chars, never tool results); its prompt context (the
   instructions as directives, never cut, then the summary + index of 50 recent pages, under 10000
   chars) goes into every voice/chat prompt; no tool deletes. Portal /m/brain curates (edit with stale check,
   history/restore, soft delete, purge with tombstones); routes under /api/modules/brain/. The job brain/nightly
-  (src/nightly/, BRAIN_NIGHTLY_CRON) extracts sourced notes from quiet conversations (watermark and progress in
+  (src/nightly/, BRAIN_NIGHTLY_CRON) runs runNightlyForUsers over ctx.users.list(), one user at a time (a failing
+  user is recorded failed and the job summary, counts only, starts "partial: n of m users failed"), and per user
+  extracts sourced notes from quiet conversations (watermark and progress in
   ctx.storage, tool results never sent) and consolidates with one validated all-or-nothing plan (declared drops,
   mechanical loss check that also accepts a removed line stated on an untouched page the line names, one repair
   round); runs are recorded in brain__runs and reviewed/reverted in the Nightly tab (/api/modules/brain/runs).
@@ -138,8 +154,18 @@ context: |
   Fixtures in test/fixtures/nightly (kinds extraction|consolidation|summary; fields me/meName seed the subject page);
   `pnpm --filter @friday/module-brain eval`. Portal edits (author `user`) record the user's id and name on the
   revision (brain migration 4, store.asUser around each synchronous store call in routes.ts).
-  Users and login (packages/core/src/auth/, core migration 11: users, sessions, auth_owner; nullable
-  conversations.user_id, agent_runs.user_id, agent_actions.decided_by, attribution only, nothing filtered): Friday
+  Users and login (packages/core/src/auth/, core migration 11: users, sessions, auth_owner; conversations.user_id,
+  agent_runs.user_id, agent_actions.decided_by). Privacy (user-privacy): conversations, brains, agents and runs belong
+  to one user; data without a user is the owner's (UserStore.owner(): the recorded owner, else the dev user without
+  auth; onOwner fires once when recorded; ownership.ts assignUnowned/followOwner give NULL rows of conversations,
+  agents.created_by and agent_runs to the owner at startup and on onOwner; moduleUsers builds ctx.users). Voice
+  device sessions act for the owner (ws.ts `owner` option: prompt, tool calls, recorder userId). ConversationStore
+  .forUser(id) (list/get/search/delete/owns) is the only user-facing read path: /api/conversations and the chat
+  engine (resume only one's own thread, else 404) use it, ctx.conversations.forUser(id) for modules, onQuiet events
+  carry userId; retention stays global. Admins see no content (404 like anyone). ToolRegistry.setOwnerCheck (server.ts:
+  the owner) with Tool.ownerOnly: declarations(channel, user) leave them out for others, callTool refuses them
+  (INTERRUPT, "<name> is only available to the household owner"); voice snapshots for its user, chat per turn, agents
+  for the creator. Calendar (tools, agenda prompt, routes 403 owner_only) and Spotify tools are ownerOnly. Friday
   is the OIDC client of Authentik (oidc.ts: discovery from FRIDAY_AUTH_ISSUER, arctic OAuth2Client, PKCE + state +
   nonce, ID token claims checked without JWKS, groups from userinfo when missing; routes.ts: /auth/login,
   /auth/callback, POST /auth/logout). config.ts authMode: env only (FRIDAY_AUTH_ISSUER/_CLIENT_ID/_CLIENT_SECRET,
@@ -156,8 +182,11 @@ context: |
   parameter means device auth; foreign Origin 403; no session 401); UserConnections closes a disabled user's sockets
   with 4401. /api/me, /api/users, /api/users/:id/disable|enable (user-routes.ts). The SDK hands the user on:
   RouteRequest.user {id, name, role}, ToolCallContext.user and PromptContextInfo.user {id, name} (chat, the Talk
-  page, agent runs a user started incl. their approved actions; never devices, scheduled runs, MCP or remote tools);
-  createTestHost({ user }) (routes default to TEST_USER, an admin). Portal: main.ts loads /api/me before mounting
+  page, the owner for a device, the creator for every agent run and approved action; never MCP or remote tools);
+  ctx.users { owner(), list(), onOwner() } (ids and names of active users; remote runner throws "users are not
+  available in this host"); createTestHost({ user, users, owner }) (routes default to TEST_USER, an admin; owner
+  defaults to user else TEST_OWNER, null for none until recordOwner; calls and prompts without a user count as the
+  owner's; MemoryConversations seeds take userId, default the owner). Portal: main.ts loads /api/me before mounting
   (lib/auth.ts loadMe, LOGIN_MARK against login loops) and wraps window.fetch (guardFetch → LoginGuard: a 401 goes to
   /auth/login?return_to=, held while a chat reply streams or the Talk session is live); System section and
   /settings/* for admins only (AdminOnly.vue), user menu with logout (LoggedOut.vue), Settings > Users (UsersPage.vue).

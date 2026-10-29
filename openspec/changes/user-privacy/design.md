@@ -83,7 +83,7 @@ All of it is idempotent: only `NULL` rows change. New writes always set a user, 
 
 ### Conversations
 
-The store gets a user on every read path (list, get, search, delete). The routes pass `req.user.id`. Another user's conversation is a 404, not a 403, so ids can't be probed. A chat thread can be continued only by its own user (404 otherwise). The `user` column on the Conversations page goes: every row is yours. Retention stays global.
+The store gets a user on every read path (list, get, search, delete), as a view: `store.forUser(id)` is the only way the API, chat and modules read conversations, and its `get`/`delete` treat another user's id as unknown. The unscoped methods stay for core's own bookkeeping (recorders, retention, a chat turn that already checked its thread). The routes pass `req.user.id`. Another user's conversation is a 404, not a 403, so ids can't be probed. A chat thread can be continued only by its own user (404 otherwise). The `user` column on the Conversations page goes: every row is yours. Retention stays global.
 
 ### Brain per user
 

@@ -1,7 +1,8 @@
 /**
  * Users in friday.db, provisioned just in time at login. A user is identified by the (issuer, subject) the provider
  * gives, never by email; the profile and the role follow the claims at every login and claim refresh. The first admin
- * to log in is recorded once as the household owner. Without configured auth, the fixed dev user stands in.
+ * to log in is recorded once as the household owner, whom data without a user belongs to. Without configured auth, the
+ * fixed dev user stands in, also as the owner.
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -64,10 +65,20 @@ const toUser = (r: Row): User => ({
 
 const displayName = (c: LoginClaims): string => c.name?.trim() || c.preferredUsername?.trim() || c.email?.trim() || c.subject;
 
+export interface UserStoreOptions {
+  /** Without auth configured, the dev user stands in for the owner until one is recorded (a household of one). */
+  devOwner?: boolean;
+}
+
 export class UserStore {
+  private readonly ownerHandlers = new Set<(owner: User) => void>();
+  /** The recorded owner's id, once read: it is written once and never changes, and owner checks run on every call. */
+  private recordedOwner?: string;
+
   constructor(
     private readonly db: DatabaseSync,
     private readonly now: () => Date = () => new Date(),
+    private readonly opts: UserStoreOptions = {},
   ) {}
 
   /** Create the user on their first login, or update their profile and role. Records the owner when due. */
@@ -143,14 +154,44 @@ export class UserStore {
     return this.get(id)!;
   }
 
+  /**
+   * The household owner, whom data without a user belongs to: the recorded owner; without auth configured, the dev
+   * user; else nobody (a fresh install before the first admin login).
+   */
+  owner(): User | undefined {
+    const id = this.ownerId();
+    if (id) return this.get(id);
+    return this.opts.devOwner ? (this.get(DEV_USER_ID) ?? this.devUser()) : undefined;
+  }
+
+  /** Called once, right after the owner is first recorded. Returns an unsubscribe function. */
+  onOwner(handler: (owner: User) => void): () => void {
+    this.ownerHandlers.add(handler);
+    return () => void this.ownerHandlers.delete(handler);
+  }
+
   /** The household owner's user id, once recorded. */
   ownerId(): string | undefined {
-    return (this.db.prepare("SELECT user_id FROM auth_owner WHERE id = 1").get() as { user_id: string } | undefined)?.user_id;
+    return (this.recordedOwner ??= (this.db.prepare("SELECT user_id FROM auth_owner WHERE id = 1").get() as { user_id: string } | undefined)?.user_id);
+  }
+
+  /** Whether `id` is the household owner (as `owner()` resolves it), without reading the user. */
+  isOwner(id: string): boolean {
+    const recorded = this.ownerId();
+    return recorded !== undefined ? id === recorded : this.opts.devOwner === true && id === DEV_USER_ID;
   }
 
   /** The first admin (not the dev user, not disabled) becomes the owner, exactly once. */
   private recordOwner(user: User): void {
     if (user.role !== "admin" || user.disabled || user.id === DEV_USER_ID) return;
-    this.db.prepare("INSERT INTO auth_owner (id, user_id, recorded_at) VALUES (1, ?, ?) ON CONFLICT (id) DO NOTHING").run(user.id, this.now().toISOString());
+    const { changes } = this.db.prepare("INSERT INTO auth_owner (id, user_id, recorded_at) VALUES (1, ?, ?) ON CONFLICT (id) DO NOTHING").run(user.id, this.now().toISOString());
+    if (!changes) return;
+    for (const h of [...this.ownerHandlers]) {
+      try {
+        h(user);
+      } catch (e) {
+        console.error(`users: an owner handler failed: ${e instanceof Error ? e.message : e}`);
+      }
+    }
   }
 }

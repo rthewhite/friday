@@ -48,8 +48,11 @@ function engine(llm: ReturnType<typeof fakeLlm>["llm"], o: { registry?: ToolRegi
   return { ...s, registry, engine: e };
 }
 
+/** The user chat turns are for; only they can continue their threads. */
+const ME = { id: "u1", name: "Raymond", role: "admin" } as const;
+
 async function send(e: ChatEngine, text: string, conversationId?: string) {
-  const r = e.begin({ text, conversationId });
+  const r = e.begin({ text, conversationId }, ME);
   if (!r.ok) throw new Error(`begin failed: ${r.status} ${r.error}`);
   const events: ChatEvent[] = [];
   await r.turn.run((ev) => events.push(ev));
@@ -113,7 +116,7 @@ test("a chat tool call carries channel chat and the thread's id, on a new and on
   const first = await send(e, "what did we say about the boiler?");
   const second = await send(e, "and the heater?", first.id);
   assert.equal(second.id, first.id);
-  assert.deepEqual(seen, [{ channel: "chat", conversationId: first.id }, { channel: "chat", conversationId: first.id }]);
+  assert.deepEqual(seen, [{ channel: "chat", conversationId: first.id, user: { id: "u1", name: "Raymond" } }, { channel: "chat", conversationId: first.id, user: { id: "u1", name: "Raymond" } }]);
 });
 
 test("parallel calls in one round run together and answer in call order", { timeout: 2000 }, async () => {
@@ -235,7 +238,7 @@ test("begin answers 503 when a resumed thread's message could not be stored, and
   store.append = () => {
     throw new Error("SQLITE_FULL");
   };
-  assert.deepEqual(e.begin({ text: "second", conversationId: id }), { ok: false, status: 503, error: "the message could not be stored" });
+  assert.deepEqual(e.begin({ text: "second", conversationId: id }, ME), { ok: false, status: 503, error: "the message could not be stored" });
   assert.equal(store.isLive(id), false);
   store.append = append;
   assert.equal(f.requests.length, 1);
@@ -277,13 +280,13 @@ test("begin: empty text is 400, unknown or voice ids are 404, a running turn is 
   assert.deepEqual(e.begin({ text: "x", conversationId: voice }), { ok: false, status: 404, error: "unknown chat conversation" });
   assert.equal(store.get(voice)!.entryCount, 0);
 
-  const first = e.begin({ text: "first" });
+  const first = e.begin({ text: "first" }, ME);
   assert.ok(first.ok);
-  const busy = e.begin({ text: "second", conversationId: first.turn.conversationId });
+  const busy = e.begin({ text: "second", conversationId: first.turn.conversationId }, ME);
   assert.deepEqual(busy, { ok: false, status: 409, error: "a turn is still running in this conversation" });
   await first.turn.run(() => {});
   assert.equal(store.get(first.turn.conversationId)!.entryCount, 2);
-  assert.ok(e.begin({ text: "second", conversationId: first.turn.conversationId }).ok, "free again once the turn ended");
+  assert.ok(e.begin({ text: "second", conversationId: first.turn.conversationId }, ME).ok, "free again once the turn ended");
 });
 
 test("a resumed thread replays its whole history, tools included, and reads tools fresh per turn", async () => {
@@ -338,4 +341,15 @@ test("module context is rendered once per turn, used on every call of the tool l
   await send(e, "and now?", first.id);
   assert.equal(f.requests[3].system, expected("The user likes Dune and Arrival."));
   assert.equal(renders, 2);
+});
+
+test("another user's thread, or a resume without a user, is 404 and records nothing", async () => {
+  const f = fakeLlm([text("hi")]);
+  const { engine: e, store } = engine(f.llm);
+  const { id } = await send(e, "mine");
+  const entries = store.get(id)!.entryCount;
+  assert.deepEqual(e.begin({ text: "peek", conversationId: id }, { id: "u2", name: "Sanne", role: "member" }), { ok: false, status: 404, error: "unknown chat conversation" });
+  assert.deepEqual(e.begin({ text: "peek", conversationId: id }), { ok: false, status: 404, error: "unknown chat conversation" });
+  assert.equal(store.get(id)!.entryCount, entries);
+  assert.equal(store.isLive(id), false);
 });

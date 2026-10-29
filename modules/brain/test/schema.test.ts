@@ -24,8 +24,9 @@ test("after the first start the brain holds an empty profile with empty instruct
     { page_id: subject.id, author: "system", body: "", instructions: null, note: "moved from the profile" },
   ]);
   assert.deepEqual(plain(h.db.prepare("SELECT key, page_id FROM brain__names ORDER BY key").all()), [{ key: "me", page_id: subject.id }, { key: "profile", page_id: "profile" }]);
-  // A second profile is refused by the database itself.
-  assert.throws(() => h.db.prepare("INSERT INTO brain__pages (id, name, type, is_profile, created_at, updated_at) VALUES ('x', 'Other', 'other', 1, '', '')").run(), /UNIQUE constraint failed/);
+  // The brain from before users is the owner's (the test host's owner), and a second profile for them is refused by the database itself.
+  assert.deepEqual(plain(h.db.prepare("SELECT DISTINCT user_id FROM brain__pages").all()), [{ user_id: "test-user" }]);
+  assert.throws(() => h.db.prepare("INSERT INTO brain__pages (id, user_id, name, type, is_profile, created_at, updated_at) VALUES ('x', 'test-user', 'Other', 'other', 1, '', '')").run(), /UNIQUE constraint failed/);
   await h.dispose();
 });
 
@@ -34,7 +35,7 @@ test("a second start on the same data runs no migration and keeps the profile an
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = join(dir, "friday.db");
   const first = openModuleDb(file, "brain");
-  assert.deepEqual(first.migrate(migrations), [1, 2, 3, 4]);
+  assert.deepEqual(first.migrate(migrations), [1, 2, 3, 4, 5]);
   first.close();
   const second = openModuleDb(file, "brain");
   assert.deepEqual(second.migrate(migrations), []);

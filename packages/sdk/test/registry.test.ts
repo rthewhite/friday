@@ -174,3 +174,44 @@ test("a handler that takes only its args behaves as before", async () => {
   r.add("a", { name: "echo", description: "", handler: (args: { x?: number }) => ({ x: args.x }) });
   assert.deepEqual(await r.callTool("echo", { x: 1 }, { channel: "chat", conversationId: "c1" }), { result: { x: 1 }, scheduling: "INTERRUPT" });
 });
+
+const owner = { id: "u1", name: "Raymond" };
+const member = { id: "u2", name: "Sanne" };
+
+function ownerOnlyRegistry() {
+  const r = new ToolRegistry(quiet);
+  r.setOwnerCheck((u) => u?.id === owner.id);
+  let ran = 0;
+  r.add("calendar", { name: "calendar_list_events", description: "", ownerOnly: true, handler: () => (ran++, { events: [] }) });
+  r.add("core", { name: "get_current_time", description: "", handler: () => ({ now: "12:00" }) });
+  return { r, ran: () => ran };
+}
+
+test("ownerOnly tools are declared only for the owner", () => {
+  const { r } = ownerOnlyRegistry();
+  assert.deepEqual(r.declarations("chat", owner).map((d) => d.name), ["calendar_list_events", "get_current_time"]);
+  assert.deepEqual(r.declarations("chat", member).map((d) => d.name), ["get_current_time"]);
+  assert.deepEqual(r.declarations("voice").map((d) => d.name), ["get_current_time"]);
+});
+
+test("a forced call to an ownerOnly tool for a member, or without a user, is refused without running the handler", async () => {
+  const { r, ran } = ownerOnlyRegistry();
+  const refused = { result: { error: "calendar_list_events is only available to the household owner" }, scheduling: "INTERRUPT" };
+  assert.deepEqual(await r.callTool("calendar_list_events", {}, { channel: "chat", user: member }), refused);
+  assert.deepEqual(await r.callTool("calendar_list_events", {}, { channel: "voice" }), refused);
+  assert.equal(ran(), 0);
+  assert.deepEqual((await r.callTool("calendar_list_events", {}, { channel: "chat", user: owner })).result, { events: [] });
+  assert.equal(ran(), 1);
+});
+
+test("without an owner check nobody is the owner", async () => {
+  const r = new ToolRegistry(quiet);
+  r.add("spotify", { name: "spotify_play", description: "", ownerOnly: true, handler: () => ({}) });
+  assert.deepEqual(r.declarations("chat", owner), []);
+  assert.match(String((await r.callTool("spotify_play", {}, { user: owner })).result.error), /only available to the household owner/);
+});
+
+test("add rejects an ownerOnly that isn't true", () => {
+  const r = new ToolRegistry(quiet);
+  assert.throws(() => r.add("a", { name: "t", description: "", ownerOnly: "yes" as never, handler: () => ({}) }), /invalid ownerOnly for t/);
+});

@@ -8,10 +8,12 @@ import {
   startOfLocalDay,
   Type,
   type ConversationChannel,
+  type CallUser,
   type ConversationMatch,
   type ModuleContext,
-  type ModuleConversations,
+  type UserConversations,
   type SnippetEntry,
+  type ToolCallContext,
 } from "@friday/sdk";
 import { nameKey } from "./links.js";
 import { search, searchTerms } from "./search.js";
@@ -43,7 +45,13 @@ export interface Connection {
   exists: boolean;
 }
 
-export function defineBrainTools(ctx: ModuleContext, store: BrainStore, today: () => string, zone: () => string): void {
+/** Whose brain a call works on: its user, else the household owner. Undefined when there is neither. */
+export type CallBrain = (call: ToolCallContext) => { user: CallUser; store: BrainStore } | undefined;
+
+const NO_USER = { error: "the brain is not available: this call has no user and no household owner is recorded yet" };
+
+/** The brain tools, each acting on the brain of the call's user (else the owner's). */
+export function defineBrainTools(ctx: ModuleContext, brainOf: CallBrain, today: () => string, zone: () => string): void {
   ctx.defineTool<{ entity: string; fact: string; type?: PageType }>({
     name: "brain_remember",
     description: REMEMBER_DESCRIPTION,
@@ -56,7 +64,10 @@ export function defineBrainTools(ctx: ModuleContext, store: BrainStore, today: (
       },
       required: ["entity", "fact"],
     },
-    handler: ({ entity, fact, type }) => store.appendNote(entity, fact, type, today()),
+    handler: ({ entity, fact, type }, call) => {
+      const b = brainOf(call);
+      return b ? b.store.appendNote(entity, fact, type, today()) : NO_USER;
+    },
   });
 
   ctx.defineTool<{ query: string; entity?: string }>({
@@ -73,7 +84,10 @@ export function defineBrainTools(ctx: ModuleContext, store: BrainStore, today: (
       },
       required: ["query"],
     },
-    handler: ({ query, entity }) => recall(store, query, entity),
+    handler: ({ query, entity }, call) => {
+      const b = brainOf(call);
+      return b ? recall(b.store, query, entity) : NO_USER;
+    },
   });
 
   ctx.defineTool<RecallConversationsArgs>({
@@ -94,7 +108,11 @@ export function defineBrainTools(ctx: ModuleContext, store: BrainStore, today: (
         channel: { type: Type.STRING, enum: ["voice", "chat", "agent"], description: "Only voice, chat or agent-run conversations (agent: what Friday's agents reported)" },
       },
     },
-    handler: (args, call) => recallConversations(ctx.conversations, args, zone(), call.conversationId),
+    // Only the caller's own conversations: another user's are never searched.
+    handler: (args, call) => {
+      const b = brainOf(call);
+      return b ? recallConversations(ctx.conversations.forUser(b.user.id), args, zone(), call.conversationId) : NO_USER;
+    },
   });
 }
 
@@ -137,7 +155,7 @@ function recalled(e: SnippetEntry): RecalledEntry {
  * including a query with no searchable words, is an `{ error }` result the model can act on.
  */
 export async function recallConversations(
-  conversations: Pick<ModuleConversations, "search">,
+  conversations: Pick<UserConversations, "search">,
   { query, since, until, channel }: RecallConversationsArgs,
   zone: string,
   current?: string,

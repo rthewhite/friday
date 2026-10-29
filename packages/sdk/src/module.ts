@@ -7,6 +7,7 @@ import type { ModuleDb, ModuleMigration } from "./db.js";
 import type { ModulePrompt } from "./prompt.js";
 import { validateOAuthRequests, type ModuleOAuth, type OAuthRequest } from "./oauth.js";
 import type { Tool } from "./tool.js";
+import type { ModuleUsers } from "./user.js";
 
 /** A configuration value the module reads through `ctx.config`. */
 export interface ConfigKey {
@@ -51,8 +52,10 @@ export interface ModuleContext {
   jobs: ModuleJobs;
   /** Text generation through core's model. Rejects with `unavailable` in hosts without a model (remote modules). */
   llm: ModuleLlm;
-  /** Read access to recorded conversations, and quiet notifications. Not available to remote modules. */
+  /** Read access to one user's recorded conversations at a time, and quiet notifications. Not available to remote modules. */
   conversations: ModuleConversations;
+  /** The household owner and the active users (ids and names only). Not available to remote modules. */
+  users: ModuleUsers;
   /**
    * Synchronous access to the module's own tables (`<prefix>__*`) in friday.db, created by `migrations`.
    * Not available to remote modules.

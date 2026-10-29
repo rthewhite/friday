@@ -125,6 +125,47 @@ export const migrations: ModuleMigration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: "brain-per-user",
+    // A brain per user (user-privacy): pages, names, tombstones and runs belong to one user, names are unique within
+    // a user's brain, and each user has one profile. Existing rows keep no user here; they go to the household owner
+    // once there is one (users.ts), since a fresh install has none yet. Revisions follow their page; their ids stay
+    // global, so "revisions since N" still works. Names and tombstones are rebuilt for their new primary key.
+    up(db) {
+      db.exec(`
+        ALTER TABLE brain__pages ADD COLUMN user_id TEXT;
+        ALTER TABLE brain__runs ADD COLUMN user_id TEXT;
+        DROP INDEX brain__pages_one_profile;
+        CREATE UNIQUE INDEX brain__pages_one_profile ON brain__pages (COALESCE(user_id, '')) WHERE is_profile = 1;
+        CREATE INDEX brain__pages_user_updated ON brain__pages (user_id, updated_at DESC);
+        CREATE INDEX brain__runs_user ON brain__runs (user_id, id DESC);
+
+        CREATE TABLE brain__names_new (
+          user_id TEXT,
+          key TEXT NOT NULL,
+          page_id TEXT NOT NULL REFERENCES brain__pages (id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          PRIMARY KEY (user_id, key)
+        );
+        INSERT INTO brain__names_new (user_id, key, page_id, kind) SELECT NULL, key, page_id, kind FROM brain__names;
+        DROP TABLE brain__names;
+        ALTER TABLE brain__names_new RENAME TO brain__names;
+        CREATE INDEX brain__names_page ON brain__names (page_id);
+
+        CREATE TABLE brain__tombstones_new (
+          user_id TEXT,
+          key TEXT NOT NULL,
+          name TEXT NOT NULL,
+          purged_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, key)
+        );
+        INSERT INTO brain__tombstones_new (user_id, key, name, purged_at) SELECT NULL, key, name, purged_at FROM brain__tombstones;
+        DROP TABLE brain__tombstones;
+        ALTER TABLE brain__tombstones_new RENAME TO brain__tombstones;
+      `);
+    },
+  },
 ];
 
 /**

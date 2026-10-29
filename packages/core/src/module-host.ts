@@ -15,6 +15,7 @@ import {
   type ModuleLogger,
   type ModuleOAuth,
   type ModuleStorage,
+  type ModuleUsers,
   type PromptContext,
   type ToolRegistry,
 } from "@friday/sdk";
@@ -62,6 +63,8 @@ export interface ModuleHostOptions {
   prompt?: PromptContext;
   /** Per-module OAuth tokens (`tokens.forModule`). Defaults to one that rejects with `not_connected`. */
   oauth?: (moduleId: string) => ModuleOAuth;
+  /** The household's users (`ctx.users`), shared by every module. Defaults to an unavailable stub. */
+  users?: ModuleUsers;
 }
 
 interface Entry {
@@ -78,8 +81,8 @@ export class ModuleHost {
   private readonly env: Env;
   private readonly log: ModuleLogger;
   private readonly resolve: (moduleId: string) => ConfigResolver;
-  /** Unsubscribers of each module's onQuiet handlers, dropped on teardown and failed init. */
-  private readonly quietSubs = new Map<string, (() => void)[]>();
+  /** Unsubscribers of each module's onQuiet and onOwner handlers, dropped on teardown and failed init. */
+  private readonly subs = new Map<string, (() => void)[]>();
   /** Set by `dispose`: module connections are closed and must not reopen. */
   private disposed = false;
   /** Set when `dispose` starts: queued reloads and enable/disable calls leave the modules as they are. */
@@ -175,7 +178,7 @@ export class ModuleHost {
       }
       const db = this.opts.database ? lazyDb(() => this.databaseOf(entry)) : undefined;
       const http = { route: (method: Parameters<RouteTable["add"]>[0]["method"], path: string, handler: Parameters<RouteTable["add"]>[0]["handler"]) => routes.add({ method, path, handler }) };
-      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id), conversations: this.conversationsFor(id), db, prompt: this.opts.prompt?.forOwner(id), oauth: this.opts.oauth?.(id) }));
+      await module.init(createContext(module.manifest, { env: this.env, resolve, registry: this.registry, log: this.log, http, storage: this.opts.storage?.(id), jobs: this.opts.jobs?.(id), llm: this.opts.llm?.(id), conversations: this.conversationsFor(id), users: this.usersFor(id), db, prompt: this.opts.prompt?.forOwner(id), oauth: this.opts.oauth?.(id) }));
       entry.status = "loaded";
       entry.error = undefined;
       const routeList = routes.list().map((r) => `${r.method} ${r.path}`);
@@ -219,17 +222,37 @@ export class ModuleHost {
     if (!c) return undefined;
     return {
       ...c,
-      onQuiet: (handler) => {
-        const off = c.onQuiet(handler);
-        this.quietSubs.set(id, [...(this.quietSubs.get(id) ?? []), off]);
-        return off;
-      },
+      onQuiet: (handler) => this.track(id, c.onQuiet(handler)),
     };
   }
 
+  /** `ctx.users` with its onOwner subscriptions tracked like onQuiet's; a failing handler is logged with the module id. */
+  private usersFor(id: string): ModuleUsers | undefined {
+    const u = this.opts.users;
+    if (!u) return undefined;
+    return {
+      owner: () => u.owner(),
+      list: () => u.list(),
+      onOwner: (handler) =>
+        this.track(id, u.onOwner((owner) => {
+          const failed = (e: unknown) => this.log.error(`module ${id}: onOwner handler failed: ${e instanceof Error ? e.message : String(e)}`);
+          try {
+            void Promise.resolve(handler(owner)).catch(failed);
+          } catch (e) {
+            failed(e);
+          }
+        })),
+    };
+  }
+
+  private track(id: string, off: () => void): () => void {
+    this.subs.set(id, [...(this.subs.get(id) ?? []), off]);
+    return off;
+  }
+
   private dropSubscriptions(id: string): void {
-    for (const off of this.quietSubs.get(id) ?? []) off();
-    this.quietSubs.delete(id);
+    for (const off of this.subs.get(id) ?? []) off();
+    this.subs.delete(id);
   }
 
   loaded(): ModuleEntry[] {

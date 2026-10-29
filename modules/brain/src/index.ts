@@ -1,25 +1,29 @@
 /**
- * The brain: Friday's long-term memory for the household. Pages about the people, places, projects,
- * hobbies, belongings and pets in it, one of them the user's own, plus the profile: the user's
+ * The brain: Friday's long-term memory, one per user. Pages about the people, places, projects, hobbies,
+ * belongings and pets in that user's life, one of them the user's own, plus the profile: the user's
  * instructions and a summary generated from the pages. Full revisions, `[[links]]` and tombstones for
- * forgotten names. Friday reads it through the prompt context and `brain_recall`, and adds to it with
- * `brain_remember`; the user curates it at /m/brain. The `brain/nightly` job notes facts from finished
- * conversations, tidies the pages and writes the summary.
+ * forgotten names. Friday reads the user's brain through the prompt context and `brain_recall`, and adds to it
+ * with `brain_remember`; each user curates their own at /m/brain. The `brain/nightly` job notes facts from each
+ * user's finished conversations, tidies their pages and writes their summary. No user's brain is visible to
+ * another, admins included; a call or prompt without a user (none remain once devices act for the owner) uses
+ * the household owner's.
  */
-import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, localDate } from "@friday/sdk";
+import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, localDate, type CallUser, type ToolCallContext } from "@friday/sdk";
 import { renderContext } from "./context.js";
 import { runConsolidate } from "./nightly/consolidate.js";
 import { runExtract } from "./nightly/extract.js";
-import { DEFAULT_NIGHTLY_CRON, scheduleNightly, type NightlySteps } from "./nightly/job.js";
+import { DEFAULT_NIGHTLY_CRON, NIGHTLY_TIMEOUT_MS, PassGuard, runNightly, scheduleNightly, type UserPass } from "./nightly/job.js";
 import { registerRunRoutes } from "./nightly/review.js";
 import { RunStore } from "./nightly/runs.js";
 import { runSummary } from "./nightly/summary.js";
-import { registerBrainRoutes } from "./routes.js";
+import { registerBrainRoutes, requestBrain } from "./routes.js";
 import { migrations } from "./schema.js";
-import { BrainStore } from "./store.js";
+import { BrainError } from "./store.js";
 import { defineBrainTools } from "./tools.js";
+import { assignToOwner, Brains, userStorage } from "./users.js";
 
 export { BrainStore, BrainError, appendUnderNotes, validateFields } from "./store.js";
+export { Brains, userStorage, assignToOwner } from "./users.js";
 export type { Page, PageFields, PageType, Author, Revision, RememberResult } from "./store.js";
 export { renderContext } from "./context.js";
 export { recall } from "./tools.js";
@@ -34,6 +38,8 @@ export interface BrainOptions {
 
 export function createBrainModule(opts: BrainOptions = {}) {
   const now = opts.now ?? (() => new Date());
+  /** Passes started with `Run it now`: stopped by their timeout, and by dispose (reload, shutdown). */
+  const manual = new Set<AbortController>();
   return defineModule({
     manifest: {
       id: "brain",
@@ -49,8 +55,14 @@ export function createBrainModule(opts: BrainOptions = {}) {
     },
     migrations,
     init(ctx) {
-      const store = new BrainStore(ctx.db, { now });
-      const runs = new RunStore(ctx.db, now, () => store.lastRevisionId());
+      const brains = new Brains(ctx.db, { now });
+      // What was stored before brains had a user is the owner's: assigned now when there is one, else once the
+      // first admin logs in. Assignment runs before anything reads a brain, so the owner never gets a new, empty one.
+      const assign = (owner: CallUser) => assignToOwner(ctx.db, ctx.storage, owner, ctx.log).catch((e) => ctx.log.error(`assigning the brain to the owner failed: ${e instanceof Error ? e.message : String(e)}`));
+      const owner = ctx.users.owner();
+      const assigned = owner ? assign(owner) : Promise.resolve();
+      ctx.users.onOwner((o) => assign(o).then(() => undefined));
+
       const budget = () => {
         const n = Math.floor(Number(ctx.config.get("BRAIN_PROFILE_TOKEN_BUDGET")));
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_PROFILE_BUDGET;
@@ -61,17 +73,65 @@ export function createBrainModule(opts: BrainOptions = {}) {
         const n = Math.floor(Number(ctx.config.get("BRAIN_NIGHTLY_MAX_CONVERSATIONS")));
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_NIGHTLY_MAX_CONVERSATIONS;
       };
-      const extractDeps = { store, conversations: ctx.conversations, llm: ctx.llm, storage: ctx.storage, log: ctx.log, maxConversations, zone };
-      const steps: NightlySteps = {
-        extract: (signal) => runExtract(extractDeps, signal),
-        consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage: ctx.storage, log: ctx.log }, signal),
-        summary: (signal) => runSummary({ store, llm: ctx.llm, storage: ctx.storage, log: ctx.log, budget }, signal),
+      /** A user's nightly pass: their conversations, brain, storage keys and runs. */
+      const passOf = (user: CallUser): UserPass => {
+        const store = brains.forUser(user);
+        const storage = userStorage(ctx.storage, user.id);
+        const runs = new RunStore(ctx.db, user.id, now);
+        const conversations = ctx.conversations.forUser(user.id);
+        return {
+          runs,
+          steps: {
+            extract: (signal) => runExtract({ store, conversations, llm: ctx.llm, storage, log: ctx.log, maxConversations, zone }, signal),
+            consolidate: (signal) => runConsolidate({ store, db: ctx.db, llm: ctx.llm, storage, log: ctx.log }, signal),
+            summary: (signal) => runSummary({ store, llm: ctx.llm, storage, log: ctx.log, budget }, signal),
+          },
+        };
       };
-      defineBrainTools(ctx, store, today, zone);
-      registerBrainRoutes(ctx, store, budget);
-      registerRunRoutes(ctx, store, runs);
-      scheduleNightly(ctx, runs, steps);
-      ctx.prompt.addContext(() => renderContext(store));
+      const guard = new PassGuard();
+      /** Whose brain a tool call or prompt is for: its user, else the household owner. */
+      const userOf = (user: CallUser | undefined) => user ?? ctx.users.owner();
+      const brainOf = (call: ToolCallContext) => {
+        const user = userOf(call.user);
+        return user && { user, store: brains.forUser(user) };
+      };
+
+      defineBrainTools(ctx, brainOf, today, zone);
+      registerBrainRoutes(ctx, requestBrain((u) => brains.forUser(u)), budget);
+      registerRunRoutes(ctx, (req) => {
+        if (!req.user) throw new BrainError("not_found", "the brain needs a logged-in user");
+        return { store: brains.forUser(req.user), runs: new RunStore(ctx.db, req.user.id, now), conversations: ctx.conversations.forUser(req.user.id) };
+      });
+      // Run it now, for the requesting user's brain only; any user may, and only one pass per user at a time.
+      ctx.http.route("POST", "runs/now", async (req, res) => {
+        const user = req.user;
+        if (!user) return void res.status(404).json({ error: "the brain needs a logged-in user", code: "not_found" });
+        if (guard.isRunning(user.id)) return void res.status(409).json({ error: "a nightly pass for your brain is already running", code: "running" });
+        const pass = passOf(user);
+        // Bounded like the job, and cancelled on dispose, so a hung model can't hold the user's pass forever.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), NIGHTLY_TIMEOUT_MS);
+        timer.unref?.();
+        manual.add(controller);
+        void guard
+          .run(user.id, () => runNightly(pass.runs, pass.steps, "manual", controller.signal))
+          .catch((e) => ctx.log.error(`nightly pass for user ${user.id} failed: ${e instanceof Error ? e.message : String(e)}`))
+          .finally(() => {
+            clearTimeout(timer);
+            manual.delete(controller);
+          });
+        res.status(202).json({ started: true });
+      });
+      scheduleNightly(ctx, passOf, guard);
+      ctx.prompt.addContext(({ user }) => {
+        const u = userOf(user);
+        return u ? renderContext(brains.forUser(u)) : undefined;
+      });
+      return assigned.then(() => undefined);
+    },
+    dispose() {
+      for (const c of manual) c.abort();
+      manual.clear();
     },
   });
 }

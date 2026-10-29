@@ -33,14 +33,14 @@ test("an enabled agent with a schedule runs at its due time as core job agent-<n
   t.define(weekly);
   t.triggers.start();
   const [job] = t.scheduler.list();
-  assert.deepEqual([job.id, job.description, job.nextRunAt], [JOB, "Agent weekly-review: Sums up my week", "2026-10-25T17:00:00.000Z"]);
+  assert.deepEqual([job.id, job.description, job.nextRunAt], [JOB, "A scheduled agent run", "2026-10-25T17:00:00.000Z"]);
 
   await t.clock.to("2026-10-25T17:00:00Z");
   await finished(t);
   const [run] = t.runs.list("weekly-review");
   assert.deepEqual([run.trigger, run.outcome, run.summary], ["schedule", "ok", "Busy week."]);
   await t.clock.advance(0);
-  assert.deepEqual(t.jobs.runs(JOB).map((r) => [r.trigger, r.outcome, r.summary]), [["schedule", "ok", "Busy week."]]);
+  assert.deepEqual(t.jobs.runs(JOB).map((r) => [r.trigger, r.outcome, r.summary]), [["schedule", "ok", "ok"]], "the job records the outcome, never the answer");
   await t.scheduler.stop();
 });
 
@@ -132,14 +132,15 @@ test("Run now on the Jobs page starts a portal run; deleting the agent removes i
   await t.scheduler.stop();
 });
 
-test("a failed agent run fails the job run with its error; aborting the job cancels the agent run", async () => {
+test("a failed agent run fails the job run with only its outcome; aborting the job cancels the agent run", async () => {
   const t = setup([{ error: new Error("boom") }]);
   t.define(weekly);
   t.triggers.start();
   t.scheduler.runNow(JOB);
   await finished(t);
   await t.clock.advance(0);
-  assert.deepEqual(t.jobs.runs(JOB).map((r) => [r.outcome, r.error]), [["failed", "unavailable: boom"]]);
+  assert.deepEqual(t.jobs.runs(JOB).map((r) => [r.outcome, r.error]), [["failed", "failed"]]);
+  assert.equal(t.runs.list("weekly-review")[0].error, "unavailable: boom", "the error is the creator's to read, on the run");
 
   const slow = setup([{ waitMs: Infinity }]);
   slow.define(weekly);

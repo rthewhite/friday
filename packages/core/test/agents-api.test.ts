@@ -11,7 +11,7 @@ import { McpSource } from "../src/tools/mcp.js";
 import { agentHarness, quiet } from "./agent-harness.js";
 import { FakeClock } from "./fake-clock.js";
 import { call, text, type Round } from "./fake-stream.js";
-import { waitFor } from "./helpers.js";
+import { devAuth, waitFor } from "./helpers.js";
 
 async function start(rounds: Round[] = [{ chunks: [text("Done.")] }], o: { agents?: boolean } = {}) {
   const t = agentHarness(rounds);
@@ -26,7 +26,7 @@ async function start(rounds: Round[] = [{ chunks: [text("Done.")] }], o: { agent
     nextRun: (name: string) => scheduler.nextRunAt(`core/agent-${name}`),
   };
   const host = new ModuleHost(t.registry, { env: {}, log: quiet });
-  const server = createServer(createApp({ registry: t.registry, host, mcp: new McpSource(t.registry, undefined, { log: quiet }), webDir: "/nonexistent", conversations: t.conversations, jobs: scheduler, agents }));
+  const server = createServer(createApp({ registry: t.registry, host, mcp: new McpSource(t.registry, undefined, { log: quiet }), webDir: "/nonexistent", conversations: t.conversations, jobs: scheduler, agents, auth: await devAuth(t.db) }));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -168,6 +168,21 @@ test("without agents the API answers 503", async () => {
   try {
     assert.equal((await s.req("GET", "/api/agents")).status, 503);
     assert.equal((await s.req("POST", "/api/agents/actions/x/approve")).status, 503);
+  } finally {
+    await s.close();
+  }
+});
+
+test("Run now on the Jobs page: an agent's job starts for its creator only; anyone else is refused with 403", async () => {
+  const s = await start();
+  try {
+    s.db.exec("INSERT INTO users (id, issuer, subject, name, role, first_login_at, last_login_at) VALUES ('u2', 'i', 's2', 'Sanne', 'member', 't', 't')");
+    s.define({ name: "her-digest", schedule: "0 7 * * *" }, "u2");
+    assert.equal((await s.req("POST", "/api/jobs/core/agent-her-digest/run")).status, 403, "the dev user is an admin, but not her agent's creator");
+    assert.deepEqual(s.runs.list("her-digest"), []);
+    assert.equal((await s.req("POST", "/api/agents", review)).status, 201);
+    assert.equal((await s.req("POST", "/api/jobs/core/agent-weekly-review/run")).status, 202);
+    await waitFor(() => s.runs.list("weekly-review").length === 1);
   } finally {
     await s.close();
   }

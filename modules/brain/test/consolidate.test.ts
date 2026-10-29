@@ -1,13 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { LlmRequest } from "@friday/sdk";
-import { createTestHost, type TestHost } from "@friday/sdk/test";
+import { createTestHost, TEST_OWNER, type TestHost } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
 import { preserved, renderConsolidation, validatePlan, type Plan } from "../src/nightly/consolidate.js";
 import { GUIDANCE_VERSION } from "../src/nightly/guidance.js";
 import { BrainStore } from "../src/store.js";
 import { brainStore } from "./fixtures.js";
 import { brainText, checkFixture, loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
+import { userStorage } from "../src/users.js";
+import type { ModuleStorage } from "@friday/sdk";
+
+/** The test owner's keys in the module's storage (each user's nightly state is under their prefix). */
+const mine = (s: ModuleStorage) => userStorage(s, TEST_OWNER.id);
+
 
 const fixtures = new Map(loadFixtures().map((f) => [f.name, f]));
 const fixture = (name: string): Fixture => fixtures.get(name)!;
@@ -42,7 +48,9 @@ async function host(plan: PlanAnswer = () => ({ actions: [], note: "tidy" }), en
   };
   const run = async () => {
     const r = await h.runJob("nightly");
-    return { ...r, row: { ...(h.db.prepare("SELECT * FROM brain__runs ORDER BY id DESC LIMIT 1").get() as Record<string, unknown>) } };
+    const row = { ...(h.db.prepare("SELECT * FROM brain__runs ORDER BY id DESC LIMIT 1").get() as Record<string, unknown>) };
+    // The job's summary counts over every user; the user's own run records what happened to their brain.
+    return { ...r, jobSummary: r.summary, summary: row.summary as string | undefined, row };
   };
   return { h, requests, page, run };
 }
@@ -73,9 +81,9 @@ test("an older guidance version reconsiders the user's page once, even when no p
   await seedFixture(t.h, fixture("fold-notes"));
   await t.run();
   assert.equal(t.requests.length, 1);
-  assert.equal(await t.h.storage.get(GUIDANCE), GUIDANCE_VERSION, "an applied plan, even an empty one, records the guidance");
+  assert.equal(await mine(t.h.storage).get(GUIDANCE), GUIDANCE_VERSION, "an applied plan, even an empty one, records the guidance");
   // As on an install whose brain was last consolidated under the previous guidance.
-  await t.h.storage.set(GUIDANCE, GUIDANCE_VERSION - 1);
+  await mine(t.h.storage).set(GUIDANCE, GUIDANCE_VERSION - 1);
   await t.run();
   assert.equal(t.requests.length, 2, "the model is called although no page changed");
   const p = t.requests[1]!.messages![0]!.text;
@@ -91,7 +99,7 @@ test("an older guidance version reconsiders the user's page once, even when no p
 test("without an older guidance version the input has no guidance line", async () => {
   const t = await host();
   await seedFixture(t.h, fixture("fold-notes"));
-  await t.h.storage.set(GUIDANCE, GUIDANCE_VERSION);
+  await mine(t.h.storage).set(GUIDANCE, GUIDANCE_VERSION);
   await t.run();
   assert.doesNotMatch(t.requests[0]!.messages![0]!.text, /guidance changed/);
 });
@@ -105,12 +113,12 @@ test("a guidance change whose plans are refused twice is tried again on the next
   });
   await seedFixture(t.h, { ...fixture("fold-notes"), me: "Lives in Amsterdam with two cats." });
   await t.run();
-  await t.h.storage.set(GUIDANCE, GUIDANCE_VERSION - 1);
+  await mine(t.h.storage).set(GUIDANCE, GUIDANCE_VERSION - 1);
   refuse = true;
   const r = await t.run();
   assert.equal(r.row.outcome, "partial");
   assert.equal(t.requests.length, 3);
-  assert.equal(await t.h.storage.get(GUIDANCE), GUIDANCE_VERSION - 1, "nothing applied, so the guidance is not handled");
+  assert.equal(await mine(t.h.storage).get(GUIDANCE), GUIDANCE_VERSION - 1, "nothing applied, so the guidance is not handled");
   await t.run();
   assert.equal(t.requests.length, 5, "tried again on the next run");
 });
@@ -120,7 +128,7 @@ test("an empty brain records the guidance without a model call", async () => {
   const r = await t.run();
   assert.equal(t.requests.length, 0);
   assert.match(r.summary!, /nothing to consolidate/);
-  assert.equal(await t.h.storage.get(GUIDANCE), GUIDANCE_VERSION);
+  assert.equal(await mine(t.h.storage).get(GUIDANCE), GUIDANCE_VERSION);
 });
 
 test("the request marks changed pages and carries revisions and forgotten names, not the profile", async () => {

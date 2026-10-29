@@ -14,7 +14,7 @@ import { MemoryStorage } from "./storage.js";
 import { MemoryConversations } from "./conversations.js";
 import { lazyDb, openModuleDb, type ModuleDatabase, type ModuleDb } from "./db.js";
 import { PromptContext, type PromptChannel } from "./prompt.js";
-import type { CallUser, RequestUser } from "./user.js";
+import type { CallUser, ModuleUsers, RequestUser } from "./user.js";
 
 export interface TestHostOptions {
   /** Configuration the module sees. Defaults to an empty environment, not `process.env`. */
@@ -39,10 +39,20 @@ export interface TestHostOptions {
    * user (core always sets one) and calls and prompts carry none. Each request, call and render can override it.
    */
   user?: RequestUser;
+  /** The users `ctx.users.list()` returns. Defaults to the owner and `user`. */
+  users?: CallUser[];
+  /**
+   * The household owner (`ctx.users.owner()`): a user, or the id of one in `users`. Defaults to `user`, else
+   * `TEST_OWNER`; `null` starts without one, to record it later with `recordOwner`. Calls without a user count as the
+   * owner's, so `ownerOnly` tools stay callable without setting a user.
+   */
+  owner?: CallUser | string | null;
 }
 
 /** The user route requests carry when the test host has no `user` option. */
 export const TEST_USER: RequestUser = { id: "test-user", name: "Test User", role: "admin" };
+/** The household owner when the test host has neither an `owner` nor a `user` option: `TEST_USER`. */
+export const TEST_OWNER: CallUser = { id: TEST_USER.id, name: TEST_USER.name };
 
 export type FakeOAuthValue = string | OAuthError;
 export type FakeOAuth = FakeOAuthValue | (() => FakeOAuthValue | Promise<FakeOAuthValue>);
@@ -75,8 +85,10 @@ export interface TestHost {
    * carries the host's `user` unless `opts` has a `user` key (`{ user: undefined }` calls without one).
    */
   call(name: string, args?: Record<string, unknown>, opts?: CallOptions): Promise<CallResult>;
-  /** Names of the tools offered in a channel. */
-  toolsIn(channel: ConversationChannel): string[];
+  /** Names of the tools offered in a channel, to the host's `user` unless one is given (`null` offers to nobody). */
+  toolsIn(channel: ConversationChannel, user?: CallUser | null): string[];
+  /** Record the household owner (a user, or the id of one in `users`) and run the module's `onOwner` handlers. */
+  recordOwner(owner: CallUser | string): Promise<void>;
   registry: ToolRegistry;
   /** In-memory storage the module saw as `ctx.storage`. */
   storage: MemoryStorage;
@@ -104,7 +116,8 @@ export interface TestHost {
   oauthCalls: Record<string, number>;
   /**
    * The module's prompt context for a channel, rendered as core would (empty when it adds none), for the host's
-   * `user` unless one is given (`null` renders without a user).
+   * `user` unless one is given, else for the owner, as core renders a voice device's prompt (`null` renders without
+   * a user, as before any owner is recorded).
    */
   promptContext(channel: PromptChannel, user?: CallUser | null): string;
   dispose(): Promise<void>;
@@ -159,13 +172,18 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   const db = lazyDb(open);
   const prompts = new PromptContext({ log });
   const hostUser: CallUser | undefined = opts.user && { id: opts.user.id, name: opts.user.name };
+  const users = new TestUsers(opts, hostUser, log);
+  conversations.defaultUserId ??= users.owner()?.id;
+  // Calls without a user count as the owner's, so modules with owner-only tools stay testable without a user.
+  registry.setOwnerCheck((u) => u === undefined || u.id === users.owner()?.id);
   const oauthCalls: Record<string, number> = {};
   const oauth = fakeOAuth(module, opts.oauth ?? {}, oauthCalls);
-  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm, db, prompt: prompts.forOwner(id), oauth }));
+  await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm, db, prompt: prompts.forOwner(id), oauth, users }));
   return {
     tools: registry.names(module.manifest.id),
     call: (name, args, opts = {}) => registry.callTool(name, args, "user" in opts ? opts : { ...opts, user: hostUser }),
-    toolsIn: (channel) => registry.declarations(channel).map((d) => d.name),
+    toolsIn: (channel, user) => (user === null ? registry.declarations(channel, NOBODY) : registry.declarations(channel, user ?? hostUser)).map((d) => d.name),
+    recordOwner: (owner) => users.record(owner),
     registry,
     storage,
     llmRequests,
@@ -201,15 +219,71 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
     runJob: (name) => runJob(name, "manual"),
     db,
     oauthCalls,
-    promptContext: (channel, user) => prompts.render(channel, user === null ? undefined : (user ?? hostUser)),
+    promptContext: (channel, user) => prompts.render(channel, user === null ? undefined : (user ?? hostUser ?? users.owner())),
     dispose: async () => {
       conversations.clearSubscriptions();
+      users.clearSubscriptions();
       prompts.clear(id);
       await module.dispose?.();
       database?.close();
       database = undefined;
     },
   };
+}
+
+/** A user nobody is: `toolsIn(channel, null)` lists what a non-owner is offered. */
+const NOBODY: CallUser = { id: "", name: "" };
+
+/** `ctx.users` of the test host: the `users` and `owner` options, and the owner recorded later. */
+class TestUsers implements ModuleUsers {
+  private readonly users: CallUser[];
+  private current: CallUser | undefined;
+  private readonly handlers = new Set<(owner: CallUser) => void | Promise<void>>();
+
+  constructor(opts: TestHostOptions, hostUser: CallUser | undefined, private readonly log: ModuleLogger) {
+    this.users = (opts.users ?? []).map(({ id, name }) => ({ id, name }));
+    const owner = opts.owner === undefined ? (hostUser ?? TEST_OWNER) : opts.owner;
+    if (owner !== null) this.current = this.resolve(owner);
+    if (!opts.users) for (const u of [this.current, hostUser]) if (u && !this.users.some((x) => x.id === u.id)) this.users.push(u);
+  }
+
+  owner(): CallUser | undefined {
+    return this.current && { ...this.current };
+  }
+
+  list(): CallUser[] {
+    return this.users.map((u) => ({ ...u }));
+  }
+
+  onOwner(handler: (owner: CallUser) => void | Promise<void>): () => void {
+    this.handlers.add(handler);
+    return () => void this.handlers.delete(handler);
+  }
+
+  async record(owner: CallUser | string): Promise<void> {
+    if (this.current) throw new Error(`the owner is already recorded (${this.current.id})`);
+    const u = this.resolve(owner);
+    if (!this.users.some((x) => x.id === u.id)) this.users.push(u);
+    this.current = u;
+    for (const h of [...this.handlers]) {
+      try {
+        await h({ ...u });
+      } catch (err) {
+        this.log.error(`onOwner handler failed:`, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+
+  clearSubscriptions(): void {
+    this.handlers.clear();
+  }
+
+  private resolve(owner: CallUser | string): CallUser {
+    if (typeof owner !== "string") return { id: owner.id, name: owner.name };
+    const u = this.users.find((x) => x.id === owner);
+    if (!u) throw new Error(`owner "${owner}" is not one of the test host's users`);
+    return { ...u };
+  }
 }
 
 /** Core's request rule (only providers the manifest requests), then the test's fake per provider. */

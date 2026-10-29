@@ -26,16 +26,26 @@ export interface ToolEntry {
   description: string;
 }
 
+/** Whether a call's or a prompt's user is the household owner; the registry's view of the owner for `ownerOnly` tools. */
+export type OwnerCheck = (user: CallUser | undefined) => boolean;
+
 /**
  * Owner-tagged tool registry. Core creates one instance; modules reach it through
  * `ctx.defineTool`, MCP servers register as `mcp:<server>`. Voice sessions snapshot
- * `declarations("voice")` when they open; chat turns read `declarations("chat")`.
+ * `declarations("voice", user)` when they open; chat turns read `declarations("chat", user)`.
+ * Until `setOwnerCheck` is called nobody counts as the owner, so `ownerOnly` tools are never offered.
  */
 export class ToolRegistry {
   private readonly tools = new Map<string, { tool: Tool; owner: string }>();
   private readonly listeners = new Set<() => void>();
+  private isOwner: OwnerCheck = () => false;
 
   constructor(private readonly log: Pick<Console, "error"> = console) {}
+
+  /** How to tell the household owner, for `ownerOnly` tools. */
+  setOwnerCheck(check: OwnerCheck): void {
+    this.isOwner = check;
+  }
 
   add<A>(owner: string, tool: Tool<A>): Tool<A> {
     if (this.tools.has(tool.name)) throw new Error(`duplicate tool ${tool.name}`);
@@ -43,6 +53,7 @@ export class ToolRegistry {
     if (ch !== undefined && (!Array.isArray(ch) || !ch.length || ch.some((c) => !CHANNELS.includes(c)))) {
       throw new Error(`invalid channels for ${tool.name}`);
     }
+    if (tool.ownerOnly !== undefined && tool.ownerOnly !== true) throw new Error(`invalid ownerOnly for ${tool.name}`);
     this.tools.set(tool.name, { tool, owner });
     this.emit();
     return tool;
@@ -76,9 +87,13 @@ export class ToolRegistry {
     return this.tools.get(name)?.tool;
   }
 
-  /** Snapshot of what the model should see, narrowed to the tools offered in `channel` when given. */
-  declarations(channel?: ConversationChannel): FunctionDeclaration[] {
-    return [...this.tools.values()].filter(({ tool }) => offeredIn(tool, channel)).map(({ tool: { name, description, parameters, parametersJsonSchema } }) =>
+  /**
+   * Snapshot of what the model should see, narrowed to the tools offered in `channel` when given. `ownerOnly` tools
+   * are left out unless `user` is the household owner.
+   */
+  declarations(channel?: ConversationChannel, user?: CallUser): FunctionDeclaration[] {
+    const owner = this.isOwner(user);
+    return [...this.tools.values()].filter(({ tool }) => offeredIn(tool, channel) && (owner || !tool.ownerOnly)).map(({ tool: { name, description, parameters, parametersJsonSchema } }) =>
       parametersJsonSchema ? { name, description, parametersJsonSchema } : { name, description, parameters },
     );
   }
@@ -94,6 +109,7 @@ export class ToolRegistry {
   async callTool(name: string, args: Record<string, unknown> | undefined, opts: CallOptions = {}): Promise<CallResult> {
     const e = this.tools.get(name);
     if (!e || !offeredIn(e.tool, opts.channel)) return { result: { error: `unknown tool ${name}` }, scheduling: "INTERRUPT" };
+    if (e.tool.ownerOnly && !this.isOwner(opts.user)) return { result: { error: `${name} is only available to the household owner` }, scheduling: "INTERRUPT" };
     try {
       const { scheduling, endConversation, ...result } = await e.tool.handler(args ?? {}, context(opts));
       const out: CallResult = { result, scheduling: pickScheduling(scheduling) ?? e.tool.scheduling ?? "INTERRUPT" };

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { Badge, Button, Card, Chip, DataTable, formatDateTime, type Column } from "@friday/portal-ui";
 import { lineDiff } from "./lib/diff.js";
-import { ApiError, api, type RunPageView, type RunSummary } from "./lib/pages.js";
+import { ApiError, api, runNightlyNow, type RunPageView, type RunSummary } from "./lib/pages.js";
 
 const router = useRouter();
 const runs = ref<RunSummary[] | null>(null);
@@ -19,6 +19,21 @@ const columns: Column[] = [
   { key: "summary", label: "Summary" },
 ];
 const tone = (o?: string) => (o === "ok" ? "success" : o === "partial" ? "warning" : o === "failed" ? "error" : "neutral");
+
+const starting = ref(false);
+/** Runs the pass for the logged-in user's own brain. */
+async function runNow() {
+  notice.value = "";
+  starting.value = true;
+  try {
+    const r = await runNightlyNow();
+    notice.value = r === "started" ? "Started a nightly pass for your brain; it shows up here when it finishes." : "A nightly pass for your brain is already running.";
+  } catch (e) {
+    notice.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    starting.value = false;
+  }
+}
 
 async function load() {
   error.value = "";
@@ -64,12 +79,13 @@ const openPage = (id: string) => router.push(`/m/brain/p/${encodeURIComponent(id
 <template>
   <div class="flex flex-col gap-4">
     <p v-if="error" class="text-f-error">{{ error }}</p>
+    <p v-if="notice && !selected" class="text-sm text-f-text-muted">{{ notice }}</p>
     <Card v-if="runs && !runs.length">
       <p class="text-sm text-f-text">
         No nightly runs yet. Every night (03:00 by default, <code class="font-mono">BRAIN_NIGHTLY_CRON</code>) Friday reads the conversations that finished,
         notes lasting facts, and tidies the pages. Everything it changes shows up here and can be reverted.
       </p>
-      <RouterLink to="/settings/jobs" class="text-sm text-f-accent-bright hover:underline">Run it now from the Jobs page</RouterLink>
+      <div><Button variant="ghost" :disabled="starting" @click="runNow">Run it now</Button></div>
     </Card>
     <DataTable v-else-if="runs" :columns="columns" :rows="runs as unknown as Record<string, unknown>[]" row-key="id" clickable empty="No runs" @row-click="open(($event as unknown as RunSummary).id)">
       <template #cell-startedAt="{ value }"><span class="whitespace-nowrap text-f-text-muted">{{ formatDateTime(value as string) }}</span></template>

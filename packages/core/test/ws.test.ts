@@ -533,3 +533,40 @@ test("alert without a device is ignored: the Talk page gets a normal session", a
     await h.close();
   }
 });
+
+// ---------------------------------------------------------------- devices act for the owner
+
+async function deviceSession(owner?: () => { id: string; name: string } | undefined) {
+  const { store, db } = setup();
+  const devices = deviceFixture();
+  const key = devices.register("friday-kitchen");
+  const h = await startHarness({ conversations: store, devices: devices.store, ...(owner ? { owner } : {}) });
+  try {
+    const ws = await h.connect("?device=friday-kitchen", key);
+    await waitFor(() => StubSession.instances.length === 1);
+    const s = StubSession.instances[0];
+    s.recorder!.user("hi", "speech");
+    s.recorder!.assistant("Hello.");
+    s.recorder!.turnComplete();
+    s.recorder!.end("ended: no follow-up");
+    ws.close();
+    await once(ws, "close");
+    const row = db.prepare("SELECT user_id FROM conversations WHERE id = ?").get(s.recorder!.conversationId!) as { user_id: string | null };
+    return { user: s.user, conversationUser: row.user_id };
+  } finally {
+    await h.close();
+  }
+}
+
+test("a device's session acts for the household owner: its session user and its conversation", async () => {
+  const { user, conversationUser } = await deviceSession(() => ({ id: "u1", name: "Raymond" }));
+  assert.deepEqual(user, { id: "u1", name: "Raymond" });
+  assert.equal(conversationUser, "u1");
+});
+
+test("a device's session has no user while no owner is recorded", async () => {
+  const none = await deviceSession(() => undefined);
+  assert.equal(none.user, undefined);
+  assert.equal(none.conversationUser, null);
+  assert.equal((await deviceSession()).user, undefined, "without an owner source");
+});

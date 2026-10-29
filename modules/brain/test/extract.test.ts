@@ -1,12 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LlmError, type LlmRequest } from "@friday/sdk";
-import { createTestHost } from "@friday/sdk/test";
+import { createTestHost, TEST_OWNER } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
 import { extractConversation } from "../src/nightly/extract.js";
 import { renderBrain } from "../src/nightly/render.js";
 import { BrainStore } from "../src/store.js";
 import { brainText, checkFixture, loadFixtures, seedFixture, type Fixture } from "./nightly/load.js";
+import { userStorage } from "../src/users.js";
+import type { ModuleStorage } from "@friday/sdk";
+
+/** The test owner's keys in the module's storage (each user's nightly state is under their prefix). */
+const mine = (s: ModuleStorage) => userStorage(s, TEST_OWNER.id);
+
 
 const fixtures = new Map(loadFixtures().map((f) => [f.name, f]));
 const fixture = (name: string): Fixture => fixtures.get(name)!;
@@ -32,8 +38,9 @@ async function host(extract: Answer = () => ({ notes: [] }), env: Record<string,
   const body = (name: string) => (h.db.prepare("SELECT p.body FROM brain__names n JOIN brain__pages p ON p.id = n.page_id WHERE n.key = ?").get(name.toLowerCase()) as { body: string } | undefined)?.body;
   const run = async () => {
     const r = await h.runJob("nightly");
-    const row = h.db.prepare("SELECT * FROM brain__runs ORDER BY id DESC LIMIT 1").get() as Record<string, unknown>;
-    return { ...r, row: { ...row } };
+    const row = { ...(h.db.prepare("SELECT * FROM brain__runs ORDER BY id DESC LIMIT 1").get() as Record<string, unknown>) };
+    // The job's summary counts over every user; the user's own run records what happened to their brain.
+    return { ...r, jobSummary: r.summary, summary: row.summary as string | undefined, row };
   };
   return { h, extractions, body, run, setNow: (iso: string) => void (now = new Date(iso)) };
 }
@@ -89,7 +96,7 @@ test("the brain rendering lists dangling links and forgotten names, and an overs
   });
   await t.h.request("POST", "pages", { name: "Home", type: "place", body: "Wifi password is on the router label. Near [[Utrecht]]." });
   for (let i = 1; i <= 5; i++) await t.h.request("POST", "pages", { name: `Big ${i}`, body: `Filler ${"lorem ipsum ".repeat(1500)}` });
-  const store = new BrainStore(t.h.db);
+  const store = new BrainStore(t.h.db, TEST_OWNER.id);
   const text = renderBrain(store, "what was the wifi router password again?");
   assert.ok(text.length <= 60000, `${text.length}`);
   // The user's page comes first; the profile's summary is not shown.
@@ -141,7 +148,7 @@ test("the date shown to the model is the date the notes get, even if the zone ch
   const zones = ["Europe/Amsterdam", "America/New_York"];
   let prompt = "";
   const deps = {
-    store: new BrainStore(t.h.db),
+    store: new BrainStore(t.h.db, TEST_OWNER.id),
     llm: { generate: async (req: LlmRequest) => { prompt = req.prompt; return { text: "", json: { notes: [{ entity: "Bram", fact: "Has a cat" }] }, model: "fake", usage: { inputTokens: 0, outputTokens: 0 } }; } },
     log: { log() {}, warn() {}, error() {} },
     zone: () => zones.shift() ?? "UTC",
@@ -182,8 +189,8 @@ test("a conversation extracted twice (a crash before its progress was saved) add
   await t.run();
   const once = t.body("Home");
   // The next night the progress keys are gone, as after a crash mid-conversation.
-  await t.h.storage.delete("extract:seen:c1");
-  await t.h.storage.delete("extract:watermark");
+  await mine(t.h.storage).delete("extract:seen:c1");
+  await mine(t.h.storage).delete("extract:watermark");
   t.setNow("2026-10-01T01:00:00Z");
   const again = await t.run();
   assert.equal(t.extractions.length, 2, "the conversation was extracted again");
@@ -204,7 +211,7 @@ test("a backlog of 70 conversations is worked through 30, 30 and 10 per run", as
   }
   assert.deepEqual(counts, [30, 30, 10, 0]);
   assert.ok(t.extractions[0]!.prompt!.includes("conversation number 0 "), "oldest first");
-  assert.deepEqual((await t.h.storage.get("extract:watermark")), { quietAt: new Date(Date.parse("2026-09-01T00:00:00Z") + 69 * 60_000).toISOString(), ids: ["c69"] });
+  assert.deepEqual((await mine(t.h.storage).get("extract:watermark")), { quietAt: new Date(Date.parse("2026-09-01T00:00:00Z") + 69 * 60_000).toISOString(), ids: ["c69"] });
 });
 
 test("BRAIN_NIGHTLY_MAX_CONVERSATIONS sets the per-run limit", async () => {
@@ -236,8 +243,8 @@ test("agent runs are passed over: no model call, not counted, not taking room, a
   assert.equal(t.extractions.length, 2, "two user conversations, the agent runs took no room");
   assert.ok(t.extractions.every((r) => !r.prompt!.includes("Anouk")));
   assert.match(first.summary!, /^2 conversations/);
-  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: "2026-09-05T00:00:00.000Z", ids: ["c2"] });
-  assert.equal(await t.h.storage.get("extract:seen:a1"), undefined);
+  assert.deepEqual(await mine(t.h.storage).get("extract:watermark"), { quietAt: "2026-09-05T00:00:00.000Z", ids: ["c2"] });
+  assert.equal(await mine(t.h.storage).get("extract:seen:a1"), undefined);
 
   await t.run();
   assert.equal(t.extractions.length, 3);
@@ -266,7 +273,7 @@ test("a trivial conversation is skipped without a model call", async () => {
   const r = await t.run();
   assert.equal(t.extractions.length, 0);
   assert.match(r.summary!, /^1 conversation \(1 trivial\), 0 notes/);
-  assert.deepEqual(await t.h.storage.get("extract:seen:c1"), { seq: 1 });
+  assert.deepEqual(await mine(t.h.storage).get("extract:seen:c1"), { seq: 1 });
 });
 
 test("an invalid answer is retried on the next runs and given up after 3 attempts", async () => {
@@ -278,13 +285,13 @@ test("an invalid answer is retried on the next runs and given up after 3 attempt
   assert.equal(r1.outcome, "ok");
   assert.equal(attempts(), 1);
   assert.equal(t.extractions.filter((r) => r.prompt!.includes("perfectly normal")).length, 1, "the other conversation is still handled");
-  assert.deepEqual((await t.h.storage.get<{ attempts: number }>("extract:retry:bad"))?.attempts, 1);
+  assert.deepEqual((await mine(t.h.storage).get<{ attempts: number }>("extract:retry:bad"))?.attempts, 1);
   await t.run();
   assert.equal(attempts(), 2);
   const r3 = await t.run();
   assert.equal(attempts(), 3);
   assert.match(String(r3.row.error), /gave up on conversation bad \(invalid_output\)/);
-  assert.equal(await t.h.storage.get("extract:retry:bad"), undefined);
+  assert.equal(await mine(t.h.storage).get("extract:retry:bad"), undefined);
   await t.run();
   assert.equal(attempts(), 3, "given up: not tried again");
 });
@@ -298,7 +305,7 @@ test("an unavailable model stops extraction as partial, and the next run starts 
   assert.equal(r1.row.outcome, "partial");
   assert.match(r1.summary!, /\[partial: model unavailable: daily quota exhausted\]/);
   assert.equal(t.extractions.length, 1);
-  assert.equal(await t.h.storage.get("extract:watermark"), undefined);
+  assert.equal(await mine(t.h.storage).get("extract:watermark"), undefined);
   down = false;
   await t.run();
   assert.deepEqual(t.extractions.slice(1).map((r) => r.prompt!.match(/(first|second) conversation/)![1]), ["first", "second"]);
@@ -313,17 +320,17 @@ test("an aborted run stops at the next conversation, is partial, and skips conso
   quietConversation(t.h, "c2", "second conversation with some words", "2026-09-29T11:00:00Z");
   const ac = new AbortController();
   const deps = {
-    store: new BrainStore(t.h.db),
-    conversations: t.h.conversations,
+    store: new BrainStore(t.h.db, TEST_OWNER.id),
+    conversations: t.h.conversations.forUser(TEST_OWNER.id),
     // The first model call finishes, then the job is cancelled (timeout, reload or shutdown).
     llm: { generate: async () => { ac.abort(); return { text: "{\"notes\":[]}", json: { notes: [] }, model: "fake", usage: { inputTokens: 0, outputTokens: 0 } }; } },
-    storage: t.h.storage,
+    storage: mine(t.h.storage),
     log: { log() {}, warn() {}, error() {} },
     maxConversations: () => 30,
     zone: () => "Europe/Amsterdam",
   };
   let consolidated = false;
-  const { run, summary } = await runNightly(new RunStore(t.h.db), {
+  const { run, summary } = await runNightly(new RunStore(t.h.db, TEST_OWNER.id), {
     extract: (s) => runExtract(deps as never, s),
     consolidate: async () => { consolidated = true; return { ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }; },
     summary: async () => { consolidated = true; return { ran: false, generated: false }; },
@@ -334,7 +341,7 @@ test("an aborted run stops at the next conversation, is partial, and skips conso
   assert.equal(consolidated, false);
   assert.match(summary, /\[partial: cancelled\]/);
   // The watermark stops after the first conversation, so the next run starts with the second.
-  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: "2026-09-29T10:00:00Z", ids: ["c1"] });
+  assert.deepEqual(await mine(t.h.storage).get("extract:watermark"), { quietAt: "2026-09-29T10:00:00Z", ids: ["c1"] });
 });
 
 test("a retried conversation that went quiet again never moves the watermark past unhandled ones", async () => {
@@ -347,7 +354,7 @@ test("a retried conversation that went quiet again never moves the watermark pas
   });
   quietConversation(t.h, "x", "this is conversation x talking", "2026-09-29T09:00:00.000Z");
   await t.run();
-  assert.ok(await t.h.storage.get("extract:retry:x"));
+  assert.ok(await mine(t.h.storage).get("extract:retry:x"));
   // X resumes and goes quiet later than two new conversations.
   t.h.conversations.seed({ id: "x", channel: "chat", startedAt: "2026-09-29T09:00:00.000Z", lastActivityAt: "2026-09-29T14:00:00.000Z", quietAt: "2026-09-29T15:00:00.000Z", entries: [{ kind: "user", input: "text", text: "this is conversation x talking" }, { kind: "user", input: "text", text: "and conversation x again later on" }] });
   quietConversation(t.h, "a", "this is conversation a talking", "2026-09-29T10:00:00.000Z");
@@ -355,7 +362,7 @@ test("a retried conversation that went quiet again never moves the watermark pas
   mode = "down-at-a";
   const stopped = await t.run();
   assert.equal(stopped.row.outcome, "partial");
-  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: "2026-09-29T09:00:00.000Z", ids: ["x"] }, "not moved past A");
+  assert.deepEqual(await mine(t.h.storage).get("extract:watermark"), { quietAt: "2026-09-29T09:00:00.000Z", ids: ["x"] }, "not moved past A");
   mode = "ok";
   const before = t.extractions.length;
   await t.run();
@@ -373,16 +380,16 @@ test("conversations that went quiet in the same millisecond are all read, across
   await t.run();
   const read = t.extractions.map((r) => /conversation (\w)/.exec(r.prompt!)![1]).sort();
   assert.deepEqual(read, ["a", "b"]);
-  assert.deepEqual(await t.h.storage.get("extract:watermark"), { quietAt: same, ids: ["a", "b"] });
+  assert.deepEqual(await mine(t.h.storage).get("extract:watermark"), { quietAt: same, ids: ["a", "b"] });
 });
 
 test("a deleted conversation is skipped and its progress forgotten", async () => {
   const t = await host();
   quietConversation(t.h, "c1", "a conversation that will be deleted later", "2026-09-29T10:00:00Z");
   await t.run();
-  assert.ok(await t.h.storage.get("extract:seen:c1"));
+  assert.ok(await mine(t.h.storage).get("extract:seen:c1"));
   // Retention removed it (the in-memory store has no delete, so replace the map entry).
   (t.h.conversations as unknown as { items: Map<string, unknown> }).items.delete("c1");
   await t.run();
-  assert.equal(await t.h.storage.get("extract:seen:c1"), undefined);
+  assert.equal(await mine(t.h.storage).get("extract:seen:c1"), undefined);
 });

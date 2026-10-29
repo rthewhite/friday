@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { ToolRegistry, type FridayModule } from "@friday/sdk";
 import { createApp, type AppDeps } from "../src/app.js";
-import { ModuleHost } from "../src/module-host.js";
+import { ModuleHost, type ModuleHostOptions } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
 import { McpServerStore } from "../src/tools/mcp-store.js";
 import { migrate, migrations } from "../src/storage/db.js";
@@ -56,6 +56,8 @@ export interface AuthAppOptions {
   settings?: Partial<OidcSettings>;
   /** In-process modules to load, for their routes and tools. */
   modules?: FridayModule[];
+  /** More for the module host (conversations, users, a database, a model), built on the app's database and users. */
+  hostOptions?: (base: { db: DatabaseSync; users: UserStore }) => Partial<ModuleHostOptions>;
   /** Mount the Talk socket (/ws/audio) with stub sessions, checked like core does; disabling a user closes theirs. */
   talk?: boolean;
 }
@@ -78,7 +80,9 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
   const oidc = new OidcClient(settings, () => loginRedirectUri(publicUrl()), () => new Date(), 300);
   const auth = new Auth({ mode: { kind: "oidc", oidc: settings }, users, sessions, oidc, publicUrl, log, now });
   const registry = new ToolRegistry(quiet);
-  const host = new ModuleHost(registry, { env: {}, log: quiet });
+  // As server.ts: owner-only tools are for the recorded owner.
+  registry.setOwnerCheck((u) => u !== undefined && u.id === users.owner()?.id);
+  const host = new ModuleHost(registry, { env: {}, log: quiet, ...o.hostOptions?.({ db, users }) });
   if (o.modules) await host.load(o.modules);
   const mcp = new McpSource(registry, new McpServerStore(db, undefined), { log: quiet });
   const userConnections = new UserConnections();

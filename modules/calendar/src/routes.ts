@@ -58,8 +58,16 @@ export function changeView(c: Change) {
   };
 }
 
+/** The calendar is the household owner's until users connect their own (user-privacy): anyone else gets 403. */
+export const OWNER_ONLY = "the calendar belongs to the household owner";
+
 export function registerCalendarRoutes(ctx: ModuleContext, d: RouteDeps): void {
-  const route = (method: HttpMethod, path: string, fn: Handler) => ctx.http.route(method, path, handle(fn));
+  const route = (method: HttpMethod, path: string, fn: Handler) =>
+    ctx.http.route(method, path, async (req, res, params) => {
+      const owner = ctx.users.owner();
+      if (!owner || req.user?.id !== owner.id) return void res.status(403).json({ error: OWNER_ONLY, code: "owner_only" });
+      return handle(fn)(req, res, params);
+    });
 
   const status = async () => {
     // Discover once if nothing has been fetched yet, so the page shows calendars right after setup.

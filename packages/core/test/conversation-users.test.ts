@@ -21,7 +21,7 @@ async function chat(b: ReturnType<Awaited<ReturnType<typeof startAuthApp>>["brow
   return /"conversationId":"([^"]+)"/.exec(body)![1];
 }
 
-test("chat threads record their sender, the API shows the user, and nothing is filtered by it", async () => {
+test("chat threads are their sender's: each user lists only their own, and others get 404 on read, delete and continue", async () => {
   const app = await startAuthApp({
     deps: ({ registry, db }) => ({
       chat: new ChatEngine({ store: new ConversationStore(db, { log: quiet }), registry, llm: answering, model: "m", system: () => "P", toolTimeoutMs: 1000, log: quiet }),
@@ -37,19 +37,20 @@ test("chat threads record their sender, the API shows the user, and nothing is f
     const hers = await chat(sanne, "hi");
     const theirs = await chat(owner, "hello");
 
-    const { conversations } = (await (await sanne.fetch("/api/conversations")).json()) as { conversations: Listed[] };
-    assert.deepEqual(
-      new Map(conversations.map((c) => [c.id, c.user])),
-      new Map([[hers, { id: ids.get("Sanne"), name: "Sanne" }], [theirs, { id: ids.get("Owner"), name: "Owner" }]]),
-      "a member lists everyone's threads",
-    );
-    const one = (await (await owner.fetch(`/api/conversations/${hers}`)).json()) as Listed;
+    const list = async (b: typeof sanne) => ((await (await b.fetch("/api/conversations")).json()) as { conversations: Listed[] }).conversations;
+    assert.deepEqual((await list(sanne)).map((c) => [c.id, c.user]), [[hers, { id: ids.get("Sanne"), name: "Sanne" }]]);
+    assert.deepEqual((await list(owner)).map((c) => c.id), [theirs], "the admin owner sees only their own");
+    const one = (await (await sanne.fetch(`/api/conversations/${hers}`)).json()) as Listed;
     assert.deepEqual(one.user, { id: ids.get("Sanne"), name: "Sanne" });
 
-    // Continued by someone else, the thread keeps the user who started it.
-    await chat(owner, "and more", hers);
-    const again = (await (await owner.fetch(`/api/conversations/${hers}`)).json()) as Listed;
-    assert.deepEqual(again.user, { id: ids.get("Sanne"), name: "Sanne" });
+    // An admin can't look in: another user's thread is unknown to them.
+    assert.equal((await owner.fetch(`/api/conversations/${hers}`)).status, 404);
+    assert.equal((await owner.fetch(`/api/conversations/${hers}`, { method: "DELETE" })).status, 404);
+    assert.equal((await sanne.fetch(`/api/conversations/${theirs}`)).status, 404);
+    const res = await owner.fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "and more", conversationId: hers }) });
+    assert.equal(res.status, 404);
+    const after = (await (await sanne.fetch(`/api/conversations/${hers}`)).json()) as Listed & { entryCount: number };
+    assert.equal(after.entryCount, 2, "nothing recorded");
   } finally {
     await app.close();
   }

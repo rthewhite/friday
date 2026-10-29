@@ -13,7 +13,7 @@ export type PromptChannel = Exclude<ConversationChannel, "agent">;
 export interface PromptContextInfo {
   /** The prompt being built: `voice` when a Live session opens, `chat` when a chat turn starts. */
   channel: PromptChannel;
-  /** Who the prompt is for: the chat or Talk page user. Absent for a voice device's session. */
+  /** Who the prompt is for: the chat or Talk page user, or the household owner for a voice device's session. Absent only while no owner is recorded. */
   user?: CallUser;
 }
 

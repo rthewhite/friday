@@ -73,10 +73,11 @@ export class ChatEngine {
     if (id !== undefined && id !== null && typeof id !== "string") return { ok: false, status: 400, error: "conversationId must be a string" };
     const { store } = this.opts;
     if (id) {
-      if (store.channelOf(id) !== "chat") return { ok: false, status: 404, error: "unknown chat conversation" };
+      // Another user's thread is as unknown as a missing one.
+      if (store.channelOf(id) !== "chat" || !user || store.ownerOf(id) !== user.id) return { ok: false, status: 404, error: "unknown chat conversation" };
       if (store.isLive(id)) return { ok: false, status: 409, error: "a turn is still running in this conversation" };
     }
-    // A new thread belongs to its sender; a resumed one keeps the user who started it.
+    // A new thread belongs to its sender, who is the only one who can continue it.
     const recorder = store.recorder({ channel: "chat", userId: user?.id ?? null }, this.log);
     if (id && !recorder.resume(id)) return { ok: false, status: 404, error: "unknown chat conversation" };
     // The recorder logs and swallows store failures; the turn must not run without its message.
@@ -129,7 +130,7 @@ export class ChatTurn {
         model: this.opts.model,
         system: this.opts.system(this.user),
         contents: this.history(),
-        tools: this.opts.registry.declarations("chat") as FunctionDeclaration[],
+        tools: this.opts.registry.declarations("chat", this.user) as FunctionDeclaration[],
         thoughts: true,
         onThought: (text) => emit({ event: "thinking", data: { text } }),
         onText: (text) => {

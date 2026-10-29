@@ -1,8 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createTestHost } from "@friday/sdk/test";
+import { createTestHost, TEST_OWNER } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
 import { brainText, checkFixture, loadFixtures, seedFixture } from "./nightly/load.js";
+import { userStorage } from "../src/users.js";
+import type { ModuleStorage } from "@friday/sdk";
+
+/** The test owner's keys in the module's storage (each user's nightly state is under their prefix). */
+const mine = (s: ModuleStorage) => userStorage(s, TEST_OWNER.id);
+
 
 const fixtures = loadFixtures();
 
@@ -55,10 +61,10 @@ for (const f of fixtures) {
     if (f.me !== undefined) assert.equal(me.body, f.me);
     if (f.meName !== undefined) assert.equal(me.name, f.meName);
     if (f.conversation) {
-      const c = await h.conversations.get(id!);
+      const c = await h.conversations.forUser(TEST_OWNER.id).get(id!);
       assert.equal(c?.state, "quiet");
       assert.equal(c?.entries.length, f.conversation.entries.length);
-      if (f.conversation.seen) assert.deepEqual(await h.storage.get(`extract:seen:${id}`), { seq: f.conversation.seen });
+      if (f.conversation.seen) assert.deepEqual(await mine(h.storage).get(`extract:seen:${id}`), { seq: f.conversation.seen });
     }
   });
 }

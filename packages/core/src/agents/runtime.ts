@@ -36,11 +36,15 @@ export interface AgentRuntimeOptions {
   minuteMs?: number;
   now?: () => Date;
   log?: Pick<Console, "log" | "warn" | "error">;
+  /** Whether a user may still act (not disabled). A disabled creator's agents don't run. Without it, everyone may. */
+  isActive?: (userId: string) => boolean;
 }
 
 export type StartResult =
   | { ok: true; run: AgentRun; done: Promise<AgentRun> }
   | { ok: false; reason: "unknown" }
+  /** The agent's creator is disabled: it acts for nobody until they are enabled again. */
+  | { ok: false; reason: "disabled" }
   | { ok: false; reason: "busy"; since: string; runId: string };
 
 export type DecideResult = { status: "ok"; action: AgentAction } | { status: Exclude<Decision, "ok"> };
@@ -74,15 +78,18 @@ export class AgentRuntime {
 
   /**
    * Start a run in the background. Synchronous up to registering the run, so two starts can't both pass the
-   * busy check. A stored definition that no longer validates gives a run that fails before any model call.
+   * busy check. A stored definition that no longer validates gives a run that fails before any model call. However
+   * it was started, the run acts for the agent's creator: its tool calls, its tools and its conversation are theirs.
+   * Callers check that whoever asked is the creator.
    */
-  start(name: string, trigger: RunTrigger, request?: string, user?: CallUser): StartResult {
+  start(name: string, trigger: RunTrigger, request?: string): StartResult {
     const busy = this.active.get(name);
     if (busy) return { ok: false, reason: "busy", since: busy.run.startedAt, runId: busy.run.id };
     const stored = this.o.agents.get(name);
     if (!stored) return { ok: false, reason: "unknown" };
+    if (stored.createdBy && this.o.isActive && !this.o.isActive(stored.createdBy.id)) return { ok: false, reason: "disabled" };
     const text = request?.trim().slice(0, MAX_REQUEST) || undefined;
-    const run = this.o.runs.start({ agent: name, trigger, request: text, userId: user?.id });
+    const run = this.o.runs.start({ agent: name, trigger, request: text, userId: stored.createdBy?.id });
     const controller = new AbortController();
     const entry: Active = { run, controller, done: Promise.resolve(run) };
     entry.done = this.execute(stored, entry, text)
@@ -116,7 +123,7 @@ export class AgentRuntime {
 
   /**
    * Approve a pending action as `by`: execute exactly the stored call, with no model involved. The call is for the
-   * user who started the run, like the run's own calls.
+   * user the run acted for (the agent's creator), like the run's own calls. Callers check that `by` is the creator.
    */
   async approve(actionId: string, by?: CallUser): Promise<DecideResult> {
     const decision = this.o.runs.claim(actionId, by?.id);
@@ -125,7 +132,7 @@ export class AgentRuntime {
     const run = this.o.runs.get(action.runId);
     const conversationId = run?.conversationId ?? undefined;
     let settled: AgentAction | undefined;
-    if (!this.o.registry.declarations("agent").some((d) => d.name === action.tool)) {
+    if (!this.o.registry.declarations("agent", run?.user ?? undefined).some((d) => d.name === action.tool)) {
       settled = this.o.runs.settle(actionId, { state: "failed", error: `tool ${action.tool} is not available` });
     } else {
       const result = await this.callRegistry(action.tool, action.args, conversationId, undefined, run?.user ?? undefined);
@@ -151,8 +158,9 @@ export class AgentRuntime {
       const error = e instanceof AgentInputError ? `invalid definition: ${e.message}` : String(e);
       return this.o.runs.finish(run.id, { outcome: "failed", error, toolCalls: 0, tokens: 0 })!;
     }
-    const { tools } = resolveTools(def, this.o.registry);
-    const declarations = this.o.registry.declarations("agent").filter((d) => tools.has(d.name)) as FunctionDeclaration[];
+    const user = run.user ?? undefined;
+    const { tools } = resolveTools(def, this.o.registry, user);
+    const declarations = this.o.registry.declarations("agent", user).filter((d) => tools.has(d.name)) as FunctionDeclaration[];
     const first = request ?? START_MESSAGE;
     const recorder = this.o.conversations.recorder({ channel: "agent", userId: run.user?.id ?? null }, this.log);
     recorder.user(first, "text");

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createTestHost } from "@friday/sdk/test";
+import { createTestHost, TEST_OWNER } from "@friday/sdk/test";
 import { createBrainModule } from "../src/index.js";
 import { runNightly, summarize } from "../src/nightly/job.js";
 import { RunStore } from "../src/nightly/runs.js";
@@ -20,14 +20,14 @@ test("brain/nightly is scheduled at 03:00 by default, from BRAIN_NIGHTLY_CRON, a
 test("a run on an empty brain is ok with a zero-count summary and is recorded", async () => {
   const h = await createTestHost(createBrainModule());
   const r = await h.runJob("nightly");
-  assert.deepEqual(r, { outcome: "ok", summary: "0 conversations (0 trivial), 0 notes; nothing to consolidate" });
-  const rows = h.db.prepare("SELECT trigger, outcome, conversations FROM brain__runs").all().map((x) => ({ ...x }));
-  assert.deepEqual(rows, [{ trigger: "manual", outcome: "ok", conversations: 0 }]);
+  assert.deepEqual(r, { outcome: "ok", summary: "1 user: 0 conversations (0 trivial), 0 notes; 0 pages rewritten, 0 merges" });
+  const rows = h.db.prepare("SELECT user_id, trigger, outcome, conversations, summary FROM brain__runs").all().map((x) => ({ ...x }));
+  assert.deepEqual(rows, [{ user_id: TEST_OWNER.id, trigger: "manual", outcome: "ok", conversations: 0, summary: "0 conversations (0 trivial), 0 notes; nothing to consolidate" }]);
 });
 
 test("the summary step follows a refused plan, but not a model outage or a cancelled run", async () => {
   const h = await createTestHost(createBrainModule());
-  const runs = new RunStore(h.db);
+  const runs = new RunStore(h.db, TEST_OWNER.id);
   const extract = async () => ({ conversations: 0, skipped: 0, notes: 0, refused: 0, errors: [] });
   const summarized: string[] = [];
   const steps = (failed?: string) => ({

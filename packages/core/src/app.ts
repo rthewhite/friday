@@ -18,13 +18,14 @@ import type { DeviceSessions } from "./devices/sessions.js";
 import type { Scheduler } from "./jobs/scheduler.js";
 import { AlertConflict, AlertNotFound, type AlertService } from "./alerts/service.js";
 import type { Alert } from "./alerts/store.js";
-import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore } from "./conversations/store.js";
+import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore, type UserConversationView } from "./conversations/store.js";
 import type { Env } from "@friday/sdk";
 import { CORE_ID, coreManifest } from "./core-config.js";
+import { AGENT_JOB_PREFIX } from "./agents/triggers.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { chatRoute } from "./chat/route.js";
 import { addOAuthRoutes, type OAuthDeps } from "./oauth/routes.js";
-import { requestUser, type Auth } from "./auth/auth.js";
+import { requestCallUser, requestUser, type Auth } from "./auth/auth.js";
 import type { UserStore } from "./auth/users.js";
 import type { SessionStore } from "./auth/sessions.js";
 import type { OidcClient } from "./auth/oidc.js";
@@ -311,7 +312,7 @@ export function createApp(deps: AppDeps) {
   const webRoot = resolve(deps.webDir);
   const router = new Router()
     .add("GET", "/health", (_req, res) => sendJson(res, { ok: true, tools: deps.registry.names().length }))
-    .add("GET", "/api/tools", (_req, res) => sendJson(res, deps.registry.declarations()))
+    .add("GET", "/api/tools", (req, res) => sendJson(res, deps.registry.declarations(undefined, requestCallUser(req))))
     .add("GET", "/api/modules", (_req, res) => sendJson(res, moduleListing(deps)))
     .add("POST", "/api/modules/:id/reload", async (_req, res, { id }) => {
       const entry = await deps.host.reload(id);
@@ -406,28 +407,31 @@ export function createApp(deps: AppDeps) {
       sendJson(res, mcpServerEntry(deps, deps.mcpStore.get(name)!));
     })
     .add("POST", "/api/chat", chatRoute(deps.chat, { heartbeatMs: deps.chatHeartbeatMs }))
-    .add("GET", "/api/conversations", (_req, res, _params, url) => {
-      if (!deps.conversations) return sendJson(res, { conversations: [], next: null });
+    // Conversations are private: everyone, admins too, reads only their own. Another user's id is a 404, like an
+    // unknown one, so ids can't be probed.
+    .add("GET", "/api/conversations", (req, res, _params, url) => {
+      const mine = ownConversations(deps, req);
+      if (!mine) return sendJson(res, { conversations: [], next: null });
       const limit = Math.min(Math.max(Math.trunc(Number(url.searchParams.get("limit") ?? DEFAULT_LIST_LIMIT)) || DEFAULT_LIST_LIMIT, 1), 200);
       try {
         // One extra row tells whether there is a next page.
         const channel = url.searchParams.get("channel") || undefined;
-        const rows = deps.conversations.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined, channel: channel as ConversationChannel | undefined });
+        const rows = mine.list({ limit: limit + 1, before: url.searchParams.get("before") || undefined, channel: channel as ConversationChannel | undefined });
         const page = rows.slice(0, limit);
-        const users = deps.conversations.usersOf(page.map((c) => c.id));
+        const users = deps.conversations!.usersOf(page.map((c) => c.id));
         sendJson(res, { conversations: page.map((c) => ({ ...c, user: users.get(c.id) ?? null })), next: rows.length > limit ? cursorOf(page[page.length - 1]) : null });
       } catch (e) {
         if (e instanceof InvalidQuery) return sendJson(res, { error: e.message }, 400);
         throw e;
       }
     })
-    .add("GET", "/api/conversations/:id", (_req, res, { id }) => {
-      const c = deps.conversations?.get(id);
+    .add("GET", "/api/conversations/:id", (req, res, { id }) => {
+      const c = ownConversations(deps, req)?.get(id);
       if (!c) return sendJson(res, { error: "unknown conversation" }, 404);
       sendJson(res, { ...c, user: deps.conversations!.usersOf([id]).get(id) ?? null });
     })
-    .add("DELETE", "/api/conversations/:id", (_req, res, { id }) => {
-      const outcome = deps.conversations?.delete(id) ?? "missing";
+    .add("DELETE", "/api/conversations/:id", (req, res, { id }) => {
+      const outcome = ownConversations(deps, req)?.delete(id) ?? "missing";
       if (outcome === "missing") return sendJson(res, { error: "unknown conversation" }, 404);
       if (outcome === "live") return sendJson(res, { error: "conversation is still being recorded" }, 409);
       res.statusCode = 204;
@@ -523,7 +527,10 @@ export function createApp(deps: AppDeps) {
       if (!runs) return sendJson(res, { error: `unknown job "${owner}/${name}"` }, 404);
       sendJson(res, runs);
     })
-    .add("POST", "/api/jobs/:owner/:name/run", (_req, res, { owner, name }) => {
+    .add("POST", "/api/jobs/:owner/:name/run", (req, res, { owner, name }) => {
+      // An agent's job runs in its creator's scope: an admin may not start someone else's agent from here.
+      const agent = owner === CORE_ID && name.startsWith(AGENT_JOB_PREFIX) ? deps.agents?.agents.get(name.slice(AGENT_JOB_PREFIX.length)) : undefined;
+      if (agent && agent.createdBy?.id !== requestUser(req)?.id) return sendJson(res, { error: "only the agent's creator can run it" }, 403);
       const r = deps.jobs?.runNow(`${owner}/${name}`, "manual") ?? { status: "unknown" as const };
       if (r.status === "unknown") return sendJson(res, { error: `unknown job "${owner}/${name}"` }, 404);
       if (r.status === "running") return sendJson(res, { error: "job is already running" }, 409);
@@ -627,4 +634,10 @@ async function serveFile(res: ServerResponse, file: string, immutable: boolean):
   } catch {
     return false;
   }
+}
+
+/** The requesting user's conversations; none without a store or a user. */
+function ownConversations(deps: AppDeps, req: IncomingMessage): UserConversationView | undefined {
+  const user = requestUser(req);
+  return user && deps.conversations?.forUser(user.id);
 }

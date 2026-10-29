@@ -97,3 +97,11 @@ test("an OAuth rejection is passed on as the tool's error; granting later works 
   assert.deepEqual((await h.call("list_spotify_playlists", {})).result, { playlists: [] });
   assert.equal(h.oauthCalls.spotify, 2, "the token is asked for on every call");
 });
+
+test("Spotify is the owner's: a member's declarations leave its tools out, the owner's offer them", async () => {
+  const h = await createTestHost(createSpotifyModule(), { users: [{ id: "u1", name: "Raymond" }, { id: "u2", name: "Sanne" }], owner: "u1" });
+  assert.deepEqual(h.toolsIn("chat", { id: "u2", name: "Sanne" }), []);
+  assert.deepEqual(h.toolsIn("chat", { id: "u1", name: "Raymond" }).sort(), ["list_spotify_playlists", "search_spotify"]);
+  const forced = await h.call("list_spotify_playlists", {}, { channel: "chat", user: { id: "u2", name: "Sanne" } });
+  assert.deepEqual(forced.result, { error: "list_spotify_playlists is only available to the household owner" });
+});
