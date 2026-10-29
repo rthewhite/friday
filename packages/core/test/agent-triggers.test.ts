@@ -33,7 +33,7 @@ test("an enabled agent with a schedule runs at its due time as core job agent-<n
   t.define(weekly);
   t.triggers.start();
   const [job] = t.scheduler.list();
-  assert.deepEqual([job.id, job.description, job.nextRunAt], [JOB, "Agent weekly-review: Sums up my week", "2026-10-25T17:00:00.000Z"]);
+  assert.deepEqual([job.id, job.description, job.nextRunAt], [JOB, "A scheduled agent run", "2026-10-25T17:00:00.000Z"]);
 
   await t.clock.to("2026-10-25T17:00:00Z");
   await finished(t);

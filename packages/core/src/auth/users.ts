@@ -72,6 +72,8 @@ export interface UserStoreOptions {
 
 export class UserStore {
   private readonly ownerHandlers = new Set<(owner: User) => void>();
+  /** The recorded owner's id, once read: it is written once and never changes, and owner checks run on every call. */
+  private recordedOwner?: string;
 
   constructor(
     private readonly db: DatabaseSync,
@@ -170,7 +172,13 @@ export class UserStore {
 
   /** The household owner's user id, once recorded. */
   ownerId(): string | undefined {
-    return (this.db.prepare("SELECT user_id FROM auth_owner WHERE id = 1").get() as { user_id: string } | undefined)?.user_id;
+    return (this.recordedOwner ??= (this.db.prepare("SELECT user_id FROM auth_owner WHERE id = 1").get() as { user_id: string } | undefined)?.user_id);
+  }
+
+  /** Whether `id` is the household owner (as `owner()` resolves it), without reading the user. */
+  isOwner(id: string): boolean {
+    const recorded = this.ownerId();
+    return recorded !== undefined ? id === recorded : this.opts.devOwner === true && id === DEV_USER_ID;
   }
 
   /** The first admin (not the dev user, not disabled) becomes the owner, exactly once. */

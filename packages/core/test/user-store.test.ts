@@ -180,3 +180,16 @@ test("without auth configured the dev user stands in for the owner until one is 
   assert.equal(dev.ownerId(), undefined, "nothing recorded");
   assert.equal(new UserStore(db).owner(), undefined, "with auth configured the dev user is nobody's stand-in");
 });
+
+test("isOwner: the recorded owner, or the dev user standing in, without auth", () => {
+  const { users } = store();
+  const admin = users.provision(claims({ subject: "a1", email: "a1@x", role: "admin" }));
+  assert.ok(admin.ok);
+  assert.equal(users.isOwner(admin.user.id), true);
+  assert.equal(users.isOwner(DEV_USER_ID), false);
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const dev = new UserStore(db, undefined, { devOwner: true });
+  assert.equal(dev.isOwner(DEV_USER_ID), true);
+  assert.equal(dev.isOwner("someone"), false);
+});

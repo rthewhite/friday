@@ -198,3 +198,11 @@ test("over HTTP: agents are their creator's; others, the admin owner too, get 40
     await app.close();
   }
 });
+
+test("a disabled creator's agent doesn't run: scheduled, from the portal or by run_agent", async () => {
+  const t = agentHarness([{ chunks: [text("done")] }], { isActive: (id) => id !== sanne.id });
+  t.db.exec(USERS);
+  t.define({ name: "her-digest", startable: true }, sanne.id);
+  assert.deepEqual(t.runtime.start("her-digest", "schedule"), { ok: false, reason: "disabled" });
+  assert.deepEqual(t.runs.list("her-digest"), []);
+});

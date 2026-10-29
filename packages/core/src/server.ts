@@ -111,7 +111,7 @@ const alerts = new AlertService({
 
 const registry = new ToolRegistry();
 // Owner-only tools (the owner's calendar, Spotify) are offered and run for the household owner only.
-registry.setOwnerCheck((u) => u !== undefined && u.id === users.owner()?.id);
+registry.setOwnerCheck((u) => u !== undefined && users.isOwner(u.id));
 const promptContext = createPromptContext();
 const llm = new LlmService({
   model: new GeminiTextModel(geminiKey),
@@ -170,6 +170,7 @@ const agentRuntime = new AgentRuntime({
   model: settings.textModel,
   timezone: householdZone,
   toolTimeoutMs: settings.agentToolTimeoutMs,
+  isActive: (id) => users.get(id)?.disabled === false,
 });
 new AgentTriggers({ agents: agentStore, runtime: agentRuntime, registry, scheduler: jobs, jobs: jobStore, timezone: householdZone, prompt: promptContext.forOwner(CORE_ID) }).start();
 const agentJob = (name: string) => `${CORE_ID}/${jobName(name)}`;

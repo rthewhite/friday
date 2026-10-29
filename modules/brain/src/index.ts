@@ -12,7 +12,7 @@ import { DEFAULT_TIME_ZONE, defineModule, householdTimeZone, localDate, type Cal
 import { renderContext } from "./context.js";
 import { runConsolidate } from "./nightly/consolidate.js";
 import { runExtract } from "./nightly/extract.js";
-import { DEFAULT_NIGHTLY_CRON, PassGuard, runNightly, scheduleNightly, type UserPass } from "./nightly/job.js";
+import { DEFAULT_NIGHTLY_CRON, NIGHTLY_TIMEOUT_MS, PassGuard, runNightly, scheduleNightly, type UserPass } from "./nightly/job.js";
 import { registerRunRoutes } from "./nightly/review.js";
 import { RunStore } from "./nightly/runs.js";
 import { runSummary } from "./nightly/summary.js";
@@ -38,6 +38,8 @@ export interface BrainOptions {
 
 export function createBrainModule(opts: BrainOptions = {}) {
   const now = opts.now ?? (() => new Date());
+  /** Passes started with `Run it now`: stopped by their timeout, and by dispose (reload, shutdown). */
+  const manual = new Set<AbortController>();
   return defineModule({
     manifest: {
       id: "brain",
@@ -106,8 +108,18 @@ export function createBrainModule(opts: BrainOptions = {}) {
         if (!user) return void res.status(404).json({ error: "the brain needs a logged-in user", code: "not_found" });
         if (guard.isRunning(user.id)) return void res.status(409).json({ error: "a nightly pass for your brain is already running", code: "running" });
         const pass = passOf(user);
-        void guard.run(user.id, () => runNightly(pass.runs, pass.steps, "manual", new AbortController().signal)).catch((e) =>
-          ctx.log.error(`nightly pass for user ${user.id} failed: ${e instanceof Error ? e.message : String(e)}`));
+        // Bounded like the job, and cancelled on dispose, so a hung model can't hold the user's pass forever.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), NIGHTLY_TIMEOUT_MS);
+        timer.unref?.();
+        manual.add(controller);
+        void guard
+          .run(user.id, () => runNightly(pass.runs, pass.steps, "manual", controller.signal))
+          .catch((e) => ctx.log.error(`nightly pass for user ${user.id} failed: ${e instanceof Error ? e.message : String(e)}`))
+          .finally(() => {
+            clearTimeout(timer);
+            manual.delete(controller);
+          });
         res.status(202).json({ started: true });
       });
       scheduleNightly(ctx, passOf, guard);
@@ -116,6 +128,10 @@ export function createBrainModule(opts: BrainOptions = {}) {
         return u ? renderContext(brains.forUser(u)) : undefined;
       });
       return assigned.then(() => undefined);
+    },
+    dispose() {
+      for (const c of manual) c.abort();
+      manual.clear();
     },
   });
 }

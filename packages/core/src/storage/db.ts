@@ -25,9 +25,13 @@ export const migrations: Migration[] = [
     // Every agent belongs to the user who created it. Rows without a user (agents, runs and conversations from before
     // users) are assigned to the household owner at startup once one exists, not here: a fresh install has none yet.
     // Conversations are listed per user, most recent activity first.
+    // Agent jobs' history kept the agent's answer (summary) and error, readable on the admins' Jobs page: only the
+    // outcome stays.
     sql: `
       ALTER TABLE agents ADD COLUMN created_by TEXT;
       CREATE INDEX conversations_user_activity ON conversations (user_id, last_activity_at DESC);
+      UPDATE job_runs SET summary = CASE WHEN outcome = 'ok' THEN 'ok' ELSE NULL END, error = CASE WHEN error IS NULL THEN NULL ELSE outcome END
+        WHERE job_id LIKE 'core/agent-%';
     `,
   },
   {

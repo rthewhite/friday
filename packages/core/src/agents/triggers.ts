@@ -79,7 +79,8 @@ export class AgentTriggers {
     try {
       this.o.scheduler.register(CORE_ID, {
         name: jobName(name),
-        description: `Agent ${name}: ${agent.description}`,
+        // The Jobs page is the admins': it shows that an agent runs, never what it is about.
+        description: "A scheduled agent run",
         cron: agent.schedule,
         run: (job) => this.runJob(name, job),
       });
@@ -97,6 +98,7 @@ export class AgentTriggers {
     const r = this.o.runtime.start(name, job.trigger === "manual" ? "portal" : "schedule");
     if (!r.ok) {
       if (r.reason === "busy") return { summary: `already running since ${this.clock(r.since)}` };
+      if (r.reason === "disabled") return { summary: "skipped: its creator is disabled" };
       throw new Error(`agent ${name} is gone`);
     }
     const cancel = () => this.o.runtime.cancel(r.run.id);
@@ -140,7 +142,7 @@ export class AgentTriggers {
     if (typeof args.request === "string" && args.request.length > MAX_REQUEST) return { error: `request is longer than ${MAX_REQUEST} characters` };
     // Started by its creator in chat, the Talk page or a device (which acts for the owner); it runs as them.
     const r = this.o.runtime.start(name, call.channel === "chat" ? "chat" : "voice", args.request);
-    if (!r.ok) return r.reason === "busy" ? { error: `${name} is already running, since ${this.clock(r.since)}` } : { error: `there is no agent "${name}"` };
+    if (!r.ok) return r.reason === "busy" ? { error: `${name} is already running, since ${this.clock(r.since)}` } : { error: `there is no agent "${name}" that can be started by voice or chat` };
     return { started: true, agent: name, note: "It runs in the background; its result is not returned here." };
   }
 

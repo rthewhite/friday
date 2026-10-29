@@ -2,7 +2,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
-import type { CallUser, ConversationChannel, ToolRegistry } from "@friday/sdk";
+import type { ConversationChannel, ToolRegistry } from "@friday/sdk";
 import type { ModuleEntry, ModuleHost } from "./module-host.js";
 import { mcpOwner, type McpSource } from "./tools/mcp.js";
 import { McpInputError, McpServerExists, McpStoreDisabled, parseServerInput, type McpServerStore, type StoredServer } from "./tools/mcp-store.js";
@@ -25,7 +25,7 @@ import { AGENT_JOB_PREFIX } from "./agents/triggers.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { chatRoute } from "./chat/route.js";
 import { addOAuthRoutes, type OAuthDeps } from "./oauth/routes.js";
-import { requestUser, type Auth } from "./auth/auth.js";
+import { requestCallUser, requestUser, type Auth } from "./auth/auth.js";
 import type { UserStore } from "./auth/users.js";
 import type { SessionStore } from "./auth/sessions.js";
 import type { OidcClient } from "./auth/oidc.js";
@@ -312,7 +312,7 @@ export function createApp(deps: AppDeps) {
   const webRoot = resolve(deps.webDir);
   const router = new Router()
     .add("GET", "/health", (_req, res) => sendJson(res, { ok: true, tools: deps.registry.names().length }))
-    .add("GET", "/api/tools", (req, res) => sendJson(res, deps.registry.declarations(undefined, callUserOf(req))))
+    .add("GET", "/api/tools", (req, res) => sendJson(res, deps.registry.declarations(undefined, requestCallUser(req))))
     .add("GET", "/api/modules", (_req, res) => sendJson(res, moduleListing(deps)))
     .add("POST", "/api/modules/:id/reload", async (_req, res, { id }) => {
       const entry = await deps.host.reload(id);
@@ -640,10 +640,4 @@ async function serveFile(res: ServerResponse, file: string, immutable: boolean):
 function ownConversations(deps: AppDeps, req: IncomingMessage): UserConversationView | undefined {
   const user = requestUser(req);
   return user && deps.conversations?.forUser(user.id);
-}
-
-/** The requesting user as a tool call or declarations see them. */
-function callUserOf(req: IncomingMessage): CallUser | undefined {
-  const u = requestUser(req);
-  return u && { id: u.id, name: u.name };
 }

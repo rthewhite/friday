@@ -125,8 +125,10 @@ export class PassGuard {
 }
 
 /**
- * Every user's pass in turn. A user whose pass throws is recorded as failed in their own brain and the others still
- * run; the job then reports `partial` in its summary. The summary holds counts only, never names or text.
+ * Every user's pass in turn, the user whose brain waited longest first (never run, then oldest last run), so a job
+ * that runs out of time leaves a different user for the next night rather than the same one every night. A user
+ * whose pass throws is recorded as failed in their own brain and the others still run; the job then reports
+ * `partial` in its summary, and fails when every user's pass failed. The summary holds counts only.
  */
 export async function runNightlyForUsers(
   users: CallUser[],
@@ -139,10 +141,12 @@ export async function runNightlyForUsers(
   const runs: Run[] = [];
   let failed = 0;
   let busy = 0;
-  for (const user of users) {
+  const passes = users.map((user) => ({ user, pass: passOf(user) }));
+  const lastRun = (p: UserPass) => p.runs.list(1)[0]?.startedAt ?? "";
+  passes.sort((a, b) => lastRun(a.pass).localeCompare(lastRun(b.pass)));
+  for (const { user, pass } of passes) {
     if (signal.aborted) break;
     try {
-      const pass = passOf(user);
       const r = await guard.run(user.id, () => runNightly(pass.runs, pass.steps, trigger, signal));
       if (r) runs.push(r.run);
       else busy++;
@@ -151,7 +155,9 @@ export async function runNightlyForUsers(
       log.error(`nightly pass failed for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  return { summary: summarizeUsers(users.length, runs, failed, busy), runs };
+  const summary = summarizeUsers(users.length, runs, failed, busy);
+  if (users.length && failed === users.length) throw new Error(summary);
+  return { summary, runs };
 }
 
 /** `partial: 1 of 2 users failed; 2 users: 5 conversations (2 trivial), 4 notes; 3 pages rewritten, 1 merge; 2 summaries generated`. */

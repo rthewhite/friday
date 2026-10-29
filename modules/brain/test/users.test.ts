@@ -270,3 +270,23 @@ test("runs are per user: another user's run is a 404; runs/now runs the caller's
   const listed = (await h.request("GET", "runs", undefined, {}, as(raymond))).body as { runs: { id: number }[] };
   assert.ok(!listed.runs.some((r) => r.id === hers));
 });
+
+test("the user whose brain waited longest goes first, and the job fails when every user's pass failed", async () => {
+  const h = await twoUsers();
+  const { RunStore } = await import("../src/nightly/runs.js");
+  const { runNightlyForUsers, PassGuard } = await import("../src/nightly/job.js");
+  const order: string[] = [];
+  const steps = (user: string, fail = false) => ({
+    extract: async () => { order.push(user); if (fail) throw new Error("boom"); return { conversations: 0, skipped: 0, notes: 0, refused: 0, errors: [] }; },
+    consolidate: async () => ({ ran: false, rewrites: 0, creates: 0, merges: [], dropped: [] }),
+    summary: async () => ({ ran: false, generated: false }),
+  });
+  // Raymond ran last night; Sanne never did, so she goes first.
+  const ok = (u: { id: string }) => ({ runs: new RunStore(h.db, u.id), steps: steps(u.id) });
+  await runNightlyForUsers([raymond], ok, new PassGuard(), "manual", new AbortController().signal, quiet);
+  order.length = 0;
+  await runNightlyForUsers(users, ok, new PassGuard(), "manual", new AbortController().signal, quiet);
+  assert.deepEqual(order, ["u2", "u1"]);
+  const failing = (u: { id: string }) => ({ runs: new RunStore(h.db, u.id), steps: steps(u.id, true) });
+  await assert.rejects(runNightlyForUsers(users, failing, new PassGuard(), "manual", new AbortController().signal, quiet), /^Error: partial: 2 of 2 users failed/);
+});

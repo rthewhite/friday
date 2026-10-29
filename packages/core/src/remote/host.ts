@@ -11,6 +11,7 @@ import type { WebSocketServer, WebSocket } from "ws";
 import {
   CloseCode,
   REMOTE_PROTOCOL,
+  OWNER_ONLY_META,
   SCHEDULING_META,
   WsTransport,
   type HelloMessage,
@@ -160,8 +161,10 @@ export class RemoteHost {
     this.opts.registry.removeOwner(remoteOwner(id));
     for (const t of tools) {
       const meta = (t._meta as Record<string, unknown> | undefined)?.[SCHEDULING_META];
+      const ownerOnly = (t._meta as Record<string, unknown> | undefined)?.[OWNER_ONLY_META] === true;
       this.opts.registry.add(remoteOwner(id), {
         name: prefixedName(id, t.name),
+        ...(ownerOnly ? { ownerOnly: true as const } : {}),
         description: t.description ?? t.name,
         parametersJsonSchema: t.inputSchema,
         scheduling: SCHEDULINGS.includes(meta as Scheduling) ? (meta as Scheduling) : "INTERRUPT",

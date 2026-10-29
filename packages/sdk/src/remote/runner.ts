@@ -10,7 +10,7 @@ import type { FridayModule, ModuleLogger } from "../module.js";
 import { ToolRegistry } from "../registry.js";
 import type { Tool } from "../tool.js";
 import { toJsonSchema } from "./json-schema.js";
-import { NO_RETRY_CODES, REMOTE_PROTOCOL, SCHEDULING_META, type HelloMessage, type WelcomeMessage } from "./protocol.js";
+import { NO_RETRY_CODES, OWNER_ONLY_META, REMOTE_PROTOCOL, SCHEDULING_META, type HelloMessage, type WelcomeMessage } from "./protocol.js";
 import { WsTransport } from "./transport.js";
 
 export interface RemoteOptions {
@@ -39,6 +39,9 @@ export function runRemote(module: FridayModule, opts: RemoteOptions): RemoteHand
   const min = opts.minBackoffMs ?? 1000;
   const max = opts.maxBackoffMs ?? 30000;
   const registry = new ToolRegistry(log);
+  // Core offers and runs owner-only tools for the owner only (OWNER_ONLY_META) and never sends the user over MCP, so
+  // the calls that reach the runner are already the owner's.
+  registry.setOwnerCheck(() => true);
   let stopped = false;
   let ws: WebSocket | undefined;
   let backoff = min;
@@ -141,6 +144,6 @@ function describe(registry: ToolRegistry, name: string) {
     name,
     description: t.description,
     inputSchema: (t.parametersJsonSchema as Record<string, unknown> | undefined) ?? toJsonSchema(t.parameters),
-    _meta: { [SCHEDULING_META]: t.scheduling ?? "INTERRUPT" },
+    _meta: { [SCHEDULING_META]: t.scheduling ?? "INTERRUPT", ...(t.ownerOnly ? { [OWNER_ONLY_META]: true } : {}) },
   };
 }

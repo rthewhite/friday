@@ -54,6 +54,11 @@ export const REFRESH_RETRY_MS = 5 * 60 * 1000;
 /** The user `Auth.authenticate` found for this request; undefined before it ran or when there is none. */
 export const requestUser = (req: IncomingMessage): User | undefined => known.get(req)?.user;
 export const requestAuth = (req: IncomingMessage): Authenticated | undefined => known.get(req);
+/** The request's user as tool calls and declarations see them: id and name only. */
+export const requestCallUser = (req: IncomingMessage): { id: string; name: string } | undefined => {
+  const u = requestUser(req);
+  return u && { id: u.id, name: u.name };
+};
 
 export interface AuthOptions {
   mode: AuthMode;

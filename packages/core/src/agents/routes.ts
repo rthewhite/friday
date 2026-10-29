@@ -4,8 +4,8 @@
  * reserves those names).
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { CallUser, ToolRegistry } from "@friday/sdk";
-import { requestUser } from "../auth/auth.js";
+import type { ToolRegistry } from "@friday/sdk";
+import { requestCallUser, requestUser } from "../auth/auth.js";
 import { readBody, sendJson, type NodeHandler, type Router } from "../router.js";
 import { AgentInputError, parseAgent, resolveTools } from "./definition.js";
 import { MAX_REQUEST, type AgentRuntime, type DecideResult } from "./runtime.js";
@@ -23,10 +23,7 @@ export interface AgentsApi {
 const MAX_BODY = 100_000;
 
 /** The user who made the request, as the runtime records them. */
-const callUser = (req: IncomingMessage): CallUser | undefined => {
-  const u = requestUser(req);
-  return u && { id: u.id, name: u.name };
-};
+const callUser = requestCallUser;
 
 /**
  * Agents are private to their creator, admins included: anyone else's agent, run or action is answered 404, like an
@@ -119,7 +116,7 @@ export function mountAgentRoutes(router: Router, api: AgentsApi | undefined): vo
       if (request !== undefined && request !== null && typeof request !== "string") return sendJson(res, { error: "request must be text" }, 400);
       if (typeof request === "string" && request.length > MAX_REQUEST) return sendJson(res, { error: `request is longer than ${MAX_REQUEST} characters` }, 400);
       const r = a.runtime.start(name, "portal", request ?? undefined);
-      if (!r.ok && r.reason === "unknown") return unknownAgent(res, name);
+      if (!r.ok && (r.reason === "unknown" || r.reason === "disabled")) return unknownAgent(res, name);
       if (!r.ok) return sendJson(res, { error: "the agent is already running", since: r.since, runId: r.runId }, 409);
       sendJson(res, { runId: r.run.id }, 202);
     }))

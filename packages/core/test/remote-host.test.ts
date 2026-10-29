@@ -235,3 +235,21 @@ test("a module with a reserved-key result works remotely: scheduling override su
     await c.close();
   }
 });
+
+test("an owner-only tool of a remote module stays owner-only in core, and runs for the owner", async () => {
+  const c = await core({ keys: "garage=k" });
+  const m = defineModule({ manifest: { id: "garage", label: "Garage" }, init(ctx) { ctx.defineTool({ name: "open_door", description: "", ownerOnly: true, handler: () => ({ open: true }) }); } });
+  const remoteHandle = runRemote(m, { url: c.url, key: "k", env: {}, log: quiet });
+  try {
+    await remoteHandle.connected();
+    await waitFor(() => c.registry.names().length === 1);
+    c.registry.setOwnerCheck((u) => u?.id === "u1");
+    assert.deepEqual(c.registry.declarations("chat", { id: "u2", name: "Sanne" }), []);
+    assert.deepEqual((await c.registry.callTool("garage__open_door", {}, { user: { id: "u2", name: "Sanne" } })).result, { error: "garage__open_door is only available to the household owner" });
+    assert.deepEqual((await c.registry.callTool("garage__open_door", {}, { user: { id: "u1", name: "Raymond" } })).result, { open: true });
+  } finally {
+    await remoteHandle.stop();
+    await waitFor(() => c.registry.names().length === 0);
+    await c.close();
+  }
+});

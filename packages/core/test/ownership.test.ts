@@ -92,3 +92,23 @@ test("without auth configured the dev user receives the data at startup", () => 
   followOwner(db, new UserStore(db, undefined, { devOwner: true }), quiet);
   assert.deepEqual(owners(db).agents, [{ name: "weekly-review", created_by: "dev" }]);
 });
+
+test("migration 13 keeps only the outcome in the history of agent jobs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  migrate(old, migrations.filter((m) => m.version <= 12), quiet);
+  old.exec(`
+    INSERT INTO job_runs (id, job_id, trigger, started_at, outcome, summary, error) VALUES
+      ('a', 'core/agent-weekly-review', 'schedule', 't', 'ok', 'Your therapy notes say…', NULL),
+      ('b', 'core/agent-weekly-review', 'schedule', 't', 'failed', NULL, 'the model said: private text'),
+      ('c', 'brain/nightly', 'schedule', 't', 'ok', '1 user: 2 notes', NULL);
+  `);
+  old.close();
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.deepEqual(db.prepare("SELECT id, summary, error FROM job_runs ORDER BY id").all().map((r) => ({ ...r })), [
+    { id: "a", summary: "ok", error: null },
+    { id: "b", summary: null, error: "failed" },
+    { id: "c", summary: "1 user: 2 notes", error: null },
+  ]);
+  db.close();
+});

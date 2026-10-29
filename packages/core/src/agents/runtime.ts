@@ -36,11 +36,15 @@ export interface AgentRuntimeOptions {
   minuteMs?: number;
   now?: () => Date;
   log?: Pick<Console, "log" | "warn" | "error">;
+  /** Whether a user may still act (not disabled). A disabled creator's agents don't run. Without it, everyone may. */
+  isActive?: (userId: string) => boolean;
 }
 
 export type StartResult =
   | { ok: true; run: AgentRun; done: Promise<AgentRun> }
   | { ok: false; reason: "unknown" }
+  /** The agent's creator is disabled: it acts for nobody until they are enabled again. */
+  | { ok: false; reason: "disabled" }
   | { ok: false; reason: "busy"; since: string; runId: string };
 
 export type DecideResult = { status: "ok"; action: AgentAction } | { status: Exclude<Decision, "ok"> };
@@ -83,6 +87,7 @@ export class AgentRuntime {
     if (busy) return { ok: false, reason: "busy", since: busy.run.startedAt, runId: busy.run.id };
     const stored = this.o.agents.get(name);
     if (!stored) return { ok: false, reason: "unknown" };
+    if (stored.createdBy && this.o.isActive && !this.o.isActive(stored.createdBy.id)) return { ok: false, reason: "disabled" };
     const text = request?.trim().slice(0, MAX_REQUEST) || undefined;
     const run = this.o.runs.start({ agent: name, trigger, request: text, userId: stored.createdBy?.id });
     const controller = new AbortController();
