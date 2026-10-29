@@ -66,8 +66,8 @@
 
 ## 9. Calendar and Spotify are the owner's
 
-- [ ] 9.1 Calendar: all tools `ownerOnly`; the agenda prompt context renders only for the owner; portal routes answer 403 to anyone else; the Calendar page shows the "belongs to the household owner" notice on 403. Verify with calendar tests for the member-prompt and member-route scenarios.
-- [ ] 9.2 Spotify: all tools `ownerOnly`. Verify with a spotify test that a member's declarations leave them out. Run `pnpm --filter @friday/module-calendar test typecheck` and `pnpm --filter @friday/module-spotify test typecheck`.
+- [x] 9.1 Calendar: all tools `ownerOnly`; the agenda prompt context renders only for the owner; portal routes answer 403 to anyone else; the Calendar page shows the "belongs to the household owner" notice on 403. Verify with calendar tests for the member-prompt and member-route scenarios.
+- [x] 9.2 Spotify: all tools `ownerOnly`. Verify with a spotify test that a member's declarations leave them out. Run `pnpm --filter @friday/module-calendar test typecheck` and `pnpm --filter @friday/module-spotify test typecheck`.
 
 ## 10. Portal
 

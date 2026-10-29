@@ -301,3 +301,12 @@ test("seeded conversations belong to the host's owner unless a seed says otherwi
   assert.equal((await h.conversations.forUser("u1").get(c.id))?.id, c.id);
   assert.equal(await h.conversations.forUser(TEST_OWNER.id).get(c.id), undefined);
 });
+
+test("promptContext renders for the owner when the host has no user, and without one for null", async () => {
+  const seen: unknown[] = [];
+  const m = defineModule({ manifest: { id: "p", label: "P" }, init(ctx) { ctx.prompt.addContext((info) => void seen.push(info.user ?? null)); } });
+  const h = await createTestHost(m, { users: [{ id: "u1", name: "Raymond" }], owner: "u1" });
+  h.promptContext("voice");
+  h.promptContext("voice", null);
+  assert.deepEqual(seen, [{ id: "u1", name: "Raymond" }, null]);
+});

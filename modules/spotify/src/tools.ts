@@ -71,6 +71,8 @@ export function defineSpotifyTools(ctx: ModuleContext, get: SpotifyGet): void {
 
   ctx.defineTool<{ query: string }>({
     name: "search_spotify",
+    // The connection is the owner's Spotify account, until users connect their own.
+    ownerOnly: true,
     description:
       "Search Spotify for tracks, artists and albums, returning their names and Spotify URIs. " +
       "For finding things and their URIs only: this tool does not play music. To play something, pass its URI to a playback tool.",
@@ -89,6 +91,8 @@ export function defineSpotifyTools(ctx: ModuleContext, get: SpotifyGet): void {
 
   ctx.defineTool({
     name: "list_spotify_playlists",
+    // The connection is the owner's Spotify account, until users connect their own.
+    ownerOnly: true,
     description: "List the user's Spotify playlists, their own and the ones they follow, with owners, track counts and URIs.",
     handler: async () => ({ playlists: mapPlaylists(await get<PlaylistsResponse>(`/me/playlists?limit=${PLAYLIST_LIMIT}`, await token())) }),
   });

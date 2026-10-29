@@ -116,7 +116,8 @@ export interface TestHost {
   oauthCalls: Record<string, number>;
   /**
    * The module's prompt context for a channel, rendered as core would (empty when it adds none), for the host's
-   * `user` unless one is given (`null` renders without a user).
+   * `user` unless one is given, else for the owner, as core renders a voice device's prompt (`null` renders without
+   * a user, as before any owner is recorded).
    */
   promptContext(channel: PromptChannel, user?: CallUser | null): string;
   dispose(): Promise<void>;
@@ -218,7 +219,7 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
     runJob: (name) => runJob(name, "manual"),
     db,
     oauthCalls,
-    promptContext: (channel, user) => prompts.render(channel, user === null ? undefined : (user ?? hostUser)),
+    promptContext: (channel, user) => prompts.render(channel, user === null ? undefined : (user ?? hostUser ?? users.owner())),
     dispose: async () => {
       conversations.clearSubscriptions();
       users.clearSubscriptions();

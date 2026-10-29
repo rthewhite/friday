@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
 import { Badge, Button, Card, DataTable, Icon, PageLayout, StatusDot, Tabs, formatDateTime, type Column } from "@friday/portal-ui";
-import { ApiError, actionLabel, api, changeDetail, settingsPatch, workState, workSummary, type CalendarRow, type ChangeRow, type Status } from "./lib/calendar.js";
+import { ApiError, actionLabel, api, changeDetail, isOwnerOnly, settingsPatch, workState, workSummary, type CalendarRow, type ChangeRow, type Status } from "./lib/calendar.js";
 
 const tab = ref("overview");
 const status = ref<Status | null>(null);
 const agenda = ref<{ text: string; fetchedAt: string | null } | null>(null);
 const changes = ref<ChangeRow[] | null>(null);
 const error = ref("");
+/** Set when the routes answer 403: someone other than the household owner opened the page. */
+const ownerOnly = ref(false);
 const notice = ref("");
 const busy = ref(false);
 const rowError = ref<Record<number, string>>({});
@@ -26,7 +28,8 @@ async function run(fn: () => Promise<void>) {
   try {
     await fn();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    if (isOwnerOnly(e)) ownerOnly.value = true;
+    else error.value = e instanceof Error ? e.message : String(e);
   } finally {
     busy.value = false;
   }
@@ -79,9 +82,16 @@ const rows = () => (changes.value ?? []).map((c) => ({ ...c, detail: changeDetai
 
 <template>
   <PageLayout eyebrow="Modules" title="Calendar" subtitle="What Friday sees of your iCloud and Work calendars, and what it changed">
-    <template #actions>
+    <template v-if="!ownerOnly" #actions>
       <Button variant="ghost" :disabled="busy" @click="tab === 'overview' ? refresh() : load()"><Icon name="refresh" />Refresh</Button>
     </template>
+    <Card v-if="ownerOnly">
+      <p class="text-sm text-f-text">
+        The calendar belongs to the household owner: Friday uses their iCloud and Work calendars. Calendars of your own
+        aren't available yet, so Friday doesn't read or change a calendar for you.
+      </p>
+    </Card>
+    <template v-else>
     <p v-if="error" class="text-f-error">{{ error }}</p>
     <p v-if="notice" class="text-f-success">{{ notice }}</p>
 
@@ -170,6 +180,7 @@ const rows = () => (changes.value ?? []).map((c) => ({ ...c, detail: changeDetai
           <Button v-if="(row as ChangeRow).undoable" variant="ghost" :disabled="busy" @click="undo(row as ChangeRow)">Undo</Button>
         </template>
       </DataTable>
+    </template>
     </template>
   </PageLayout>
 </template>

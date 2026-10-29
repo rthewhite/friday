@@ -7,6 +7,7 @@ const TIME_HINT = "ISO 8601 date-time like 2026-10-08T15:00 (without an offset i
 export function defineCalendarTools(ctx: ModuleContext, service: CalendarService): void {
   ctx.defineTool<ListArgs>({
     name: "calendar_list_events",
+    ownerOnly: true,
     description:
       "List events from the user's calendar, with recurring events expanded. Use it for questions about the schedule " +
       "beyond today and tomorrow (those are already in your context), to search for an event, and always before " +
@@ -29,6 +30,7 @@ export function defineCalendarTools(ctx: ModuleContext, service: CalendarService
 
   ctx.defineTool<CreateArgs>({
     name: "calendar_create_event",
+    ownerOnly: true,
     description:
       "Add an event to the user's calendar. It is created right away, so make sure you have the title, day and time " +
       "right; afterwards tell the user what was created (the result's say text) and mention any overlaps. A timed event " +
@@ -59,6 +61,7 @@ export function defineCalendarTools(ctx: ModuleContext, service: CalendarService
 
   ctx.defineTool<UpdateArgs>({
     name: "calendar_update_event",
+    ownerOnly: true,
     description:
       "Prepare a change to an event: its title, time, location or notes. This changes nothing yet: it returns a preview " +
       "and a token. Read the change back to the user, and call calendar_confirm with the token only after they say yes. " +
@@ -82,6 +85,7 @@ export function defineCalendarTools(ctx: ModuleContext, service: CalendarService
 
   ctx.defineTool<DeleteArgs>({
     name: "calendar_delete_event",
+    ownerOnly: true,
     description:
       "Prepare deleting an event. This deletes nothing yet: it returns a preview and a token. Tell the user exactly what " +
       "will be deleted and call calendar_confirm with the token only after they say yes. Take the id from " +
@@ -99,6 +103,7 @@ export function defineCalendarTools(ctx: ModuleContext, service: CalendarService
 
   ctx.defineTool<{ token?: string }>({
     name: "calendar_confirm",
+    ownerOnly: true,
     description:
       "Apply a change prepared by calendar_update_event or calendar_delete_event, after the user agreed to it. Pass the " +
       "token from that preview. A token works once and for 5 minutes; if the event changed in the meantime nothing is " +
@@ -113,6 +118,7 @@ export function defineCalendarTools(ctx: ModuleContext, service: CalendarService
 
   ctx.defineTool({
     name: "calendar_undo",
+    ownerOnly: true,
     description:
       "Undo Friday's most recent calendar change (a created, changed or deleted event) from the last 24 hours, for " +
       '"undo that" or "no, put it back". Needs no confirmation. Calling it again undoes the change before that. It ' +

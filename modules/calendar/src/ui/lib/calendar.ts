@@ -88,6 +88,9 @@ export class ApiError extends Error {
   }
 }
 
+/** The routes refuse anyone but the household owner (403): the calendar is theirs until users connect their own. */
+export const isOwnerOnly = (e: unknown): boolean => e instanceof ApiError && e.status === 403;
+
 /** JSON call to the calendar's routes; non-2xx answers throw an `ApiError` carrying the body. */
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api/modules/calendar/${path}`, {

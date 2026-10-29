@@ -104,7 +104,8 @@ export function createCalendarModule(opts: CalendarOptions = {}) {
           }
         },
       });
-      ctx.prompt.addContext(() => agenda.render());
+      // The agenda is the owner's: only their prompts get it (a device's session is held for the owner).
+      ctx.prompt.addContext(({ user }) => (user && user.id === ctx.users.owner()?.id ? agenda.render() : undefined));
       registerCalendarRoutes(ctx, { service, settings, agenda, changes, work });
       // No iCloud request during init: a down iCloud must not fail the module. The first refresh runs right away.
       refresh();
