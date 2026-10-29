@@ -1,8 +1,11 @@
 .git/
 **/node_modules/
 **/dist/
-.env
-.env.*
+**/coverage/
+# Secrets and databases at any depth: worktrees keep .env and data/ in packages/core, and dotenv in the image
+# would load a .env that got in.
+**/.env
+**/.env.*
 mcp.json
 esphome/
 openspec/
@@ -10,4 +13,4 @@ openspec/
 .claude/
 *.md
 **/src/modules.gen.ts
-data/
+**/data/

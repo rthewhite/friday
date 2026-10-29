@@ -2,8 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { createRequire } from "node:module";
-const require = createRequire(import.meta.url);
 import { migrate, migrations } from "../src/storage/db.js";
 import { decrypt, encrypt, parseMasterKey } from "../src/secrets/crypto.js";
 import { ConfigStore, ConfigStoreDisabled } from "../src/secrets/config-store.js";
@@ -74,7 +72,6 @@ test("rows from before the split (version 1) are treated as secret after migrati
   const d = new DatabaseSync(":memory:");
   migrate(d, migrations.filter((m) => m.version === 1), quiet);
   // write a v1-shaped row by hand
-  const { encrypt } = require("../src/secrets/crypto.js") as typeof import("../src/secrets/crypto.js");
   const e = encrypt(key, "media", "OLD", "legacy");
   d.prepare("INSERT INTO config_values (scope, key, ciphertext, iv, tag, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run("media", "OLD", e.ciphertext, e.iv, e.tag, "t");
   assert.equal(migrate(d, migrations, quiet), migrations.filter((m) => m.version > 1).length);

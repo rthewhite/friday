@@ -173,3 +173,31 @@ The previous server accepts the new firmware: it ignores the `Authorization`
 header and serves `wss://` on the same host. Going back to the old firmware
 needs the `friday-ws-plain` route again (apply it from the manifest of an
 earlier commit).
+
+## 6. What CI checks before a push
+
+`deploy.yml` builds the image locally (`--load`) and pushes it only after
+`scripts/smoke.sh` has started it:
+
+- an empty data directory, a fresh master key, no Gemini key, and the
+  placeholders in `scripts/smoke.env`
+- `/health` answers 200 within 60 s
+- `/` serves the built portal
+- `/api/modules` lists every module as `loaded`
+- `SIGTERM` stops it with exit code 0
+
+A failure prints the container's log, and the image never reaches the registry.
+To reproduce a failure locally:
+
+```bash
+docker build -t friday:smoke . && scripts/smoke.sh friday:smoke
+```
+
+A new module with required configuration fails the check until its
+placeholders are in `scripts/smoke.env`. Use `.invalid` hosts there, never real
+credentials.
+
+The firmware's host tests (`esphome/test/run.sh`) run in the `test` job and in
+`firmware.yml`, for pushes that only touch `esphome/`. The runner has Docker
+but no compiler, so they run in a `gcc:14` image pinned by digest (`GCC_IMAGE`
+in both workflows). To move to a newer GCC, update the digest in both places.

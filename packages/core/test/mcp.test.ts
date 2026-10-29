@@ -9,6 +9,7 @@ import { migrate, migrations } from "../src/storage/db.js";
 import { McpServerStore, parseServerInput } from "../src/tools/mcp-store.js";
 import { McpSource, sanitize, toResult } from "../src/tools/mcp.js";
 import { startMcpFixture } from "./mcp-fixture.js";
+import { waitFor } from "./helpers.js";
 
 const quiet = { log() {}, error() {} };
 const TOKEN = "Bearer fixture-t0ken-value";
@@ -203,7 +204,7 @@ test("close waits for a reconnect in flight and leaves nothing connected", async
     const inFlight = src.apply("home");
     const queued = src.apply("home");
     // Close only once the reconnect is really talking to the (hanging) server.
-    while (f.requests.length === seen) await new Promise((r) => setTimeout(r, 5));
+    await waitFor(() => f.requests.length > seen);
     const started = Date.now();
     await src.close();
     const waited = Date.now() - started;

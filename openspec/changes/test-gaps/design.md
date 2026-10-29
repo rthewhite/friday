@@ -33,8 +33,8 @@
 **Where it runs.** `scripts/smoke.sh <image>` runs the image with `docker run` and no published port. Every probe runs inside the container with `docker exec <c> node -e "fetch('http://127.0.0.1:8080/…')"`; the image already has Node. Probing from inside means no port is used on the shared runner, and the requests come from a loopback address, which matters for `auth-users` (see Risks). In `deploy.yml`'s `build` job, `buildx build --push` becomes three steps: `buildx build --load`, then `smoke.sh`, then `docker push`. Pushing only after the check means a broken image is never in the registry under a SHA, so it can't be deployed by hand either.
 
 **How it works:**
-- A fresh `--tmpfs` data directory.
-- `FRIDAY_MASTER_KEY` generated per run (`openssl rand -base64 32`), so the encrypted-config path initializes too.
+- An empty data directory: a fresh container's own `/data`, which the image creates for user `node`. (A `--tmpfs` mount would be owned by root and refuse writes.)
+- `FRIDAY_MASTER_KEY` generated per run (32 bytes from `/dev/urandom`, base64), so the encrypted-config path initializes too.
 - No `GEMINI_API_KEY`.
 - Placeholders from `scripts/smoke.env` for every module's required keys:
   - `JELLYFIN_URL`, `JELLYFIN_API_KEY`
@@ -43,8 +43,11 @@
   - `INTAKE_URL`, `INTAKE_KEY`
 
   URLs use `.invalid` hosts (RFC 2606), which fail DNS at once.
-- The script polls `/health` for up to 60 s, checks that `/` is HTML containing the portal's root element, and checks with `node -e` that `/api/modules` is `core` first and every entry `loaded`. Then it runs `docker stop -t 10` and expects exit code 0 from `docker wait`.
+- The script polls `/health` for up to 60 s, checks that `/` holds the portal's `#app` and a built `/assets/` script, and checks with `node -e` that `/api/modules` is `core` first and every entry `loaded`. Then it runs `docker stop -t 10` and expects exit code 0 from `docker inspect`.
 - On any failure it prints `docker logs` and exits non-zero. A trap always removes the container.
+- `deploy.yml` also triggers on `scripts/**`, so a change to the check runs it.
+
+**Local images must not carry a `.env`.** Building the image in a worktree first passed the check for the wrong reason. `.dockerignore` excluded only the root `.env`, so `packages/core/.env`, where `CLAUDE.md` puts it in worktrees, went into the image. dotenv then loaded your real configuration there. `.dockerignore` now excludes `.env`, `.env.*` and `data/` at any depth. CI checkouts never have a `.env`, so images in the registry weren't affected.
 
 **Alternatives considered:**
 - *Accept `failed` for modules missing configuration.* Each module words that error differently (calendar names its sources), so the check would have to parse messages, and a real init crash in an unconfigured module would pass.
@@ -56,14 +59,14 @@
 
 - **`deploy.yml`.** The `test` job runs `esphome/test/run.sh`, so a core-side change to the contract fixture is checked against the firmware in the same gate that guards deploys.
 - **`firmware.yml`.** Adding `esphome/**` to `deploy.yml`'s paths would rebuild and redeploy an identical image on every firmware commit, restarting Friday on `main` for nothing. So `firmware.yml` triggers on `esphome/**` and runs only `run.sh`.
-- **Compiler.** The runner needs `c++`. The task checks this first; if it's missing, the user installs `build-essential` on the runner. That's a homelab change and not done from here.
+- **Compiler.** The runner has Docker but no compiler: the homelab's `build-host` role installs only base packages. So both workflows run `run.sh` in a `gcc:14` image pinned by digest (`GCC_IMAGE`), with the checkout mounted read-only. That needs no homelab change and pins the compiler in the repository. GCC 14 passes the tests with `-Werror` (checked locally). *Alternative considered:* `build-essential` on the runner via the homelab's Ansible. That's a change outside this repository, and the compiler would follow Ubuntu's version.
 
 ### 3. `friday_protocol.h`: decisions in a pure header, JSON and SHA-256 stay in ESPHome
 
 The new header in `esphome/components/friday_client/` uses only the standard library. It holds:
 
 - `audio_uri(base, device, alert)` and `control_uri(base, device)`
-- `valid_device_id` and `valid_alert_id`, moved from the `.cpp`
+- `valid_alert_id`, moved from the `.cpp`
 - `audio_event(type)`, returning `Interrupted`, `TurnComplete`, `Closed` or `Ignore`
 - `control_event(type, alert)`, returning `Ring`, `Stop` or `Ignore`
 - `control_message(type, alert)`, the exact JSON string the device sends
@@ -71,20 +74,27 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 
 `friday_client.cpp` keeps `json::parse_json` and `mbedtls_sha256` and calls the header for everything after them.
 
+**Device ids aren't checked at runtime.** The firmware checks them when the YAML is validated: `__init__.py`'s `DEVICE_ID` is the same pattern as core's `DEVICE_ID` in `devices/store.ts`. So there's no `valid_device_id` in the header. Instead, core's contract test checks that the two patterns are identical.
+
 **Alternative considered:** move the JSON parsing into the header with a hand-written parser. It would test more, but it replaces a library the device relies on with our own code, for little gain. The messages are flat and small.
 
 ### 4. The contract fixture lives with core, in a flat JSON shape C++ can read
 
-`packages/core/test/fixtures/device-protocol.json` is owned by core, the protocol's server. It has sections `serverMessages`, `deviceMessages`, `uris`, `ids` and `fingerprints`. Every value is a string, a boolean or a flat object, so a test-only reader can extract the values without a JSON library.
+`packages/core/test/fixtures/device-protocol.json` is owned by core, the protocol's server. It has an `about` string and the sections `serverMessages`, `deviceMessages`, `uris`, `deviceIds`, `alertIds` and `fingerprints`. Each section is an array of objects whose values are strings or booleans, so a test-only reader can extract the values without a JSON library.
 
 **C++ side.** That reader, `esphome/test/fixture.h`, is about 80 lines and only handles this shape; it fails loudly on anything else. `run.sh` passes the fixture's path as an argument.
 
 **Core side.** A new `device-protocol.test.ts` covers four parts:
 
-- **Server messages.** It drives the real `/ws/device` and `/ws/audio` harnesses until each listed message is sent, then compares the raw text.
-- **Device messages.** It sends each one and checks that `onReport` receives the listed type and alert.
-- **Ids.** It accepts and refuses the listed device ids, through the existing device-auth checks.
-- **Fingerprints.** `fingerprint(key)` must equal the fixture's value.
+- **Server messages.**
+  - `/ws/audio`: a device connection on the real transport gets each listed message as raw text, and not the browser-only ones.
+  - `/ws/device`: `AlertService` rings and stops a device. Its link socket records the raw text, with the random alert id swapped for the fixture's.
+- **Device messages.** It sends each one on the real `/ws/device` and checks that `onReport` receives the listed type and alert.
+- **URIs.** It connects with each listed audio URI and checks that core read the device, and the alert where there is one. It connects with each control URI and checks that the device comes online.
+- **Ids.**
+  - `DEVICE_ID` accepts exactly the listed device ids, and `__init__.py` uses the same pattern.
+  - The alert ids core generates match the firmware's rule, and the fixture's alert ids follow it.
+- **Fingerprints.** `hashKey(key)` and `fingerprint(...)` must equal the fixture's values.
 
 **Alternative considered:** generate a C++ header from the JSON with a Node script in `run.sh`. That would make `run.sh` need Node and add a generation step. A reader of about 80 lines in the test folder is simpler.
 
@@ -96,7 +106,7 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 - `AgentEditor.vue` already has `lib/agents.ts`.
 
 **Composables.** They are plain Vue reactivity and run under `node:test` with fakes on `globalThis`:
-- `useChatStream`: a fake `fetch` returning a streamed `Response`, covering text deltas, tool events, the conversation id from `start`, a 4xx, a broken stream, and abort.
+- `useChatStream`: a fake `fetch` returning a streamed `Response`, covering text deltas, tool events, the conversation id from `start`, a 4xx, a broken stream, and a request that fails on the network. The composable has no abort, so there is nothing to test there.
 - `useVoiceSession`: fake `WebSocket`, `AudioContext`, `AudioWorkletNode` and `navigator.mediaDevices`, covering connecting to live, transcript entries per event type, `interrupted` dropping playback, a refused microphone giving an error state, and `stop(drain)`.
 
 **Component tests.** A handful run under vitest + `@vue/test-utils` + happy-dom in `test/components/`, with `api` mocked. They cover what the pages do with the lib and the API:
@@ -108,25 +118,33 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 
 **Alternative considered:** move all portal tests to vitest. That churns 51 working tests for nothing. Two runners, one script, is explicit.
 
-### 6. Live checks: a separate weekly workflow that refuses to run without the key
+### 6. Live checks: a local command that refuses to run without the key, never in CI
 
-`.github/workflows/live-checks.yml` runs on `schedule: cron "0 6 * * 1"` (Monday 06:00 UTC) and on `workflow_dispatch`, on the homelab runner. Its steps:
+The live checks are run by hand, for example after Google moves `gemini-flash-latest`:
 
-1. Fail at once with `GEMINI_API_KEY secret is not set` if the secret is empty.
-2. Install and build.
-3. `pnpm --filter @friday/core test:live`. That's a new script: `FRIDAY_LIVE_TESTS=1 node --import tsx --test --test-name-pattern="^live: " test/*.test.ts`. It also fails if no test ran, so a renamed test can't turn the run green by matching nothing.
-4. `pnpm --filter @friday/module-brain eval`.
+1. `pnpm --filter @friday/core test:live`. That runs `packages/core/scripts/test-live.ts`, which loads `.env` (so the key check also works locally), then spawns `node --import tsx --test --test-name-pattern="^live: " test/*.test.ts` with `FRIDAY_LIVE_TESTS=1`. It exits 2 without `GEMINI_API_KEY`, and it also fails if no test ran, so a renamed test can't turn the run green by matching nothing.
+2. `pnpm --filter @friday/module-brain eval`.
 
-Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the default alias, which is the point. The workflow has no build or deploy steps and doesn't write to the registry. A failed run is signalled through GitHub's standard failure notification.
+Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the default alias, which is the point.
 
-### 7. Coverage: Node's built-in coverage, report only
+**Alternative considered:** a weekly `live-checks.yml` workflow with a `GEMINI_API_KEY` repository secret. It was built and then removed at the user's request: CI should not spend money on model calls, and drift in the alias is noticed in use anyway.
 
-- Every package with `node:test` tests gets `test:coverage`: its test command with `--experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='**/node_modules/**' --test-coverage-exclude='**/dist/**'`.
-- `portal-ui` gets `vitest run --coverage` with `@vitest/coverage-v8`.
-- The portal reports only its `node:test` part.
+### 7. Coverage: c8 with `--all`, report only
+
+- Every package with `node:test` tests gets `test:coverage`: `c8` followed by its test command. The options (`all`, `src`, `include`, excluding `*.d.ts` and `modules.gen.ts`, the `text` reporter, `clean`) live once in the root `.c8rc.json`, which c8 finds from each package. c8 is a root dev dependency, and each package writes to its own ignored `coverage/` folder.
+- `portal-ui` gets `vitest run --coverage --coverage.include=src/**` with `@vitest/coverage-v8`, pinned to its vitest version.
+- The portal prints two tables: c8 over its `node:test` part (c8 sees `.ts` and `.js` files, not `.vue`), then `vitest run --coverage` over the component tests, the same way as `portal-ui`.
 - The root `test:coverage` is `pnpm -r build && pnpm -r test:coverage`.
 
-**No threshold.** The report can't see files no test imports, which is how the gaps this change closes stayed hidden. A threshold would then reward the wrong thing. The README says so next to the command.
+**Why c8 over Node's built-in coverage.** We tried Node's built-in coverage first; with tsx it misleads either way:
+- Without `--enable-source-maps`, uncovered line numbers point at the wrong lines. One run blamed the interface fields of `oauth/flow.ts`.
+- With it, some packages count type-only and comment lines as uncovered. The portal read 66.8% for code that is about 99% covered.
+
+c8 reads the same V8 data through the source maps, ignores type-only lines, and with `--all` lists files no test imports at 0%. That puts `server.ts` and the portal's composables, which this change is about, at the top of the list. A file of types only (travel's `types.ts`) always reads 0%; the README says so.
+
+**A module loaded twice is misreported.** `secrets.test.ts` loaded `crypto.ts` both through `import` and through `createRequire`. That gave V8 two copies of the file, and c8's merge reported tested functions as unhit. The test now uses the import. Tests should not `require` source files.
+
+**No threshold.** A threshold would push coverage of what's easy to test rather than what's risky. The report is for finding gaps, like the 0% files above.
 
 ### 8. Real-time waits
 
@@ -146,13 +164,11 @@ A wait that tests a real timeout stays, with a comment saying why.
 - **[Self-hosted runner lacks `c++`]** → The first task checks it. Installing a compiler on the runner is a manual homelab step for the user.
 - **[Placeholder config drifts]** A new module with required keys fails the boot check until `smoke.env` is updated. That's intended (see the spec scenario), and the failure names the module and the key.
 - **[Boot check reaches the network]** Modules with placeholders may try their hosts at startup, for example calendar's refresh job. → Only `.invalid` hosts are used, which fail in DNS without leaving the runner. No real credentials, and no iCloud keys.
-- **[Weekly live run is flaky by nature]** One bad sample from the model fails the run. → Accepted: it's a signal, not a gate. Re-running by hand distinguishes noise from drift.
-- **[Live checks cost money]** About 16 eval fixtures × a few calls, plus 3 live tests, once a week, on the Flash tier. That's negligible.
+- **[Model drift goes unnoticed]** With no scheduled run, a change behind `gemini-flash-latest` shows up only in use or when someone runs the checks. → Accepted: the user prefers no model spend in CI. A live run is flaky by nature anyway (one bad sample fails it), so it was a signal, not a gate.
 - **[Firmware refactor regresses a device]** → It's behaviour-preserving, with host tests first. `esphome config` and a compile for both YAMLs run locally, and a device check at home (onboarding, a voice turn with barge-in, a timer that rings and is acknowledged) happens before archiving.
 - **[Two test runners in the portal]** → Kept apart by folder and `include`. The README's testing section says which goes where.
 
 ## Migration Plan
 
 1. Merge on `main`. The first push runs the new `test` step (firmware) and the boot check before the push. If the boot check blocks a deploy, `smoke.sh` reproduces it locally against the same tag.
-2. Before the first weekly run, the user adds the `GEMINI_API_KEY` repository secret (documented in `infra/README.md`). Until then the live workflow fails, naming the secret, and nothing else is affected.
-3. Rollback: revert the merge. No data, migrations or runtime behaviour change.
+2. Rollback: revert the merge. No data, migrations or runtime behaviour change.

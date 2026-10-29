@@ -28,6 +28,8 @@ interface Opts {
   masterKey?: Buffer | null;
   publicUrl?: string | (() => string | undefined);
   exchange?: () => Promise<arctic.OAuth2Tokens>;
+  /** Whether the fake client uses PKCE (default true). */
+  pkce?: boolean;
 }
 
 async function start(o: Opts = {}) {
@@ -42,7 +44,7 @@ async function start(o: Opts = {}) {
   const exchanges: { code: string; verifier: string | undefined; scopes: string[]; redirectUri: string }[] = [];
   let now = Date.now();
   const buildClient: BuildClient = (cfg, redirectUri) => ({
-    pkce: true,
+    pkce: o.pkce ?? true,
     refresh: true,
     authorizationUrl(state, verifier, scopes) {
       const u = new URL(cfg.authUrl ?? "https://accounts.example/authorize");
@@ -225,6 +227,142 @@ test("an unreadable token does not block the Reconnect that replaces it; a clien
   } finally {
     s.close();
   }
+});
+
+/** Make the stored client secret undecryptable, as a wrong or rotated master key would. */
+const breakClientSecret = (store: unknown) =>
+  (store as { db: DatabaseSync }).db.prepare("UPDATE oauth_connections SET client_secret_tag = ? WHERE provider = 'spotify'").run(randomBytes(16));
+
+test("authorize answers 409 when the stored client secret cannot be decrypted", async () => {
+  const s = await start();
+  try {
+    await s.setUp();
+    breakClientSecret(s.store);
+    const a = await s.authorize();
+    assert.equal(a.status, 409);
+    assert.equal(a.setCookie, "", "no login is started");
+  } finally {
+    s.close();
+  }
+});
+
+test("a client without PKCE sends no code challenge and exchanges without a verifier", async () => {
+  const s = await start({ pkce: false });
+  try {
+    await s.setUp();
+    const a = await s.authorize();
+    assert.equal(a.location!.searchParams.get("code_challenge"), null);
+    const cb = await s.callback("spotify", { code: "c", state: a.location!.searchParams.get("state")! }, a.cookie);
+    assert.equal(cb.location.searchParams.get("connected"), "1");
+    assert.equal(s.exchanges[0]!.verifier, undefined);
+  } finally {
+    s.close();
+  }
+});
+
+test("a callback without a code, for a deleted connection, or with an unreadable client secret is refused without exchanging", async () => {
+  const s = await start();
+  try {
+    await s.setUp();
+    const a = await s.authorize();
+    const noCode = await s.callback("spotify", { state: a.location!.searchParams.get("state")! }, a.cookie);
+    assert.equal(noCode.location.searchParams.get("error"), "Spotify sent no authorization code. Click Connect again.");
+
+    const b = await s.authorize();
+    assert.equal((await s.call("DELETE", "/api/oauth/connections/spotify")).status, 204);
+    const deleted = await s.callback("spotify", { code: "c", state: b.location!.searchParams.get("state")! }, b.cookie);
+    assert.equal(deleted.location.searchParams.get("error"), "The Spotify connection was deleted during the login.");
+
+    await s.setUp();
+    const c = await s.authorize();
+    breakClientSecret(s.store);
+    const unreadable = await s.callback("spotify", { code: "c", state: c.location!.searchParams.get("state")! }, c.cookie);
+    assert.ok(unreadable.location.searchParams.get("error"), "the decrypt failure is reported");
+    assert.equal(unreadable.location.searchParams.get("connected"), null);
+    assert.equal(s.exchanges.length, 0);
+  } finally {
+    s.close();
+  }
+});
+
+test("a provider error carries its description", async () => {
+  const s = await start();
+  try {
+    await s.setUp();
+    const a = await s.authorize();
+    const cb = await s.callback("spotify", { error: "access_denied", error_description: "The user said no", state: a.location!.searchParams.get("state")! }, a.cookie);
+    assert.equal(cb.location.searchParams.get("error"), "Spotify did not connect: access_denied: The user said no");
+  } finally {
+    s.close();
+  }
+});
+
+test("an exchange that fails on the network or with an unexpected HTTP status says which on the connection", async () => {
+  for (const [failure, expected] of [
+    [new TypeError("fetch failed"), "exchanging the authorization code failed: network error"],
+    [new arctic.UnexpectedResponseError(502), "exchanging the authorization code failed: HTTP 502"],
+    [new arctic.UnexpectedErrorResponseBodyError(500, "oops"), "exchanging the authorization code failed: HTTP 500"],
+  ] as const) {
+    const s = await start({ exchange: async () => { throw failure; } });
+    try {
+      await s.setUp();
+      const a = await s.authorize();
+      const cb = await s.callback("spotify", { code: "c", state: a.location!.searchParams.get("state")! }, a.cookie);
+      assert.equal(cb.location.searchParams.get("error"), `Spotify: ${expected}`);
+      const e = await s.entry("spotify");
+      assert.deepEqual([e.state, e.error], ["error", expected]);
+    } finally {
+      s.close();
+    }
+  }
+});
+
+test("tokens from an exchange during which the connection got another client are discarded", async () => {
+  const during: { fn?: () => Promise<unknown> } = {};
+  const s = await start({ exchange: async () => (await during.fn?.(), new arctic.OAuth2Tokens({ access_token: "AT-1", expires_in: 3600 })) });
+  try {
+    await s.setUp();
+    const a = await s.authorize();
+    during.fn = () => s.call("PUT", "/api/oauth/connections/spotify", { clientId: "client-2" });
+    const cb = await s.callback("spotify", { code: "c", state: a.location!.searchParams.get("state")! }, a.cookie);
+    assert.match(cb.location.searchParams.get("error")!, /changed during the login/);
+    assert.equal(s.store.hasTokens("spotify"), false, "the tokens belong to nobody and are not stored");
+  } finally {
+    s.close();
+  }
+});
+
+test("an expired login is swept when the next one starts, so its state no longer verifies", async () => {
+  const s = await start();
+  try {
+    await s.setUp();
+    const a = await s.authorize();
+    s.advance(STATE_TTL_MS + 1);
+    await s.authorize();
+    const cb = await s.callback("spotify", { code: "c", state: a.location!.searchParams.get("state")! }, a.cookie);
+    assert.match(cb.location.searchParams.get("error")!, /could not be verified/);
+  } finally {
+    s.close();
+  }
+});
+
+test("tokens that report no scopes record the scopes that were asked for", async () => {
+  const s = await start({ exchange: async () => new arctic.OAuth2Tokens({ access_token: "AT-1", expires_in: 3600 }) });
+  try {
+    await s.setUp();
+    const a = await s.authorize();
+    await s.callback("spotify", { code: "c", state: a.location!.searchParams.get("state")! }, a.cookie);
+    assert.deepEqual((await s.entry("spotify")).grantedScopes, ["playlist-read-private"]);
+  } finally {
+    s.close();
+  }
+});
+
+test("start passes on a store failure that is not a decrypt error", () => {
+  const failure = new Error("database is locked");
+  const store = { get: () => ({ provider: "spotify", clientId: "c" }), secretsEnabled: true, clientSecret: () => { throw failure; } };
+  const flow = new OAuthFlow({ store: store as unknown as OAuthStore, requests: {} as OAuthRequests });
+  assert.throws(() => flow.start("spotify", "http://localhost"), (e) => e === failure);
 });
 
 test("authorize answers 404 without a connection and 503 without a master key", async () => {

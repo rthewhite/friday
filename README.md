@@ -63,6 +63,31 @@ Clients receive `{"type":"closed","data":"ended: ..."}` and should stop capturin
 
 Gemini interrupts itself when it detects the user speaking. On speaker devices a little of Friday's own voice leaks back into the microphone before echo cancellation converges, which Gemini can mistake for speech. `FRIDAY_VAD_START_SENSITIVITY` (default `LOW`) and `FRIDAY_VAD_PREFIX_MS` (default 200) tune how eagerly Gemini treats sound as the user talking; raise sensitivity to `HIGH` or lower the padding if barge-in feels sluggish on headphones or the browser.
 
+## Testing
+
+```bash
+pnpm test                                    # build, then every package's tests (what CI runs)
+pnpm --filter @friday/core test              # one package (build the workspace first)
+pnpm test:coverage                           # the same tests with a per-file coverage table per package
+pnpm --filter @friday/core test:coverage     # coverage for one package
+esphome/test/run.sh                          # the firmware's C++ host tests (needs a C++17 compiler)
+```
+
+Tests use `node:test` through `tsx` and live in each package's `test/` folder. Tests that mount `.vue` components use vitest with `@vue/test-utils` and happy-dom instead, because `node:test` can't load `.vue` files: all of `portal-ui`'s, and the portal's in `test/components/`, with `api()` faked. The portal's `pnpm test` runs both. Keep logic in `src/lib/*.ts` with `node:test` tests where you can, and use a component test for what a page does with it: what it sends, and what it shows on an error.
+
+**Coverage** comes from c8. It lists every `.ts` file under a package's `src`, and a file no test loads shows at 0%: core's `server.ts`, for example, only runs in the real server. A file of types only, such as travel's `types.ts`, always reads 0%. c8 doesn't count `.vue` files; the portal prints a second table for its component tests from vitest, which does. c8's options live in the root `.c8rc.json`. There is no threshold, and coverage doesn't gate CI: the table is for finding gaps, not for a number. Import source files in tests; don't `require` them, or the file is loaded twice and its coverage misreported.
+
+**Against the real model.** These need `GEMINI_API_KEY`, cost a little, and stay out of `pnpm test`, where the live tests are skipped:
+
+```bash
+pnpm --filter @friday/core test:live      # core's live Gemini tests; fails without the key or if none ran
+pnpm --filter @friday/module-brain eval   # the brain's nightly-pass fixtures (see Memory)
+```
+
+CI never runs them. Run both by hand when the model may have changed: the default `gemini-flash-latest` alias moves to newer models without a commit here.
+
+**Before an image is pushed**, CI starts it and checks that it serves and loads every module (`scripts/smoke.sh`, see `infra/README.md`). To run that check locally: `docker build -t friday:smoke . && scripts/smoke.sh friday:smoke`.
+
 ## Add a module
 
 A module is a workspace package that depends only on `@friday/sdk` and exports a `defineModule`. Core never imports a module's internals; the module gets everything through `ctx`.

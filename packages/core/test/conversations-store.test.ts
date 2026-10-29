@@ -199,6 +199,7 @@ test("start sweeps right away and then on the interval; stop ends it", async () 
   store.stop();
   const c = store.create({ channel: "chat" });
   clock.advance(2 * MIN);
+  // Real time on purpose: the sweep runs on a real 10 ms interval, and this checks that stop() ended it.
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(store.get(c)!.state, "active");
 });

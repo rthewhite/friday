@@ -116,12 +116,15 @@ test("a chat tool call carries channel chat and the thread's id, on a new and on
   assert.deepEqual(seen, [{ channel: "chat", conversationId: first.id }, { channel: "chat", conversationId: first.id }]);
 });
 
-test("parallel calls in one round run together and answer in call order", async () => {
+test("parallel calls in one round run together and answer in call order", { timeout: 2000 }, async () => {
   const f = fakeLlm([call("slow"), call("fast")], [text("ok")]);
   const { engine: e, registry } = engine(f.llm);
   const order: string[] = [];
-  registry.add("x", { name: "slow", description: "", handler: async () => (await new Promise((r) => setTimeout(r, 20)), order.push("slow"), { n: 1 }) });
-  registry.add("x", { name: "fast", description: "", handler: () => (order.push("fast"), { n: 2 }) });
+  // slow finishes only after fast ran: run one after the other, the turn would never end (and time out).
+  let fastRan!: () => void;
+  const ran = new Promise<void>((r) => (fastRan = r));
+  registry.add("x", { name: "slow", description: "", handler: async () => (await ran, order.push("slow"), { n: 1 }) });
+  registry.add("x", { name: "fast", description: "", handler: () => (order.push("fast"), fastRan(), { n: 2 }) });
   await send(e, "go");
   assert.deepEqual(order, ["fast", "slow"]);
   assert.deepEqual(f.requests[1].contents.at(-1), { role: "user", parts: [{ functionResponse: { name: "slow", response: { n: 1 } } }, { functionResponse: { name: "fast", response: { n: 2 } } }] });
@@ -183,13 +186,21 @@ test(`after ${MAX_TOOL_ROUNDS} rounds of tool calls the next calls end the turn 
   assert.equal(tools.length, MAX_TOOL_ROUNDS + 1);
 });
 
-test("parallel calls to the same tool carry ids, so results match their calls whatever order they settle in", async () => {
+test("parallel calls to the same tool carry ids, so results match their calls whatever order they settle in", { timeout: 2000 }, async () => {
   const f = fakeLlm([call("weather", { city: "A" }), call("weather", { city: "B" })], [text("ok")]);
   const { engine: e, registry } = engine(f.llm);
+  // A settles only after B did: once B ran, a macrotask lets B's result through first.
+  let bRan!: () => void;
+  const ran = new Promise<void>((r) => (bRan = r));
   registry.add("x", {
     name: "weather",
     description: "",
-    handler: async ({ city }: { city: string }) => (city === "A" && (await new Promise((r) => setTimeout(r, 20))), { city }),
+    handler: async ({ city }: { city: string }) => {
+      if (city === "B") return bRan(), { city };
+      await ran;
+      await new Promise((r) => setImmediate(r));
+      return { city };
+    },
   });
   const { events } = await send(e, "weather in A and B");
   const tools = events.filter((ev) => ev.event === "tool_call" || ev.event === "tool_result").map((ev) => ev.data);

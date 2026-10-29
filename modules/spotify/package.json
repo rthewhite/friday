@@ -4,12 +4,20 @@
   "private": true,
   "type": "module",
   "description": "Friday Spotify module: search Spotify and list the user's playlists through the Spotify connection.",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:coverage": "c8 node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@friday/sdk": "workspace:*"

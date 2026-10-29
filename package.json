@@ -8,11 +8,13 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r build && pnpm -r test",
+    "test:coverage": "pnpm -r build && pnpm -r test:coverage",
     "dev": "pnpm -r build && pnpm --parallel --filter @friday/core --filter @friday/portal dev",
     "start": "pnpm --filter @friday/core start"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "c8": "^10.1.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

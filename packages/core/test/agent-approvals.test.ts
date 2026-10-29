@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ACTION_TTL_MS } from "../src/agents/store.js";
 import { agentHarness, entries } from "./agent-harness.js";
 import { call, text } from "./fake-stream.js";
+import { waitFor } from "./helpers.js";
 
 const PR = { repo: "friday", title: "Bump vite", head: "deps/vite" };
 
@@ -79,7 +80,7 @@ test("approving while the agent is deleted answers missing instead of failing", 
   t.registry.remove("github__create_pull_request");
   t.tool("github__create_pull_request", () => new Promise((r) => (release = () => r({ url: "pr/8" }))), ["agent"]);
   const approval = t.runtime.approve(action.id);
-  await new Promise((r) => setTimeout(r, 5));
+  await waitFor(() => release !== undefined);
   t.agents.delete("security-sweep");
   release();
   assert.deepEqual(await approval, { status: "missing" });

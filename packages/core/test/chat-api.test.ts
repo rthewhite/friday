@@ -141,6 +141,7 @@ test("while a turn runs: a second message is 409 and DELETE is 409; both work on
 });
 
 test("heartbeat comments keep the stream alive while a tool runs", async () => {
+  // Real time on purpose: the heartbeat is a real timer, so the tool has to outlast a few of its intervals.
   const s = await start({ heartbeatMs: 10, tool: async () => (await new Promise((r) => setTimeout(r, 80)), { human: "ten" }) });
   try {
     const { events, comments } = parse(await (await s.post({ text: "slow" })).text());

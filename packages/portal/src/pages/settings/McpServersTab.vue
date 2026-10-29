@@ -5,28 +5,9 @@ import { useRoute, useRouter } from "vue-router";
 import { Badge, Button, Input, DataTable, StatusDot, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
-
-interface ApiHeader { name: string; secret: boolean; value?: string }
-type Channel = "voice" | "chat" | "agent";
-const CHANNELS: Channel[] = ["voice", "chat", "agent"];
-interface Server extends Record<string, unknown> {
-  name: string;
-  enabled: boolean;
-  url: string;
-  headers: ApiHeader[];
-  include?: string[];
-  exclude?: string[];
-  scheduling?: "INTERRUPT" | "WHEN_IDLE" | "SILENT";
-  prefix?: string;
-  /** Unset: every channel. */
-  channels?: Channel[];
-  status: "loaded" | "failed" | "disabled";
-  error?: string;
-  tools: string[];
-  updatedAt: string;
-}
-/** A header row in the form. `stored` marks a secret whose value the server keeps. */
-interface Row { name: string; value: string; secret: boolean; stored: boolean }
+import {
+  blankDraft, canSave as canSaveDraft, CHANNELS, channelsOf, draftOf, needsValue, saveBody, serverFromQuery, type Server,
+} from "../../lib/mcp-servers.js";
 
 const emit = defineEmits<{ count: [n: number] }>();
 const route = useRoute();
@@ -59,7 +40,6 @@ const columns: Column[] = [
   { key: "tools", label: "Tools", width: "6rem" },
   { key: "updatedAt", label: "Updated", hideBelow: "lg", width: "11rem" },
 ];
-const channelsOf = (s: Server): Channel[] => s.channels ?? CHANNELS;
 const tone = (s: Server["status"]) => (s === "loaded" ? "success" : s === "failed" ? "error" : "neutral");
 
 // ---- drawer ---------------------------------------------------------------
@@ -68,37 +48,11 @@ const selected = ref<Server | null>(null);
 const adding = computed(() => selected.value === null);
 const confirmDelete = ref(false);
 
-const blank = () => ({
-  name: "",
-  enabled: true,
-  url: "",
-  headers: [] as Row[],
-  include: "",
-  exclude: "",
-  scheduling: "" as "" | NonNullable<Server["scheduling"]>,
-  prefix: "",
-  channels: [...CHANNELS],
-});
-const draft = ref(blank());
-
-const rowsOf = (list: ApiHeader[]): Row[] => list.map((h) => ({ name: h.name, value: h.secret ? "" : (h.value ?? ""), secret: h.secret, stored: h.secret }));
-const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
-/** A stored secret switched to plain has no value to fall back on, so it must be typed in. */
-const needsValue = (r: Row) => r.stored && !r.secret && !r.value;
+const draft = ref(blankDraft());
 
 function fill(s: Server) {
   selected.value = s;
-  draft.value = {
-    name: s.name,
-    enabled: s.enabled,
-    url: s.url,
-    headers: rowsOf(s.headers),
-    include: (s.include ?? []).join("\n"),
-    exclude: (s.exclude ?? []).join("\n"),
-    scheduling: s.scheduling ?? "",
-    prefix: s.prefix ?? "",
-    channels: [...channelsOf(s)],
-  };
+  draft.value = draftOf(s);
 }
 function openServer(s: Server) {
   fill(s);
@@ -108,13 +62,12 @@ function openServer(s: Server) {
 }
 function openAdd() {
   selected.value = null;
-  draft.value = blank();
+  draft.value = blankDraft();
   confirmDelete.value = false;
   open.value = true;
 }
 function openFromQuery() {
-  if (route.query.tab !== "mcp") return;
-  const s = servers.value.find((x) => x.name === route.query.server);
+  const s = serverFromQuery(route.query, servers.value);
   if (s) openServer(s);
 }
 watch(open, (v) => { if (!v && route.query.server) router.replace({ query: { ...route.query, server: undefined } }); });
@@ -124,27 +77,8 @@ defineExpose({ openAdd, load });
 const addRow = () => draft.value.headers.push({ name: "", value: "", secret: false, stored: false });
 const removeRow = (i: number) => draft.value.headers.splice(i, 1);
 
-function body() {
-  const d = draft.value;
-  return {
-    ...(adding.value ? { name: d.name.trim() } : {}),
-    enabled: d.enabled,
-    url: d.url,
-    headers: d.headers
-      .filter((r) => r.name.trim())
-      .map((r) => (r.secret && r.stored && !r.value ? { name: r.name.trim(), secret: true } : { name: r.name.trim(), value: r.value, secret: r.secret })),
-    include: lines(d.include),
-    exclude: lines(d.exclude),
-    scheduling: d.scheduling || undefined,
-    prefix: d.prefix.trim() || undefined,
-    // All three are stored as unset (every channel) by the server.
-    channels: CHANNELS.filter((c) => d.channels.includes(c)),
-  };
-}
-
-const canSave = computed(
-  () => (adding.value ? draft.value.name.trim() !== "" : true) && draft.value.url.trim() !== "" && !draft.value.headers.some(needsValue) && draft.value.channels.length > 0,
-);
+const body = () => saveBody(draft.value, adding.value);
+const canSave = computed(() => canSaveDraft(draft.value, adding.value));
 
 async function save() {
   await run("save", async () => {

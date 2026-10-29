@@ -1,7 +1,9 @@
 # Build and deploy friday to the homelab cluster.
 #
-# Test + typecheck run on every push. The image is built and pushed on every
-# push that touches runtime files (any branch). Deploy runs only on main.
+# Test + typecheck + the firmware's host tests run on every push. The image is
+# built on every push that touches runtime files (any branch), and pushed only
+# after it passed the boot check (scripts/smoke.sh). Deploy runs only on main.
+# Firmware-only pushes run firmware.yml instead.
 # Same shape as rthewhite/jarvis, collapsed to a single service.
 #
 # Required repository secrets (see infra/README.md):
@@ -24,6 +26,7 @@ on:
       - Dockerfile
       - .dockerignore
       - deploy/**
+      - scripts/**
       - .github/workflows/deploy.yml
   workflow_dispatch:
 
@@ -35,6 +38,8 @@ env:
   REGISTRY: registry.thewhite.nl
   IMAGE: registry.thewhite.nl/friday/friday
   NAMESPACE: friday
+  # The firmware's host tests compile here; the runner has Docker but no compiler. Keep in step with firmware.yml.
+  GCC_IMAGE: gcc:14@sha256:435c3cbc2ad1c25fbc1684c367808ff0ca2035a1bed56734a40165ab5cd7e3bd
 
 jobs:
   test:
@@ -50,6 +55,9 @@ jobs:
       - run: pnpm -r build
       - run: pnpm -r typecheck
       - run: pnpm -r test
+      # Also checks the firmware against core's device protocol fixture, so a core-side protocol change fails here.
+      - name: Firmware host tests
+        run: docker run --rm -v "$GITHUB_WORKSPACE:/w:ro" -w /w "$GCC_IMAGE" sh esphome/test/run.sh
 
   build:
     needs: test
@@ -64,12 +72,20 @@ jobs:
 
       # Tag by commit SHA, never :latest — an immutable tag is what makes
       # "what is running?" answerable and `kubectl rollout undo` meaningful.
-      - name: Build and push
+      - name: Build
         run: |
           docker buildx build \
             --tag "$IMAGE:${GITHUB_SHA}" \
-            --push \
+            --load \
             .
+
+      # The image has to start, serve the portal, load every module and stop
+      # cleanly before it is pushed, so a broken image never reaches the registry.
+      - name: Boot check
+        run: scripts/smoke.sh "$IMAGE:${GITHUB_SHA}"
+
+      - name: Push
+        run: docker push "$IMAGE:${GITHUB_SHA}"
 
       - name: Log out of the registry
         if: always()

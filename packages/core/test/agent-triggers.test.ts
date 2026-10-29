@@ -6,10 +6,15 @@ import { Scheduler } from "../src/jobs/scheduler.js";
 import { JobStore } from "../src/jobs/store.js";
 import { agentHarness, quiet } from "./agent-harness.js";
 import { FakeClock } from "./fake-clock.js";
+import { waitFor } from "./helpers.js";
 import type { Round } from "./fake-stream.js";
 
 const JOB = "core/agent-weekly-review";
-const settle = () => new Promise((r) => setTimeout(r, 20));
+/** Waits until the agent has a run and none of its runs is still going. */
+const finished = (t: { runs: { list(name: string): { outcome: string }[] } }, name = "weekly-review") =>
+  waitFor(() => t.runs.list(name).length > 0 && t.runs.list(name).every((r) => r.outcome !== "running"));
+/** A run is recorded the moment it starts, so after the scheduler's timers have fired there is nothing left to wait for. */
+const fired = (t: { clock: FakeClock }) => t.clock.advance(0);
 
 /** Agents with real scheduling on a fake clock starting on Sunday 25 October 2026, 12:00 UTC (13:00 in Amsterdam). */
 function setup(rounds: Round[] = [{ chunks: [{ kind: "text", text: "Busy week.", part: { text: "Busy week." } }] }], start = "2026-10-25T12:00:00Z") {
@@ -31,7 +36,7 @@ test("an enabled agent with a schedule runs at its due time as core job agent-<n
   assert.deepEqual([job.id, job.description, job.nextRunAt], [JOB, "Agent weekly-review: Sums up my week", "2026-10-25T17:00:00.000Z"]);
 
   await t.clock.to("2026-10-25T17:00:00Z");
-  await settle();
+  await finished(t);
   const [run] = t.runs.list("weekly-review");
   assert.deepEqual([run.trigger, run.outcome, run.summary], ["schedule", "ok", "Busy week."]);
   await t.clock.advance(0);
@@ -48,7 +53,7 @@ test("a disabled agent is not scheduled, and an agent without a schedule has no 
   t.agents.update(parseAgent({ name: "weekly-review", description: "Sums up my week", instructions: "x", ...weekly, enabled: false }));
   assert.deepEqual(t.scheduler.list(), []);
   await t.clock.to("2026-10-25T18:00:00Z");
-  await settle();
+  await fired(t);
   assert.deepEqual(t.runs.list("weekly-review"), []);
   await t.scheduler.stop();
 });
@@ -61,7 +66,7 @@ test("changing the schedule never causes a catch-up run for the old schedule's l
   t.triggers.start();
   t.agents.update(parseAgent({ name: "weekly-review", description: "Sums up my week", instructions: "x", schedule: "0 7 * * *" }));
   await t.clock.advance(60_000);
-  await settle();
+  await fired(t);
   assert.deepEqual(t.runs.list("weekly-review"), []);
   assert.equal(t.scheduler.list()[0].nextRunAt, "2026-10-28T06:00:00.000Z");
   await t.scheduler.stop();
@@ -74,7 +79,7 @@ test("a run missed while Friday was down catches up once after the restart", asy
   t.jobs.setLastDue(JOB, Date.parse("2026-10-18T17:00:00Z"));
   t.triggers.start();
   await t.clock.advance(30_000);
-  await settle();
+  await finished(t);
   assert.deepEqual(t.runs.list("weekly-review").map((r) => r.trigger), ["schedule"]);
   await t.clock.advance(0);
   assert.equal(t.jobs.runs(JOB)[0].trigger, "catch-up");
@@ -90,7 +95,7 @@ test("enabling an agent again does not catch up a slot missed while it was disab
   await t.clock.to("2026-10-26T12:00:00Z");
   t.agents.update(parseAgent(disabled));
   await t.clock.advance(60_000);
-  await settle();
+  await fired(t);
   assert.deepEqual(t.runs.list("weekly-review"), []);
   assert.equal(t.scheduler.list()[0].nextRunAt, "2026-11-01T17:00:00.000Z");
   await t.scheduler.stop();
@@ -115,7 +120,7 @@ test("Run now on the Jobs page starts a portal run; deleting the agent removes i
   t.define(weekly);
   t.triggers.start();
   assert.equal(t.scheduler.runNow(JOB).status, "started");
-  await settle();
+  await finished(t);
   assert.equal(t.runs.list("weekly-review")[0].trigger, "portal");
   await t.clock.advance(0);
   assert.equal(t.jobs.runs(JOB).length, 1);
@@ -132,7 +137,7 @@ test("a failed agent run fails the job run with its error; aborting the job canc
   t.define(weekly);
   t.triggers.start();
   t.scheduler.runNow(JOB);
-  await settle();
+  await finished(t);
   await t.clock.advance(0);
   assert.deepEqual(t.jobs.runs(JOB).map((r) => [r.outcome, r.error]), [["failed", "unavailable: boom"]]);
 
@@ -140,8 +145,8 @@ test("a failed agent run fails the job run with its error; aborting the job canc
   slow.define(weekly);
   slow.triggers.start();
   slow.scheduler.runNow(JOB);
-  await settle();
+  await waitFor(() => slow.runs.list("weekly-review").length === 1);
   await slow.scheduler.stop();
-  await settle();
+  await finished(slow);
   assert.equal(slow.runs.list("weekly-review")[0].outcome, "cancelled");
 });

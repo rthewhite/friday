@@ -4,30 +4,10 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { PageLayout, Button, Input, DataTable, StatusDot, Chip, Drawer, Card, Icon, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
-
-type State = "connected" | "disconnected" | "error";
-interface Requester { module: string; scopes: string[]; description?: string; granted: boolean }
-interface Connection extends Record<string, unknown> {
-  provider: string;
-  name: string;
-  configured: boolean;
-  generic: boolean;
-  clientId?: string;
-  hasClientSecret: boolean;
-  authUrl?: string;
-  tokenUrl?: string;
-  extraScopes: string[];
-  requestedScopes: string[];
-  grantedScopes?: string[];
-  missingScopes: { scope: string; modules: string[] }[];
-  requesters: Requester[];
-  state?: State;
-  error?: string;
-  expiresAt?: string;
-  redirectUri: string;
-  updatedAt?: string;
-}
-interface Provider { id: string; name: string; pkce: boolean; refresh: boolean }
+import {
+  blankDraft, canSave as canSaveDraft, draftOf, isDirty, isGeneric as isGenericDraft, providerIdOf, redirectUriOf, saveBody,
+  scopesSummary, statusOf, toneOf as tone, type Connection, type Provider, type Requester,
+} from "../../lib/connections.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -63,18 +43,6 @@ const columns: Column[] = [
   { key: "scopes", label: "Scopes", hideBelow: "md" },
   { key: "updatedAt", label: "Updated", hideBelow: "lg", width: "11rem" },
 ];
-const statusOf = (c: Connection) => (!c.configured ? "not set up" : c.state === "connected" && c.missingScopes.length ? "needs reconnect" : c.state!);
-const tone = (c: Connection) => {
-  if (!c.configured) return "neutral" as const;
-  if (c.state === "error") return "error" as const;
-  if (c.state === "connected") return c.missingScopes.length ? ("warning" as const) : ("success" as const);
-  return "warning" as const;
-};
-const scopesSummary = (c: Connection) => {
-  if (c.missingScopes.length) return `${c.missingScopes.length} missing, reconnect`;
-  if (c.grantedScopes) return `${c.grantedScopes.length} granted`;
-  return c.requestedScopes.length ? `${c.requestedScopes.length} requested` : "none";
-};
 
 // ---- drawer ---------------------------------------------------------------
 const open = ref(false);
@@ -84,21 +52,17 @@ const confirmDelete = ref(false);
 const notice = ref<string | null>(null);
 const copied = ref(false);
 
-const blank = () => ({ provider: "", genericId: "", clientId: "", clientSecret: "", authUrl: "", tokenUrl: "", extraScopes: "" });
-const draft = ref(blank());
+const draft = ref(blankDraft());
 
-const isGeneric = computed(() => (selected.value ? selected.value.generic : draft.value.provider === "generic"));
-/** The connection's provider id: the entry's, the chosen catalogue provider, or the id typed for a generic one. */
-const providerId = computed(() => selected.value?.provider ?? (draft.value.provider === "generic" ? draft.value.genericId.trim() : draft.value.provider));
+const isGeneric = computed(() => isGenericDraft(selected.value, draft.value));
+const providerId = computed(() => providerIdOf(selected.value, draft.value));
 const configured = computed(() => selected.value?.configured === true);
-const redirectUri = computed(() => (providerId.value ? `${redirectBase.value}/api/oauth/${encodeURIComponent(providerId.value)}/callback` : ""));
+const redirectUri = computed(() => redirectUriOf(redirectBase.value, providerId.value));
 const hasTokens = computed(() => selected.value?.state === "connected" || selected.value?.grantedScopes !== undefined);
 
 function fill(c: Connection | null) {
   selected.value = c;
-  draft.value = c
-    ? { provider: c.generic ? "generic" : c.provider, genericId: c.generic ? c.provider : "", clientId: c.clientId ?? "", clientSecret: "", authUrl: c.authUrl ?? "", tokenUrl: c.tokenUrl ?? "", extraScopes: c.extraScopes.join(" ") }
-    : blank();
+  draft.value = draftOf(c);
 }
 function openConnection(c: Connection) {
   fill(c);
@@ -127,27 +91,9 @@ function openFromQuery() {
 }
 watch(open, (v) => { if (!v && route.query.provider) router.replace({ query: {} }); });
 
-const scopesOf = (s: string) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
-const dirty = computed(() => {
-  const c = selected.value;
-  const d = draft.value;
-  if (!c?.configured) return true;
-  return d.clientId.trim() !== (c.clientId ?? "") || d.clientSecret !== "" || scopesOf(d.extraScopes).join(" ") !== c.extraScopes.join(" ")
-    || (c.generic && (d.authUrl.trim() !== (c.authUrl ?? "") || d.tokenUrl.trim() !== (c.tokenUrl ?? "")));
-});
-const canSave = computed(() =>
-  secretsEnabled.value && providerId.value !== "" && draft.value.clientId.trim() !== ""
-  && (!isGeneric.value || (draft.value.authUrl.trim() !== "" && draft.value.tokenUrl.trim() !== "")));
-
-function body() {
-  const d = draft.value;
-  return {
-    clientId: d.clientId.trim(),
-    ...(d.clientSecret ? { clientSecret: d.clientSecret } : {}),
-    extraScopes: scopesOf(d.extraScopes),
-    ...(isGeneric.value ? { authUrl: d.authUrl.trim(), tokenUrl: d.tokenUrl.trim() } : {}),
-  };
-}
+const dirty = computed(() => isDirty(selected.value, draft.value));
+const canSave = computed(() => canSaveDraft(secretsEnabled.value, providerId.value, draft.value, isGeneric.value));
+const body = () => saveBody(draft.value, isGeneric.value);
 
 async function save(): Promise<Connection | undefined> {
   let saved: Connection | undefined;

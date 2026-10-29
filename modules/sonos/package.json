@@ -4,12 +4,20 @@
   "private": true,
   "type": "module",
   "description": "Friday Sonos module: playback, grouping and volume on Sonos speakers via Home Assistant.",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:coverage": "c8 node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@friday/sdk": "workspace:*"

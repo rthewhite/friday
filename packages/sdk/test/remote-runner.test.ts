@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { WebSocketServer, type WebSocket } from "ws";
 import { defineModule, LlmError, OAuthError, type ModuleContext } from "../src/index.js";
-import { runRemote, CloseCode } from "../src/remote/index.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { runRemote, CloseCode, SCHEDULING_META } from "../src/remote/index.js";
+import { WsTransport } from "../src/remote/transport.js";
+import { Type } from "../src/tool.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 const mod = defineModule({ manifest: { id: "m", label: "M" }, init(ctx) { ctx.defineTool({ name: "t", description: "", handler: () => ({}) }); } });
@@ -142,4 +146,102 @@ test("a module with migrations runs remotely; ctx.db and ctx.prompt are unavaila
   assert.throws(() => ctx!.prompt.addContext(() => "x"), { message: "m: prompt context is not available in this host" });
   await h.stop();
   core.close();
+});
+
+test("a welcome that isn't JSON, or isn't a welcome, closes with 4000 and is retried", async () => {
+  const closes: string[] = [];
+  const core = await fakeCore((ws, _hello, n) => {
+    ws.on("close", (code, reason) => closes.push(`${code} ${reason}`));
+    if (n === 1) ws.send("not json");
+    else if (n === 2) ws.send(JSON.stringify({ type: "hello" }));
+    else ws.send(JSON.stringify({ type: "welcome", id: "m" }));
+  });
+  const h = runRemote(mod, { url: core.url, key: "k", log: quiet, env: {}, minBackoffMs: 5, maxBackoffMs: 10 });
+  await h.connected();
+  assert.deepEqual(closes, ["4000 bad welcome", "4000 expected welcome"]);
+  assert.equal(core.count(), 3);
+  await h.stop();
+  core.close();
+});
+
+test("a socket error is logged and the runner keeps retrying", { timeout: 5000 }, async () => {
+  // A port nobody listens on: the connection is refused.
+  const probe = new WebSocketServer({ port: 0 });
+  await once(probe, "listening");
+  const url = `ws://127.0.0.1:${(probe.address() as { port: number }).port}/ws/modules`;
+  await new Promise((r) => probe.close(r));
+  const errors: string[] = [];
+  const h = runRemote(mod, { url, key: "k", log: { ...quiet, error: (m: string) => void errors.push(m) }, env: {}, minBackoffMs: 5, maxBackoffMs: 10 });
+  while (errors.length < 2) await tick(5);
+  assert.match(errors[0]!, /^remote m: .*ECONNREFUSED/);
+  await h.stop();
+});
+
+test("no welcome within the hello timeout closes with 4000 and is retried", async () => {
+  const closes: string[] = [];
+  const core = await fakeCore((ws, _hello, n) => {
+    ws.on("close", (code, reason) => closes.push(`${code} ${reason}`));
+    if (n > 1) ws.send(JSON.stringify({ type: "welcome", id: "m" }));
+  });
+  const h = runRemote(mod, { url: core.url, key: "k", log: quiet, env: {}, helloTimeoutMs: 30, minBackoffMs: 5, maxBackoffMs: 10 });
+  await h.connected();
+  assert.deepEqual(closes, ["4000 no welcome"]);
+  await h.stop();
+  core.close();
+});
+
+test("core lists and calls the module's tools over MCP on the socket", async () => {
+  let late: ModuleContext | undefined;
+  const tools = defineModule({
+    manifest: { id: "m", label: "M" },
+    init(ctx) {
+      late = ctx;
+      ctx.defineTool<{ room: string }>({
+        name: "temp",
+        description: "Room temperature",
+        parameters: { type: Type.OBJECT, properties: { room: { type: Type.STRING } }, required: ["room"] },
+        handler: ({ room }) => ({ room, c: 21 }),
+      });
+      ctx.defineTool({ name: "bye", description: "", parametersJsonSchema: { type: "object", properties: {} }, scheduling: "SILENT", handler: () => ({ ok: true, endConversation: "done" }) });
+      ctx.defineTool({ name: "broken", description: "", handler: () => ({ error: "unavailable" }) });
+    },
+  });
+  // Core's side: welcome the runner, then talk MCP to it over the same socket.
+  let connected!: (c: Client) => void;
+  const ready = new Promise<Client>((r) => (connected = r));
+  const core = await fakeCore(async (ws) => {
+    ws.send(JSON.stringify({ type: "welcome", id: "m" }));
+    const c = new Client({ name: "core", version: "0" });
+    await c.connect(new WsTransport(ws));
+    connected(c);
+  });
+  const h = runRemote(tools, { url: core.url, key: "k", log: quiet, env: {} });
+  const client = await ready;
+  try {
+    const listed = (await client.listTools()).tools;
+    assert.deepEqual(listed.map((t) => [t.name, t.description, t._meta?.[SCHEDULING_META]]), [
+      ["temp", "Room temperature", "INTERRUPT"],
+      ["bye", "", "SILENT"],
+      ["broken", "", "INTERRUPT"],
+    ]);
+    assert.deepEqual(listed[0]!.inputSchema, { type: "object", properties: { room: { type: "string" } }, required: ["room"] });
+    assert.deepEqual(listed[1]!.inputSchema, { type: "object", properties: {} });
+
+    const temp = await client.callTool({ name: "temp", arguments: { room: "kitchen" } });
+    assert.deepEqual([temp.structuredContent, temp.isError], [{ room: "kitchen", c: 21, scheduling: "INTERRUPT" }, false]);
+    const bye = await client.callTool({ name: "bye", arguments: {} });
+    assert.deepEqual(bye.structuredContent, { ok: true, scheduling: "SILENT", endConversation: "done" });
+    const broken = await client.callTool({ name: "broken", arguments: {} });
+    assert.deepEqual([broken.structuredContent, broken.isError], [{ error: "unavailable", scheduling: "INTERRUPT" }, true]);
+
+    // A tool added later is announced, so core can list again.
+    const changed = new Promise<void>((r) => client.setNotificationHandler(ToolListChangedNotificationSchema, async () => r()));
+    late!.defineTool({ name: "late", description: "", handler: () => ({}) });
+    await changed;
+    assert.ok((await client.listTools()).tools.some((t) => t.name === "late"));
+  } finally {
+    await client.close();
+    await h.stop();
+    core.close();
+  }
 });

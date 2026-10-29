@@ -87,17 +87,21 @@ Core's tests and the firmware's host tests SHALL check both sides against this f
 - **WHEN** a device's key is in the fixture's fingerprint vectors
 - **THEN** core and the firmware produce the same fingerprint for it
 
-### Requirement: The real model is checked weekly
+### Requirement: The real model is checked by hand, never in CI
 
-A scheduled workflow SHALL run once a week and on manual dispatch. It SHALL run core's live model tests and the brain eval against the real text model (`FRIDAY_TEXT_MODEL`'s default), with the Gemini key from a repository secret. If any live test or eval expectation fails, the run SHALL fail. If the secret is missing, the run SHALL fail and name the secret, rather than skip the tests. The workflow SHALL NOT build, push or deploy an image. The live tests and the eval SHALL stay out of the regular test run.
+Core SHALL provide one command that runs its live model tests against the real text model (`FRIDAY_TEXT_MODEL`'s default), with the Gemini key from the environment or core's `.env`. If any live test fails, the command SHALL fail. If the key is missing, it SHALL fail and name the key, rather than skip the tests. If no live test ran, it SHALL fail. The live tests and the brain eval SHALL stay out of the regular test run, and no CI workflow SHALL run them, so CI never spends money on model calls.
 
-#### Scenario: The model's behaviour changes
-- **WHEN** the model behind the default alias starts failing a brain eval expectation
-- **THEN** the next weekly run fails and reports which expectation failed
+#### Scenario: Missing key
+- **WHEN** the live test command runs without a Gemini key
+- **THEN** it fails with a message naming the missing key, and no live test is reported as skipped-and-passed
 
-#### Scenario: Missing secret
-- **WHEN** the weekly run starts without the Gemini key secret
-- **THEN** it fails with a message naming the missing secret, and no live test is reported as skipped-and-passed
+#### Scenario: Renamed live tests
+- **WHEN** the live tests are renamed so that none matches the command's pattern
+- **THEN** the command fails and says that no live test ran
+
+#### Scenario: CI makes no model calls
+- **WHEN** any CI workflow runs, on any trigger
+- **THEN** it runs neither the live tests nor the brain eval
 
 #### Scenario: Regular test runs stay offline
 - **WHEN** the regular package tests run, in CI or locally
@@ -105,11 +109,15 @@ A scheduled workflow SHALL run once a week and on manual dispatch. It SHALL run 
 
 ### Requirement: Coverage can be reported per package
 
-Every package with tests SHALL offer a coverage command. It SHALL run the same tests as the package's test command and report line, branch and function coverage for each source file the tests load. A root command SHALL run it for every package. Coverage SHALL NOT have a threshold and SHALL NOT gate CI.
+Every package with tests SHALL offer a coverage command. It SHALL run the same tests as the package's test command and report line, branch and function coverage for each TypeScript and JavaScript source file of the package. Files no test loads SHALL be listed at 0% rather than left out. Line numbers SHALL refer to the TypeScript source, and lines that hold only types SHALL NOT count as uncovered. A root command SHALL run it for every package. Coverage SHALL NOT have a threshold and SHALL NOT gate CI.
 
 #### Scenario: Coverage for one package
 - **WHEN** a developer runs the coverage command for a package
 - **THEN** its tests run and a per-file coverage table is printed, excluding test files and dependencies
+
+#### Scenario: A file no test loads
+- **WHEN** a source file is never imported by any test, such as core's `server.ts`
+- **THEN** the table lists it at 0% with all its lines uncovered
 
 #### Scenario: Coverage does not gate CI
 - **WHEN** a change lowers coverage while all tests pass
