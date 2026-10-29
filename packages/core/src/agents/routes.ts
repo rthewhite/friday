@@ -45,8 +45,8 @@ export function mountAgentRoutes(router: Router, api: AgentsApi | undefined): vo
         throw e;
       }
     }))
-    .add("GET", "/api/agents/tools", need((a, _req, res) => {
-      const offered = new Set(a.registry.declarations("agent").map((d) => d.name));
+    .add("GET", "/api/agents/tools", need((a, req, res) => {
+      const offered = new Set(a.registry.declarations("agent", callUser(req)).map((d) => d.name));
       sendJson(res, { tools: a.registry.list().filter((t) => offered.has(t.name)) });
     }))
     .add("GET", "/api/agents/runs/:id", need((a, _req, res, { id }) => {

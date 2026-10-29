@@ -22,8 +22,8 @@
 
 ## 4. Core: owner-only tools in sessions, chat and agents
 
-- [ ] 4.1 Give the registry its owner check in `server.ts`. Snapshot voice declarations for the session's user at open, build chat declarations per turn for its user, and resolve agent tools for the creator. Verify with tests: a member's chat turn and Talk session don't offer an owner-only tool, and the owner's do.
-- [ ] 4.2 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
+- [x] 4.1 Give the registry its owner check in `server.ts`. Snapshot voice declarations for the session's user at open, build chat declarations per turn for its user, and resolve agent tools for the creator. Verify with tests: a member's chat turn and Talk session don't offer an owner-only tool, and the owner's do.
+- [x] 4.2 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
 
 ## 5. Core: agents belong to their creator
 

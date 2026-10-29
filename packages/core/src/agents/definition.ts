@@ -2,7 +2,7 @@
  * Agent definitions: the one validation every write and every run start goes through (`parseAgent`), and
  * the tools an agent gets from the registry (`resolveTools`). A future `create_agent` tool validates here too.
  */
-import { DEFAULT_TIME_ZONE, nextCronRun, type ToolRegistry } from "@friday/sdk";
+import { DEFAULT_TIME_ZONE, nextCronRun, type CallUser, type ToolRegistry } from "@friday/sdk";
 
 export type ToolMode = "auto" | "approve";
 
@@ -144,8 +144,9 @@ export interface ResolvedTools {
   unmatched: string[];
 }
 
-export function resolveTools(def: Pick<AgentDefinition, "tools">, registry: Pick<ToolRegistry, "declarations">): ResolvedTools {
-  const names = registry.declarations("agent").map((d) => d.name);
+/** Resolved against the tools `user` (the agent's creator) is offered in the agent channel. */
+export function resolveTools(def: Pick<AgentDefinition, "tools">, registry: Pick<ToolRegistry, "declarations">, user?: CallUser): ResolvedTools {
+  const names = registry.declarations("agent", user).map((d) => d.name);
   const tools = new Map<string, ToolMode>();
   const unmatched: string[] = [];
   for (const entry of def.tools) {

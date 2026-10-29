@@ -130,7 +130,7 @@ export class ChatTurn {
         model: this.opts.model,
         system: this.opts.system(this.user),
         contents: this.history(),
-        tools: this.opts.registry.declarations("chat") as FunctionDeclaration[],
+        tools: this.opts.registry.declarations("chat", this.user) as FunctionDeclaration[],
         thoughts: true,
         onThought: (text) => emit({ event: "thinking", data: { text } }),
         onText: (text) => {

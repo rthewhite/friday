@@ -110,6 +110,8 @@ const alerts = new AlertService({
 });
 
 const registry = new ToolRegistry();
+// Owner-only tools (the owner's calendar, Spotify) are offered and run for the household owner only.
+registry.setOwnerCheck((u) => u !== undefined && u.id === users.owner()?.id);
 const promptContext = createPromptContext();
 const llm = new LlmService({
   model: new GeminiTextModel(geminiKey),

@@ -125,7 +125,7 @@ export class AgentRuntime {
     const run = this.o.runs.get(action.runId);
     const conversationId = run?.conversationId ?? undefined;
     let settled: AgentAction | undefined;
-    if (!this.o.registry.declarations("agent").some((d) => d.name === action.tool)) {
+    if (!this.o.registry.declarations("agent", run?.user ?? undefined).some((d) => d.name === action.tool)) {
       settled = this.o.runs.settle(actionId, { state: "failed", error: `tool ${action.tool} is not available` });
     } else {
       const result = await this.callRegistry(action.tool, action.args, conversationId, undefined, run?.user ?? undefined);
@@ -151,8 +151,9 @@ export class AgentRuntime {
       const error = e instanceof AgentInputError ? `invalid definition: ${e.message}` : String(e);
       return this.o.runs.finish(run.id, { outcome: "failed", error, toolCalls: 0, tokens: 0 })!;
     }
-    const { tools } = resolveTools(def, this.o.registry);
-    const declarations = this.o.registry.declarations("agent").filter((d) => tools.has(d.name)) as FunctionDeclaration[];
+    const user = run.user ?? undefined;
+    const { tools } = resolveTools(def, this.o.registry, user);
+    const declarations = this.o.registry.declarations("agent", user).filter((d) => tools.has(d.name)) as FunctionDeclaration[];
     const first = request ?? START_MESSAGE;
     const recorder = this.o.conversations.recorder({ channel: "agent", userId: run.user?.id ?? null }, this.log);
     recorder.user(first, "text");

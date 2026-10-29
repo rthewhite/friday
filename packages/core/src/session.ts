@@ -100,7 +100,8 @@ export class GeminiSession {
   async open(): Promise<void> {
     const connect: LiveConnect = this.opts.connect ?? ((p, apiKey) => new GoogleGenAI({ apiKey }).live.connect(p));
     const apiKey = (this.opts.geminiKey ?? (() => settings.apiKey))() ?? "";
-    const decls = this.registry.declarations("voice") as FunctionDeclaration[];
+    // Snapshotted for the session's user: owner-only tools only in the owner's sessions.
+    const decls = this.registry.declarations("voice", this.opts.user) as FunctionDeclaration[];
     const systemInstruction = (this.opts.systemPrompt ?? (() => settings.systemPrompt))();
     this.session = await connect({
       model: settings.model,
