@@ -138,3 +138,45 @@ test("a disabled user promoted to admin does not become the owner", () => {
   users.refresh(m.user.id, { email: "sanne@example.org", role: "admin" });
   assert.equal(users.ownerId(), undefined);
 });
+
+test("the owner event fires once, when the first admin is recorded, with that user", () => {
+  const { users } = store();
+  const seen: string[] = [];
+  users.onOwner((u) => void seen.push(u.id));
+  assert.equal(users.owner(), undefined, "no owner yet, auth configured");
+  users.provision(claims());
+  assert.deepEqual(seen, [], "a member records no owner");
+  const admin = users.provision(claims({ subject: "a1", email: "a1@x", role: "admin" }));
+  assert.ok(admin.ok);
+  users.provision(claims({ subject: "a1", email: "a1@x", role: "admin" }));
+  users.provision(claims({ subject: "a2", email: "a2@x", role: "admin" }));
+  assert.deepEqual(seen, [admin.user.id]);
+  assert.equal(users.owner()?.id, admin.user.id);
+});
+
+test("an unsubscribed or throwing owner handler doesn't stop the others", () => {
+  const { users } = store();
+  const seen: string[] = [];
+  const off = users.onOwner(() => void seen.push("gone"));
+  users.onOwner(() => { throw new Error("boom"); });
+  users.onOwner((u) => void seen.push(u.name));
+  off();
+  const error = console.error;
+  console.error = () => {};
+  try {
+    users.provision(claims({ role: "admin" }));
+  } finally {
+    console.error = error;
+  }
+  assert.deepEqual(seen, ["Sanne"]);
+});
+
+test("without auth configured the dev user stands in for the owner until one is recorded", () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, quiet);
+  const dev = new UserStore(db, () => new Date("2026-10-27T10:00:00.000Z"), { devOwner: true });
+  assert.equal(dev.owner()?.id, DEV_USER_ID, "created on first use");
+  assert.equal(dev.list().length, 1);
+  assert.equal(dev.ownerId(), undefined, "nothing recorded");
+  assert.equal(new UserStore(db).owner(), undefined, "with auth configured the dev user is nobody's stand-in");
+});

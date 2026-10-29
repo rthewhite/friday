@@ -10,6 +10,8 @@
  *                      recorded for the portal to accept); 1011 internal error when the device
  *                      store fails. An accepted device is logged, recorded
  *                      as the conversation's device and gets its device block in the prompt.
+ *                      Its session acts for the household owner (prompt, tool calls and the
+ *                      conversation), or for nobody while no owner is recorded.
  *                      Without `device` it is the portal's Talk page: no key, but the upgrade needs a
  *                      user's session (401 otherwise) and an Origin of this host (403 otherwise),
  *                      checked before the socket opens; disabling the user closes it with 4401. Unknown query
@@ -89,6 +91,8 @@ export interface AudioWsOptions {
   auth?: Pick<Auth, "authenticate">;
   /** Tracks accepted browser connections by user, so disabling a user closes them. */
   userConnections?: UserConnections;
+  /** The household owner, whom a device's session acts for; resolved when each device connects. Without it, nobody. */
+  owner?: () => CallUser | undefined;
 }
 
 /** The upgrade check for browser connections; device connections are authenticated by their key afterwards. */
@@ -123,9 +127,11 @@ export async function serveWs(ws: WebSocket, req?: IncomingMessage, opts: AudioW
     device = authenticateDevice(ws, req, opts.devices, claimed);
     if (!device) return;
   }
-  // A browser connection belongs to the user its upgrade was checked for, for its whole life.
-  const user = device || !req ? undefined : requestUser(req);
-  if (user) opts.userConnections?.add(user.id, ws, req && requestAuth(req)?.sessionId);
+  // A browser connection belongs to the user its upgrade was checked for, for its whole life. A device's session acts
+  // for the household owner, until devices know who is speaking.
+  const browserUser = device || !req ? undefined : requestUser(req);
+  if (browserUser) opts.userConnections?.add(browserUser.id, ws, req && requestAuth(req)?.sessionId);
+  const user = device ? opts.owner?.() : browserUser;
   const tag = device ? `[${device.id}] ` : "";
   // A device answering a ring: the session announces its ringing alerts, or there is nothing left to announce.
   const alertId = device ? params.get("alert") : null;

@@ -27,7 +27,7 @@ export function deviceBlock(device: DeviceSnapshot): string {
 
 /**
  * The channel's system prompt followed by the module context, rendered at each call for `user` (the chat or Talk
- * page user; none for a device), and for a voice session from a registered device its device block (the snapshot
+ * page user; the household owner for a device), and for a voice session from a registered device its device block (the snapshot
  * taken when the connection was accepted).
  */
 export function systemPrompt(context: Pick<PromptContext, "render"> | undefined, channel: PromptChannel, device?: DeviceSnapshot, user?: CallUser): () => string {

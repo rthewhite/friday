@@ -78,7 +78,7 @@ test("an existing database gains the conversation tables, their indexes and the 
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   assert.equal((db.prepare("SELECT value_json FROM module_kv").get() as { value_json: string }).value_json, "1");
   const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='conversations' AND sql IS NOT NULL ORDER BY name").all() as { name: string }[]).map((i) => i.name);
-  assert.deepEqual(indexes, ["conversations_last_activity", "conversations_quiet"]);
+  assert.deepEqual(indexes, ["conversations_last_activity", "conversations_quiet", "conversations_user_activity"]);
   db.prepare("INSERT INTO conversations (id, channel, started_at, last_activity_at) VALUES ('c', 'voice', 'x', 'x')").run();
   db.prepare("INSERT INTO conversation_entries (conversation_id, seq, kind, text, at) VALUES ('c', 1, 'user', 'hi', 'x')").run();
   assert.throws(() => db.prepare("INSERT INTO conversation_entries (conversation_id, seq, kind, at) VALUES ('nope', 1, 'user', 'x')").run(), /FOREIGN KEY/);

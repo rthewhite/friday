@@ -46,6 +46,7 @@ import { Auth } from "./auth/auth.js";
 import { OidcClient } from "./auth/oidc.js";
 import { UserConnections } from "./auth/connections.js";
 import { UserStore } from "./auth/users.js";
+import { followOwner, moduleUsers } from "./auth/ownership.js";
 import { SessionStore } from "./auth/sessions.js";
 
 const db = openDatabase(settings.dataDir);
@@ -75,7 +76,10 @@ try {
 }
 if (auth.kind === "dev") console.warn("auth: FRIDAY_AUTH_ISSUER is not set, so authentication is off: only this machine (loopback) gets in, as the dev user");
 else console.log(`auth: users log in through ${auth.oidc.issuer}`);
-const users = new UserStore(db);
+// The household owner: the first admin to log in, or the dev user without auth. Data without a user is theirs.
+const users = new UserStore(db, undefined, { devOwner: auth.kind === "dev" });
+followOwner(db, users);
+const modUsers = moduleUsers(users);
 const sessions = new SessionStore(db, masterKey);
 const authPublicUrl = () => coreKey("FRIDAY_PUBLIC_URL");
 const oidc = auth.kind === "oidc" ? new OidcClient(auth.oidc, () => loginRedirectUri(authPublicUrl() ?? "")) : undefined;
@@ -132,6 +136,7 @@ const host = new ModuleHost(registry, {
   conversations: (id) => conversations.forOwner(id),
   database: databasePath(settings.dataDir),
   prompt: promptContext,
+  users: modUsers,
 });
 const mcp = new McpSource(registry, mcpStore);
 const remote = new RemoteHost({
@@ -198,7 +203,7 @@ const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, w
   agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) },
   oauth: { store: oauthStore, requests: oauthRequests, flow: new OAuthFlow({ store: oauthStore, requests: oauthRequests }), publicUrl },
   auth: { auth: browserAuth, users, sessions, oidc, publicUrl: authPublicUrl, onDisabled: (id) => userConnections.closeUser(id) } }));
-attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts, auth: browserAuth, userConnections });
+attachAudioWs(server, { registry, conversations, geminiKey, promptContext, devices, deviceSessions, alerts, auth: browserAuth, userConnections, owner: modUsers.owner });
 attachDeviceWs(server, { devices, links: deviceLinks, onReport: (id, type, alert) => alerts.deviceReport(id, type, alert) });
 remote.attach(server);
 

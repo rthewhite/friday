@@ -9,9 +9,9 @@
 
 ## 2. Core: ownership and the owner fallback
 
-- [ ] 2.1 Resolve the owner in core: the recorded owner, the dev user without auth configured, else none. `UserStore` notifies when the owner is first recorded. Verify with `user-store.test.ts` cases (event fires once; dev mode resolves the dev user).
-- [ ] 2.2 Add core migration 13 (renumber at merge if taken): `agents.created_by`. Assign unowned `conversations`, `agents` and `agent_runs` rows to the owner at startup and right after the owner is first recorded, idempotently. Verify with a migration test and an assignment test (only NULL rows change; repeating changes nothing; a fresh install assigns after the first admin login).
-- [ ] 2.3 Implement `ctx.users` in the module host from the user store (active users only, no emails or subjects). Remove `onOwner` subscriptions on dispose and reload. Verify with `module-host.test.ts` cases.
+- [x] 2.1 Resolve the owner in core: the recorded owner, the dev user without auth configured, else none. `UserStore` notifies when the owner is first recorded. Verify with `user-store.test.ts` cases (event fires once; dev mode resolves the dev user).
+- [x] 2.2 Add core migration 13 (renumber at merge if taken): `agents.created_by`. Assign unowned `conversations`, `agents` and `agent_runs` rows to the owner at startup and right after the owner is first recorded, idempotently. Verify with a migration test and an assignment test (only NULL rows change; repeating changes nothing; a fresh install assigns after the first admin login).
+- [x] 2.3 Implement `ctx.users` in the module host from the user store (active users only, no emails or subjects). Remove `onOwner` subscriptions on dispose and reload. Verify with `module-host.test.ts` cases.
 - [ ] 2.4 Hold voice device sessions for the owner: prompt context, tool calls and the recorder's `userId` (no user while no owner is recorded). Verify with `ws.test.ts` and `session.test.ts` cases for the "Voice devices act for the owner" scenarios. Run `pnpm --filter @friday/core test typecheck`.
 
 ## 3. Core: private conversations and chat

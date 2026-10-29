@@ -17,6 +17,8 @@ import { OAuthStore } from "../src/oauth/store.js";
 import { enabledManifests, OAuthRequests } from "../src/oauth/requests.js";
 import { OAuthTokens } from "../src/oauth/tokens.js";
 import { MemoryModuleEnablement, SqliteModuleEnablement } from "../src/storage/module-enablement.js";
+import { UserStore } from "../src/auth/users.js";
+import { moduleUsers } from "../src/auth/ownership.js";
 
 function logger() {
   const lines: string[] = [];
@@ -358,4 +360,64 @@ test("a granted in-process module gets the token through ctx.oauth; a revoke app
   store.revoke("spotify", "music");
   await assert.rejects(ctx!.oauth.token("spotify"), (e) => e instanceof OAuthError && e.kind === "not_granted");
   await host.dispose();
+});
+
+function usersHost() {
+  const db = new DatabaseSync(":memory:");
+  migrate(db, migrations, { log() {} });
+  const store = new UserStore(db);
+  const out = logger();
+  return { store, lines: out.lines, host: new ModuleHost(new ToolRegistry(), { env: {}, log: out.log, users: moduleUsers(store) }) };
+}
+
+const login = (subject: string, role: "admin" | "member") => ({ issuer: "https://auth.example/", subject, email: `${subject}@example.org`, name: subject, role });
+
+test("ctx.users lists the active users and the owner by id and name only", async () => {
+  const { store, host } = usersHost();
+  const owner = store.provision(login("Raymond", "admin"));
+  const member = store.provision(login("Sanne", "member"));
+  const gone = store.provision(login("Old", "member"));
+  assert.ok(owner.ok && member.ok && gone.ok);
+  store.setDisabled(gone.user.id, true, owner.user.id);
+  let ctx: ModuleContext | undefined;
+  await host.load([defineModule({ manifest: { id: "brain", label: "Brain" }, init: (c) => void (ctx = c) })]);
+  assert.deepEqual(ctx!.users.owner(), { id: owner.user.id, name: "Raymond" });
+  assert.deepEqual(ctx!.users.list(), [{ id: owner.user.id, name: "Raymond" }, { id: member.user.id, name: "Sanne" }]);
+});
+
+function ownerWatcher(seen: string[]) {
+  return defineModule({
+    manifest: { id: "brain", label: "Brain" },
+    init(ctx) {
+      ctx.users.onOwner((o) => void seen.push(o.name));
+      ctx.users.onOwner(async () => { throw new Error("boom"); });
+    },
+  });
+}
+
+test("onOwner fires once when the owner is recorded, only for the latest init; a failing handler is logged", async () => {
+  const { store, host, lines } = usersHost();
+  const seen: string[] = [];
+  await host.load([ownerWatcher(seen)]);
+  await host.reload("brain");
+  store.provision(login("Sanne", "member"));
+  store.provision(login("Raymond", "admin"));
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(seen, ["Raymond"]);
+  assert.ok(lines.some((l) => /module brain: onOwner handler failed: boom/.test(l)));
+});
+
+test("onOwner subscriptions end when the module is disposed", async () => {
+  const { store, host } = usersHost();
+  const seen: string[] = [];
+  await host.load([ownerWatcher(seen)]);
+  await host.dispose();
+  store.provision(login("Raymond", "admin"));
+  assert.deepEqual(seen, []);
+});
+
+test("without users, ctx.users is unavailable", async () => {
+  let ctx: ModuleContext | undefined;
+  await new ModuleHost(new ToolRegistry(), { env: {}, log: logger().log }).load([defineModule({ manifest: { id: "m", label: "M" }, init: (c) => void (ctx = c) })]);
+  assert.throws(() => ctx!.users.owner(), /m: users are not available in this host/);
 });
