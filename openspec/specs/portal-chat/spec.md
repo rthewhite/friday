@@ -75,7 +75,7 @@ Every turn SHALL be recorded in the conversation store with channel `chat` and n
 
 ### Requirement: Chat API streams the turn
 
-`POST /api/chat` SHALL accept a JSON body `{ "text": <string>, "conversationId"?: <string> }`. A body over 100 kB SHALL respond 413. An empty or missing `text` SHALL respond 400. A `conversationId` that is unknown or not a `chat` conversation SHALL respond 404. A message for a conversation whose turn is still running SHALL respond 409. Otherwise the response SHALL be a `text/event-stream` in which each event has an event name and a JSON `data` line:
+`POST /api/chat` SHALL accept a JSON body `{ "text": <string>, "conversationId"?: <string> }`. A body over 100 kB SHALL respond 413. An empty or missing `text` SHALL respond 400. A `conversationId` that is unknown, not a `chat` conversation, or another user's conversation SHALL respond 404. A message for a conversation whose turn is still running SHALL respond 409. Otherwise the response SHALL be a `text/event-stream` in which each event has an event name and a JSON `data` line:
 - `start`: `{ conversationId }`, always the first event;
 - `thinking`: `{ text }`, a fragment of the model's thought summary;
 - `text`: `{ text }`, a fragment of the answer, in order;
@@ -101,6 +101,10 @@ The server SHALL send a comment line at least every 15 seconds while the turn is
 - **WHEN** the Gemini API key is not configured
 - **THEN** the stream carries `start` and then `error` with kind `unavailable`, and the user entry is stored
 
+#### Scenario: Another user's thread
+- **WHEN** member `Sanne` posts a message with the id of the owner's chat thread
+- **THEN** the response is 404 and nothing is recorded
+
 ### Requirement: A turn outlives its client
 
 When the client disconnects during a turn, the turn SHALL continue to completion, including its tool calls, and SHALL be recorded as if the client were connected. Events after the disconnect SHALL be dropped.
@@ -123,7 +127,7 @@ Each model call in a chat turn SHALL take a slot of the shared text-model concur
 
 ### Requirement: Chat page
 
-The portal SHALL provide a `Chat` page at `/chat` (a new thread) and `/chat/:id` (an existing chat thread). It SHALL list chat conversations, most recent activity first, with their preview and last activity, with a `New chat` action and loading of more threads on request. The selected thread's stored entries SHALL be shown in order: user messages, assistant answers rendered as markdown (interrupted ones marked), and tool entries collapsed to their name and expandable to arguments and result. While a turn streams, the page SHALL show thought summaries dimmed and collapsible, answer text as it arrives, and tool calls as they start and settle. The message input SHALL send on Enter, insert a newline on Shift+Enter, and be disabled while a turn runs. After the first message of a new thread, the URL SHALL become `/chat/<id>`. A failed turn SHALL show its error below any partial answer. An unknown or non-chat id SHALL show a "not found" notice with a link to a new chat. At widths down to 360 px the thread list SHALL collapse into a menu.
+The portal SHALL provide a `Chat` page at `/chat` (a new thread) and `/chat/:id` (an existing chat thread). It SHALL list the logged-in user's chat conversations, most recent activity first, with their preview and last activity, with a `New chat` action and loading of more threads on request. The selected thread's stored entries SHALL be shown in order: user messages, assistant answers rendered as markdown (interrupted ones marked), and tool entries collapsed to their name and expandable to arguments and result. While a turn streams, the page SHALL show thought summaries dimmed and collapsible, answer text as it arrives, and tool calls as they start and settle. The message input SHALL send on Enter, insert a newline on Shift+Enter, and be disabled while a turn runs. After the first message of a new thread, the URL SHALL become `/chat/<id>`. A failed turn SHALL show its error below any partial answer. An unknown, non-chat or other user's id SHALL show a "not found" notice with a link to a new chat. At widths down to 360 px the thread list SHALL collapse into a menu.
 
 #### Scenario: Continue an old thread
 - **WHEN** the user opens a chat thread from last week and sends a message

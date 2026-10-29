@@ -56,3 +56,11 @@ Every Spotify request SHALL time out after 10 seconds. A failed request SHALL fa
 #### Scenario: Rate limited
 - **WHEN** Spotify answers 429 with `Retry-After: 30`
 - **THEN** the tool fails with a message saying Spotify asked to wait 30 seconds
+
+### Requirement: Spotify is the owner's
+
+Until users have their own connections, every Spotify tool SHALL be declared owner-only (as specified in `data-ownership`), because the connection is the owner's account.
+
+#### Scenario: Member asks for playlists
+- **WHEN** member `Sanne` asks in chat for her Spotify playlists
+- **THEN** her turn offers no Spotify tools
