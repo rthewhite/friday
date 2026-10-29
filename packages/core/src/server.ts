@@ -171,7 +171,7 @@ const agentRuntime = new AgentRuntime({
   timezone: householdZone,
   toolTimeoutMs: settings.agentToolTimeoutMs,
 });
-new AgentTriggers({ agents: agentStore, runtime: agentRuntime, registry, scheduler: jobs, jobs: jobStore, timezone: householdZone }).start();
+new AgentTriggers({ agents: agentStore, runtime: agentRuntime, registry, scheduler: jobs, jobs: jobStore, timezone: householdZone, prompt: promptContext.forOwner(CORE_ID) }).start();
 const agentJob = (name: string) => `${CORE_ID}/${jobName(name)}`;
 if (!geminiKey()) console.warn("GEMINI_API_KEY is not set (Settings > Configuration > Secrets, or the environment)");
 console.log(`tools (${registry.names().length}):`, registry.names().join(", "));

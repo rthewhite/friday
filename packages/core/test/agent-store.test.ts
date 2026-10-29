@@ -38,6 +38,7 @@ test("definitions round-trip with defaults, survive reopening, and report each c
     startable: false,
     tools: [{ pattern: "calendar_*", mode: "auto" }],
     budgets: { maxToolCalls: 30, maxTokens: 200000, maxMinutes: 10 },
+    createdBy: null,
     createdAt: undefined,
     updatedAt: undefined,
   });
@@ -116,4 +117,18 @@ test("actions are decided once, expire after 7 days, and go with their agent", (
   agents.delete("weekly-review");
   assert.deepEqual([...db.prepare("SELECT COUNT(*) AS n FROM agent_actions").all()].map((r) => ({ ...r })), [{ n: 0 }]);
   assert.equal(runs.get(run.id), undefined);
+});
+
+test("an agent records its creator; listing and getOwn are per creator; names stay unique across users", () => {
+  const { db, agents } = setup();
+  db.exec("INSERT INTO users (id, issuer, subject, name, role, first_login_at, last_login_at) VALUES ('u1', 'i', 's1', 'Raymond', 'admin', 't', 't'), ('u2', 'i', 's2', 'Sanne', 'member', 't', 't')");
+  agents.create(review(), "u1");
+  agents.create(review({ name: "her-digest" }), "u2");
+  assert.deepEqual(agents.get("weekly-review")!.createdBy, { id: "u1", name: "Raymond" });
+  assert.deepEqual(agents.list("u2").map((a) => a.name), ["her-digest"]);
+  assert.deepEqual(agents.list().map((a) => a.name), ["her-digest", "weekly-review"]);
+  assert.equal(agents.getOwn("weekly-review", "u1")?.name, "weekly-review");
+  assert.equal(agents.getOwn("weekly-review", "u2"), undefined);
+  assert.equal(agents.getOwn("weekly-review", undefined), undefined);
+  assert.throws(() => agents.create(review(), "u2"), (e) => e instanceof AgentExists && e.message === 'the name "weekly-review" is already in use');
 });

@@ -74,15 +74,17 @@ export class AgentRuntime {
 
   /**
    * Start a run in the background. Synchronous up to registering the run, so two starts can't both pass the
-   * busy check. A stored definition that no longer validates gives a run that fails before any model call.
+   * busy check. A stored definition that no longer validates gives a run that fails before any model call. However
+   * it was started, the run acts for the agent's creator: its tool calls, its tools and its conversation are theirs.
+   * Callers check that whoever asked is the creator.
    */
-  start(name: string, trigger: RunTrigger, request?: string, user?: CallUser): StartResult {
+  start(name: string, trigger: RunTrigger, request?: string): StartResult {
     const busy = this.active.get(name);
     if (busy) return { ok: false, reason: "busy", since: busy.run.startedAt, runId: busy.run.id };
     const stored = this.o.agents.get(name);
     if (!stored) return { ok: false, reason: "unknown" };
     const text = request?.trim().slice(0, MAX_REQUEST) || undefined;
-    const run = this.o.runs.start({ agent: name, trigger, request: text, userId: user?.id });
+    const run = this.o.runs.start({ agent: name, trigger, request: text, userId: stored.createdBy?.id });
     const controller = new AbortController();
     const entry: Active = { run, controller, done: Promise.resolve(run) };
     entry.done = this.execute(stored, entry, text)
@@ -116,7 +118,7 @@ export class AgentRuntime {
 
   /**
    * Approve a pending action as `by`: execute exactly the stored call, with no model involved. The call is for the
-   * user who started the run, like the run's own calls.
+   * user the run acted for (the agent's creator), like the run's own calls. Callers check that `by` is the creator.
    */
   async approve(actionId: string, by?: CallUser): Promise<DecideResult> {
     const decision = this.o.runs.claim(actionId, by?.id);

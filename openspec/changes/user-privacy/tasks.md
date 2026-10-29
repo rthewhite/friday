@@ -27,11 +27,11 @@
 
 ## 5. Core: agents belong to their creator
 
-- [ ] 5.1 Set `created_by` on create. Scope the agents API (list, get, edit, delete, run, runs, cancel, approve, reject) to the creator, with 404 for everyone else. A taken name answers 409 without revealing the other agent. Verify with `agents-api.test.ts` cases for the "Agents belong to their creator" scenarios.
-- [ ] 5.2 Every run acts as the creator: scheduled, portal, `run_agent`, and approved actions (tool calls and the conversation). Verify with `agent-users.test.ts` cases, including a scheduled run calling a tool.
-- [ ] 5.3 Agent jobs record only the outcome as their summary. `POST /api/jobs/core/agent-<name>/run` is refused (403) for anyone but the creator. Verify with `agent-triggers.test.ts` and `jobs` API tests.
-- [ ] 5.4 `run_agent`'s description no longer lists agents, and it refuses another user's agent. Core prompt context lists the prompt user's enabled, startable agents. Verify with tests for the "Another user's agent" scenario and the prompt context.
-- [ ] 5.5 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
+- [x] 5.1 Set `created_by` on create. Scope the agents API (list, get, edit, delete, run, runs, cancel, approve, reject) to the creator, with 404 for everyone else. A taken name answers 409 without revealing the other agent. Verify with `agents-api.test.ts` cases for the "Agents belong to their creator" scenarios.
+- [x] 5.2 Every run acts as the creator: scheduled, portal, `run_agent`, and approved actions (tool calls and the conversation). Verify with `agent-users.test.ts` cases, including a scheduled run calling a tool.
+- [x] 5.3 Agent jobs record only the outcome as their summary. `POST /api/jobs/core/agent-<name>/run` is refused (403) for anyone but the creator. Verify with `agent-triggers.test.ts` and `jobs` API tests.
+- [x] 5.4 `run_agent`'s description no longer lists agents, and it refuses another user's agent. Core prompt context lists the prompt user's enabled, startable agents. Verify with tests for the "Another user's agent" scenario and the prompt context.
+- [x] 5.5 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
 
 ## 6. Brain: a store per user
 

@@ -42,8 +42,9 @@ export function agentHarness(rounds: Round[], o: Partial<AgentRuntimeOptions> & 
     log: quiet,
     ...o,
   });
-  const define = (extra: Record<string, unknown> = {}) =>
-    agents.create(parseAgent({ name: "weekly-review", description: "Sums up my week", instructions: "Look at the calendar and sum up my week.", ...extra }));
+  /** An agent, created by `createdBy` (none by default, as before an owner was recorded). */
+  const define = (extra: Record<string, unknown> = {}, createdBy?: string) =>
+    agents.create(parseAgent({ name: "weekly-review", description: "Sums up my week", instructions: "Look at the calendar and sum up my week.", ...extra }), createdBy);
   return { db, conversations, clock, registry, calls, tool, agents, runs, stream, runtime, define };
 }
 

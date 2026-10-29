@@ -21,6 +21,7 @@ import type { Alert } from "./alerts/store.js";
 import { cursorOf, DEFAULT_LIST_LIMIT, InvalidQuery, type ConversationStore, type UserConversationView } from "./conversations/store.js";
 import type { Env } from "@friday/sdk";
 import { CORE_ID, coreManifest } from "./core-config.js";
+import { AGENT_JOB_PREFIX } from "./agents/triggers.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { chatRoute } from "./chat/route.js";
 import { addOAuthRoutes, type OAuthDeps } from "./oauth/routes.js";
@@ -526,7 +527,10 @@ export function createApp(deps: AppDeps) {
       if (!runs) return sendJson(res, { error: `unknown job "${owner}/${name}"` }, 404);
       sendJson(res, runs);
     })
-    .add("POST", "/api/jobs/:owner/:name/run", (_req, res, { owner, name }) => {
+    .add("POST", "/api/jobs/:owner/:name/run", (req, res, { owner, name }) => {
+      // An agent's job runs in its creator's scope: an admin may not start someone else's agent from here.
+      const agent = owner === CORE_ID && name.startsWith(AGENT_JOB_PREFIX) ? deps.agents?.agents.get(name.slice(AGENT_JOB_PREFIX.length)) : undefined;
+      if (agent && agent.createdBy?.id !== requestUser(req)?.id) return sendJson(res, { error: "only the agent's creator can run it" }, 403);
       const r = deps.jobs?.runNow(`${owner}/${name}`, "manual") ?? { status: "unknown" as const };
       if (r.status === "unknown") return sendJson(res, { error: `unknown job "${owner}/${name}"` }, 404);
       if (r.status === "running") return sendJson(res, { error: "job is already running" }, 409);
