@@ -71,7 +71,7 @@
 
 ## 10. Portal
 
-- [ ] 10.1 The Chat, Conversations and Agents pages show only the user's own data. Remove anything that assumed shared data, such as a `user` column. Verify with `pnpm --filter @friday/portal test typecheck build`, and manually in `pnpm dev` with two seeded users.
+- [x] 10.1 The Chat, Conversations and Agents pages show only the user's own data. Remove anything that assumed shared data, such as a `user` column. Verify with `pnpm --filter @friday/portal test typecheck build`, and manually in `pnpm dev` with two seeded users. (Dev mode logs in only the dev user, so the two-user check was done on the deployed instance instead, on 2026-10-29: a member account saw an empty Chat, Conversations, Agents and Brain.)
 
 ## 11. Docs
 
