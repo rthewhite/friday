@@ -102,7 +102,7 @@ const subtitle = computed(() => (selected.value ? `${formatDateTime(selected.val
 </script>
 
 <template>
-  <PageLayout eyebrow="Assistant" title="Conversations" subtitle="What was said to Friday, newest first. Transcript text only, never audio.">
+  <PageLayout eyebrow="Assistant" title="Conversations" subtitle="What you said to Friday, newest first. Only your own conversations, as transcript text, never audio.">
     <template #actions>
       <Button variant="ghost" :disabled="loading" @click="load()"><Icon name="refresh" />Refresh</Button>
     </template>
