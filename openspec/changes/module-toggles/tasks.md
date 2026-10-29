@@ -14,11 +14,11 @@
 
 ## 3. HTTP API and configuration listing
 
-- [ ] 3.1 Add `PUT /api/modules/:id/enabled` in `app.ts`: 400 for a non-boolean `enabled`, 404 for anything that isn't an in-process module (`core`, `mcp:*`, remote, unknown), otherwise 200 with the new entry. Verify with `app.test.ts` cases for each scenario of "Module enablement endpoint", and that `/api/tools` loses the `sonos_*` tools after a disable.
-- [ ] 3.2 Make `POST /api/modules/:id/reload` answer 409 for a disabled module. Replace the `FRIDAY_MODULES=builtin` listing test with one that disables `media` through the store. Verify with the "Reload a disabled module" and "Disabled module" scenarios.
-- [ ] 3.3 Split `requesters()` in `app.ts`. The configuration listing uses core plus the modules that aren't disabled, and lists stored module-scope values of keys no active requester declares, with empty `modules`. `isDeclaredSecret` keeps every manifest. Verify with `app.test.ts` (or the config listing test file) for "Key of a disabled module", "Stored key of a disabled module" (secret, no value) and "Shared key with a disabled module".
-- [ ] 3.4 Verify the OAuth side with a test in the oauth requests or routes tests: a disabled `spotify` disappears from the connection's requesters, and when it is enabled again it is listed as granted (scenario "Module disabled").
-- [ ] 3.5 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
+- [x] 3.1 Add `PUT /api/modules/:id/enabled` in `app.ts`: 400 for a non-boolean `enabled`, 404 for anything that isn't an in-process module (`core`, `mcp:*`, remote, unknown), otherwise 200 with the new entry. Verify with `app.test.ts` cases for each scenario of "Module enablement endpoint", and that `/api/tools` loses the `sonos_*` tools after a disable.
+- [x] 3.2 Make `POST /api/modules/:id/reload` answer 409 for a disabled module. Replace the `FRIDAY_MODULES=builtin` listing test with one that disables `media` through the store. Verify with the "Reload a disabled module" and "Disabled module" scenarios.
+- [x] 3.3 Split `requesters()` in `app.ts`. The configuration listing uses core plus the modules that aren't disabled, and lists stored module-scope values of keys no active requester declares, with empty `modules`. `isDeclaredSecret` keeps every manifest. Verify with `app.test.ts` (or the config listing test file) for "Key of a disabled module", "Stored key of a disabled module" (secret, no value) and "Shared key with a disabled module".
+- [x] 3.4 Verify the OAuth side with a test in the oauth requests or routes tests: a disabled `spotify` disappears from the connection's requesters, and when it is enabled again it is listed as granted (scenario "Module disabled").
+- [x] 3.5 Run `pnpm --filter @friday/core test` and `pnpm --filter @friday/core typecheck`. Verify both are green.
 
 ## 4. Portal
 

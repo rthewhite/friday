@@ -148,18 +148,24 @@ export interface StoredScope {
 
 const scopeOrder = (s: string) => (s === GLOBAL_SCOPE ? 0 : s === CORE_ID ? 1 : 2);
 
-/** Everything that declares configuration: core itself, then every known module. */
-const requesters = (host: ModuleHost) => [{ manifest: coreManifest }, ...host.manifests()];
+/** Everything that declares configuration: core itself, then every known module, disabled ones included. */
+const requesters = (host: ModuleHost) => [{ manifest: coreManifest, status: "loaded" as const }, ...host.manifests()];
 
-/** True when core or any module declares this key as a secret. */
+/** The requesters the configuration listing shows: core and the modules that are not disabled. */
+const activeRequesters = (host: ModuleHost) => requesters(host).filter((r) => r.status !== "disabled");
+
+/** True when core or any module, even a disabled one, declares this key as a secret. */
 export function isDeclaredSecret(host: ModuleHost, key: string): boolean {
   return requesters(host).some(({ manifest }) => manifest.config?.some((c) => c.key === key && c.secret === true));
 }
 
-/** One entry per key: declared keys aggregated across core and modules, then stored global values nothing declares. */
+/**
+ * One entry per key: keys declared by core and the modules that are not disabled, aggregated; then stored values
+ * nothing active declares: global ones, and those of keys only disabled modules declare (so they stay clearable).
+ */
 export function configListing({ host, configStore, env = process.env }: Pick<AppDeps, "host" | "configStore" | "env">): ConfigEntry[] {
   const byKey = new Map<string, ConfigEntry>();
-  for (const { manifest } of requesters(host)) {
+  for (const { manifest } of activeRequesters(host)) {
     for (const c of manifest.config ?? []) {
       const e = byKey.get(c.key) ?? { key: c.key, secret: false, required: false, modules: [], status: "pending" as const };
       e.modules.push({ id: manifest.id, required: c.required === true });
@@ -186,10 +192,13 @@ export function configListing({ host, configStore, env = process.env }: Pick<App
     }
   }
   const rows = configStore?.keys() ?? [];
-  for (const { scope, key, secret, updatedAt } of rows) {
-    if (scope !== GLOBAL_SCOPE || byKey.has(key)) continue;
-    const e: ConfigEntry = { key, secret, required: false, modules: [], status: "set", scope: GLOBAL_SCOPE, updatedAt };
-    if (!secret) { const v = configStore?.get(GLOBAL_SCOPE, key); if (v !== undefined) e.value = v; }
+  const onlyDisabled = new Set(requesters(host).filter((r) => r.status === "disabled").flatMap((r) => (r.manifest.config ?? []).map((c) => c.key)));
+  // Global first, so a key stored both globally and for a disabled module shows the global copy.
+  const byScope = [...rows].sort((a, b) => scopeOrder(a.scope) - scopeOrder(b.scope) || a.scope.localeCompare(b.scope));
+  for (const { scope, key, secret, updatedAt } of byScope) {
+    if (byKey.has(key) || (scope !== GLOBAL_SCOPE && !onlyDisabled.has(key))) continue;
+    const e: ConfigEntry = { key, secret: secret || isDeclaredSecret(host, key), required: false, modules: [], status: "set", scope, updatedAt };
+    if (!e.secret) { const v = configStore?.get(scope, key); if (v !== undefined) e.value = v; }
     byKey.set(key, e);
   }
   // Every stored copy, including scopes no loaded module declares (leftovers worth clearing).
@@ -303,6 +312,19 @@ export function createApp(deps: AppDeps) {
     .add("POST", "/api/modules/:id/reload", async (_req, res, { id }) => {
       const entry = await deps.host.reload(id);
       if (!entry) return sendJson(res, { error: `no reloadable in-process module "${id}"` }, 404);
+      if (entry.status === "disabled") return sendJson(res, { error: `module "${id}" is disabled; enable it to load it` }, 409);
+      sendJson(res, entry);
+    })
+    .add("PUT", "/api/modules/:id/enabled", async (req, res, { id }) => {
+      let body: { enabled?: unknown };
+      try {
+        body = JSON.parse((await readBody(req)) || "{}");
+      } catch {
+        return sendJson(res, { error: "invalid JSON" }, 400);
+      }
+      if (typeof body?.enabled !== "boolean") return sendJson(res, { error: "enabled must be true or false" }, 400);
+      const entry = await deps.host.setEnabled(id, body.enabled);
+      if (!entry) return sendJson(res, { error: `no in-process module "${id}"` }, 404);
       sendJson(res, entry);
     })
     .add("GET", "/api/config", (_req, res) => sendJson(res, { secretsEnabled: deps.configStore?.secretsEnabled === true, entries: configListing(deps) }))

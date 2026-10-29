@@ -483,6 +483,23 @@ test("the listing has every field, entries for requests without a connection, an
   }
 });
 
+test("a disabled module leaves the requesters and its grant is kept for when it is enabled again", async () => {
+  const s = await start();
+  const requesters = async () => (await s.entry("spotify")).requesters.map((r: { module: string; granted: boolean }) => [r.module, r.granted]);
+  try {
+    await s.setUp();
+    assert.deepEqual(await requesters(), [["spotify", true], ["sonos", false]]);
+
+    assert.equal((await s.call("PUT", "/api/modules/spotify/enabled", { enabled: false })).status, 200);
+    assert.deepEqual(await requesters(), [["sonos", false]]);
+
+    assert.equal((await s.call("PUT", "/api/modules/spotify/enabled", { enabled: true })).status, 200);
+    assert.deepEqual(await requesters(), [["spotify", true], ["sonos", false]], "listed as granted again");
+  } finally {
+    s.close();
+  }
+});
+
 test("writes validate their input, upsert, delete and refuse grants to non-requesters", async () => {
   const s = await start();
   try {

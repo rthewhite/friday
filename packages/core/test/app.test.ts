@@ -93,6 +93,60 @@ test("a disabled module is listed as disabled with no tools", async () => {
   }
 });
 
+test("PUT enabled: disable drops the tools, enable loads them, a failed enable reports the error", async () => {
+  const s = await start(["media"]);
+  const put = (id: string, body: unknown) => fetch(`${s.base}/api/modules/${encodeURIComponent(id)}/enabled`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const tools = async () => ((await (await fetch(`${s.base}/api/tools`)).json()) as { name: string }[]).map((t) => t.name);
+  try {
+    assert.ok((await tools()).includes("get_current_time"));
+    const off = await put("builtin", { enabled: false });
+    assert.equal(off.status, 200);
+    assert.deepEqual(await off.json(), { id: "builtin", label: "Builtin", status: "disabled", tools: [], ui: false });
+    assert.equal((await tools()).includes("get_current_time"), false);
+
+    const on = await put("builtin", { enabled: true });
+    assert.equal(on.status, 200);
+    assert.deepEqual(await on.json(), { id: "builtin", label: "Builtin", status: "loaded", tools: ["get_current_time"], ui: false });
+
+    const failed = await put("media", { enabled: true });
+    assert.equal(failed.status, 200);
+    const entry = await failed.json();
+    assert.equal(entry.status, "failed");
+    assert.match(entry.error, /JELLYFIN_URL/);
+  } finally {
+    await s.close();
+  }
+});
+
+test("PUT enabled: a body that is not a boolean is 400 and changes nothing; other kinds and unknown ids are 404", async () => {
+  const s = await start();
+  const put = (id: string, body: string) => fetch(`${s.base}/api/modules/${encodeURIComponent(id)}/enabled`, { method: "PUT", headers: { "content-type": "application/json" }, body });
+  try {
+    assert.equal((await put("builtin", JSON.stringify({ enabled: "no" }))).status, 400);
+    assert.equal((await put("builtin", "{")).status, 400);
+    assert.equal((await put("builtin", "{}")).status, 400);
+    const mods = await (await fetch(`${s.base}/api/modules`)).json();
+    assert.equal(mods.find((m: { id: string }) => m.id === "builtin").status, "loaded");
+    for (const id of ["core", "mcp:home", "nope"]) assert.equal((await put(id, JSON.stringify({ enabled: false }))).status, 404, id);
+  } finally {
+    await s.close();
+  }
+});
+
+test("reloading a disabled module is 409 and it stays disabled", async () => {
+  const s = await start(["media"]);
+  try {
+    const res = await fetch(`${s.base}/api/modules/media/reload`, { method: "POST" });
+    assert.equal(res.status, 409);
+    assert.match((await res.json()).error, /disabled/);
+    const mods = await (await fetch(`${s.base}/api/modules`)).json();
+    assert.equal(mods.find((m: { id: string }) => m.id === "media").status, "disabled");
+    assert.equal((await fetch(`${s.base}/api/modules/nope/reload`, { method: "POST" })).status, 404);
+  } finally {
+    await s.close();
+  }
+});
+
 test("module routes: dispatch, params, JSON body, status, 404 for unknown module, 405, 500, 204", async () => {
   const registry = new ToolRegistry(quiet);
   const host = new ModuleHost(registry, { env: { JELLYFIN_URL: "http://jf" }, log: quiet });

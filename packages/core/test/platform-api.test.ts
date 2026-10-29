@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { defineModule, ToolRegistry } from "@friday/sdk";
+import { defineModule, ToolRegistry, type FridayModule } from "@friday/sdk";
 import { runRemote } from "@friday/sdk/remote";
 import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
@@ -38,19 +38,19 @@ function talk(store: ConversationStore, end?: string) {
 /** Entries requested by modules (the tests below predate core's own keys). */
 const moduleEntries = (cfg: { entries: Array<{ modules: Array<{ id: string }> }> }) => cfg.entries.filter((e) => !e.modules.some((m) => m.id === "core"));
 
-async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string; withJobs?: boolean; onConfigChange?: (scope: string, key: string) => void } = {}) {
+async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string; withJobs?: boolean; onConfigChange?: (scope: string, key: string) => void; extra?: FridayModule[]; disabled?: string[] } = {}) {
   const db = new DatabaseSync(":memory:");
   migrate(db, migrations, quiet);
   const env = opts.env ?? {};
   const configStore = new ConfigStore(db, "masterKey" in opts ? opts.masterKey : randomBytes(32), quiet);
   const registry = new ToolRegistry(quiet);
-  const host = new ModuleHost(registry, { env, log: quiet, resolve: createResolver(configStore, env), storage: (id) => new SqliteModuleStorage(db, id) });
+  const host = new ModuleHost(registry, { env, log: quiet, resolve: createResolver(configStore, env), storage: (id) => new SqliteModuleStorage(db, id), enablement: new MemoryModuleEnablement(opts.disabled) });
   const media = defineModule({
     manifest: { id: "media", label: "Media", config: [{ key: "JELLYFIN_URL", required: true, description: "url" }, { key: "HA_URL" }, { key: "HA_TOKEN", secret: true }] },
     init(ctx) { ctx.defineTool({ name: "search", description: "", handler: () => ({ url: ctx.config.get("JELLYFIN_URL"), ha: ctx.config.get("HA_URL"), tok: ctx.config.get("HA_TOKEN") }) }); },
   });
   const plain = defineModule({ manifest: { id: "plain", label: "Plain", config: [{ key: "HA_URL", required: true, description: "also here" }] }, init() {} });
-  await host.load([media, plain]);
+  await host.load([media, plain, ...(opts.extra ?? [])]);
   const keys = new SqliteKeyStore(db);
   const conversations = new ConversationStore(db, { log: quiet });
   const remote = new RemoteHost({ registry, keys: new CompositeKeyStore([keys, new EnvKeyStore(opts.envKeys)]), pingMs: 0, log: quiet });
@@ -226,6 +226,34 @@ test("stored lists every scope a key is stored in: global first, plain values on
     assert.equal((await s.j("/api/config/gone/HA_URL", { method: "DELETE" })).status, 204, "a leftover scope can be cleared");
     assert.equal((await s.j("/api/config/plain/HA_URL", { method: "DELETE" })).status, 204);
     assert.deepEqual(scopes(await entry("HA_URL")), [{ scope: "global", value: "http://global-ha" }]);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a disabled module's keys leave the listing; stored ones stay listed as undeclared, secret when declared so", async () => {
+  const travel = defineModule({ manifest: { id: "travel", label: "Travel", config: [{ key: "TOMTOM_API_KEY", required: true, secret: true }] }, init() {} });
+  const s = await start({ extra: [travel], disabled: ["travel", "plain"] });
+  const entries = async () => (await (await s.j("/api/config")).json()).entries as any[];
+  const entry = async (key: string) => (await entries()).find((e) => e.key === key);
+  try {
+    assert.equal(await entry("TOMTOM_API_KEY"), undefined, "declared only by a disabled module and stored nowhere");
+    assert.deepEqual((await entry("HA_URL")).modules, [{ id: "media", required: false }], "a shared key lists only the active requesters");
+
+    // Stored plain on purpose: the disabled module still declares it secret, so it is never shown.
+    s.configStore.set("travel", "TOMTOM_API_KEY", "tt-key", { secret: false });
+    const stored = await entry("TOMTOM_API_KEY");
+    assert.equal(stored.secret, true);
+    assert.deepEqual(stored.modules, []);
+    assert.equal(stored.status, "set");
+    assert.equal(stored.scope, "travel");
+    assert.deepEqual(stored.stored.map((x: any) => Object.keys(x).sort()), [["scope", "updatedAt"]]);
+    assert.ok(!JSON.stringify(await entries()).includes("tt-key"));
+    assert.equal((await s.j("/api/config/travel/TOMTOM_API_KEY", { method: "DELETE" })).status, 204, "it can be cleared");
+    assert.equal(await entry("TOMTOM_API_KEY"), undefined);
+
+    assert.equal((await s.j("/api/modules/travel/enabled", { method: "PUT", body: JSON.stringify({ enabled: true }) })).status, 200);
+    assert.deepEqual((await entry("TOMTOM_API_KEY")).modules, [{ id: "travel", required: true }], "enabling brings the key back");
   } finally {
     await s.close();
   }
