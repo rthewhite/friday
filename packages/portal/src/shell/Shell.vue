@@ -6,7 +6,8 @@ import Sidebar, { type NavItem } from "./Sidebar.vue";
 import AdminOnly from "./AdminOnly.vue";
 import { useModules } from "../composables/useModules.js";
 import { useSession } from "../composables/useSession.js";
-import { isAdminPath, visibleItems } from "../lib/auth.js";
+import { isAdminPath } from "../lib/auth.js";
+import { NAV_GROUPS, navItems } from "../lib/nav.js";
 
 const uis = inject<ModuleUi[]>("moduleUis", []);
 const { isEnabled } = useModules();
@@ -18,25 +19,9 @@ const blocked = computed(() => isAdminPath(route.path) && me.value?.role !== "ad
 const open = ref(false);
 watch(() => route.fullPath, () => (open.value = false));
 
-const groups = ["Assistant", "Modules", "System"];
-const items = computed<NavItem[]>(() => visibleItems<NavItem>([
-  { to: "/", label: "Talk", icon: "mic", group: "Assistant" },
-  { to: "/chat", label: "Chat", icon: "message", group: "Assistant" },
-  { to: "/conversations", label: "Conversations", icon: "chat", group: "Assistant" },
-  { to: "/agents", label: "Agents", icon: "bot", group: "Assistant" },
-  { to: "/modules", label: "Modules", icon: "grid", group: "Modules" },
-  ...uis
-    .filter((u) => isEnabled(u.id))
-    .sort((a, b) => (a.nav.order ?? 100) - (b.nav.order ?? 100) || a.nav.label.localeCompare(b.nav.label))
-    .map((u) => ({ to: `/m/${u.id}`, label: u.nav.label, icon: u.nav.icon, group: "Modules" })),
-  { to: "/settings/config", label: "Configuration", icon: "settings", group: "System" },
-  { to: "/settings/connections", label: "Connections", icon: "link", group: "System" },
-  { to: "/settings/devices", label: "Voice devices", icon: "speaker", group: "System" },
-  { to: "/settings/alerts", label: "Alerts", icon: "bell", group: "System" },
-  { to: "/settings/keys", label: "Remote modules", icon: "key", group: "System" },
-  { to: "/settings/jobs", label: "Jobs", icon: "clock", group: "System" },
-  { to: "/settings/users", label: "Users", icon: "user", group: "System" },
-], me.value?.role));
+// The sidebar leaves out a section without items, such as Modules when no module UI is usable.
+const groups = NAV_GROUPS;
+const items = computed<NavItem[]>(() => navItems(uis, isEnabled, me.value?.role));
 </script>
 
 <template>

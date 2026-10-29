@@ -4,19 +4,23 @@
 
 ### Requirement: Shell layout and navigation
 
-The portal SHALL render a sidebar with a brand row and the sections `Assistant`, `Modules` and `System`. `Assistant` SHALL contain `Talk`, `Chat`, `Conversations` and `Agents`. `Modules` SHALL contain one entry per enabled module UI, ordered by `nav.order` then label, and SHALL be left out when there is none. `System` SHALL contain the pages listed in the Settings section requirement. Items SHALL show an icon (named icon or text fallback). The active route SHALL be highlighted, `Chat` SHALL be highlighted on `/chat` and on every `/chat/<id>`, and `Agents` SHALL be highlighted on `/agents` and every route under it. The shell SHALL work at widths down to 360 px by collapsing the sidebar into a menu.
+The portal SHALL render a sidebar with a brand row, three sections labelled `Assistant`, `Modules` and `System`, and a user menu. `Assistant` SHALL contain `Talk`, `Chat`, `Conversations` and `Agents`. `Modules` SHALL contain one entry per enabled module UI, ordered by `nav.order` then label, and SHALL be left out when there is none. `System` SHALL contain the pages listed in "Settings section" and SHALL be shown only to admins. Items SHALL show an icon (named icon or text fallback). The active route SHALL be highlighted. `Chat` SHALL be highlighted on `/chat` and on every `/chat/<id>`, and `Agents` on `/agents` and every route under it. The shell SHALL work at widths down to 360 px by collapsing the sidebar into a menu.
 
 #### Scenario: Default navigation
-- **WHEN** the portal loads with `builtin` and `media` enabled and only `media` declaring a UI
-- **THEN** the sidebar shows `Talk`, `Chat`, `Conversations` and `Agents` under Assistant, `Media` under Modules, and `Modules`, `Configuration`, `Connections`, `Voice devices`, `Alerts`, `Remote modules` and `Jobs` under System
+- **WHEN** an admin loads the portal with `builtin` and `media` enabled and only `media` declaring a UI
+- **THEN** the sidebar shows `Talk`, `Chat`, `Conversations` and `Agents` under Assistant, `Media` under Modules, and the Settings section's pages, starting with `Modules`, under System
+
+#### Scenario: Member navigation
+- **WHEN** a member loads the portal
+- **THEN** the sidebar shows Assistant and the module UIs under Modules, and no System section
 
 #### Scenario: Disabled module hidden
 - **WHEN** `/api/modules` reports `media` as `disabled` or `failed`
 - **THEN** no `Media` nav item is shown and `/m/media` renders a "module not available" page
 
 #### Scenario: Disabled module page
-- **WHEN** the user opens `/m/sonos` while `sonos` is disabled
-- **THEN** the page says the module is turned off for this Friday and links to `/settings/modules`, and does not mention an environment variable
+- **WHEN** a user opens `/m/sonos` while `sonos` is disabled
+- **THEN** the page says the module is turned off for this Friday and does not mention an environment variable; an admin also gets a link to `/settings/modules`, a member does not
 
 #### Scenario: No module UIs enabled
 - **WHEN** every module that declares a UI is disabled or failed
@@ -70,11 +74,15 @@ Turning a switch off SHALL ask for confirmation, saying that the module's tools,
 
 ### Requirement: Settings section
 
-The sidebar's `System` section SHALL contain `Modules`, `Configuration`, `Connections`, `Voice devices`, `Alerts`, `Remote modules` and `Jobs`, routing to `/settings/modules`, `/settings/config`, `/settings/connections`, `/settings/devices`, `/settings/alerts`, `/settings/keys` and `/settings/jobs`.
+The sidebar's `System` section SHALL contain `Modules`, `Configuration`, `Connections`, `Voice devices`, `Alerts`, `Remote modules`, `Jobs` and `Users`, routing to `/settings/modules`, `/settings/config`, `/settings/connections`, `/settings/devices`, `/settings/alerts`, `/settings/keys`, `/settings/jobs` and `/settings/users`. A member who opens a route under `/settings/` SHALL see a page saying it is for admins only.
 
 #### Scenario: Navigation
-- **WHEN** the portal loads
-- **THEN** `System` shows all seven pages and they route to `/settings/modules`, `/settings/config`, `/settings/connections`, `/settings/devices`, `/settings/alerts`, `/settings/keys` and `/settings/jobs`
+- **WHEN** an admin loads the portal
+- **THEN** `System` shows all eight pages and they route to `/settings/modules`, `/settings/config`, `/settings/connections`, `/settings/devices`, `/settings/alerts`, `/settings/keys`, `/settings/jobs` and `/settings/users`
+
+#### Scenario: Member opens a settings URL
+- **WHEN** a member opens `/settings/config` or `/settings/modules` directly
+- **THEN** the portal shows that the page is for admins only and requests no configuration
 
 ### Requirement: Reload action on the Modules page
 
