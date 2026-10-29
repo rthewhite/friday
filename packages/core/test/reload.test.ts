@@ -12,6 +12,7 @@ import { JobStore } from "../src/jobs/store.js";
 import { Scheduler } from "../src/jobs/scheduler.js";
 import { FakeClock } from "./fake-clock.js";
 import { setup } from "./conversation-fixtures.js";
+import { MemoryModuleEnablement } from "../src/storage/module-enablement.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 
@@ -81,14 +82,14 @@ test("reload failure leaves the module failed with the error; disabled and unkno
   const m = defineModule({ manifest: { id: "m", label: "M" }, init(ctx) { ctx.defineTool({ name: "t", description: "", handler: () => ({}) }); if (fail) throw new Error("later"); } });
   const d = defineModule({ manifest: { id: "d", label: "D" }, init() {} });
   const r = new ToolRegistry(quiet);
-  const h = new ModuleHost(r, { env: {}, log: quiet, enabled: "m" });
+  const h = new ModuleHost(r, { env: {}, log: quiet, enablement: new MemoryModuleEnablement(["d"]) });
   await h.load([m, d]);
   fail = true;
   const e = await h.reload("m");
   assert.equal(e?.status, "failed");
   assert.equal(e?.error, "later");
   assert.deepEqual(r.names(), []);
-  assert.equal(await h.reload("d"), undefined);
+  assert.equal((await h.reload("d"))?.status, "disabled", "a disabled module comes back as it is, not initialized");
   assert.equal(await h.reload("nope"), undefined);
 });
 

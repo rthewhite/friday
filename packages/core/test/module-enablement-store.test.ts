@@ -4,7 +4,9 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/storage/db.js";
-import { MemoryModuleEnablement, SqliteModuleEnablement } from "../src/storage/module-enablement.js";
+import { defineModule, ToolRegistry } from "@friday/sdk";
+import { ModuleHost } from "../src/module-host.js";
+import { MemoryModuleEnablement, retiredModulesWarning, SqliteModuleEnablement } from "../src/storage/module-enablement.js";
 
 const quiet = { log() {} };
 
@@ -39,6 +41,18 @@ test("a row for an id no module has is kept and harmless", async () => {
   assert.equal(s.isEnabled("gone"), false);
   assert.equal(s.isEnabled("builtin"), true);
   db.close();
+});
+
+test("a FRIDAY_MODULES left in the environment gets one warning and picks nothing", async () => {
+  assert.equal(retiredModulesWarning({}), undefined);
+  assert.match(retiredModulesWarning({ FRIDAY_MODULES: "builtin" }) ?? "", /FRIDAY_MODULES is no longer used.*System > Modules/);
+
+  const registry = new ToolRegistry({ log() {}, warn() {}, error() {} });
+  const env = { FRIDAY_MODULES: "builtin" };
+  const host = new ModuleHost(registry, { env, log: { log() {}, warn() {}, error() {} }, enablement: new MemoryModuleEnablement() });
+  const mod = (id: string) => defineModule({ manifest: { id, label: id }, init(ctx) { ctx.defineTool({ name: `${id}_t`, description: "", handler: () => ({}) }); } });
+  await host.load([mod("builtin"), mod("media")]);
+  assert.deepEqual(registry.names(), ["builtin_t", "media_t"], "the environment does not narrow the modules");
 });
 
 test("the in-memory store follows the same rules", () => {

@@ -22,6 +22,12 @@ export class SqliteModuleEnablement implements ModuleEnablement {
   }
 }
 
+/** The startup warning for a FRIDAY_MODULES left in the environment, which no longer picks the modules; else undefined. */
+export function retiredModulesWarning(env: Record<string, string | undefined>): string | undefined {
+  if (env.FRIDAY_MODULES === undefined) return undefined;
+  return "modules: FRIDAY_MODULES is no longer used and is ignored; turn modules on or off under System > Modules";
+}
+
 /** The same in memory, for tests and hosts without a database. */
 export class MemoryModuleEnablement implements ModuleEnablement {
   private readonly choices = new Map<string, boolean>();

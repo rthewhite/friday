@@ -10,14 +10,15 @@ import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
 import { CORE_ID } from "../src/core-config.js";
+import { MemoryModuleEnablement } from "../src/storage/module-enablement.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 
-async function start(enabled?: string, coreTools: string[] = []) {
+async function start(disabled: string[] = [], coreTools: string[] = []) {
   const registry = new ToolRegistry(quiet);
   // Tools core registers itself, as server.ts does for the timer tools.
   for (const name of coreTools) registry.add(CORE_ID, { name, description: "", channels: ["voice"], handler: () => ({}) });
-  const host = new ModuleHost(registry, { env: {}, log: quiet, enabled });
+  const host = new ModuleHost(registry, { env: {}, log: quiet, enablement: new MemoryModuleEnablement(disabled) });
   const builtin = defineModule({ manifest: { id: "builtin", label: "Builtin" }, init: (ctx) => void ctx.defineTool({ name: "get_current_time", description: "", handler: () => ({}) }) });
   const media = defineModule({
     manifest: { id: "media", label: "Media", ui: true, config: [{ key: "JELLYFIN_URL", required: true }] },
@@ -61,7 +62,7 @@ test("/api/modules reports loaded and failed modules with tools and ui flag", as
 
 test("core's own tools come first, as a built-in core entry, followed by the modules unchanged", async () => {
   const timers = ["set_timer", "set_alarm", "list_alerts", "change_alert", "cancel_alert", "snooze_alert"];
-  const s = await start(undefined, timers);
+  const s = await start([], timers);
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();
     assert.deepEqual(mods[0], { id: "core", label: "Core", description: "Built into Friday", status: "loaded", tools: timers, ui: false });
@@ -82,8 +83,8 @@ test("without tools owned by core there is no core entry", async () => {
   }
 });
 
-test("FRIDAY_MODULES=builtin shows media as disabled with no tools", async () => {
-  const s = await start("builtin");
+test("a disabled module is listed as disabled with no tools", async () => {
+  const s = await start(["media"]);
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();
     assert.deepEqual(mods[1], { id: "media", label: "Media", status: "disabled", tools: [], ui: true });

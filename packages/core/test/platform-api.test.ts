@@ -8,6 +8,7 @@ import { defineModule, ToolRegistry } from "@friday/sdk";
 import { runRemote } from "@friday/sdk/remote";
 import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
+import { MemoryModuleEnablement } from "../src/storage/module-enablement.js";
 import { McpSource } from "../src/tools/mcp.js";
 import { migrate, migrations } from "../src/storage/db.js";
 import { ConfigStore } from "../src/secrets/config-store.js";
@@ -292,7 +293,7 @@ test("jobs API: listing, runs newest first, run now 202, conflict 409, unknown 4
   const store = new JobStore(db);
   const jobs = new Scheduler({ store, log: quiet, timezone: "Europe/Amsterdam", graceMs: 100 });
   const registry = new ToolRegistry(quiet);
-  const host = new ModuleHost(registry, { env: {}, log: quiet, enabled: "brain,broken", jobs: (id) => jobs.forOwner(id) });
+  const host = new ModuleHost(registry, { env: {}, log: quiet, enablement: new MemoryModuleEnablement(["off"]), jobs: (id) => jobs.forOwner(id) });
   let release: (() => void) | undefined;
   const brain = defineModule({
     manifest: { id: "brain", label: "Brain" },
