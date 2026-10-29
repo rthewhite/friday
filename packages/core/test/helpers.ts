@@ -113,3 +113,16 @@ export async function waitFor(pred: () => boolean, ms = 2000): Promise<void> {
     await sleep(10);
   }
 }
+
+/**
+ * Dev-mode auth for an app under test, as `pnpm dev` runs without a provider: requests from this machine are the dev
+ * user's, an admin who is also the household owner. Conversations these tests read must belong to `DEV_USER_ID`.
+ */
+export async function devAuth(db: import("node:sqlite").DatabaseSync) {
+  const { Auth } = await import("../src/auth/auth.js");
+  const { UserStore } = await import("../src/auth/users.js");
+  const { SessionStore } = await import("../src/auth/sessions.js");
+  const users = new UserStore(db, undefined, { devOwner: true });
+  const auth = new Auth({ mode: { kind: "dev" }, users, publicUrl: () => undefined, log: { log() {}, warn() {} } });
+  return { auth, users, sessions: new SessionStore(db, Buffer.alloc(32, 1)), publicUrl: () => undefined };
+}

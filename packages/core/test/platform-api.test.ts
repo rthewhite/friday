@@ -17,7 +17,8 @@ import { CompositeKeyStore, EnvKeyStore, SqliteKeyStore } from "../src/remote/ke
 import { RemoteHost } from "../src/remote/host.js";
 import { SqliteModuleStorage } from "../src/storage/module-kv.js";
 import { ConversationStore } from "../src/conversations/store.js";
-import { waitFor } from "./helpers.js";
+import { devAuth, waitFor } from "./helpers.js";
+import { DEV_USER_ID } from "../src/auth/users.js";
 import { JobStore } from "../src/jobs/store.js";
 import { Scheduler } from "../src/jobs/scheduler.js";
 import { coreConfig, followTimezone } from "../src/core-config.js";
@@ -26,7 +27,7 @@ const quiet = { log() {}, warn() {}, error() {} };
 
 /** One recorded voice exchange through a recorder; returns the recorder (still live unless `end`). */
 function talk(store: ConversationStore, end?: string) {
-  const r = store.recorder({ channel: "voice", device: "kitchen" });
+  const r = store.recorder({ channel: "voice", device: "kitchen", userId: DEV_USER_ID });
   r.user(" Play Dune.", "speech");
   r.tool("media_play", { query: "Dune" }).result({ playing: "Dune" });
   r.assistant("Playing Dune.");
@@ -57,7 +58,7 @@ async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string
   // Built as server.ts builds it: cron's zone from core's resolver, re-planned when FRIDAY_TIMEZONE is saved.
   const jobs = opts.withJobs ? new Scheduler({ store: new JobStore(db), log: quiet, timezone: () => coreConfig(configStore, env)("FRIDAY_TIMEZONE"), graceMs: 100 }) : undefined;
   const onConfigChange = opts.onConfigChange ?? (jobs ? followTimezone(jobs) : undefined);
-  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), remote, webDir: "/nonexistent", configStore, keys, env, conversations, jobs, onConfigChange }));
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), remote, webDir: "/nonexistent", configStore, keys, env, conversations, jobs, onConfigChange, auth: await devAuth(db) }));
   remote.attach(server);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -78,10 +79,10 @@ test("conversations: list summary shape and the full conversation with entries",
     assert.match(c.startedAt, /^\d{4}-/);
     assert.deepEqual(c, {
       id, channel: "voice", device: "kitchen", startedAt: c.startedAt, lastActivityAt: c.lastActivityAt, endedAt: c.endedAt, endReason: "ended: done",
-      quietAt: c.quietAt, state: "quiet", entryCount: 3, preview: "Play Dune.", user: null,
+      quietAt: c.quietAt, state: "quiet", entryCount: 3, preview: "Play Dune.", user: { id: DEV_USER_ID, name: "Dev" },
     });
     const full = await (await s.j(`/api/conversations/${id}`)).json();
-    assert.equal(full.user, null, "a device's conversation has no user");
+    assert.deepEqual(full.user, { id: DEV_USER_ID, name: "Dev" }, "a device's conversation is the owner's");
     assert.deepEqual(full.entries.map(({ seq, at, ...e }: any) => e), [
       { kind: "user", input: "speech", text: "Play Dune." },
       { kind: "tool", name: "media_play", args: { query: "Dune" }, result: { playing: "Dune" }, truncated: false },
@@ -98,7 +99,7 @@ test("conversations: list summary shape and the full conversation with entries",
 test("conversations: paging over 120 rows with the before cursor", async () => {
   const s = await start();
   try {
-    for (let i = 0; i < 120; i++) s.conversations.create({ channel: "chat" });
+    for (let i = 0; i < 120; i++) s.conversations.create({ channel: "chat", userId: DEV_USER_ID });
     const first = await (await s.j("/api/conversations")).json();
     assert.equal(first.conversations.length, 50);
     const second = await (await s.j(`/api/conversations?before=${encodeURIComponent(first.next)}`)).json();
@@ -117,8 +118,8 @@ test("conversations: paging over 120 rows with the before cursor", async () => {
 test("conversations: ?channel= filters, keeps the filter when paging, and rejects unknown channels", async () => {
   const s = await start();
   try {
-    for (let i = 0; i < 60; i++) s.conversations.create({ channel: i % 2 ? "chat" : "voice" });
-    const run = s.conversations.create({ channel: "agent" });
+    for (let i = 0; i < 60; i++) s.conversations.create({ channel: i % 2 ? "chat" : "voice", userId: DEV_USER_ID });
+    const run = s.conversations.create({ channel: "agent", userId: DEV_USER_ID });
     const first = await (await s.j("/api/conversations?channel=chat&limit=20")).json();
     assert.equal(first.conversations.length, 20);
     const second = await (await s.j(`/api/conversations?channel=chat&limit=20&before=${encodeURIComponent(first.next)}`)).json();

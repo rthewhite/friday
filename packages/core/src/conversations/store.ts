@@ -3,6 +3,10 @@
  * Conversations are resumable threads; they go quiet on an explicit end or after
  * `quietMinutes` without activity (the sweep), and every time they do, `onQuiet`
  * subscribers hear about it. The durable contract is `list({ quietSince })`.
+ *
+ * Every conversation belongs to one user, and whatever reads conversations for a person (the API, chat, modules) goes
+ * through `forUser(id)`: another user's conversation is never listed, found or returned there. The unscoped methods
+ * are for core's own bookkeeping (recorders, retention, a chat turn that already checked its thread).
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -17,6 +21,7 @@ import type {
   ModuleConversations,
   QuietEvent,
   SearchConversationsOptions,
+  UserConversations,
   ValidSearch,
 } from "@friday/sdk";
 import { CHANNELS, compareMatches, SearchQueryError, snippetsFor, validateSearch } from "@friday/sdk";
@@ -37,11 +42,14 @@ export type NewEntry =
 export interface ConversationMeta {
   channel: ConversationChannel;
   device?: string | null;
-  /** The user the conversation belongs to: chat, the Talk page, an agent run a user started. Kept on resume. */
+  /**
+   * The user the conversation belongs to: the chat or Talk page user, the owner for a device, the agent's creator for
+   * a run. Kept on resume. Null only for a device's session while no owner is recorded.
+   */
   userId?: string | null;
 }
 
-/** Who a conversation belongs to, with their current name; null when nobody (a device, a scheduled run, older ones). */
+/** Who a conversation belongs to, with their current name; null when nobody (a device's session before an owner existed). */
 export type ConversationUser = { id: string; name: string } | null;
 
 export interface ListOptions extends ListConversationsOptions {
@@ -49,6 +57,20 @@ export interface ListOptions extends ListConversationsOptions {
   before?: string;
   /** Only conversations of this channel. */
   channel?: ConversationChannel;
+  /** Only this user's conversations (set by `forUser`). */
+  userId?: string;
+}
+
+/** One user's conversations, as the API and chat read them. */
+export interface UserConversationView {
+  list(opts?: Omit<ListOptions, "userId">): ConversationSummary[];
+  /** Undefined for an unknown id and for another user's conversation alike. */
+  get(id: string): Conversation | undefined;
+  search(opts?: SearchConversationsOptions): ConversationMatch[];
+  /** `missing` for an unknown id and for another user's conversation alike. */
+  delete(id: string): "deleted" | "missing" | "live";
+  /** Whether `id` is one of this user's conversations. */
+  owns(id: string): boolean;
 }
 
 export interface ConversationStoreOptions {
@@ -229,8 +251,8 @@ export class ConversationStore {
       ? this.db.prepare("UPDATE conversations SET quiet_at = ?, ended_at = ?, end_reason = ? WHERE id = ? AND quiet_at IS NULL").run(at, at, end.reason || null, id).changes
       : this.db.prepare("UPDATE conversations SET quiet_at = ? WHERE id = ? AND quiet_at IS NULL").run(at, id).changes;
     if (!changed) return false;
-    const row = this.db.prepare("SELECT last_activity_at FROM conversations WHERE id = ?").get(id) as { last_activity_at: string };
-    this.notify({ id, lastActivityAt: row.last_activity_at, quietAt: at });
+    const row = this.db.prepare("SELECT last_activity_at, user_id FROM conversations WHERE id = ?").get(id) as { last_activity_at: string; user_id: string | null };
+    this.notify({ id, userId: row.user_id, lastActivityAt: row.last_activity_at, quietAt: at });
     return true;
   }
 
@@ -239,7 +261,7 @@ export class ConversationStore {
     return (this.db.prepare("SELECT channel FROM conversations WHERE id = ?").get(id) as { channel: ConversationChannel } | undefined)?.channel;
   }
 
-  /** The user of each conversation in `ids` (attribution only: nothing is filtered by it). */
+  /** The user of each conversation in `ids`, with their current name. */
   usersOf(ids: readonly string[]): Map<string, ConversationUser> {
     const out = new Map<string, ConversationUser>();
     if (!ids.length) return out;
@@ -250,6 +272,13 @@ export class ConversationStore {
     return out;
   }
 
+  /** The user a conversation belongs to: undefined when unknown, null when nobody. */
+  ownerOf(id: string): string | null | undefined {
+    const row = this.db.prepare("SELECT user_id FROM conversations WHERE id = ?").get(id) as { user_id: string | null } | undefined;
+    return row && row.user_id;
+  }
+
+  /** Unscoped: core's own reads. People read through `forUser`. */
   get(id: string): Conversation | undefined {
     const row = this.db.prepare(`SELECT ${COLUMNS} FROM conversations WHERE id = ?`).get(id) as Row | undefined;
     if (!row) return undefined;
@@ -266,6 +295,10 @@ export class ConversationStore {
     if (opts.channel) {
       where.push("channel = ?");
       params.push(opts.channel);
+    }
+    if (opts.userId !== undefined) {
+      where.push("user_id = ?");
+      params.push(opts.userId);
     }
     let order = "last_activity_at DESC, id DESC";
     if (opts.quietSince !== undefined) {
@@ -286,7 +319,7 @@ export class ConversationStore {
    * (one MATCH per word, so each conversation's distinct words can be counted); ranking and snippets follow
    * the SDK's shared rules. Without words, the conversations with entries in the window, most recent first.
    */
-  search(opts: SearchConversationsOptions = {}): ConversationMatch[] {
+  search(opts: SearchConversationsOptions & { userId?: string } = {}): ConversationMatch[] {
     let s: ValidSearch;
     try {
       s = validateSearch(opts);
@@ -312,6 +345,10 @@ export class ConversationStore {
     if (s.device !== undefined) {
       scope.push("c.device = ?");
       scopeParams.push(s.device);
+    }
+    if (opts.userId !== undefined) {
+      scope.push("c.user_id = ?");
+      scopeParams.push(opts.userId);
     }
     if (s.exclude.length) {
       scope.push(`c.id NOT IN (${s.exclude.map(() => "?").join(", ")})`);
@@ -364,7 +401,7 @@ export class ConversationStore {
     });
   }
 
-  /** `live` while a recorder still writes into it; entries go with the conversation (cascade). */
+  /** Unscoped. `live` while a recorder still writes into it; entries go with the conversation (cascade). */
   delete(id: string): "deleted" | "missing" | "live" {
     if (this.isLive(id)) return "live";
     return this.db.prepare("DELETE FROM conversations WHERE id = ?").run(id).changes ? "deleted" : "missing";
@@ -441,12 +478,29 @@ export class ConversationStore {
     });
   }
 
-  /** Read access for one module (`ctx.conversations`). */
+  /** One user's conversations: the only way the API, chat and modules read them. */
+  forUser(userId: string): UserConversationView {
+    const owns = (id: string) => this.ownerOf(id) === userId;
+    return {
+      list: (o = {}) => this.list({ ...o, userId }),
+      get: (id) => (owns(id) ? this.get(id) : undefined),
+      search: (o = {}) => this.search({ ...o, userId }),
+      delete: (id) => (owns(id) ? this.delete(id) : "missing"),
+      owns,
+    };
+  }
+
+  /** Read access for one module (`ctx.conversations`): one user's conversations at a time. */
   forOwner(owner: string): ModuleConversations {
     return {
-      list: async (o) => this.list({ quietSince: o?.quietSince, limit: o?.limit }),
-      get: async (id) => this.get(id),
-      search: async (o) => this.search(o),
+      forUser: (userId): UserConversations => {
+        const view = this.forUser(userId);
+        return {
+          list: async (o) => view.list({ quietSince: o?.quietSince, limit: o?.limit }),
+          get: async (id) => view.get(id),
+          search: async (o) => view.search(o),
+        };
+      },
       onQuiet: (handler) => this.onQuiet(handler, owner),
     };
   }

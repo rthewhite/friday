@@ -10,7 +10,7 @@ import { ChatEngine } from "../src/chat/engine.js";
 import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
 import type { StreamCallRequest } from "../src/llm/service.js";
 import { setup } from "./conversation-fixtures.js";
-import { waitFor } from "./helpers.js";
+import { devAuth, waitFor } from "./helpers.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
@@ -28,12 +28,12 @@ const toolThenAnswer = {
 };
 
 async function start(o: { chat?: boolean; heartbeatMs?: number; tool?: () => unknown } = {}) {
-  const { store } = setup();
+  const { store, db } = setup();
   const registry = new ToolRegistry(quiet);
   registry.add("builtin", { name: "get_current_time", description: "", handler: async () => (o.tool ? o.tool() : { human: "ten" }) as Record<string, unknown> });
   const host = new ModuleHost(registry, { env: {}, log: quiet });
   const chat = o.chat === false ? undefined : new ChatEngine({ store, registry, llm: toolThenAnswer, model: "m", system: () => "s", toolTimeoutMs: 5000, log: quiet });
-  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), webDir: "/nonexistent", conversations: store, chat, chatHeartbeatMs: o.heartbeatMs }));
+  const server = createServer(createApp({ registry, host, mcp: new McpSource(registry, undefined, { log: quiet }), webDir: "/nonexistent", conversations: store, chat, chatHeartbeatMs: o.heartbeatMs, auth: await devAuth(db) }));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -89,7 +89,7 @@ test("a tool-using turn streams start, tool_call, tool_result, text and done as 
   }
 });
 
-test("validation answers JSON before any stream: 400, 404 for unknown and voice ids, 503 without chat", async () => {
+test("validation answers JSON before any stream: 400, 404 for unknown, voice and other users' ids, 503 without chat", async () => {
   const s = await start();
   try {
     assert.equal((await s.post({ text: "" })).status, 400);
@@ -105,6 +105,9 @@ test("validation answers JSON before any stream: 400, 404 for unknown and voice 
     const voice = s.store.create({ channel: "voice" });
     assert.equal((await s.post({ text: "hi", conversationId: voice })).status, 404);
     assert.equal(s.store.get(voice)!.entryCount, 0);
+    const someoneElses = s.store.create({ channel: "chat", userId: "u2" });
+    assert.equal((await s.post({ text: "hi", conversationId: someoneElses })).status, 404, "another user's thread");
+    assert.equal(s.store.get(someoneElses)!.entryCount, 0);
   } finally {
     await s.close();
   }

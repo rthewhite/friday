@@ -56,3 +56,14 @@ test("retention registers core/conversation-retention, and nothing when disabled
   assert.deepEqual(job.schedule, { cron: "0 4 * * *", timezone: "Europe/Amsterdam" });
   await scheduler.stop();
 });
+
+test("retention is not limited by user: old threads of every user are deleted", async () => {
+  const { store, clock } = setup();
+  const a = store.create({ channel: "chat", userId: "u1" });
+  const b = store.create({ channel: "chat", userId: "u2" });
+  for (const id of [a, b]) store.append(id, 1, { kind: "user", at: store.now().toISOString(), input: "text", text: "hi" });
+  clock.advance(100 * DAY);
+  assert.deepEqual(await run(retentionJob(store, 90)), { summary: "deleted 2 conversations" });
+  assert.equal(store.get(a), undefined);
+  assert.equal(store.get(b), undefined);
+});

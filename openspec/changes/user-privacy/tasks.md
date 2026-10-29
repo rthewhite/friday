@@ -12,13 +12,13 @@
 - [x] 2.1 Resolve the owner in core: the recorded owner, the dev user without auth configured, else none. `UserStore` notifies when the owner is first recorded. Verify with `user-store.test.ts` cases (event fires once; dev mode resolves the dev user).
 - [x] 2.2 Add core migration 13 (renumber at merge if taken): `agents.created_by`. Assign unowned `conversations`, `agents` and `agent_runs` rows to the owner at startup and right after the owner is first recorded, idempotently. Verify with a migration test and an assignment test (only NULL rows change; repeating changes nothing; a fresh install assigns after the first admin login).
 - [x] 2.3 Implement `ctx.users` in the module host from the user store (active users only, no emails or subjects). Remove `onOwner` subscriptions on dispose and reload. Verify with `module-host.test.ts` cases.
-- [ ] 2.4 Hold voice device sessions for the owner: prompt context, tool calls and the recorder's `userId` (no user while no owner is recorded). Verify with `ws.test.ts` and `session.test.ts` cases for the "Voice devices act for the owner" scenarios. Run `pnpm --filter @friday/core test typecheck`.
+- [x] 2.4 Hold voice device sessions for the owner: prompt context, tool calls and the recorder's `userId` (no user while no owner is recorded). Verify with `ws.test.ts` and `session.test.ts` cases for the "Voice devices act for the owner" scenarios. Run `pnpm --filter @friday/core test typecheck`.
 
 ## 3. Core: private conversations and chat
 
-- [ ] 3.1 Scope the conversation store's read paths (list, get, search, delete) to a user, and serve `forUser` and the user-carrying `onQuiet` to modules. Verify with `conversations-store.test.ts` cases: another user's conversation is absent from list and search, and a 404 for get and delete; retention still deletes everyone's.
-- [ ] 3.2 The conversations routes and the chat engine pass `req.user`: another user's id answers 404 on read and delete, and continuing another user's thread answers 404 with nothing recorded. Verify with `conversation-users.test.ts` and `chat-api.test.ts` cases for the `conversation-store` and `portal-chat` scenarios.
-- [ ] 3.3 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
+- [x] 3.1 Scope the conversation store's read paths (list, get, search, delete) to a user, and serve `forUser` and the user-carrying `onQuiet` to modules. Verify with `conversations-store.test.ts` cases: another user's conversation is absent from list and search, and a 404 for get and delete; retention still deletes everyone's.
+- [x] 3.2 The conversations routes and the chat engine pass `req.user`: another user's id answers 404 on read and delete, and continuing another user's thread answers 404 with nothing recorded. Verify with `conversation-users.test.ts` and `chat-api.test.ts` cases for the `conversation-store` and `portal-chat` scenarios.
+- [x] 3.3 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
 
 ## 4. Core: owner-only tools in sessions, chat and agents
 
