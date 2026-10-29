@@ -2,8 +2,8 @@
 
 ## 1. Stored enablement
 
-- [ ] 1.1 Add a core migration (next free version; renumber at merge if `main` has claimed it): `module_enablement (module_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at TEXT NOT NULL)`. Verify with a migration test that a database at the previous version upgrades, and that the table starts empty.
-- [ ] 1.2 Implement the enablement store next to it: `isEnabled(id)` (true without a row) and `set(id, enabled)` (upsert with `updated_at`). Verify with `packages/core/test/module-enablement-store.test.ts`: no row, set off, set on again, a row for an id no module has.
+- [x] 1.1 Add core migration 12 (renumber at merge if `main` has claimed it): `module_enablement (module_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at TEXT NOT NULL)`. Verify with a migration test that a database at the previous version upgrades, and that the table starts empty.
+- [x] 1.2 Implement the enablement store next to it: `isEnabled(id)` (true without a row) and `set(id, enabled)` (upsert with `updated_at`). Verify with `packages/core/test/module-enablement-store.test.ts`: no row, set off, set on again, a row for an id no module has.
 
 ## 2. Host: load, enable, disable
 
