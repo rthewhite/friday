@@ -34,6 +34,7 @@
 
 - [x] 3.1 Add `test:coverage` to every package with `node:test` tests (core, sdk, portal, brain, builtin, calendar, media, sonos, spotify, travel, simracing): c8 with `--all` around the package's test command, as in design decision 7. (Changed from Node's built-in coverage during apply, with the user's go-ahead, because it misreports tsx code.) Stop `secrets.test.ts` from loading `crypto.ts` a second time through `createRequire`.
   - In `portal-ui`, add `vitest run --coverage` with `@vitest/coverage-v8`, pinned to the installed vitest's version.
+  - The portal's `test:coverage` also runs its component tests with `vitest run --coverage` (added after code review). c8's shared options moved to a root `.c8rc.json`.
   - At the root, add `"test:coverage": "pnpm -r build && pnpm -r test:coverage"`.
 
   Verify that `pnpm test:coverage` prints a per-file table for every package and exits 0.

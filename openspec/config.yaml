@@ -260,8 +260,8 @@ context: |
   core's packages/core/test/fixtures/device-protocol.json, which core's device-protocol.test.ts checks from the
   server's side (device ids: core's DEVICE_ID and __init__.py's pattern must match). Change the protocol in the
   fixture first. The firmware isn't built in CI. One container image built with pnpm deploy.
-  Testing and CI (ci-pipeline spec): tests use node:test via `pnpm test` (portal-ui: vitest); `pnpm test:coverage`
-  is c8 --all per package, report only. deploy.yml's test job runs build, typecheck, test and the firmware host
+  Testing and CI (ci-pipeline spec): tests use node:test via `pnpm test` (portal-ui and the portal's component tests: vitest);
+  `pnpm test:coverage` is c8 per package (options in the root .c8rc.json) plus vitest coverage, report only. deploy.yml's test job runs build, typecheck, test and the firmware host
   tests (in a digest-pinned gcc:14 image; the runner has Docker, no compiler); firmware.yml runs those for
   esphome/-only pushes. The build job builds with --load, runs scripts/smoke.sh (boot check: fresh container,
   generated FRIDAY_MASTER_KEY, scripts/smoke.env placeholders on .invalid hosts, every module loaded, probes via

@@ -59,11 +59,14 @@ test("core sends a device exactly the listed /ws/audio messages, and never the b
     ws.on("message", (raw, binary) => void (binary || received.push(raw.toString())));
     await waitFor(() => StubSession.instances.length === 1);
     const session = StubSession.instances[0]!;
-    const audio = fixture.serverMessages.filter((m) => m.channel === "audio");
+    // `closed` closes the socket, so it goes last: anything emitted after it would be dropped whatever the filter says.
+    const audio = fixture.serverMessages
+      .filter((m) => m.channel === "audio")
+      .sort((a, b) => Number(a.type === "closed") - Number(b.type === "closed"));
+    const shut = new Promise((resolve) => ws.once("close", resolve));
     for (const m of audio) session.emit({ kind: str(m.type), ...(m.data !== undefined && { data: str(m.data) }) } as Parameters<StubSession["emit"]>[0]);
-    const sent = audio.filter((m) => !m.browserOnly);
-    await waitFor(() => received.length >= sent.length);
-    assert.deepEqual(received, sent.map((m) => m.raw));
+    await shut;
+    assert.deepEqual(received, audio.filter((m) => !m.browserOnly).map((m) => m.raw));
   } finally {
     await h.close();
   }

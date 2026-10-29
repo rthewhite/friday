@@ -92,7 +92,9 @@ TEST(fingerprints_match_core) {
   CHECK(!fx["fingerprints"].empty());
   for (const auto &f : fx["fingerprints"]) {
     const std::string &sha = fixture::str(f, "sha256");
-    CHECK(sha.size() == 64);
+    bool hex64 = sha.size() == 64 && sha.find_first_not_of("0123456789abcdef") == std::string::npos;
+    CHECK(check(hex64, "sha256 must be 64 lowercase hex characters: \"" + sha + "\""));
+    if (!hex64) continue;
     uint8_t digest[32];
     for (size_t i = 0; i < 32; i++) digest[i] = uint8_t(hex(sha[2 * i]) << 4 | hex(sha[2 * i + 1]));
     std::string fp = format_fingerprint(digest);

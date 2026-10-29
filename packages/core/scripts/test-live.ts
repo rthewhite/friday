@@ -5,6 +5,7 @@
  */
 import "dotenv/config";
 import { spawnSync } from "node:child_process";
+import { stripVTControlCharacters } from "node:util";
 
 if (!process.env.GEMINI_API_KEY) {
   console.error("test:live: GEMINI_API_KEY is not set (environment or packages/core/.env)");
@@ -19,7 +20,8 @@ const run = spawnSync(
 process.stdout.write(run.stdout ?? "");
 if (run.status !== 0) process.exit(run.status ?? 1);
 
-const ran = (run.stdout.match(/^✔ live: /gm) ?? []).length;
+// Colour (FORCE_COLOR on CI runners) and a `describe` around the tests must not hide a pass from the count.
+const ran = (stripVTControlCharacters(run.stdout).match(/^\s*✔ live: /gm) ?? []).length;
 if (ran === 0) {
   console.error("test:live: no live test ran; were the `live: ` tests renamed?");
   process.exit(1);

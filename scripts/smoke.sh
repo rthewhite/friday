@@ -73,7 +73,7 @@ modules=$(docker exec "$name" node -e '
 echo "smoke: modules loaded: $modules"
 
 # 4. A clean stop on SIGTERM. docker stop sends SIGKILL after 10 s, which shows as exit code 137.
-docker stop -t 10 "$name" >/dev/null
+docker stop -t 10 "$name" >/dev/null || fail "docker stop failed"
 code=$(docker inspect -f '{{.State.ExitCode}}' "$name")
 [ "$code" = 0 ] || fail "exit code $code after SIGTERM (137: it did not stop within 10 s)"
 echo "smoke: stopped cleanly"

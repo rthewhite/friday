@@ -1,0 +1,8 @@
+{
+  "all": true,
+  "src": ["src"],
+  "include": ["src/**"],
+  "exclude": ["src/**/*.d.ts", "src/modules.gen.ts"],
+  "reporter": ["text"],
+  "clean": true
+}

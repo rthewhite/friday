@@ -164,7 +164,7 @@ test("a welcome that isn't JSON, or isn't a welcome, closes with 4000 and is ret
   core.close();
 });
 
-test("a socket error is logged and the runner keeps retrying", async () => {
+test("a socket error is logged and the runner keeps retrying", { timeout: 5000 }, async () => {
   // A port nobody listens on: the connection is refused.
   const probe = new WebSocketServer({ port: 0 });
   await once(probe, "listening");

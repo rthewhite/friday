@@ -131,9 +131,9 @@ Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the def
 
 ### 7. Coverage: c8 with `--all`, report only
 
-- Every package with `node:test` tests gets `test:coverage`: `c8 --all --src src --include 'src/**' --exclude 'src/**/*.d.ts' --exclude 'src/modules.gen.ts' --reporter text --clean`, followed by its test command. c8 is a root dev dependency, and each package writes to its own ignored `coverage/` folder.
+- Every package with `node:test` tests gets `test:coverage`: `c8` followed by its test command. The options (`all`, `src`, `include`, excluding `*.d.ts` and `modules.gen.ts`, the `text` reporter, `clean`) live once in the root `.c8rc.json`, which c8 finds from each package. c8 is a root dev dependency, and each package writes to its own ignored `coverage/` folder.
 - `portal-ui` gets `vitest run --coverage --coverage.include=src/**` with `@vitest/coverage-v8`, pinned to its vitest version.
-- The portal reports only its `node:test` part. c8 sees `.ts` and `.js` files, not `.vue`.
+- The portal prints two tables: c8 over its `node:test` part (c8 sees `.ts` and `.js` files, not `.vue`), then `vitest run --coverage` over the component tests, the same way as `portal-ui`.
 - The root `test:coverage` is `pnpm -r build && pnpm -r test:coverage`.
 
 **Why c8 over Node's built-in coverage.** We tried Node's built-in coverage first; with tsx it misleads either way:

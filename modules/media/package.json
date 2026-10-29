@@ -18,7 +18,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
-    "test:coverage": "c8 --all --src src --include 'src/**' --exclude 'src/**/*.d.ts' --exclude 'src/modules.gen.ts' --reporter text --clean node --import tsx --test test/*.test.ts"
+    "test:coverage": "c8 node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@friday/sdk": "workspace:*"
