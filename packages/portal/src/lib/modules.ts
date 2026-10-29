@@ -1,4 +1,4 @@
-/** How the Modules page shows an `/api/modules` entry: its status dot, its kind, and whether it can be reloaded. */
+/** How the Modules page shows an `/api/modules` entry: its status dot, its kind, and whether it can be reloaded or switched off. */
 import type { ApiModule } from "../composables/useModules.js";
 
 type Entry = Pick<ApiModule, "id" | "status">;
@@ -22,3 +22,12 @@ export const hasPage = (m: Pick<ApiModule, "status" | "ui">): boolean => m.statu
 
 /** Only in-process modules that are loaded or failed reload; core, MCP servers, remotes and disabled modules don't. */
 export const isReloadable = (m: Entry): boolean => moduleKind(m) === "in-process" && m.status !== "disabled";
+
+/** Only in-process modules can be switched on or off; core, MCP servers (their own flag) and remotes can't. */
+export const isToggleable = (m: Entry): boolean => moduleKind(m) === "in-process";
+
+/** The switch is on unless the module is disabled. */
+export const isSwitchedOn = (m: Pick<ApiModule, "status">): boolean => m.status !== "disabled";
+
+/** The list with one entry replaced by the server's new version of it (same id); other entries are unchanged. */
+export const withEntry = (list: readonly ApiModule[], entry: ApiModule): ApiModule[] => list.map((m) => (m.id === entry.id ? entry : m));

@@ -1,7 +1,7 @@
 /**
  * The in-process modules this deployment ships. Order is only for deterministic
- * logging; modules must not depend on each other's tools. Narrow the set at
- * runtime with FRIDAY_MODULES=<id>,<id>.
+ * logging; modules must not depend on each other's tools. An admin turns each
+ * one on or off under System > Modules (stored in friday.db; on by default).
  */
 import type { FridayModule } from "@friday/sdk";
 import builtin from "@friday/module-builtin";

@@ -20,6 +20,19 @@ const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE($
 
 export const migrations: Migration[] = [
   {
+    version: 12,
+    name: "module enablement",
+    // The admin's on/off per in-process module. No row means enabled, so a fresh install and modules added later
+    // load; rows for ids no longer in the module list are ignored and kept.
+    sql: `
+      CREATE TABLE module_enablement (
+        module_id TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
     version: 11,
     name: "users",
     // Users log in through OIDC and are keyed on (issuer, subject); the dev user has issuer and subject `dev`.

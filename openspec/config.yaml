@@ -7,8 +7,14 @@ context: |
   ModuleHost, MCP source), modules/* (one package per module, depending only on the sdk).
   A module exports defineModule({ manifest: { id, label, config[] }, init(ctx) }); ctx gives
   defineTool, config (env-backed), log. Core lists in-process modules in packages/core/src/modules.ts,
-  FRIDAY_MODULES narrows them, GET /api/modules reports status (first a `core` entry, kind "core" on the Modules
-  page, when core owns tools itself; moduleListing in app.ts). Tools live in one owner-tagged
+  each on unless an admin turned it off (migration 12 module_enablement, storage/module-enablement.ts; no row = on, no
+  env var: a leftover FRIDAY_MODULES only logs a warning). ModuleHost.setEnabled stores the choice, then inits or tears
+  down like a reload (reload and setEnabled queued per module); PUT /api/modules/:id/enabled { enabled } answers the
+  new entry, reload of a disabled module 409; dispose waits for queued calls and later ones do nothing. In the config
+  listing a disabled requester is `disabled: true` in `modules` (keys only they declare listed only while stored;
+  required from active ones, scope resolved active-first, secrecy from all; the portal shows them `(off)`, keeps them
+  out of the default scope and of Save and reload). Their OAuth requests disappear, grants kept. GET /api/modules reports status (first a `core`
+  entry, kind "core" on the Modules page, when core owns tools itself; moduleListing in app.ts). Tools live in one owner-tagged
   ToolRegistry instance (owner = module id, mcp:<server>, or core; remove(name) drops one tool); a tool may set channels
   (voice | chat | agent, all by default; end_conversation and core's timer and alarm tools are voice-only, run_agent
   voice and chat; prompt context providers only ever see voice | chat, PromptChannel); each GeminiSession snapshots
@@ -145,7 +151,7 @@ context: |
   idle; auth.ts Auth.authenticate refreshes claims once a day (single-flight per session; refused or no group ends
   it, unreachable keeps it) and remembers the user per request (requestUser(req)). app.ts checks every /api request
   before routing (cross-origin first, then 401 unauthenticated, then access.ts adminOnly by path segment: config, mcp,
-  keys, devices, oauth, jobs, alerts, users, POST modules/:id/reload → 403 forbidden); without deps.auth (tests of
+  keys, devices, oauth, jobs, alerts, users, POST modules/:id/reload, PUT modules/:id/enabled → 403 forbidden); without deps.auth (tests of
   other features) nothing is checked. Browser /ws/audio: mountWs verify hook (ws.ts verifyBrowser: any `device`
   parameter means device auth; foreign Origin 403; no session 401); UserConnections closes a disabled user's sockets
   with 4401. /api/me, /api/users, /api/users/:id/disable|enable (user-routes.ts). The SDK hands the user on:
@@ -160,8 +166,9 @@ context: |
   target, at most once per target until a navigation succeeds (sessionStorage mark, cleared in afterEach), via
   src/lib/stale-chunks.ts handleNavigationError, and console.errors everything else; main.ts mounts the shell even
   when the first navigation fails); pages Talk (voice client, AudioWorklet in public/), Chat
-  (/chat, /chat/:id; markdown-it with HTML off), Conversations, Modules, and
-  /m/<id> per module UI. Module UIs are declared with "friday": { "ui": ... } in the module package.json and
+  (/chat, /chat/:id; markdown-it with HTML off), Conversations, Agents, and
+  /m/<id> per module UI; the Modules page (enable switch, Reload) is under System at /settings/modules (/modules
+  redirects), nav built by src/lib/nav.ts. Module UIs are declared with "friday": { "ui": ... } in the module package.json and
   defineModuleUi from @friday/portal-ui (tokens + base components); scripts/gen-modules.mjs generates the
   import list at build time (no Module Federation). Modules add backend routes with ctx.http.route, served
   at /api/modules/<id>/...; core routing lives in packages/core/src/{router,app}.ts.

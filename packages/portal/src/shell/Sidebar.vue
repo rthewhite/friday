@@ -2,14 +2,9 @@
 import { ref } from "vue";
 import { Icon } from "@friday/portal-ui";
 import { useSession } from "../composables/useSession.js";
+import type { NavEntry } from "../lib/nav.js";
 
-export interface NavItem {
-  to: string;
-  label: string;
-  icon?: string;
-  group: string;
-}
-defineProps<{ items: NavItem[]; groups: string[] }>();
+defineProps<{ items: NavEntry[]; groups: readonly string[] }>();
 
 const { me, logout } = useSession();
 const leaving = ref(false);

@@ -10,7 +10,9 @@ export function createPortalRouter(uis: ModuleUi[]) {
     { path: "/conversations", name: "conversations", component: () => import("./pages/ConversationsPage.vue") },
     // `/agents/:name` (and `/agents/new`) is a child for the same reason; AgentsPage shows the editor for it.
     { path: "/agents", name: "agents", component: () => import("./pages/AgentsPage.vue"), children: [{ path: ":name", name: "agent", component: { render: () => null } }] },
-    { path: "/modules", name: "modules", component: () => import("./pages/ModulesPage.vue") },
+    // The Modules page moved under System; old links keep working.
+    { path: "/modules", redirect: "/settings/modules" },
+    { path: "/settings/modules", name: "settings-modules", component: () => import("./pages/settings/ModulesPage.vue") },
     { path: "/settings/config", name: "settings-config", component: () => import("./pages/settings/ConfigurationPage.vue") },
     { path: "/settings/connections", name: "settings-connections", component: () => import("./pages/settings/ConnectionsPage.vue") },
     { path: "/settings/devices", name: "settings-devices", component: () => import("./pages/settings/VoiceDevicesPage.vue") },

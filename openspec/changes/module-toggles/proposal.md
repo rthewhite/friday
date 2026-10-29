@@ -10,7 +10,7 @@ Every module in `modules.ts` is on in every deployment, unless `FRIDAY_MODULES` 
 - **`FRIDAY_MODULES` is removed.** Enablement is controlled only through the database. **BREAKING** for deployments that set it. `deploy/k8s.yaml` doesn't.
 - **Enable and disable at runtime.** `PUT /api/modules/:id/enabled` with `{ enabled }` turns an in-process module on or off immediately and stores the choice. Disabling tears the module down as a reload does (tools, routes, jobs, prompt context, conversation subscriptions). Enabling runs the same path as startup (config check, pending migrations, `init`). A disabled module keeps its data, stored configuration and OAuth grants. `core`, MCP servers and remote modules can't be toggled here. MCP servers keep their own `enabled` flag.
 - **Reloading a disabled module is refused** with 409, instead of the 404 an unknown module gets.
-- **A disabled module's configuration keys drop out of Settings > Configuration** unless an enabled module or core also declares them. Stored values are kept and still listed under `stored`, and enabling the module brings the keys back.
+- **A disabled module's configuration keys drop out of Settings > Configuration** unless an enabled module or core also declares them, or a value is stored for them. Wherever a disabled module is still listed as a requester, it is marked as off. Stored values are kept, and enabling the module brings the keys back.
 - **The Modules page moves to System** as `/settings/modules`, with an enable/disable switch per in-process module next to `Reload`. `/modules` redirects there. The `Modules` sidebar section keeps only the module UIs (`/m/<id>`) and is hidden when none is enabled.
 - **The "module not available" page** no longer mentions `FRIDAY_MODULES`. For a disabled module it says the module is turned off and links to the Modules page.
 
@@ -28,6 +28,7 @@ None.
 - `oauth-connections`: a disabled module's OAuth requests disappear, as a removed module's do.
 - `platform-storage`: the "module disabled" scenario no longer refers to `FRIDAY_MODULES`.
 - `portal-shell`: Modules moves into the System section with an enable/disable switch, and the Modules section holds only module UIs.
+- `user-auth`: `PUT /api/modules/:id/enabled` is admin-only, like module reload. `GET /api/modules` stays open to members. Added at apply time, once `auth-users` had landed on `main`.
 
 ## Impact
 

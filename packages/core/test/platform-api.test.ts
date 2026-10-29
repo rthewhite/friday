@@ -4,10 +4,11 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { defineModule, ToolRegistry } from "@friday/sdk";
+import { defineModule, ToolRegistry, type FridayModule } from "@friday/sdk";
 import { runRemote } from "@friday/sdk/remote";
 import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
+import { MemoryModuleEnablement } from "../src/storage/module-enablement.js";
 import { McpSource } from "../src/tools/mcp.js";
 import { migrate, migrations } from "../src/storage/db.js";
 import { ConfigStore } from "../src/secrets/config-store.js";
@@ -37,19 +38,19 @@ function talk(store: ConversationStore, end?: string) {
 /** Entries requested by modules (the tests below predate core's own keys). */
 const moduleEntries = (cfg: { entries: Array<{ modules: Array<{ id: string }> }> }) => cfg.entries.filter((e) => !e.modules.some((m) => m.id === "core"));
 
-async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string; withJobs?: boolean; onConfigChange?: (scope: string, key: string) => void } = {}) {
+async function start(opts: { masterKey?: Buffer | undefined; env?: Record<string, string>; envKeys?: string; withJobs?: boolean; onConfigChange?: (scope: string, key: string) => void; extra?: FridayModule[]; disabled?: string[] } = {}) {
   const db = new DatabaseSync(":memory:");
   migrate(db, migrations, quiet);
   const env = opts.env ?? {};
   const configStore = new ConfigStore(db, "masterKey" in opts ? opts.masterKey : randomBytes(32), quiet);
   const registry = new ToolRegistry(quiet);
-  const host = new ModuleHost(registry, { env, log: quiet, resolve: createResolver(configStore, env), storage: (id) => new SqliteModuleStorage(db, id) });
+  const host = new ModuleHost(registry, { env, log: quiet, resolve: createResolver(configStore, env), storage: (id) => new SqliteModuleStorage(db, id), enablement: new MemoryModuleEnablement(opts.disabled) });
   const media = defineModule({
     manifest: { id: "media", label: "Media", config: [{ key: "JELLYFIN_URL", required: true, description: "url" }, { key: "HA_URL" }, { key: "HA_TOKEN", secret: true }] },
     init(ctx) { ctx.defineTool({ name: "search", description: "", handler: () => ({ url: ctx.config.get("JELLYFIN_URL"), ha: ctx.config.get("HA_URL"), tok: ctx.config.get("HA_TOKEN") }) }); },
   });
   const plain = defineModule({ manifest: { id: "plain", label: "Plain", config: [{ key: "HA_URL", required: true, description: "also here" }] }, init() {} });
-  await host.load([media, plain]);
+  await host.load([media, plain, ...(opts.extra ?? [])]);
   const keys = new SqliteKeyStore(db);
   const conversations = new ConversationStore(db, { log: quiet });
   const remote = new RemoteHost({ registry, keys: new CompositeKeyStore([keys, new EnvKeyStore(opts.envKeys)]), pingMs: 0, log: quiet });
@@ -230,6 +231,56 @@ test("stored lists every scope a key is stored in: global first, plain values on
   }
 });
 
+test("a disabled module's keys leave the listing unless stored; its requester stays marked disabled, its scope kept", async () => {
+  const travel = defineModule({ manifest: { id: "travel", label: "Travel", config: [{ key: "TOMTOM_API_KEY", required: true, secret: true }] }, init() {} });
+  const s = await start({ extra: [travel], disabled: ["travel", "plain"] });
+  const entries = async () => (await (await s.j("/api/config")).json()).entries as any[];
+  const entry = async (key: string) => (await entries()).find((e) => e.key === key);
+  try {
+    assert.equal(await entry("TOMTOM_API_KEY"), undefined, "declared only by a disabled module and stored nowhere");
+    const ha = await entry("HA_URL");
+    assert.deepEqual(ha.modules, [{ id: "media", required: false }, { id: "plain", required: true, disabled: true }], "a shared key marks the disabled requester");
+    assert.equal(ha.required, false, "only active requesters make a key required");
+
+    // Stored plain on purpose: the disabled module still declares it secret, so it is never shown.
+    s.configStore.set("travel", "TOMTOM_API_KEY", "tt-key", { secret: false });
+    s.configStore.set("brain", "TOMTOM_API_KEY", "stray", { secret: false });
+    const stored = await entry("TOMTOM_API_KEY");
+    assert.equal(stored.secret, true);
+    assert.deepEqual(stored.modules, [{ id: "travel", required: true, disabled: true }]);
+    assert.equal(stored.required, false);
+    assert.equal(stored.status, "set");
+    assert.equal(stored.scope, "travel", "the module's own copy, not a stray one in another module's scope");
+    assert.deepEqual(stored.stored.map((x: any) => Object.keys(x).sort()), [["scope", "updatedAt"], ["scope", "updatedAt"]]);
+    assert.ok(!JSON.stringify(await entries()).includes("tt-key"));
+    assert.ok(!JSON.stringify(await entries()).includes("stray"));
+    assert.equal((await s.j("/api/config/brain/TOMTOM_API_KEY", { method: "DELETE" })).status, 204);
+    assert.equal((await s.j("/api/config/travel/TOMTOM_API_KEY", { method: "DELETE" })).status, 204, "it can be cleared");
+    assert.equal(await entry("TOMTOM_API_KEY"), undefined);
+
+    assert.equal((await s.j("/api/modules/travel/enabled", { method: "PUT", body: JSON.stringify({ enabled: true }) })).status, 200);
+    assert.deepEqual((await entry("TOMTOM_API_KEY")).modules, [{ id: "travel", required: true }], "enabling brings the key back");
+  } finally {
+    await s.close();
+  }
+});
+
+test("a key a disabled module declares secret stays secret, also when its value comes from the environment", async () => {
+  const open = defineModule({ manifest: { id: "open", label: "Open", config: [{ key: "API_TOKEN" }] }, init() {} });
+  const guarded = defineModule({ manifest: { id: "guarded", label: "Guarded", config: [{ key: "API_TOKEN", secret: true }] }, init() {} });
+  const s = await start({ extra: [open, guarded], disabled: ["guarded"], env: { API_TOKEN: "env-token" } });
+  try {
+    const body = await (await s.j("/api/config")).text();
+    const e = (JSON.parse(body).entries as any[]).find((x) => x.key === "API_TOKEN");
+    assert.equal(e.secret, true);
+    assert.equal(e.status, "env");
+    assert.equal(e.value, undefined);
+    assert.ok(!body.includes("env-token"));
+  } finally {
+    await s.close();
+  }
+});
+
 test("no master key: secretsEnabled=false, plain PUT works, secret PUT answers 503", async () => {
   const s = await start({ masterKey: undefined, env: { JELLYFIN_URL: "http://env" } });
   try {
@@ -292,7 +343,7 @@ test("jobs API: listing, runs newest first, run now 202, conflict 409, unknown 4
   const store = new JobStore(db);
   const jobs = new Scheduler({ store, log: quiet, timezone: "Europe/Amsterdam", graceMs: 100 });
   const registry = new ToolRegistry(quiet);
-  const host = new ModuleHost(registry, { env: {}, log: quiet, enabled: "brain,broken", jobs: (id) => jobs.forOwner(id) });
+  const host = new ModuleHost(registry, { env: {}, log: quiet, enablement: new MemoryModuleEnablement(["off"]), jobs: (id) => jobs.forOwner(id) });
   let release: (() => void) | undefined;
   const brain = defineModule({
     manifest: { id: "brain", label: "Brain" },

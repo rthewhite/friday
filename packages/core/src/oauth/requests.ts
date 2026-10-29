@@ -7,7 +7,7 @@
 import { validateOAuthRequests, type ModuleManifest } from "@friday/sdk";
 import type { ModuleHost } from "../module-host.js";
 
-/** The manifests requests are read from: core's modules that FRIDAY_MODULES enables, failed ones included. */
+/** The manifests requests are read from: core's modules that are not disabled, failed ones included. */
 export const enabledManifests = (host: Pick<ModuleHost, "manifests">): ModuleManifest[] =>
   host.manifests().filter((e) => e.status !== "disabled").map((e) => e.manifest);
 
@@ -86,7 +86,7 @@ export class RequestSet {
 }
 
 export class OAuthRequests {
-  /** `manifests` lists core's modules in load order (after FRIDAY_MODULES), failed ones included. */
+  /** `manifests` lists core's modules in load order (disabled ones left out), failed ones included. */
   constructor(private readonly manifests: () => ModuleManifest[]) {}
 
   /** Read the manifests once; take one per call that asks several questions. */

@@ -12,6 +12,7 @@ import { DeviceSessions } from "./devices/sessions.js";
 import { DeviceLinks } from "./devices/links.js";
 import { databasePath, openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
+import { retiredModulesWarning, SqliteModuleEnablement } from "./storage/module-enablement.js";
 import { ConversationStore } from "./conversations/store.js";
 import { registerRetention } from "./conversations/retention.js";
 import { coreConfig, followTimezone } from "./core-config.js";
@@ -119,8 +120,10 @@ const oauthStore = new OAuthStore(db, masterKey);
 const oauthRequests = new OAuthRequests(() => enabledManifests(host));
 const publicUrl = () => coreKey("FRIDAY_PUBLIC_URL");
 const oauthTokens = new OAuthTokens({ store: oauthStore, requests: oauthRequests, redirectUri: (p) => redirectUri(publicBase(publicUrl()) ?? FALLBACK_BASE, p) });
+const retiredModules = retiredModulesWarning(process.env);
+if (retiredModules) console.warn(retiredModules);
 const host = new ModuleHost(registry, {
-  enabled: process.env.FRIDAY_MODULES,
+  enablement: new SqliteModuleEnablement(db),
   oauth: (id) => oauthTokens.forModule(id),
   resolve: createResolver(configStore, process.env),
   storage: (id) => new SqliteModuleStorage(db, id),

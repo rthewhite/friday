@@ -10,14 +10,15 @@ import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
 import { CORE_ID } from "../src/core-config.js";
+import { MemoryModuleEnablement } from "../src/storage/module-enablement.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
 
-async function start(enabled?: string, coreTools: string[] = []) {
+async function start(disabled: string[] = [], coreTools: string[] = []) {
   const registry = new ToolRegistry(quiet);
   // Tools core registers itself, as server.ts does for the timer tools.
   for (const name of coreTools) registry.add(CORE_ID, { name, description: "", channels: ["voice"], handler: () => ({}) });
-  const host = new ModuleHost(registry, { env: {}, log: quiet, enabled });
+  const host = new ModuleHost(registry, { env: {}, log: quiet, enablement: new MemoryModuleEnablement(disabled) });
   const builtin = defineModule({ manifest: { id: "builtin", label: "Builtin" }, init: (ctx) => void ctx.defineTool({ name: "get_current_time", description: "", handler: () => ({}) }) });
   const media = defineModule({
     manifest: { id: "media", label: "Media", ui: true, config: [{ key: "JELLYFIN_URL", required: true }] },
@@ -61,7 +62,7 @@ test("/api/modules reports loaded and failed modules with tools and ui flag", as
 
 test("core's own tools come first, as a built-in core entry, followed by the modules unchanged", async () => {
   const timers = ["set_timer", "set_alarm", "list_alerts", "change_alert", "cancel_alert", "snooze_alert"];
-  const s = await start(undefined, timers);
+  const s = await start([], timers);
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();
     assert.deepEqual(mods[0], { id: "core", label: "Core", description: "Built into Friday", status: "loaded", tools: timers, ui: false });
@@ -82,11 +83,65 @@ test("without tools owned by core there is no core entry", async () => {
   }
 });
 
-test("FRIDAY_MODULES=builtin shows media as disabled with no tools", async () => {
-  const s = await start("builtin");
+test("a disabled module is listed as disabled with no tools", async () => {
+  const s = await start(["media"]);
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();
     assert.deepEqual(mods[1], { id: "media", label: "Media", status: "disabled", tools: [], ui: true });
+  } finally {
+    await s.close();
+  }
+});
+
+test("PUT enabled: disable drops the tools, enable loads them, a failed enable reports the error", async () => {
+  const s = await start(["media"]);
+  const put = (id: string, body: unknown) => fetch(`${s.base}/api/modules/${encodeURIComponent(id)}/enabled`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const tools = async () => ((await (await fetch(`${s.base}/api/tools`)).json()) as { name: string }[]).map((t) => t.name);
+  try {
+    assert.ok((await tools()).includes("get_current_time"));
+    const off = await put("builtin", { enabled: false });
+    assert.equal(off.status, 200);
+    assert.deepEqual(await off.json(), { id: "builtin", label: "Builtin", status: "disabled", tools: [], ui: false });
+    assert.equal((await tools()).includes("get_current_time"), false);
+
+    const on = await put("builtin", { enabled: true });
+    assert.equal(on.status, 200);
+    assert.deepEqual(await on.json(), { id: "builtin", label: "Builtin", status: "loaded", tools: ["get_current_time"], ui: false });
+
+    const failed = await put("media", { enabled: true });
+    assert.equal(failed.status, 200);
+    const entry = await failed.json();
+    assert.equal(entry.status, "failed");
+    assert.match(entry.error, /JELLYFIN_URL/);
+  } finally {
+    await s.close();
+  }
+});
+
+test("PUT enabled: a body that is not a boolean is 400 and changes nothing; other kinds and unknown ids are 404", async () => {
+  const s = await start();
+  const put = (id: string, body: string) => fetch(`${s.base}/api/modules/${encodeURIComponent(id)}/enabled`, { method: "PUT", headers: { "content-type": "application/json" }, body });
+  try {
+    assert.equal((await put("builtin", JSON.stringify({ enabled: "no" }))).status, 400);
+    assert.equal((await put("builtin", "{")).status, 400);
+    assert.equal((await put("builtin", "{}")).status, 400);
+    const mods = await (await fetch(`${s.base}/api/modules`)).json();
+    assert.equal(mods.find((m: { id: string }) => m.id === "builtin").status, "loaded");
+    for (const id of ["core", "mcp:home", "nope"]) assert.equal((await put(id, JSON.stringify({ enabled: false }))).status, 404, id);
+  } finally {
+    await s.close();
+  }
+});
+
+test("reloading a disabled module is 409 and it stays disabled", async () => {
+  const s = await start(["media"]);
+  try {
+    const res = await fetch(`${s.base}/api/modules/media/reload`, { method: "POST" });
+    assert.equal(res.status, 409);
+    assert.match((await res.json()).error, /disabled/);
+    const mods = await (await fetch(`${s.base}/api/modules`)).json();
+    assert.equal(mods.find((m: { id: string }) => m.id === "media").status, "disabled");
+    assert.equal((await fetch(`${s.base}/api/modules/nope/reload`, { method: "POST" })).status, 404);
   } finally {
     await s.close();
   }

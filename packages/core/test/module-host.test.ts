@@ -16,6 +16,7 @@ import { OAuthError } from "@friday/sdk";
 import { OAuthStore } from "../src/oauth/store.js";
 import { enabledManifests, OAuthRequests } from "../src/oauth/requests.js";
 import { OAuthTokens } from "../src/oauth/tokens.js";
+import { MemoryModuleEnablement, SqliteModuleEnablement } from "../src/storage/module-enablement.js";
 
 function logger() {
   const lines: string[] = [];
@@ -59,15 +60,43 @@ test("default: every module loads in order and is logged with its tools", async 
   assert.deepEqual(lines, ["log module a: a1", "log module b: b1"]);
 });
 
-test("FRIDAY_MODULES subset disables others and warns about unknown ids", async () => {
-  const { lines, log } = logger();
+test("a fresh database enables every module, in order", async (t) => {
+  const { log } = logger();
+  const dir = mkdtempSync(join(tmpdir(), "friday-host-"));
+  const db = openDatabase(dir, "friday.db", { log() {} });
+  t.after(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
   const r = new ToolRegistry(log);
-  const h = new ModuleHost(r, { env: {}, log, enabled: "a, nope" });
+  const h = new ModuleHost(r, { env: { B_KEY: "x" }, log, enablement: new SqliteModuleEnablement(db) });
   await h.load([a, b]);
-  assert.deepEqual(r.names(), ["a1"]);
-  assert.equal(h.loaded()[1].status, "disabled");
-  assert.deepEqual(h.loaded()[1].tools, []);
-  assert.ok(lines.some((l) => l.startsWith("warn") && l.includes('"nope"')));
+  assert.deepEqual(r.names(), ["a1", "b1"]);
+  assert.deepEqual(h.loaded().map((e) => e.status), ["loaded", "loaded"]);
+});
+
+test("a module switched off earlier stays off after a restart; the others and a module added later load", async (t) => {
+  const { log } = logger();
+  const dir = mkdtempSync(join(tmpdir(), "friday-host-"));
+  const db = openDatabase(dir, "friday.db", { log() {} });
+  t.after(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+  const first = new ModuleHost(new ToolRegistry(log), { env: { B_KEY: "x" }, log, enablement: new SqliteModuleEnablement(db) });
+  await first.load([a, b]);
+  await first.setEnabled("b", false);
+  await first.dispose();
+
+  const later = defineModule({ manifest: { id: "later", label: "Later" }, init(ctx) { ctx.defineTool({ name: "l1", description: "", handler: () => ({}) }); } });
+  const r = new ToolRegistry(log);
+  const h = new ModuleHost(r, { env: { B_KEY: "x" }, log, enablement: new SqliteModuleEnablement(db) });
+  await h.load([a, b, later]);
+  assert.deepEqual(r.names(), ["a1", "l1"]);
+  assert.deepEqual(h.loaded().map((e) => [e.id, e.status, e.tools]), [["a", "loaded", ["a1"]], ["b", "disabled", []], ["later", "loaded", ["l1"]]]);
+});
+
+test("a disabled module is not initialized and runs no migrations", async () => {
+  let initialized = false;
+  const m = defineModule({ manifest: { id: "m", label: "M" }, migrations: [{ version: 1, name: "x", up: "CREATE TABLE m__x (a)" }], init() { initialized = true; } });
+  const h = new ModuleHost(new ToolRegistry(logger().log), { env: {}, log: logger().log, enablement: new MemoryModuleEnablement(["m"]) });
+  await h.load([m]);
+  assert.equal(initialized, false);
+  assert.equal(h.loaded()[0].status, "disabled", "no database is needed for a module that never starts");
 });
 
 test("missing required config fails only that module", async () => {
@@ -317,9 +346,9 @@ test("a granted in-process module gets the token through ctx.oauth; a revoke app
   const other = defineModule({ manifest: { id: "other", label: "Other" }, init() {} });
   let host!: ModuleHost;
   const tokens = new OAuthTokens({ store, requests: new OAuthRequests(() => enabledManifests(host)), redirectUri: () => "https://friday.example/cb" });
-  host = new ModuleHost(new ToolRegistry(logger().log), { log: logger().log, oauth: (id) => tokens.forModule(id), enabled: "music" });
+  host = new ModuleHost(new ToolRegistry(logger().log), { log: logger().log, oauth: (id) => tokens.forModule(id), enablement: new MemoryModuleEnablement(["other"]) });
   await host.load([music, other]);
-  assert.deepEqual(enabledManifests(host).map((m) => m.id), ["music"], "modules FRIDAY_MODULES leaves out are not listed");
+  assert.deepEqual(enabledManifests(host).map((m) => m.id), ["music"], "disabled modules are not listed");
 
   await assert.rejects(ctx!.oauth.token("spotify"), (e) => e instanceof OAuthError && e.kind === "not_connected", "loaded before Spotify is set up");
   store.upsert({ provider: "spotify", clientId: "id", clientSecret: "s" });

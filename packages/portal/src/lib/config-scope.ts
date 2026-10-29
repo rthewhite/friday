@@ -2,8 +2,8 @@
 export interface ScopeEntry {
   /** The scope the listing shows for the key (where the winning stored value is), if any. */
   scope?: string;
-  /** Requesters of the key: modules and `core`. */
-  modules: { id: string }[];
+  /** Requesters of the key: modules and `core`; `disabled` for modules an admin turned off. */
+  modules: { id: string; disabled?: boolean }[];
   /** Secret values are never listed, so their copies can't be compared. */
   secret?: boolean;
   /** The value the drawer shows (plain entries): the one stored in `scope`. */
@@ -18,11 +18,14 @@ export type ScopeWrite = { scope: string; value: string } | { scope: string; fro
 /**
  * The scope for a key with nothing stored (or the scope its value is stored in): the only requester when
  * exactly one declares it, otherwise global, so a key several requesters share
- * (FRIDAY_TIMEZONE: core, builtin, brain, travel) is saved for all of them by default.
+ * (FRIDAY_TIMEZONE: core, builtin, brain, travel) is saved for all of them by default. Disabled requesters count
+ * only when no active one declares the key, so a key a disabled module shares doesn't go global because of it.
  */
-export function defaultScope(entry: { scope?: string; modules: { id: string }[] }): string {
+export function defaultScope(entry: { scope?: string; modules: { id: string; disabled?: boolean }[] }): string {
   if (entry.scope) return entry.scope;
-  return entry.modules.length === 1 ? entry.modules[0]!.id : "global";
+  const active = entry.modules.filter((m) => !m.disabled);
+  const pool = active.length ? active : entry.modules;
+  return pool.length === 1 ? pool[0]!.id : "global";
 }
 
 /**
@@ -38,6 +41,15 @@ export function defaultScopes(entry: ScopeEntry): string[] {
   if (own.length) return own;
   if (stored.has("global")) return ["global"];
   return [defaultScope({ modules: entry.modules })];
+}
+
+/**
+ * The modules `Save and reload` reloads: those that get a write. Global and core are not modules, and a disabled
+ * module is not reloaded (it reads the value once turned on).
+ */
+export function reloadTargets(writes: readonly { scope: string }[], modules: readonly { id: string; disabled?: boolean }[]): string[] {
+  const off = new Set(modules.filter((m) => m.disabled).map((m) => m.id));
+  return writes.map((w) => w.scope).filter((s) => s !== "global" && s !== "core" && !off.has(s));
 }
 
 /** Toggle one scope; global and the requesters exclude each other. The result follows the order of `options`. */

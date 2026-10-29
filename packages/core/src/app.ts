@@ -125,11 +125,14 @@ export interface ConfigEntry {
   key: string;
   /** Declared secret by any module, or stored as secret. Secret entries never carry `value`. */
   secret: boolean;
-  /** True when any requesting module requires the key. */
+  /** True when any requesting module that is not disabled requires the key. */
   required: boolean;
   description?: string;
-  /** Modules that declare this key. Empty for undeclared global values. */
-  modules: { id: string; required: boolean }[];
+  /**
+   * Modules (and core) that declare this key, `disabled` for modules an admin turned off. Empty for undeclared global
+   * values. A key only disabled modules declare is listed only while a value is stored for it.
+   */
+  modules: { id: string; required: boolean; disabled?: true }[];
   status: "set" | "pending" | "env";
   scope?: string;
   updatedAt?: string;
@@ -148,30 +151,41 @@ export interface StoredScope {
 
 const scopeOrder = (s: string) => (s === GLOBAL_SCOPE ? 0 : s === CORE_ID ? 1 : 2);
 
-/** Everything that declares configuration: core itself, then every known module. */
-const requesters = (host: ModuleHost) => [{ manifest: coreManifest }, ...host.manifests()];
+/** Everything that declares configuration: core itself, then every known module, disabled ones included. */
+const requesters = (host: ModuleHost) => [{ manifest: coreManifest, status: "loaded" as const }, ...host.manifests()];
 
-/** True when core or any module declares this key as a secret. */
+/** True when core or any module, even a disabled one, declares this key as a secret. */
 export function isDeclaredSecret(host: ModuleHost, key: string): boolean {
   return requesters(host).some(({ manifest }) => manifest.config?.some((c) => c.key === key && c.secret === true));
 }
 
-/** One entry per key: declared keys aggregated across core and modules, then stored global values nothing declares. */
+/**
+ * One entry per key: declared keys aggregated across core and every module, disabled ones marked (a key only they
+ * declare is left out unless a value is stored for it, so it can still be seen and cleared); then stored global
+ * values nothing declares.
+ */
 export function configListing({ host, configStore, env = process.env }: Pick<AppDeps, "host" | "configStore" | "env">): ConfigEntry[] {
   const byKey = new Map<string, ConfigEntry>();
-  for (const { manifest } of requesters(host)) {
+  for (const { manifest, status } of requesters(host)) {
+    const disabled = status === "disabled";
     for (const c of manifest.config ?? []) {
       const e = byKey.get(c.key) ?? { key: c.key, secret: false, required: false, modules: [], status: "pending" as const };
-      e.modules.push({ id: manifest.id, required: c.required === true });
-      e.required ||= c.required === true;
+      e.modules.push({ id: manifest.id, required: c.required === true, ...(disabled ? { disabled: true as const } : {}) });
+      if (!disabled) e.required ||= c.required === true;
       e.secret ||= c.secret === true;
       e.description ??= c.description;
       byKey.set(c.key, e);
     }
   }
+  const rows = configStore?.keys() ?? [];
+  const storedKeys = new Set(rows.map((r) => r.key));
+  for (const [key, e] of byKey) {
+    if (e.modules.every((m) => m.disabled) && !storedKeys.has(key)) byKey.delete(key);
+  }
   for (const e of byKey.values()) {
-    // First requester whose scope (or global) has a stored value wins; otherwise env; otherwise pending.
-    for (const m of e.modules) {
+    // First requester whose scope (or global) has a stored value wins, active ones before disabled ones; otherwise
+    // env; otherwise pending.
+    for (const m of [...e.modules.filter((x) => !x.disabled), ...e.modules.filter((x) => x.disabled)]) {
       const st = statusOf(configStore, env, m.id, e.key);
       if (st.status === "set") { Object.assign(e, st); break; }
       if (st.status === "env") e.status = "env";
@@ -185,7 +199,6 @@ export function configListing({ host, configStore, env = process.env }: Pick<App
       if (value !== undefined) e.value = value;
     }
   }
-  const rows = configStore?.keys() ?? [];
   for (const { scope, key, secret, updatedAt } of rows) {
     if (scope !== GLOBAL_SCOPE || byKey.has(key)) continue;
     const e: ConfigEntry = { key, secret, required: false, modules: [], status: "set", scope: GLOBAL_SCOPE, updatedAt };
@@ -303,6 +316,19 @@ export function createApp(deps: AppDeps) {
     .add("POST", "/api/modules/:id/reload", async (_req, res, { id }) => {
       const entry = await deps.host.reload(id);
       if (!entry) return sendJson(res, { error: `no reloadable in-process module "${id}"` }, 404);
+      if (entry.status === "disabled") return sendJson(res, { error: `module "${id}" is disabled; enable it to load it` }, 409);
+      sendJson(res, entry);
+    })
+    .add("PUT", "/api/modules/:id/enabled", async (req, res, { id }) => {
+      let body: { enabled?: unknown };
+      try {
+        body = JSON.parse((await readBody(req)) || "{}");
+      } catch {
+        return sendJson(res, { error: "invalid JSON" }, 400);
+      }
+      if (typeof body?.enabled !== "boolean") return sendJson(res, { error: "enabled must be true or false" }, 400);
+      const entry = await deps.host.setEnabled(id, body.enabled);
+      if (!entry) return sendJson(res, { error: `no in-process module "${id}"` }, 404);
       sendJson(res, entry);
     })
     .add("GET", "/api/config", (_req, res) => sendJson(res, { secretsEnabled: deps.configStore?.secretsEnabled === true, entries: configListing(deps) }))

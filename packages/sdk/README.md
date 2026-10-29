@@ -389,4 +389,4 @@ What happens: the runner calls `init` once against a local registry, sends `hell
 
 ## Hosting
 
-Core's `ModuleHost` loads modules from a static list (`packages/core/src/modules.ts`), filtered by `FRIDAY_MODULES`. `ToolRegistry` is owner-tagged: `add(owner, tool)`, `removeOwner(owner)`, `declarations()` (a snapshot each voice session takes when it opens), `callTool(name, args)`, `onChange(listener)`, `list()`. The same contract will later be served by a remote runner, so keep modules free of Node-server assumptions.
+Core's `ModuleHost` loads modules from a static list (`packages/core/src/modules.ts`), leaving out the ones an admin turned off (stored in `friday.db`; a module can be turned on or off while Friday runs). `ToolRegistry` is owner-tagged: `add(owner, tool)`, `removeOwner(owner)`, `declarations()` (a snapshot each voice session takes when it opens), `callTool(name, args)`, `onChange(listener)`, `list()`. The same contract will later be served by a remote runner, so keep modules free of Node-server assumptions.
