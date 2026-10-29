@@ -47,5 +47,5 @@ Tables that in-process modules create through their migrations (as specified in 
 - **THEN** its tables and rows are still present, and on startup no migration runs for `brain`
 
 #### Scenario: Module disabled
-- **WHEN** `FRIDAY_MODULES` no longer includes `brain`
+- **WHEN** `brain` is disabled on the Modules page
 - **THEN** its tables and schema version stay in `friday.db`, and enabling it again resumes from that version
