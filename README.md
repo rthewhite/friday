@@ -46,7 +46,7 @@ pnpm dev                  # core on :8080 (tsx watch) + Vite dev server on http:
 
 `pnpm dev` builds the workspace first, then runs core and the portal's Vite server side by side. Vite proxies `/api`, `/auth`, `/health` and `/ws` to core, so open http://localhost:5173. Without `FRIDAY_AUTH_ISSUER` there is no login: requests from this machine are the dev user `Dev` (an admin), and anything else on the network gets 401 (see [Users and login](#users-and-login)). For a production-like run, `pnpm build && pnpm start` serves the built portal from core on :8080.
 
-`pnpm test` builds everything and runs every package's tests. `FRIDAY_MODULES=builtin,media` narrows which in-process modules load; `GET /api/modules` shows each module's status and tools, starting with a `core` entry for the tools built into core itself (the timer and alarm tools).
+`pnpm test` builds everything and runs every package's tests. Every in-process module loads unless an admin turned it off under System > Modules (see [Turning modules on and off](#turning-modules-on-and-off)); `GET /api/modules` shows each module's status and tools, starting with a `core` entry for the tools built into core itself (the timer and alarm tools).
 
 Browsers only allow the microphone on `localhost` or HTTPS.
 
@@ -163,7 +163,7 @@ A statement that touches anything outside the module's `pantry__` prefix (core's
 
 ## Portal
 
-The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), an `Agents` page (see [Agents](#agents)), a `Modules` page (everything `/api/modules` reports, with status and tools; core's own tools are the *Core* row, kind *core*), and one page per module that ships a UI. Design tokens and base components live in `@friday/portal-ui`. Pages are loaded on first use. A tab left open across a deploy reloads itself, once, when it next opens a page whose code the deploy replaced (`src/lib/stale-chunks.ts`).
+The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), an `Agents` page (see [Agents](#agents)), and one page per module that ships a UI. The `Modules` page sits under System, with the other admin pages, at `/settings/modules` (`/modules` redirects there). It lists everything `/api/modules` reports, with status and tools (core's own tools are the *Core* row, kind *core*), and has a switch per in-process module (see [Turning modules on and off](#turning-modules-on-and-off)). Design tokens and base components live in `@friday/portal-ui`. Pages are loaded on first use. A tab left open across a deploy reloads itself, once, when it next opens a page whose code the deploy replaced (`src/lib/stale-chunks.ts`).
 
 ### Add a module UI
 
@@ -311,7 +311,13 @@ The fixed prompt (`prompts` in `packages/core/src/config.ts`) tells Friday that 
 
 Modules can also add context to Friday's system prompts (`ctx.prompt.addContext`). The voice prompt is built when a session opens and kept for that session; the chat prompt is built when each turn starts. Module context follows the fixed prompt in module load order, and each module's contribution is cut to `FRIDAY_PROMPT_CONTEXT_MAX_CHARS` (default `12000`) characters.
 
-The Modules page has a `Reload` button per in-process module, and `POST /api/modules/<id>/reload` does the same over HTTP. See `infra/README.md` for generating the master key and what happens if it is lost.
+The Modules page (System > Modules) has a `Reload` button per in-process module, and `POST /api/modules/<id>/reload` does the same over HTTP. See `infra/README.md` for generating the master key and what happens if it is lost.
+
+### Turning modules on and off
+
+Not every module applies to every Friday: one without Sonos speakers has no use for `sonos`. An admin turns an in-process module off with its switch on System > Modules, or with `PUT /api/modules/<id>/enabled` and `{ "enabled": false }`. The choice is stored in `friday.db` and kept across restarts; there is no environment variable for it (a leftover `FRIDAY_MODULES` is ignored, with a warning at startup). A module nobody turned off is on, so a new install and a module added in a later release start enabled.
+
+Turning a module off stops it the way a reload does: its tools, routes, pages, jobs and prompt context go, and a job that is running is cancelled. A voice session that is already open keeps the tool list it started with and gets `unknown tool` if it calls one of them. Its data, stored configuration and OAuth grants are kept. Its configuration keys drop out of Settings > Configuration unless another module or core declares them too; values stored for it stay listed there, so they can still be cleared. Turning it on again starts it the way startup does: the configuration check, any pending migrations, then `init`. A disabled module can't be reloaded (409). Core, MCP servers (which have their own switch) and remote modules can't be turned off here.
 
 ## Background jobs
 
@@ -455,7 +461,7 @@ The stream URL embeds the Jellyfin API key, so keep this on your LAN.
 
 Speakers are named by room ("Bedroom"), name or entity id, matched without regard to case or punctuation. A room means every Sonos speaker in it that is online (an offline one doesn't block the rest), accents don't matter ("Kuche" finds "Küche"), and a voice device's own area works too, so "play this here" needs no list call first. The speaker list is read from Home Assistant on every call with one template request (`POST /api/template`), so groups and states are never stale. Only `media_player` entities of the `sonos` integration count: Home Assistant group entities and Sonos devices from other integrations are left out. Successful actions are `SILENT`, so Friday doesn't talk over the music.
 
-Setup: the Sonos integration in Home Assistant, with each speaker in its area. The module uses the same `HA_URL` and `HA_TOKEN` as `media`. Store them for both `media` and `sonos` (Settings > Configuration: tick both; when they're already stored for `media`, tick `sonos`, leave the value empty and save to copy them), or globally, or in the environment. The module is `failed` until both are set; leave it out with `FRIDAY_MODULES` if you don't want it. There is no Spotify search here: the model passes URIs it has, typically from [`search_spotify`](#spotify) or `list_spotify_playlists`.
+Setup: the Sonos integration in Home Assistant, with each speaker in its area. The module uses the same `HA_URL` and `HA_TOKEN` as `media`. Store them for both `media` and `sonos` (Settings > Configuration: tick both; when they're already stored for `media`, tick `sonos`, leave the value empty and save to copy them), or globally, or in the environment. The module is `failed` until both are set; turn it off under System > Modules if you don't want it. There is no Spotify search here: the model passes URIs it has, typically from [`search_spotify`](#spotify) or `list_spotify_playlists`.
 
 ## Travel time (TomTom)
 
@@ -466,7 +472,7 @@ Setup: the Sonos integration in Home Assistant, with each speaker in its area. T
 - The result has `durationText` ("1 hour 12 min") for Friday to read out, plus seconds, distance, traffic delay, and departure and arrival times.
 - Place lookups are cached for 24 hours (a lookup that found nothing for 10 minutes); routes never are.
 
-Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; leave it out with `FRIDAY_MODULES` if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
+Setup: create a key at [developer.tomtom.com](https://developer.tomtom.com) with the **Routing** and **Places Search** products enabled (they are separate entitlements), and set `TOMTOM_API_KEY` in Settings > Configuration, then reload the `travel` module once. Changing the key later needs no reload; the next call uses it. A key without the right entitlement fails with TomTom's own "not allowed to access this endpoint" message, which is not the same as a wrong key. The module is `failed` until the key is set; turn it off under System > Modules if you don't want it. The key is sent as a query parameter (TomTom requires it) and is never logged.
 
 ## Spotify
 
@@ -493,7 +499,7 @@ iCloud setup:
 2. At [account.apple.com](https://account.apple.com), go to **Sign-In and Security > App-Specific Passwords**, add one called "Friday", and copy it (`abcd-efgh-ijkl-mnop`; it is shown once).
 3. In Settings > Configuration, set `ICLOUD_USERNAME` to your Apple ID email and `ICLOUD_APP_PASSWORD` to that password, then reload the `calendar` module once.
 
-Your normal Apple ID password does not work here; iCloud only accepts app-specific passwords for CalDAV. The password also opens mail and contacts over IMAP and CardDAV, so it is stored as a secret (encrypted, write-only), only ever sent to `*.icloud.com`, and never logged. Revoke it on its own by deleting "Friday" on the same page; changing your Apple ID password revokes every app-specific password at once. A rejected password makes the tools say so and point back here. A new one saved in the portal is used from the next request, without a reload. The module is `failed` until both keys of iCloud or of the intake are set; leave it out with `FRIDAY_MODULES` if you don't want it.
+Your normal Apple ID password does not work here; iCloud only accepts app-specific passwords for CalDAV. The password also opens mail and contacts over IMAP and CardDAV, so it is stored as a secret (encrypted, write-only), only ever sent to `*.icloud.com`, and never logged. Revoke it on its own by deleting "Friday" on the same page; changing your Apple ID password revokes every app-specific password at once. A rejected password makes the tools say so and point back here. A new one saved in the portal is used from the next request, without a reload. The module is `failed` until both keys of iCloud or of the intake are set; turn it off under System > Modules if you don't want it.
 
 ### Work calendar (Outlook, read-only)
 

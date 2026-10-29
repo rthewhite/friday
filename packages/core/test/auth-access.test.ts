@@ -36,6 +36,7 @@ const ADMIN_ONLY: [string, string][] = [
   ["GET", "/api/users"],
   ["POST", "/api/users/x/disable"],
   ["POST", "/api/modules/media/reload"],
+  ["PUT", "/api/modules/media/enabled"],
   ["GET", "/api//config"],
   ["GET", "/api/config/"],
   ["GET", "/api/future-route-under/../config"],
@@ -51,10 +52,11 @@ const ANY_USER: [string, string][] = [
   ["POST", "/api/chat"],
   ["GET", "/api/modules/brain/pages"],
   ["GET", "/api/modules/media/reload"],
+  ["GET", "/api/modules/media/enabled"],
   ["GET", "/api/nope"],
 ];
 
-test("path rules: admin areas by segment, reload only as POST", () => {
+test("path rules: admin areas by segment, reload only as POST, enabled only as PUT", () => {
   for (const [m, p] of ADMIN_ONLY) assert.ok(adminOnly(m, new URL(p, "http://x").pathname), `${m} ${p}`);
   for (const [m, p] of ANY_USER) assert.ok(!adminOnly(m, p), `${m} ${p}`);
   assert.ok(isApiPath("/api") && isApiPath("/api/x") && isApiPath("//api/x"));

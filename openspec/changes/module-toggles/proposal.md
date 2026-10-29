@@ -28,6 +28,7 @@ None.
 - `oauth-connections`: a disabled module's OAuth requests disappear, as a removed module's do.
 - `platform-storage`: the "module disabled" scenario no longer refers to `FRIDAY_MODULES`.
 - `portal-shell`: Modules moves into the System section with an enable/disable switch, and the Modules section holds only module UIs.
+- `user-auth`: `PUT /api/modules/:id/enabled` is admin-only, like module reload. `GET /api/modules` stays open to members. Added at apply time, once `auth-users` had landed on `main`.
 
 ## Impact
 
