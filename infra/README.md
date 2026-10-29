@@ -43,21 +43,6 @@ printf 'friday' | gh secret set HOMELAB_REGISTRY_USER --repo $R
 printf '%s' "$PW" | gh secret set HOMELAB_REGISTRY_PASSWORD --repo $R
 ```
 
-For the weekly live checks (`.github/workflows/live-checks.yml`), add a Gemini
-key as well:
-
-```bash
-gh secret set GEMINI_API_KEY --repo $R    # paste the key when asked
-```
-
-That workflow runs every Monday at 06:00 UTC, and by hand with
-`gh workflow run live-checks.yml`. GitHub only schedules workflows on the
-default branch. It runs core's live tests and the brain eval against the real
-model, with `FRIDAY_TEXT_MODEL` at its default, the moving `gemini-flash-latest`
-alias. It builds, pushes and deploys nothing. Without the secret it fails with
-a message naming it. A failed run means the model's behaviour changed or one
-answer was bad: run it again by hand before treating it as drift.
-
 ## 3. Application secrets in the cluster (by hand, admin kubeconfig)
 
 `friday-secrets` is loaded with `envFrom`. Only `FRIDAY_MASTER_KEY` has to be in

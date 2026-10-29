@@ -118,16 +118,16 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 
 **Alternative considered:** move all portal tests to vitest. That churns 51 working tests for nothing. Two runners, one script, is explicit.
 
-### 6. Live checks: a separate weekly workflow that refuses to run without the key
+### 6. Live checks: a local command that refuses to run without the key, never in CI
 
-`.github/workflows/live-checks.yml` runs on `schedule: cron "0 6 * * 1"` (Monday 06:00 UTC) and on `workflow_dispatch`, on the homelab runner. Its steps:
+The live checks are run by hand, for example after Google moves `gemini-flash-latest`:
 
-1. Fail at once with `GEMINI_API_KEY secret is not set` if the secret is empty.
-2. Install and build.
-3. `pnpm --filter @friday/core test:live`. That runs `packages/core/scripts/test-live.ts`, which loads `.env` (so the key check also works locally), then spawns `node --import tsx --test --test-name-pattern="^live: " test/*.test.ts` with `FRIDAY_LIVE_TESTS=1`. It exits 2 without `GEMINI_API_KEY`, and it also fails if no test ran, so a renamed test can't turn the run green by matching nothing.
-4. `pnpm --filter @friday/module-brain eval`.
+1. `pnpm --filter @friday/core test:live`. That runs `packages/core/scripts/test-live.ts`, which loads `.env` (so the key check also works locally), then spawns `node --import tsx --test --test-name-pattern="^live: " test/*.test.ts` with `FRIDAY_LIVE_TESTS=1`. It exits 2 without `GEMINI_API_KEY`, and it also fails if no test ran, so a renamed test can't turn the run green by matching nothing.
+2. `pnpm --filter @friday/module-brain eval`.
 
-Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the default alias, which is the point. The workflow has no build or deploy steps and doesn't write to the registry. A failed run is signalled through GitHub's standard failure notification.
+Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the default alias, which is the point.
+
+**Alternative considered:** a weekly `live-checks.yml` workflow with a `GEMINI_API_KEY` repository secret. It was built and then removed at the user's request: CI should not spend money on model calls, and drift in the alias is noticed in use anyway.
 
 ### 7. Coverage: c8 with `--all`, report only
 
@@ -164,13 +164,11 @@ A wait that tests a real timeout stays, with a comment saying why.
 - **[Self-hosted runner lacks `c++`]** → The first task checks it. Installing a compiler on the runner is a manual homelab step for the user.
 - **[Placeholder config drifts]** A new module with required keys fails the boot check until `smoke.env` is updated. That's intended (see the spec scenario), and the failure names the module and the key.
 - **[Boot check reaches the network]** Modules with placeholders may try their hosts at startup, for example calendar's refresh job. → Only `.invalid` hosts are used, which fail in DNS without leaving the runner. No real credentials, and no iCloud keys.
-- **[Weekly live run is flaky by nature]** One bad sample from the model fails the run. → Accepted: it's a signal, not a gate. Re-running by hand distinguishes noise from drift.
-- **[Live checks cost money]** About 16 eval fixtures × a few calls, plus 3 live tests, once a week, on the Flash tier. That's negligible.
+- **[Model drift goes unnoticed]** With no scheduled run, a change behind `gemini-flash-latest` shows up only in use or when someone runs the checks. → Accepted: the user prefers no model spend in CI. A live run is flaky by nature anyway (one bad sample fails it), so it was a signal, not a gate.
 - **[Firmware refactor regresses a device]** → It's behaviour-preserving, with host tests first. `esphome config` and a compile for both YAMLs run locally, and a device check at home (onboarding, a voice turn with barge-in, a timer that rings and is acknowledged) happens before archiving.
 - **[Two test runners in the portal]** → Kept apart by folder and `include`. The README's testing section says which goes where.
 
 ## Migration Plan
 
 1. Merge on `main`. The first push runs the new `test` step (firmware) and the boot check before the push. If the boot check blocks a deploy, `smoke.sh` reproduces it locally against the same tag.
-2. Before the first weekly run, the user adds the `GEMINI_API_KEY` repository secret (documented in `infra/README.md`). Until then the live workflow fails, naming the secret, and nothing else is affected.
-3. Rollback: revert the merge. No data, migrations or runtime behaviour change.
+2. Rollback: revert the merge. No data, migrations or runtime behaviour change.

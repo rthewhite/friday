@@ -86,18 +86,11 @@
 - [x] 6.4 In `deploy.yml`'s `build` job, replace `buildx build --push` with three steps: `buildx build --load --tag "$IMAGE:$GITHUB_SHA"`, then `scripts/smoke.sh "$IMAGE:$GITHUB_SHA"`, then `docker push "$IMAGE:$GITHUB_SHA"`, keeping the registry login and logout. Verify with `actionlint` and by reading the job: push comes after the check, and no `--push` remains.
 - [x] 6.5 Document the boot check and the `gcc` image in `infra/README.md`. Update `openspec/config.yaml`'s context: the firmware tests and the boot check run in CI. Verify that `openspec validate test-gaps --strict` passes.
 
-## 7. Weekly live checks
+## 7. Live checks
 
 - [x] 7.1 Add `test:live` to `packages/core`. It runs the live tests with `FRIDAY_LIVE_TESTS=1` and `--test-name-pattern="^live: "`, fails without `GEMINI_API_KEY`, and fails when no test passed, so a rename can't make it pass by matching nothing. Verify that without the key it exits non-zero with a message naming `GEMINI_API_KEY`. With the key from `.env`, verify it runs and passes the 3 live tests.
-- [x] 7.2 Add `.github/workflows/live-checks.yml` as in design decision 6:
-  - `schedule` at `0 6 * * 1` and `workflow_dispatch`, on the homelab runner
-  - a first step that fails when `secrets.GEMINI_API_KEY` is empty
-  - install and build
-  - `pnpm --filter @friday/core test:live`, then `pnpm --filter @friday/module-brain eval`
-  - no registry or kube steps
-
-  Verify with `actionlint` and that the file has no `docker`, `kubectl` or registry secret references.
-- [x] 7.3 Document the `GEMINI_API_KEY` repository secret and the weekly run in `infra/README.md`, and add the live checks to the README's Testing section. Verify that the documented commands run as written.
+- [x] 7.2 Keep the live checks out of CI, as in design decision 6. (A weekly `live-checks.yml` workflow was added first and removed after review at the user's request: no model spend in CI.) Verify that no workflow in `.github/workflows/` runs `test:live`, `FRIDAY_LIVE_TESTS` or the brain eval, and that none references a Gemini secret.
+- [x] 7.3 Add the live checks to the README's Testing section as commands to run by hand. Verify that the documented commands run as written.
 
 ## 8. Portal tests
 
@@ -124,5 +117,4 @@
 
 - [x] 9.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`, `esphome/test/run.sh`, and `scripts/smoke.sh` against a freshly built local image. Verify all are green.
 - [ ] 9.2 With the user's approval, push the branch: a branch push builds an image, which now has to pass the boot check before it is pushed. Verify in the Actions run that `test` (with the firmware step) and the boot check pass and the image is pushed after it.
-- [ ] 9.3 Needs the user: add the `GEMINI_API_KEY` repository secret and start `live-checks` by hand (`gh workflow run live-checks.yml`). Verify that the run passes, or that its failures are real model drift recorded as follow-ups.
-- [ ] 9.4 Needs the user, at home: flash the firmware built from this branch to the Voice PE (OTA) and the reSpeaker. Check that onboarding still shows the same fingerprint, that a voice turn with barge-in works, and that a timer rings and is acknowledged. Verify by the user confirming each.
+- [ ] 9.3 Needs the user, at home: flash the firmware built from this branch to the Voice PE (OTA) and the reSpeaker. Check that onboarding still shows the same fingerprint, that a voice turn with barge-in works, and that a timer rings and is acknowledged. Verify by the user confirming each.

@@ -84,7 +84,7 @@ pnpm --filter @friday/core test:live      # core's live Gemini tests; fails with
 pnpm --filter @friday/module-brain eval   # the brain's nightly-pass fixtures (see Memory)
 ```
 
-CI runs both every Monday (`.github/workflows/live-checks.yml`), because the default `gemini-flash-latest` alias moves to newer models without a commit here. See `infra/README.md` for its secret.
+CI never runs them. Run both by hand when the model may have changed: the default `gemini-flash-latest` alias moves to newer models without a commit here.
 
 **Before an image is pushed**, CI starts it and checks that it serves and loads every module (`scripts/smoke.sh`, see `infra/README.md`). To run that check locally: `docker build -t friday:smoke . && scripts/smoke.sh friday:smoke`.
 

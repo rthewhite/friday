@@ -1,7 +1,7 @@
 /**
  * Runs core's live tests (named `live: ...`) against the real Gemini API: `pnpm --filter @friday/core test:live`.
  * Unlike `pnpm test`, which skips them, this fails without GEMINI_API_KEY (environment or packages/core/.env), and
- * fails when no live test passed, so a renamed test can't turn the weekly run green by matching nothing.
+ * fails when no live test passed, so a renamed test can't turn the run green by matching nothing. CI never runs this.
  */
 import "dotenv/config";
 import { spawnSync } from "node:child_process";
