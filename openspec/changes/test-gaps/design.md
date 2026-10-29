@@ -106,7 +106,7 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 - `AgentEditor.vue` already has `lib/agents.ts`.
 
 **Composables.** They are plain Vue reactivity and run under `node:test` with fakes on `globalThis`:
-- `useChatStream`: a fake `fetch` returning a streamed `Response`, covering text deltas, tool events, the conversation id from `start`, a 4xx, a broken stream, and abort.
+- `useChatStream`: a fake `fetch` returning a streamed `Response`, covering text deltas, tool events, the conversation id from `start`, a 4xx, a broken stream, and a request that fails on the network. The composable has no abort, so there is nothing to test there.
 - `useVoiceSession`: fake `WebSocket`, `AudioContext`, `AudioWorkletNode` and `navigator.mediaDevices`, covering connecting to live, transcript entries per event type, `interrupted` dropping playback, a refused microphone giving an error state, and `stop(drain)`.
 
 **Component tests.** A handful run under vitest + `@vue/test-utils` + happy-dom in `test/components/`, with `api` mocked. They cover what the pages do with the lib and the API:
@@ -124,7 +124,7 @@ The new header in `esphome/components/friday_client/` uses only the standard lib
 
 1. Fail at once with `GEMINI_API_KEY secret is not set` if the secret is empty.
 2. Install and build.
-3. `pnpm --filter @friday/core test:live`. That's a new script: `FRIDAY_LIVE_TESTS=1 node --import tsx --test --test-name-pattern="^live: " test/*.test.ts`. It also fails if no test ran, so a renamed test can't turn the run green by matching nothing.
+3. `pnpm --filter @friday/core test:live`. That runs `packages/core/scripts/test-live.ts`, which loads `.env` (so the key check also works locally), then spawns `node --import tsx --test --test-name-pattern="^live: " test/*.test.ts` with `FRIDAY_LIVE_TESTS=1`. It exits 2 without `GEMINI_API_KEY`, and it also fails if no test ran, so a renamed test can't turn the run green by matching nothing.
 4. `pnpm --filter @friday/module-brain eval`.
 
 Neither the eval nor the live tests set `FRIDAY_TEXT_MODEL`, so they use the default alias, which is the point. The workflow has no build or deploy steps and doesn't write to the registry. A failed run is signalled through GitHub's standard failure notification.
