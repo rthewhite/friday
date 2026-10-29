@@ -71,10 +71,22 @@ rows cannot be read: Friday logs one error per row at startup, the portal shows
 them as `pending`, and you re-enter them (Secrets tab, then "Save and reload
 module"). Remote module keys are stored as hashes and are unaffected.
 
-Backup: the PVC is the state. To copy the database out of the pod,
-`kubectl -n friday exec deploy/friday -- sh -c 'sqlite3 /data/friday.db ".backup /tmp/friday.bak"'`
-(the image has no sqlite3 CLI; `kubectl cp` of `/data/friday.db` while the pod is
-idle works too, WAL included: copy `friday.db`, `friday.db-wal` and `friday.db-shm`).
+Backup: the PVC is the state. The image has no sqlite3 CLI, so let Node take a
+consistent copy (WAL included) and stream it out:
+
+```bash
+kubectl -n friday exec deploy/friday -- node -e "new (require('node:sqlite').DatabaseSync)('/data/friday.db').exec(\"VACUUM INTO '/data/friday-backup.db'\")"
+kubectl -n friday exec deploy/friday -- cat /data/friday-backup.db > friday-backup.db
+kubectl -n friday exec deploy/friday -- rm /data/friday-backup.db
+```
+
+`VACUUM INTO` refuses to overwrite: remove an old `/data/friday-backup.db` first.
+To restore, scale the deployment to 0, put the copy back as `/data/friday.db`
+(removing `friday.db-wal` and `friday.db-shm`), and scale up again.
+
+**Before deploying `user-privacy`, take a backup.** Its brain migration rebuilds
+the brain's name and tombstone tables with per-user keys, and the old image
+can't separate users again after a rollback (see [Rollback](#5-rollback)).
 
 To rotate the Gemini key: save the new one on Settings > Configuration > Secrets
 (scope `core`); no restart. To rotate anything still in the secret:
@@ -168,6 +180,11 @@ it stays in the cluster until it is deleted by hand. The order:
 ```bash
 kubectl -n friday rollout undo deploy/friday
 ```
+
+After `user-privacy`, the previous image ignores the new user columns: it runs, but
+shows everyone everyone's conversations, agents and brain again, and the brain
+works as one brain only while one user has one. To go back cleanly, restore the
+backup taken before the deploy (see [The master key](#the-master-key)).
 
 The previous server accepts the new firmware: it ignores the `Authorization`
 header and serves `wss://` on the same host. Going back to the old firmware

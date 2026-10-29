@@ -75,8 +75,8 @@
 
 ## 11. Docs
 
-- [ ] 11.1 README: the privacy model (what's per user, what's the household's, admins see no content, devices act for the owner, owner-only calendar and Spotify) and its limit (the operator can read `friday.db`). Also the new `forUser`, `ctx.users` and `ownerOnly` for module authors, and the `openspec/config.yaml` context. Verify by reading it against the specs, and with `openspec validate user-privacy --strict`.
-- [ ] 11.2 `infra/README.md`: back up `friday.db` before deploying this change (the brain migration rebuilds its name keys). Verify the documented backup command works against a local `friday.db`.
+- [x] 11.1 README: the privacy model (what's per user, what's the household's, admins see no content, devices act for the owner, owner-only calendar and Spotify) and its limit (the operator can read `friday.db`). Also the new `forUser`, `ctx.users` and `ownerOnly` for module authors, and the `openspec/config.yaml` context. Verify by reading it against the specs, and with `openspec validate user-privacy --strict`.
+- [x] 11.2 `infra/README.md`: back up `friday.db` before deploying this change (the brain migration rebuilds its name keys). Verify the documented backup command works against a local `friday.db`.
 
 ## 12. Integration
 
