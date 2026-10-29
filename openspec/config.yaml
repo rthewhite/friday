@@ -10,8 +10,10 @@ context: |
   each on unless an admin turned it off (migration 12 module_enablement, storage/module-enablement.ts; no row = on, no
   env var: a leftover FRIDAY_MODULES only logs a warning). ModuleHost.setEnabled stores the choice, then inits or tears
   down like a reload (reload and setEnabled queued per module); PUT /api/modules/:id/enabled { enabled } answers the
-  new entry, reload of a disabled module 409. Disabled modules' keys leave the config listing (secrecy still counts
-  every manifest) and their OAuth requests disappear, grants kept. GET /api/modules reports status (first a `core`
+  new entry, reload of a disabled module 409; dispose waits for queued calls and later ones do nothing. In the config
+  listing a disabled requester is `disabled: true` in `modules` (keys only they declare listed only while stored;
+  required from active ones, scope resolved active-first, secrecy from all; the portal shows them `(off)`, keeps them
+  out of the default scope and of Save and reload). Their OAuth requests disappear, grants kept. GET /api/modules reports status (first a `core`
   entry, kind "core" on the Modules page, when core owns tools itself; moduleListing in app.ts). Tools live in one owner-tagged
   ToolRegistry instance (owner = module id, mcp:<server>, or core; remove(name) drops one tool); a tool may set channels
   (voice | chat | agent, all by default; end_conversation and core's timer and alarm tools are voice-only, run_agent

@@ -2,7 +2,7 @@
 import { computed, inject, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import type { ModuleUi } from "@friday/portal-ui";
-import Sidebar, { type NavItem } from "./Sidebar.vue";
+import Sidebar from "./Sidebar.vue";
 import AdminOnly from "./AdminOnly.vue";
 import { useModules } from "../composables/useModules.js";
 import { useSession } from "../composables/useSession.js";
@@ -20,8 +20,7 @@ const open = ref(false);
 watch(() => route.fullPath, () => (open.value = false));
 
 // The sidebar leaves out a section without items, such as Modules when no module UI is usable.
-const groups = NAV_GROUPS;
-const items = computed<NavItem[]>(() => navItems(uis, isEnabled, me.value?.role));
+const items = computed(() => navItems(uis, isEnabled, me.value?.role));
 </script>
 
 <template>
@@ -30,7 +29,7 @@ const items = computed<NavItem[]>(() => navItems(uis, isEnabled, me.value?.role)
       <span class="flex items-center gap-2 font-semibold text-f-text-bright"><span class="grid h-7 w-7 place-items-center rounded-lg bg-f-accent text-white text-sm">F</span>Friday</span>
       <button class="rounded-md px-3 py-1 border border-f-border text-f-text" aria-label="Menu" @click="open = !open">☰</button>
     </header>
-    <Sidebar :items="items" :groups="groups" :class="[open ? 'block' : 'hidden', 'md:block']" />
+    <Sidebar :items="items" :groups="NAV_GROUPS" :class="[open ? 'block' : 'hidden', 'md:block']" />
     <main class="flex-1 min-w-0">
       <AdminOnly v-if="blocked" />
       <RouterView v-else />

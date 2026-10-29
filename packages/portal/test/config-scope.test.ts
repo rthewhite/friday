@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultScope, defaultScopes, savePlan, toggleScope } from "../src/lib/config-scope.ts";
+import { defaultScope, defaultScopes, reloadTargets, savePlan, toggleScope } from "../src/lib/config-scope.ts";
 
 const requesters = (...ids: string[]) => ids.map((id) => ({ id }));
 
@@ -11,6 +11,17 @@ test("a shared key with nothing stored defaults to global", () => {
 test("a key only one requester declares defaults to that requester", () => {
   assert.equal(defaultScope({ modules: requesters("media") }), "media");
   assert.equal(defaultScope({ modules: requesters("core") }), "core");
+});
+
+test("a disabled requester doesn't make a key global; a key only disabled modules declare stays with them", () => {
+  assert.equal(defaultScope({ modules: [{ id: "media" }, { id: "sonos", disabled: true }] }), "media");
+  assert.equal(defaultScope({ modules: [{ id: "travel", disabled: true }] }), "travel", "never global for a disabled module's own key");
+  assert.equal(defaultScope({ modules: [{ id: "media", disabled: true }, { id: "sonos", disabled: true }] }), "global");
+});
+
+test("Save and reload reloads the modules that got a write, but not global, core or a disabled module", () => {
+  const writes = [{ scope: "media" }, { scope: "travel" }, { scope: "global" }, { scope: "core" }];
+  assert.deepEqual(reloadTargets(writes, [{ id: "media" }, { id: "travel", disabled: true }, { id: "core" }]), ["media"]);
 });
 
 test("a stored value opens in the scope it is stored in", () => {

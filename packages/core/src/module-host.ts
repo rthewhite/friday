@@ -82,6 +82,8 @@ export class ModuleHost {
   private readonly quietSubs = new Map<string, (() => void)[]>();
   /** Set by `dispose`: module connections are closed and must not reopen. */
   private disposed = false;
+  /** Set when `dispose` starts: queued reloads and enable/disable calls leave the modules as they are. */
+  private closing = false;
   /** The tail of each module's queue: reload and enable/disable of one module run one after another. */
   private readonly queues = new Map<string, Promise<unknown>>();
 
@@ -95,7 +97,9 @@ export class ModuleHost {
     for (const module of modules) {
       const entry: Entry = { module, status: "disabled", routes: new RouteTable() };
       this.entries.push(entry);
-      if (!this.isEnabled(module.manifest?.id)) continue;
+      // A malformed manifest (no id) is not looked up: init fails it with the validation error, as before.
+      const id = module.manifest?.id;
+      if (typeof id === "string" && !this.isEnabled(id)) continue;
       await this.init(entry);
     }
   }
@@ -108,7 +112,7 @@ export class ModuleHost {
     const entry = this.find(id);
     if (!entry) return undefined;
     return this.queued(id, async () => {
-      if (entry.status === "disabled") return this.entryOf(id);
+      if (this.closing || entry.status === "disabled") return this.entryOf(id);
       if (entry.status === "loaded") await this.teardown(entry);
       await this.init(entry);
       return this.entryOf(id);
@@ -118,13 +122,15 @@ export class ModuleHost {
   /**
    * Switch a module on or off, storing the choice first so it survives a restart. Enabling a disabled module
    * initializes it as startup does; disabling tears a loaded one down as a reload does (a failed one has nothing
-   * left to tear down). Returns the new entry, or undefined for an unknown id.
+   * left to tear down). Asking for the state it is already in stores and changes nothing. Once shutdown has begun,
+   * nothing changes. Returns the new entry, or undefined for an unknown id.
    */
   async setEnabled(id: string, enabled: boolean): Promise<ModuleEntry | undefined> {
     const entry = this.find(id);
     if (!entry) return undefined;
     return this.queued(id, async () => {
-      this.opts.enablement?.set(id, enabled);
+      if (this.closing) return this.entryOf(id);
+      if (this.isEnabled(id) !== enabled) this.opts.enablement?.set(id, enabled);
       if (enabled && entry.status === "disabled") {
         await this.init(entry);
       } else if (!enabled && entry.status !== "disabled") {
@@ -142,7 +148,7 @@ export class ModuleHost {
   }
 
   private find(id: string): Entry | undefined {
-    return this.entries.find((e) => e.module.manifest.id === id);
+    return this.entries.find((e) => e.module.manifest?.id === id);
   }
 
   private entryOf(id: string): ModuleEntry | undefined {
@@ -249,8 +255,14 @@ export class ModuleHost {
     return e?.status === "loaded" ? e.routes : undefined;
   }
 
-  /** Reverse load order; individual failures are logged, not thrown. Then closes the modules' connections. */
+  /**
+   * Reverse load order; individual failures are logged, not thrown. Then closes the modules' connections. A reload or
+   * enable/disable in progress finishes first, and none queued after this starts does anything, so no module is
+   * initialized behind the teardown.
+   */
   async dispose(): Promise<void> {
+    this.closing = true;
+    await Promise.all(this.queues.values());
     for (const e of [...this.entries].reverse()) {
       if (e.status !== "loaded") continue;
       await this.teardown(e);

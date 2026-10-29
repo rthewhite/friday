@@ -168,6 +168,56 @@ test("disabling during a job run cancels the run and removes the jobs; history i
   await h.dispose();
 });
 
+test("a manifest without an id fails only its module with the stored choices in place; startup goes on", async (t) => {
+  const { core } = dataDir(t);
+  const registry = new ToolRegistry(quiet);
+  const nameless = defineModule({ manifest: { label: "No id" } as never, init() {} });
+  const h = new ModuleHost(registry, { env: {}, log: quiet, enablement: new SqliteModuleEnablement(core) });
+  await h.load([nameless, speakers([])]);
+  assert.equal(h.loaded()[0].status, "failed");
+  assert.equal(h.loaded()[1].status, "loaded");
+  assert.deepEqual(registry.names(), ["sonos_play"]);
+});
+
+test("asking for the state a module is already in stores nothing", async (t) => {
+  const { core } = dataDir(t);
+  const h = new ModuleHost(new ToolRegistry(quiet), { env: {}, log: quiet, enablement: new SqliteModuleEnablement(core) });
+  await h.load([speakers([])]);
+  await h.setEnabled("sonos", true);
+  assert.equal(core.prepare("SELECT count(*) AS n FROM module_enablement").get()?.n, 0);
+});
+
+test("shutdown waits for an enable in progress and tears that module down too; later calls change nothing", async () => {
+  const events: string[] = [];
+  let open!: () => void;
+  const gate = new Promise<void>((r) => (open = r));
+  const slow = defineModule({
+    manifest: { id: "travel", label: "Travel" },
+    async init(ctx) {
+      events.push("init");
+      await gate;
+      ctx.defineTool({ name: "get_travel_time", description: "", handler: () => ({}) });
+    },
+    dispose: () => void events.push("dispose"),
+  });
+  const registry = new ToolRegistry(quiet);
+  const enablement = new MemoryModuleEnablement(["travel"]);
+  const h = new ModuleHost(registry, { env: {}, log: quiet, enablement });
+  await h.load([slow]);
+
+  const enabling = h.setEnabled("travel", true);
+  await new Promise((r) => setImmediate(r));
+  const disposing = h.dispose();
+  const later = h.setEnabled("travel", false);
+  open();
+  await enabling;
+  await disposing;
+  await later;
+  assert.deepEqual(events, ["init", "dispose"], "initialized once, then torn down by the shutdown");
+  assert.deepEqual(registry.names(), []);
+  assert.equal(enablement.isEnabled("travel"), true, "the call made during shutdown stored nothing");
+});
+
 test("a disable that arrives during a reload waits for it, then tears the module down", async () => {
   const events: string[] = [];
   let gate: Promise<void> | undefined;

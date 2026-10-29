@@ -231,29 +231,51 @@ test("stored lists every scope a key is stored in: global first, plain values on
   }
 });
 
-test("a disabled module's keys leave the listing; stored ones stay listed as undeclared, secret when declared so", async () => {
+test("a disabled module's keys leave the listing unless stored; its requester stays marked disabled, its scope kept", async () => {
   const travel = defineModule({ manifest: { id: "travel", label: "Travel", config: [{ key: "TOMTOM_API_KEY", required: true, secret: true }] }, init() {} });
   const s = await start({ extra: [travel], disabled: ["travel", "plain"] });
   const entries = async () => (await (await s.j("/api/config")).json()).entries as any[];
   const entry = async (key: string) => (await entries()).find((e) => e.key === key);
   try {
     assert.equal(await entry("TOMTOM_API_KEY"), undefined, "declared only by a disabled module and stored nowhere");
-    assert.deepEqual((await entry("HA_URL")).modules, [{ id: "media", required: false }], "a shared key lists only the active requesters");
+    const ha = await entry("HA_URL");
+    assert.deepEqual(ha.modules, [{ id: "media", required: false }, { id: "plain", required: true, disabled: true }], "a shared key marks the disabled requester");
+    assert.equal(ha.required, false, "only active requesters make a key required");
 
     // Stored plain on purpose: the disabled module still declares it secret, so it is never shown.
     s.configStore.set("travel", "TOMTOM_API_KEY", "tt-key", { secret: false });
+    s.configStore.set("brain", "TOMTOM_API_KEY", "stray", { secret: false });
     const stored = await entry("TOMTOM_API_KEY");
     assert.equal(stored.secret, true);
-    assert.deepEqual(stored.modules, []);
+    assert.deepEqual(stored.modules, [{ id: "travel", required: true, disabled: true }]);
+    assert.equal(stored.required, false);
     assert.equal(stored.status, "set");
-    assert.equal(stored.scope, "travel");
-    assert.deepEqual(stored.stored.map((x: any) => Object.keys(x).sort()), [["scope", "updatedAt"]]);
+    assert.equal(stored.scope, "travel", "the module's own copy, not a stray one in another module's scope");
+    assert.deepEqual(stored.stored.map((x: any) => Object.keys(x).sort()), [["scope", "updatedAt"], ["scope", "updatedAt"]]);
     assert.ok(!JSON.stringify(await entries()).includes("tt-key"));
+    assert.ok(!JSON.stringify(await entries()).includes("stray"));
+    assert.equal((await s.j("/api/config/brain/TOMTOM_API_KEY", { method: "DELETE" })).status, 204);
     assert.equal((await s.j("/api/config/travel/TOMTOM_API_KEY", { method: "DELETE" })).status, 204, "it can be cleared");
     assert.equal(await entry("TOMTOM_API_KEY"), undefined);
 
     assert.equal((await s.j("/api/modules/travel/enabled", { method: "PUT", body: JSON.stringify({ enabled: true }) })).status, 200);
     assert.deepEqual((await entry("TOMTOM_API_KEY")).modules, [{ id: "travel", required: true }], "enabling brings the key back");
+  } finally {
+    await s.close();
+  }
+});
+
+test("a key a disabled module declares secret stays secret, also when its value comes from the environment", async () => {
+  const open = defineModule({ manifest: { id: "open", label: "Open", config: [{ key: "API_TOKEN" }] }, init() {} });
+  const guarded = defineModule({ manifest: { id: "guarded", label: "Guarded", config: [{ key: "API_TOKEN", secret: true }] }, init() {} });
+  const s = await start({ extra: [open, guarded], disabled: ["guarded"], env: { API_TOKEN: "env-token" } });
+  try {
+    const body = await (await s.j("/api/config")).text();
+    const e = (JSON.parse(body).entries as any[]).find((x) => x.key === "API_TOKEN");
+    assert.equal(e.secret, true);
+    assert.equal(e.status, "env");
+    assert.equal(e.value, undefined);
+    assert.ok(!body.includes("env-token"));
   } finally {
     await s.close();
   }

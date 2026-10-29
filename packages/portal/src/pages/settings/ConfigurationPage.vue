@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { PageLayout, Button, Input, DataTable, Tabs, StatusDot, Chip, Drawer, Card, formatDateTime, type Column } from "@friday/portal-ui";
 import { api } from "../../composables/useApi.js";
 import { refreshModules } from "../../composables/useModules.js";
-import { defaultScopes, savePlan, toggleScope } from "../../lib/config-scope.js";
+import { defaultScopes, reloadTargets, savePlan, toggleScope } from "../../lib/config-scope.js";
 import { ownCopies, scopeSummary, strayCopies } from "../../lib/config-stored.js";
 import McpServersTab from "./McpServersTab.vue";
 
@@ -13,7 +13,8 @@ interface Entry extends Record<string, unknown> {
   secret: boolean;
   required: boolean;
   description?: string;
-  modules: { id: string; required: boolean }[];
+  /** `disabled`: a module an admin turned off; its key is listed only while a value is stored for it. */
+  modules: { id: string; required: boolean; disabled?: boolean }[];
   status: "set" | "pending" | "env";
   scope?: string;
   updatedAt?: string;
@@ -107,8 +108,8 @@ const saveError = ref<string | null>(null);
 watch(open, (v) => { if (v) saveError.value = null; });
 const plan = computed(() => (draft.value.key.trim() ? savePlan(adding.value ? null : selected.value, draft.value.scopes, draft.value.value) : null));
 // Only modules that get a write are reloaded. Core is not a reloadable module: its keys apply to the next
-// voice session and model call.
-const reloadable = computed(() => (plan.value?.writes ?? []).map((w) => w.scope).filter((s) => s !== "global" && s !== "core"));
+// voice session and model call. A disabled module is not reloaded either: it reads the value once turned on.
+const reloadable = computed(() => reloadTargets(plan.value?.writes ?? [], selected.value?.modules ?? []));
 
 async function save(reload: boolean) {
   const key = draft.value.key.trim();
@@ -207,7 +208,7 @@ async function run(f: () => Promise<void>) {
         <template #cell-description="{ row }"><span class="text-f-text-muted">{{ (row as Entry).description ?? "" }}</span></template>
         <template #cell-modules="{ row }">
           <div class="flex flex-wrap gap-1.5">
-            <Chip v-for="m in (row as Entry).modules" :key="m.id">{{ m.id }}</Chip>
+            <Chip v-for="m in (row as Entry).modules" :key="m.id" :title="m.disabled ? 'Turned off under System > Modules' : undefined">{{ m.id }}{{ m.disabled ? " (off)" : "" }}</Chip>
             <Chip v-if="!(row as Entry).modules.length">global</Chip>
           </div>
         </template>
@@ -221,7 +222,7 @@ async function run(f: () => Promise<void>) {
 
       <Drawer v-model:open="open" :title="adding ? (isSecret ? 'New secret' : 'New value') : draft.key" :subtitle="selected?.description">
         <div v-if="selected?.modules.length" class="flex flex-wrap items-center gap-1.5 text-sm text-f-text-muted">
-          Requested by <Chip v-for="m in selected.modules" :key="m.id">{{ m.id }}{{ m.required ? " · required" : "" }}</Chip>
+          Requested by <Chip v-for="m in selected.modules" :key="m.id">{{ m.id }}{{ m.disabled ? " (off)" : m.required ? " · required" : "" }}</Chip>
         </div>
         <div v-if="selected" class="flex items-center gap-2 text-sm">
           <StatusDot :tone="tone(selected.status)" :label="selected.status" />

@@ -55,11 +55,15 @@ setEnabled(id, on):
 
 An idempotent PUT of a boolean fits a stored flag better than `POST .../enable` and `.../disable`, and it matches how MCP servers carry `enabled`. It answers with the listing entry, so the portal updates the row and the sidebar from one response. It sits next to `POST /api/modules/:id/reload` in `app.ts`. Reload answers 409 for a disabled module (the host returns a distinguishable result rather than `undefined`), and 404 stays for unknown ids.
 
-### Configuration listing: two requester sets
+### Configuration listing: disabled requesters are kept and marked
 
-`app.ts` has one `requesters(host)` used for the listing and for `isDeclaredSecret`. They are split:
-- The listing uses core plus the modules that aren't disabled, so a disabled module's keys and chips disappear. Stored values still show under `stored`, through the existing "stored globals nothing declares" path, extended to stored module scopes of keys nobody active declares.
-- Secrecy uses every manifest, so a copy or an undeclared-looking entry of a disabled module's secret is never treated as plain.
+The listing keeps aggregating over every requester (core and every module), and marks a disabled module's item in `modules` with `disabled: true`:
+- A key that only disabled modules declare is dropped unless some scope stores it, so the keys of a module that doesn't apply here disappear, while a stored value stays visible and clearable.
+- `required` counts only requesters that aren't disabled. The entry's scope is resolved over its requesters, active ones first, so it is the module's own copy (or global), never a stray copy in another module's scope.
+- Secrecy still comes from every requester, so a key a disabled module declares secret is never shown, not even from the environment.
+- The portal marks those requesters as off. It doesn't let them make the default scope `global`. `Save and reload` skips them (`reloadTargets` in `lib/config-scope.ts`, `defaultScope` there too).
+
+*Alternative tried first:* listing only active requesters, and showing a disabled module's stored keys as undeclared (empty `modules`). The code review found that this made the Configuration page treat them as global keys. The default scope became `global`, so a save created a global value every module reads, and the module's own copy was labelled "probably left over". It also dropped the secret flag of a key that only a disabled module declares secret, when an active module declares it plain and the value comes from the environment.
 
 `PUT /api/config/:scope/...` keeps accepting any module in the list as a scope (it already checks `manifests()`, any status).
 
