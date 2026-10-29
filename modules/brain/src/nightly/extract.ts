@@ -2,7 +2,7 @@
  * Nightly extraction (design D2, D3): lasting facts from finished conversations become notes, appended
  * exactly like `brain_remember` (author `extraction`, the conversation as source). Never rewrites text.
  */
-import { LlmError, type Conversation, type ModuleConversations, type ModuleLlm, type ModuleLogger, type ModuleStorage } from "@friday/sdk";
+import { LlmError, type Conversation, type ModuleLlm, type ModuleLogger, type ModuleStorage, type UserConversations } from "@friday/sdk";
 import type { BrainStore, PageType } from "../store.js";
 import { PAGE_TYPES } from "../types.js";
 import { extractionSystem } from "./guidance.js";
@@ -45,7 +45,7 @@ export interface ExtractedNote {
 
 export interface ExtractDeps {
   store: BrainStore;
-  conversations: ModuleConversations;
+  conversations: UserConversations;
   llm: ModuleLlm;
   storage: ModuleStorage;
   log: ModuleLogger;

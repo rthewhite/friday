@@ -3,7 +3,7 @@
  * Jobs page history because the review needs each run's revision range, dropped lines and merges.
  */
 import type { ModuleDb } from "@friday/sdk";
-import { BrainStore } from "../store.js";
+import { lastRevisionId as newestRevisionId } from "../store.js";
 
 export type RunOutcome = "ok" | "partial" | "failed";
 
@@ -106,12 +106,14 @@ const toRun = (r: RunRow): Run => ({
   ...(r.summary !== null ? { summary: r.summary } : {}),
 });
 
+/** One user's nightly runs: each run belongs to the user whose brain it maintained. */
 export class RunStore {
   constructor(
     private readonly db: ModuleDb,
+    readonly userId: string,
     private readonly now: () => Date = () => new Date(),
-    /** The newest revision id in the brain (`BrainStore.lastRevisionId`). */
-    private readonly lastRevisionId: () => number = () => new BrainStore(db).lastRevisionId(),
+    /** The newest revision id in any brain (revision ids are global). */
+    private readonly lastRevisionId: () => number = () => newestRevisionId(db),
   ) {}
 
   /** The id the next revision will get (revision ids are AUTOINCREMENT, so never reused). */
@@ -120,30 +122,31 @@ export class RunStore {
   }
   start(trigger: string): Run {
     const id = Number(this.db
-      .prepare("INSERT INTO brain__runs (trigger, started_at, first_revision_id) VALUES (?, ?, ?)")
-      .run(trigger, this.now().toISOString(), this.nextRevisionId()).lastInsertRowid);
+      .prepare("INSERT INTO brain__runs (user_id, trigger, started_at, first_revision_id) VALUES (?, ?, ?, ?)")
+      .run(this.userId, trigger, this.now().toISOString(), this.nextRevisionId()).lastInsertRowid);
     return this.get(id)!;
   }
 
   finish(id: number, f: RunFinish): Run {
     this.db
       .prepare(`UPDATE brain__runs SET finished_at = ?, outcome = ?, conversations = ?, skipped = ?, notes = ?, refused = ?,
-        rewrites = ?, creates = ?, merges = ?, dropped_json = ?, merges_json = ?, summary_generated = ?, last_revision_id = ?, error = ?, summary = ? WHERE id = ?`)
+        rewrites = ?, creates = ?, merges = ?, dropped_json = ?, merges_json = ?, summary_generated = ?, last_revision_id = ?, error = ?, summary = ? WHERE id = ? AND user_id = ?`)
       .run(
         this.now().toISOString(), f.outcome, f.conversations ?? 0, f.skipped ?? 0, f.notes ?? 0, f.refused ?? 0,
         f.rewrites ?? 0, f.creates ?? 0, f.merges ?? f.mergeRecords?.length ?? 0,
-        JSON.stringify(f.dropped ?? []), JSON.stringify(f.mergeRecords ?? []), f.summaryGenerated ? 1 : 0, this.nextRevisionId() - 1, f.error ?? null, f.summary ?? null, id,
+        JSON.stringify(f.dropped ?? []), JSON.stringify(f.mergeRecords ?? []), f.summaryGenerated ? 1 : 0, this.nextRevisionId() - 1, f.error ?? null, f.summary ?? null, id, this.userId,
       );
     return this.get(id)!;
   }
 
+  /** One of this user's runs; undefined for another user's. */
   get(id: number): Run | undefined {
-    const row = this.db.prepare("SELECT * FROM brain__runs WHERE id = ?").get(id) as RunRow | undefined;
+    const row = this.db.prepare("SELECT * FROM brain__runs WHERE id = ? AND user_id = ?").get(id, this.userId) as RunRow | undefined;
     return row && toRun(row);
   }
 
   /** Newest first. */
   list(limit = 14): Run[] {
-    return (this.db.prepare("SELECT * FROM brain__runs ORDER BY id DESC LIMIT ?").all(limit) as unknown as RunRow[]).map(toRun);
+    return (this.db.prepare("SELECT * FROM brain__runs WHERE user_id = ? ORDER BY id DESC LIMIT ?").all(this.userId, limit) as unknown as RunRow[]).map(toRun);
   }
 }

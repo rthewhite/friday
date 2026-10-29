@@ -124,13 +124,12 @@ export function matches(page: Pick<PageSummary, "name" | "aliases" | "body">, qu
 }
 
 /**
- * Starts the `brain/nightly` job through core's jobs API: "started", "running" when a run is already going,
- * or "off" when the job isn't scheduled (BRAIN_NIGHTLY_CRON=off or invalid).
+ * Runs the nightly pass now, for the logged-in user's own brain only: "started", or "running" when a pass for
+ * their brain is already going. Any user may, also while the schedule is off.
  */
-export async function runNightlyNow(): Promise<"started" | "running" | "off"> {
-  const res = await fetch("/api/jobs/brain/nightly/run", { method: "POST" });
+export async function runNightlyNow(fetchFn: typeof fetch = fetch): Promise<"started" | "running"> {
+  const res = await fetchFn("/api/modules/brain/runs/now", { method: "POST" });
   if (res.status === 409) return "running";
-  if (res.status === 404) return "off";
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     throw new ApiError(res.status, data.code as string | undefined, String(data.error ?? res.statusText), data);

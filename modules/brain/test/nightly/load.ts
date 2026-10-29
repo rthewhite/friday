@@ -11,6 +11,13 @@ import { preserved } from "../../src/nightly/consolidate.js";
 import { validateSummary } from "../../src/nightly/summary.js";
 import { BrainStore } from "../../src/store.js";
 import { estimateTokens, fold } from "../../src/text.js";
+import { TEST_OWNER } from "@friday/sdk/test";
+import { userStorage } from "../../src/users.js";
+import type { ModuleStorage } from "@friday/sdk";
+
+/** The test owner's keys in the module's storage (each user's nightly state is under their prefix). */
+const mine = (s: ModuleStorage) => userStorage(s, TEST_OWNER.id);
+
 
 export interface FixturePage {
   name: string;
@@ -98,7 +105,7 @@ export async function seedFixture(h: TestHost, fx: Fixture): Promise<string | un
     quietAt: new Date(Date.parse(at) + 30 * 60_000).toISOString(),
     entries: c.entries.map((e) => ({ at, ...e })),
   });
-  if (c.seen) await h.storage.set(`extract:seen:${seeded.id}`, { seq: c.seen });
+  if (c.seen) await mine(h.storage).set(`extract:seen:${seeded.id}`, { seq: c.seen });
   return seeded.id;
 }
 
@@ -140,7 +147,7 @@ export function checkFixture(h: TestHost, fx: Fixture, before: string): Check[] 
     // The summary as written, checked by the same rules the nightly pass uses before writing it.
     const summary = (h.db.prepare("SELECT body FROM brain__pages WHERE id = 'profile'").get() as { body: string }).body;
     const budget = Number(fx.env?.BRAIN_PROFILE_TOKEN_BUDGET ?? 800);
-    const reasons = validateSummary(new BrainStore(h.db), summary, budget);
+    const reasons = validateSummary(new BrainStore(h.db, TEST_OWNER.id), summary, budget);
     out.push({ expectation: "a summary was written", ok: summary.trim() !== "" });
     out.push({ expectation: `the summary is within ${budget} tokens (${estimateTokens(summary)})`, ok: estimateTokens(summary) <= budget });
     out.push({ expectation: `every line of the summary is backed and every link resolves${reasons.length ? `: ${reasons.join("; ")}` : ""}`, ok: !reasons.length });

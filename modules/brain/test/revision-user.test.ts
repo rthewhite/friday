@@ -18,11 +18,15 @@ async function host() {
 test("a portal edit records the user who made it, and the history shows them", async () => {
   const { h, req } = await host();
   const page = await req("POST", "pages", { name: "Boiler", body: "Serviced in March." });
-  await req("PUT", `pages/${page.id}`, { name: "Boiler", body: "Serviced in February.", baseRevision: page.revisionId }, owner);
+  const edited = await req("PUT", `pages/${page.id}`, { name: "Boiler", body: "Serviced in February.", baseRevision: page.revisionId });
+  assert.equal(edited.body, "Serviced in February.");
   const detail = await req("GET", `pages/${page.id}`);
-  assert.deepEqual(detail.revisions.map((r: any) => [r.author, r.user]), [["user", { id: "u1", name: "Owner" }], ["user", { id: "u2", name: "Sanne" }]]);
+  assert.deepEqual(detail.revisions.map((r: any) => [r.author, r.user]), [["user", { id: "u2", name: "Sanne" }], ["user", { id: "u2", name: "Sanne" }]]);
   const first = await req("GET", `pages/${page.id}/revisions/${detail.revisions[1].id}`);
   assert.deepEqual(first.user, { id: "u2", name: "Sanne" });
+  // The page is in Sanne's brain: the owner, an admin, can't edit it.
+  const refused = await h.request("PUT", `pages/${page.id}`, { name: "Boiler", body: "x", baseRevision: edited.revisionId }, {}, { user: owner });
+  assert.equal(refused.status, 404);
   await h.dispose();
 });
 
@@ -50,11 +54,11 @@ test("revisions written by a tool have no user, even during the user's chat turn
   await h.dispose();
 });
 
-test("a request without a user records none", async () => {
-  const { h, req } = await host();
-  const page = await req("POST", "pages", { name: "Shed" }, null);
-  const detail = await req("GET", `pages/${page.id}`);
-  assert.equal(detail.revisions[0].user, undefined);
+test("a request without a user is refused and writes nothing: a brain is always someone's", async () => {
+  const { h } = await host();
+  const r = await h.request("POST", "pages", { name: "Shed" }, {}, { user: null });
+  assert.equal(r.status, 404);
+  assert.equal(h.db.prepare("SELECT 1 FROM brain__pages WHERE name = 'Shed'").get(), undefined);
   await h.dispose();
 });
 
@@ -62,7 +66,7 @@ test("migration 4 adds the columns and keeps older revisions without a user", ()
   const d = openModuleDb(":memory:", "brain");
   d.migrate(migrations.slice(0, 3));
   const before = (d.db.prepare("SELECT COUNT(*) AS n FROM brain__revisions").get() as { n: number }).n;
-  assert.deepEqual(d.migrate(migrations), [4]);
+  assert.deepEqual(d.migrate(migrations.slice(0, 4)), [4]);
   const rows = d.db.prepare("SELECT user_id, user_name FROM brain__revisions").all() as { user_id: null; user_name: null }[];
   assert.equal(rows.length, before);
   assert.ok(rows.every((r) => r.user_id === null && r.user_name === null));

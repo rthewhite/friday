@@ -35,34 +35,34 @@
 
 ## 6. Brain: a store per user
 
-- [ ] 6.1 Brain migration 5:
+- [x] 6.1 Brain migration 5:
   - `user_id` on `brain__pages`, `brain__runs`, `brain__names` and `brain__tombstones`;
   - names and tombstones rebuilt with primary key `(user_id, key)`;
   - the one-profile index replaced by one profile per user.
 
   Verify with a migration test on a copy of a populated brain fixture (pages, aliases, tombstones, runs and revisions survive unchanged, `user_id` NULL).
-- [ ] 6.2 Assign the brain's unowned rows to the owner at init and on `onOwner`, including the storage keys (watermarks, guidance markers) moving under the owner's prefix. Verify with tests for the upgrade and fresh-install scenarios.
-- [ ] 6.3 Make `BrainStore` per user (`forUser(id)`). Every query carries the user; the profile is "this user's `is_profile` row"; a brain is created on first use with a subject named after the user. Verify by running the existing store tests through a user's store, plus a "same name, two brains" test.
-- [ ] 6.4 Run `pnpm --filter @friday/module-brain test typecheck`. Verify both are green.
+- [x] 6.2 Assign the brain's unowned rows to the owner at init and on `onOwner`, including the storage keys (watermarks, guidance markers) moving under the owner's prefix. Verify with tests for the upgrade and fresh-install scenarios.
+- [x] 6.3 Make `BrainStore` per user (`forUser(id)`). Every query carries the user; the profile is "this user's `is_profile` row"; a brain is created on first use with a subject named after the user. Verify by running the existing store tests through a user's store, plus a "same name, two brains" test.
+- [x] 6.4 Run `pnpm --filter @friday/module-brain test typecheck`. Verify both are green.
 
 ## 7. Brain: tools, prompt and routes per user
 
-- [ ] 7.1 The tools act for `call.user` (else the owner). `brain_recall_conversations` searches `ctx.conversations.forUser(<user>)`. Verify with `tools.test.ts` cases, including "another user's conversations are never found".
-- [ ] 7.2 Prompt context renders the prompt user's brain. Verify with `context.test.ts`: a new user's prompt holds their empty brain, not the owner's.
-- [ ] 7.3 Routes act for `req.user`: `pages/profile` is the caller's profile, and another user's page answers 404. The Brain page works unchanged for each user. Verify with `routes.test.ts` cases for two users.
-- [ ] 7.4 Run `pnpm --filter @friday/module-brain test typecheck`. Verify both are green.
+- [x] 7.1 The tools act for `call.user` (else the owner). `brain_recall_conversations` searches `ctx.conversations.forUser(<user>)`. Verify with `tools.test.ts` cases, including "another user's conversations are never found".
+- [x] 7.2 Prompt context renders the prompt user's brain. Verify with `context.test.ts`: a new user's prompt holds their empty brain, not the owner's.
+- [x] 7.3 Routes act for `req.user`: `pages/profile` is the caller's profile, and another user's page answers 404. The Brain page works unchanged for each user. Verify with `routes.test.ts` cases for two users.
+- [x] 7.4 Run `pnpm --filter @friday/module-brain test typecheck`. Verify both are green.
 
 ## 8. Brain: the nightly pass per user
 
-- [ ] 8.1 `brain/nightly` loops over `ctx.users.list()`:
+- [x] 8.1 `brain/nightly` loops over `ctx.users.list()`:
   - extraction, consolidation and summary per user, with per-user watermarks and guidance markers;
   - each user's run recorded in their brain;
-  - one user's failure makes the job `partial` without stopping the others;
+  - one user's failure marks the job summary `partial` (the job records `ok`) without stopping the others;
   - the job summary holds counts only.
 
   Verify with `nightly.test.ts` cases for the "two users" and "one user fails" scenarios.
-- [ ] 8.2 Runs, review and revert are per user (404 for another user's run). Add `POST runs/now`, which runs the pass for the caller only and answers 409 while that user's pass runs. The Nightly tab's `Run it now` uses it. Verify with `runs-routes.test.ts` cases and `ui-lib.test.ts` for the new call.
-- [ ] 8.3 Run `pnpm --filter @friday/module-brain test typecheck` and the eval smoke (`pnpm --filter @friday/module-brain eval` with fixtures for one user). Verify all are green.
+- [x] 8.2 Runs, review and revert are per user (404 for another user's run). Add `POST runs/now`, which runs the pass for the caller only and answers 409 while that user's pass runs. The Nightly tab's `Run it now` uses it. Verify with `runs-routes.test.ts` cases and `ui-lib.test.ts` for the new call.
+- [x] 8.3 Run `pnpm --filter @friday/module-brain test typecheck` and the eval smoke (`pnpm --filter @friday/module-brain eval` with fixtures for one user). Verify all are green.
 
 ## 9. Calendar and Spotify are the owner's
 

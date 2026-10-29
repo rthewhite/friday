@@ -1,8 +1,9 @@
 /**
  * The `brain/nightly` job (design D1): extract notes from finished conversations, consolidate pages, then
- * generate the profile summary from them (hybrid-profile D5), recorded as one run in `brain__runs`.
+ * generate the profile summary from them (hybrid-profile D5), recorded as one run in `brain__runs`. It runs once
+ * per user, over that user's conversations and brain (user-privacy); the job's own summary holds counts only.
  */
-import type { JobTrigger, ModuleContext } from "@friday/sdk";
+import type { CallUser, JobTrigger, ModuleContext } from "@friday/sdk";
 import type { DroppedLine, MergeRecord, Run, RunOutcome, RunStore } from "./runs.js";
 import type { SummaryOutcome } from "./summary.js";
 
@@ -97,11 +98,80 @@ export async function runNightly(runs: RunStore, steps: NightlySteps, trigger: J
   }
 }
 
+/** One user's pass: their runs and the steps over their conversations and brain. */
+export interface UserPass {
+  runs: RunStore;
+  steps: NightlySteps;
+}
+
+/** Users whose pass is running, so the job and `Run it now` never run one user's pass twice at once. */
+export class PassGuard {
+  private readonly running = new Set<string>();
+
+  isRunning(userId: string): boolean {
+    return this.running.has(userId);
+  }
+
+  /** Runs `fn` as `userId`'s pass; undefined, without running it, when one is already running. */
+  async run<T>(userId: string, fn: () => Promise<T>): Promise<T | undefined> {
+    if (this.running.has(userId)) return undefined;
+    this.running.add(userId);
+    try {
+      return await fn();
+    } finally {
+      this.running.delete(userId);
+    }
+  }
+}
+
+/**
+ * Every user's pass in turn. A user whose pass throws is recorded as failed in their own brain and the others still
+ * run; the job then reports `partial` in its summary. The summary holds counts only, never names or text.
+ */
+export async function runNightlyForUsers(
+  users: CallUser[],
+  passOf: (user: CallUser) => UserPass,
+  guard: PassGuard,
+  trigger: JobTrigger,
+  signal: AbortSignal,
+  log: Pick<Console, "error"> = console,
+): Promise<{ summary: string; runs: Run[] }> {
+  const runs: Run[] = [];
+  let failed = 0;
+  let busy = 0;
+  for (const user of users) {
+    if (signal.aborted) break;
+    try {
+      const pass = passOf(user);
+      const r = await guard.run(user.id, () => runNightly(pass.runs, pass.steps, trigger, signal));
+      if (r) runs.push(r.run);
+      else busy++;
+    } catch (e) {
+      failed++;
+      log.error(`nightly pass failed for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return { summary: summarizeUsers(users.length, runs, failed, busy), runs };
+}
+
+/** `partial: 1 of 2 users failed; 2 users: 5 conversations (2 trivial), 4 notes; 3 pages rewritten, 1 merge; 2 summaries generated`. */
+export function summarizeUsers(users: number, runs: Run[], failed: number, busy = 0): string {
+  const sum = (k: "conversations" | "skipped" | "notes" | "rewrites" | "creates" | "merges") => runs.reduce((n, r) => n + r[k], 0);
+  const notOk = failed + runs.filter((r) => r.outcome !== "ok").length;
+  const head = notOk ? `partial: ${notOk} of ${users} ${users === 1 ? "user" : "users"} failed; ` : "";
+  const pages = [`${plural(sum("rewrites"), "page")} rewritten`];
+  if (sum("creates")) pages.push(`${plural(sum("creates"), "page")} created`);
+  pages.push(plural(sum("merges"), "merge"));
+  const summaries = runs.filter((r) => r.summaryGenerated).length;
+  const tail = [summaries ? `${plural(summaries, "summary", "summaries")} generated` : "", busy ? `${busy} already running` : ""].filter(Boolean).join("; ");
+  return `${head}${plural(users, "user")}: ${plural(sum("conversations"), "conversation")} (${sum("skipped")} trivial), ${plural(sum("notes"), "note")}; ${pages.join(", ")}${tail ? `; ${tail}` : ""}`;
+}
+
 /**
  * Schedules `nightly` from BRAIN_NIGHTLY_CRON (read at init; `off` disables it). An invalid expression
  * disables only the job, with an error in the log: the brain itself (tools, context, portal) still loads.
  */
-export function scheduleNightly(ctx: ModuleContext, runs: RunStore, steps: NightlySteps): void {
+export function scheduleNightly(ctx: ModuleContext, passOf: (user: CallUser) => UserPass, guard: PassGuard): void {
   const cron = (ctx.config.get("BRAIN_NIGHTLY_CRON") ?? "").trim() || DEFAULT_NIGHTLY_CRON;
   if (cron.toLowerCase() === "off") {
     ctx.log.log("nightly maintenance is off (BRAIN_NIGHTLY_CRON=off)");
@@ -113,8 +183,8 @@ export function scheduleNightly(ctx: ModuleContext, runs: RunStore, steps: Night
       description: "Notes lasting facts from finished conversations, tidies the brain's pages, then writes the profile summary",
       cron,
       timeoutMs: NIGHTLY_TIMEOUT_MS,
-      async run({ signal, trigger }) {
-        const { summary } = await runNightly(runs, steps, trigger, signal);
+      async run({ signal, trigger, log }) {
+        const { summary } = await runNightlyForUsers(ctx.users.list(), passOf, guard, trigger, signal, log);
         return { summary };
       },
     });

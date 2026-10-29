@@ -2,7 +2,7 @@
  * Reviewing and reverting nightly runs (design D6): what each run changed per page, with the dropped lines,
  * merges and source conversations, and a per-page revert. Routes under /api/modules/brain/runs.
  */
-import type { ModuleContext, ModuleConversations, ModuleDb } from "@friday/sdk";
+import type { ModuleContext, ModuleDb, RouteRequest, RouteResponse, UserConversations } from "@friday/sdk";
 import { body, handle, revisionNumber, type Handler } from "../routes.js";
 import { BrainError, type BrainStore, type Revision } from "../store.js";
 import type { DroppedLine, Run, RunStore } from "./runs.js";
@@ -36,7 +36,7 @@ interface RunRevisionRow {
 }
 
 /** The pages a run touched, from its revisions (authors extraction and consolidation) in its id range. */
-export async function runPages(db: ModuleDb, store: BrainStore, conversations: ModuleConversations, run: Run): Promise<RunPage[]> {
+export async function runPages(db: ModuleDb, store: BrainStore, conversations: UserConversations, run: Run): Promise<RunPage[]> {
   const last = run.lastRevisionId ?? store.lastRevisionId();
   const rows = db
     .prepare("SELECT id, page_id, author, sources_json FROM brain__revisions WHERE id BETWEEN ? AND ? AND author IN ('extraction', 'consolidation') ORDER BY id")
@@ -113,29 +113,38 @@ export function revertPage(db: ModuleDb, store: BrainStore, run: Run, pages: Run
   });
 }
 
-export function registerRunRoutes(ctx: ModuleContext, store: BrainStore, runs: RunStore): void {
-  const route = (method: "GET" | "POST", path: string, fn: Handler) => ctx.http.route(method, path, handle(fn));
-  const found = (id: string): Run => {
-    const run = runs.get(revisionNumber(id, "run id"));
+/** What the runs routes need for the requesting user: their brain, their runs and their conversations. */
+export interface UserRuns {
+  store: BrainStore;
+  runs: RunStore;
+  conversations: UserConversations;
+}
+
+/** The runs routes, each working on the requesting user's runs: another user's run is a 404. */
+export function registerRunRoutes(ctx: ModuleContext, runsOf: (req: RouteRequest) => UserRuns): void {
+  type RunsHandler = (u: UserRuns, req: RouteRequest, res: RouteResponse, params: Record<string, string>) => void | Promise<void>;
+  const route = (method: "GET" | "POST", path: string, fn: RunsHandler) => ctx.http.route(method, path, handle((req, res, params) => fn(runsOf(req), req, res, params)));
+  const found = (u: UserRuns, id: string): Run => {
+    const run = u.runs.get(revisionNumber(id, "run id"));
     if (!run) throw new BrainError("not_found", "no such run");
     return run;
   };
 
-  route("GET", "runs", (req, res) => {
+  route("GET", "runs", (u, req, res) => {
     const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query.get("limit") ?? 14)) || 14));
-    res.json({ runs: runs.list(limit) });
+    res.json({ runs: u.runs.list(limit) });
   });
 
-  route("GET", "runs/:id", async (_req, res, { id }) => {
-    const run = found(id);
-    res.json({ run, pages: await runPages(ctx.db, store, ctx.conversations, run) });
+  route("GET", "runs/:id", async (u, _req, res, { id }) => {
+    const run = found(u, id);
+    res.json({ run, pages: await runPages(ctx.db, u.store, u.conversations, run) });
   });
 
-  route("POST", "runs/:id/pages/:pageId/revert", async (req, res, { id, pageId }) => {
-    const run = found(id);
+  route("POST", "runs/:id/pages/:pageId/revert", async (u, req, res, { id, pageId }) => {
+    const run = found(u, id);
     const b = await body<{ base: number }>(req);
     const base = revisionNumber(b.base, "base");
-    const pages = await runPages(ctx.db, store, ctx.conversations, run);
-    res.json({ reverted: revertPage(ctx.db, store, run, pages, pageId, base) });
+    const pages = await runPages(ctx.db, u.store, u.conversations, run);
+    res.json({ reverted: revertPage(ctx.db, u.store, run, pages, pageId, base) });
   });
 }

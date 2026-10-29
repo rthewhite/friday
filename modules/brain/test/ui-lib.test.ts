@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderBody } from "../src/ui/lib/markdown.js";
 import { lineDiff } from "../src/ui/lib/diff.js";
-import { arrangePages, matches, nameKey, parseAliases, unnamedSubject, type PageList, type PageSummary } from "../src/ui/lib/pages.js";
+import { arrangePages, matches, nameKey, parseAliases, runNightlyNow, unnamedSubject, type PageList, type PageSummary } from "../src/ui/lib/pages.js";
 
 const page = (id: string, name: string, body = "", isProfile = false): PageSummary => ({ id, name, type: "other", aliases: [], body, isProfile, updatedAt: "", revisionId: 1 });
 
@@ -96,4 +96,16 @@ test("list search matches every word in name, aliases or body; aliases parse fro
   assert.ok(matches(page, "  "));
   assert.ok(matches({ name: "Zoë", aliases: [], body: "Café de Jaren" }, "zoe cafe"));
   assert.deepEqual(parseAliases(" Noukie, , Nouk ,"), ["Noukie", "Nouk"]);
+});
+
+test("Run it now starts the pass for the user's own brain through the brain's route, not the admins' jobs API", async () => {
+  const calls: [string, string | undefined][] = [];
+  const answer = (status: number) => (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push([String(url), init?.method]);
+    return new Response(status === 202 ? JSON.stringify({ started: true }) : JSON.stringify({ error: "busy", code: "running" }), { status });
+  }) as typeof fetch;
+  assert.equal(await runNightlyNow(answer(202)), "started");
+  assert.equal(await runNightlyNow(answer(409)), "running");
+  assert.deepEqual(calls, [["/api/modules/brain/runs/now", "POST"], ["/api/modules/brain/runs/now", "POST"]]);
+  await assert.rejects(runNightlyNow(answer(500)));
 });

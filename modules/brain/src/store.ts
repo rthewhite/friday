@@ -1,13 +1,14 @@
 /**
- * The brain store (design D2). Every mutation runs in one `ctx.db` transaction and ends in
- * `writeRevision`, which checks the base revision, validates the fields, applies the tombstone
- * guard, replaces the page's names and records the full snapshot. `brain-nightly` adds its
- * authors on this same path, so its guards come from here too.
+ * The brain store (design D2): one user's brain (user-privacy). Every query carries the user, and the store
+ * never reads or writes a page of another user's brain, so ids and names from one brain mean nothing in another.
+ * Every mutation runs in one `ctx.db` transaction and ends in `writeRevision`, which checks the base revision,
+ * validates the fields, applies the tombstone guard, replaces the page's names and records the full snapshot.
+ * `brain-nightly` adds its authors on this same path, so its guards come from here too.
  */
 import { randomUUID } from "node:crypto";
 import type { ModuleDb } from "@friday/sdk";
 import { autolink, LINK_PATTERN, nameKey, parseLinks, unlink, type LinkName } from "./links.js";
-import { PROFILE_ID } from "./schema.js";
+import { PROFILE_NAME, SUBJECT_NAME } from "./schema.js";
 import { INSTRUCTIONS_MAX, isSelf, PAGE_TYPES, type PageType } from "./types.js";
 
 export { INSTRUCTIONS_MAX, PAGE_TYPES, type PageType };
@@ -226,6 +227,7 @@ export interface BrainStoreOptions {
   newId?: () => string;
 }
 
+/** One user's brain; `ensure` creates it (profile and subject page) on first use. */
 export class BrainStore {
   /** The user a portal write is made for, set by `asUser` for the duration of one synchronous store call. */
   private actor?: RevisionUser;
@@ -244,20 +246,59 @@ export class BrainStore {
   private readonly now: () => Date;
   private readonly newId: () => string;
 
-  constructor(private readonly db: ModuleDb, opts: BrainStoreOptions = {}) {
+  /** `userId`: whose brain this is. Use `ensure` (or `Brains.forUser`) before reading a brain that may not exist yet. */
+  constructor(private readonly db: ModuleDb, readonly userId: string, opts: BrainStoreOptions = {}) {
     this.now = opts.now ?? (() => new Date());
     this.newId = opts.newId ?? randomUUID;
+  }
+
+  /**
+   * Creates this user's brain when it doesn't exist yet: the profile, and the subject page named after the user
+   * (`Me` when the name can't be a page name). Returns whether it created one.
+   */
+  ensure(name?: string): boolean {
+    if (this.profileRow()) return false;
+    return this.db.transaction(() => {
+      if (this.profileRow()) return false;
+      const at = this.now().toISOString();
+      const profileId = this.newId();
+      this.db
+        .prepare("INSERT INTO brain__pages (id, user_id, name, type, is_profile, instructions, created_at, updated_at) VALUES (?, ?, '', 'other', 1, '', ?, ?)")
+        .run(profileId, this.userId, at, at);
+      const profile = this.writeRevision(this.get(profileId)!, "system", { name: PROFILE_NAME, type: "other", aliases: [], body: "" }, { note: "created", summary: true, keepOldName: false });
+      let subjectName = SUBJECT_NAME;
+      try {
+        if (name !== undefined && nameKey(validName(name, "name", false)) !== nameKey(PROFILE_NAME)) subjectName = cleanName(name);
+      } catch {
+        // Not a valid page name: the subject starts as `Me`.
+      }
+      const subject = this.create({ name: subjectName, type: "person", aliases: [], body: "" }, "system", { note: "created" });
+      this.db.prepare("UPDATE brain__pages SET subject_id = ? WHERE id = ?").run(subject.id, profile.id);
+      return true;
+    });
+  }
+
+  /** Whether this user has a brain yet. */
+  exists(): boolean {
+    return this.profileRow() !== undefined;
   }
 
   // ---- reads ----
 
   get(id: string): Page | undefined {
-    const row = this.db.prepare("SELECT * FROM brain__pages WHERE id = ?").get(id) as PageRow | undefined;
+    const row = this.db.prepare("SELECT * FROM brain__pages WHERE id = ? AND user_id = ?").get(id, this.userId) as PageRow | undefined;
     return row && toPage(row);
   }
 
   profile(): Page {
-    return this.get(PROFILE_ID)!;
+    const row = this.profileRow();
+    if (!row) throw new BrainError("not_found", "this user has no brain yet");
+    return toPage(row);
+  }
+
+  /** The id of this user's profile row. */
+  profileId(): string {
+    return this.profile().id;
   }
 
   /** The subject page: the page about the user, which `me` and `profile` resolve to (hybrid-profile D4). */
@@ -266,48 +307,52 @@ export class BrainStore {
   }
 
   subjectId(): string {
-    return (this.db.prepare("SELECT subject_id FROM brain__pages WHERE id = ?").get(PROFILE_ID) as { subject_id: string }).subject_id;
+    return this.profile().subjectId!;
   }
 
   /** Live pages, most recently updated first (the profile included). */
   list(): Page[] {
-    return (this.db.prepare("SELECT * FROM brain__pages WHERE deleted_at IS NULL ORDER BY updated_at DESC, id").all() as unknown as PageRow[]).map(toPage);
+    return (this.db.prepare("SELECT * FROM brain__pages WHERE user_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC, id").all(this.userId) as unknown as PageRow[]).map(toPage);
   }
 
   /** Live pages other than the profile, most recently updated first, at most `limit`. */
   recent(limit: number): Page[] {
-    return (this.db.prepare("SELECT * FROM brain__pages WHERE deleted_at IS NULL AND is_profile = 0 ORDER BY updated_at DESC, id LIMIT ?").all(limit) as unknown as PageRow[]).map(toPage);
+    return (this.db.prepare("SELECT * FROM brain__pages WHERE user_id = ? AND deleted_at IS NULL AND is_profile = 0 ORDER BY updated_at DESC, id LIMIT ?").all(this.userId, limit) as unknown as PageRow[]).map(toPage);
   }
 
   /** Number of live pages other than the profile. */
   count(): number {
-    return (this.db.prepare("SELECT count(*) AS n FROM brain__pages WHERE deleted_at IS NULL AND is_profile = 0").get() as { n: number }).n;
+    return (this.db.prepare("SELECT count(*) AS n FROM brain__pages WHERE user_id = ? AND deleted_at IS NULL AND is_profile = 0").get(this.userId) as { n: number }).n;
   }
 
   /** Soft-deleted pages, most recently deleted first. */
   deleted(): Page[] {
-    return (this.db.prepare("SELECT * FROM brain__pages WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id").all() as unknown as PageRow[]).map(toPage);
+    return (this.db.prepare("SELECT * FROM brain__pages WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC, id").all(this.userId) as unknown as PageRow[]).map(toPage);
   }
 
   /** The live page whose name or alias matches `name`. */
   resolve(name: string): Page | undefined {
-    const row = this.db.prepare("SELECT p.* FROM brain__names n JOIN brain__pages p ON p.id = n.page_id WHERE n.key = ?").get(nameKey(name)) as PageRow | undefined;
+    const row = this.db.prepare("SELECT p.* FROM brain__names n JOIN brain__pages p ON p.id = n.page_id WHERE n.user_id = ? AND n.key = ?").get(this.userId, nameKey(name)) as PageRow | undefined;
     return row && toPage(row);
   }
 
+  /** A page's revisions, newest first; none for another user's page. */
   revisions(pageId: string): RevisionSummary[] {
+    if (!this.get(pageId)) return [];
     const rows = this.db.prepare("SELECT id, author, user_id, user_name, created_at, note, sources_json FROM brain__revisions WHERE page_id = ? ORDER BY id DESC").all(pageId) as unknown as RevisionRow[];
     return rows.map((r) => ({ id: r.id, author: r.author as Author, ...revisionUser(r), createdAt: r.created_at, ...(r.note !== null ? { note: r.note } : {}), sources: JSON.parse(r.sources_json) as string[] }));
   }
 
   revision(pageId: string, revisionId: number): Revision | undefined {
-    const row = this.db.prepare("SELECT * FROM brain__revisions WHERE page_id = ? AND id = ?").get(pageId, revisionId) as RevisionRow | undefined;
+    const row = this.db
+      .prepare("SELECT r.* FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id WHERE r.page_id = ? AND r.id = ? AND p.user_id = ?")
+      .get(pageId, revisionId, this.userId) as RevisionRow | undefined;
     return row && toRevision(row);
   }
 
   /** Names of purged pages, which only the user may bring back. */
   tombstones(): { key: string; name: string }[] {
-    return (this.db.prepare("SELECT key, name FROM brain__tombstones ORDER BY name").all() as unknown as { key: string; name: string }[]).map((r) => ({ ...r }));
+    return (this.db.prepare("SELECT key, name FROM brain__tombstones WHERE user_id = ? ORDER BY name").all(this.userId) as unknown as { key: string; name: string }[]).map((r) => ({ ...r }));
   }
 
   /** `[[link]]` targets on live pages that no live page answers to, deduplicated by name key. */
@@ -325,10 +370,10 @@ export class BrainStore {
   changesSince(revisionId: number, excluded: Author[] = ["consolidation", "system"]): Map<string, number> {
     const rows = this.db
       .prepare(`SELECT r.page_id AS id, min(r.id) AS first FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id
-        WHERE r.id > ? AND p.deleted_at IS NULL AND r.author NOT IN (${excluded.map(() => "?").join(", ") || "''"})
+        WHERE r.id > ? AND p.user_id = ? AND p.deleted_at IS NULL AND r.author NOT IN (${excluded.map(() => "?").join(", ") || "''"})
           AND (r.note IS NULL OR r.note NOT LIKE 'reverted nightly run %')
         GROUP BY r.page_id`)
-      .all(revisionId, ...excluded) as { id: string; first: number }[];
+      .all(revisionId, this.userId, ...excluded) as { id: string; first: number }[];
     return new Map(rows.map((r) => [r.id, r.first]));
   }
 
@@ -344,8 +389,8 @@ export class BrainStore {
    */
   summarySourcesChangedSince(revisionId: number): boolean {
     return !!this.db
-      .prepare("SELECT 1 FROM brain__revisions WHERE id > ? AND (page_id != ? OR note LIKE 'unlinked %') LIMIT 1")
-      .get(revisionId, PROFILE_ID);
+      .prepare("SELECT 1 FROM brain__revisions r JOIN brain__pages p ON p.id = r.page_id WHERE r.id > ? AND p.user_id = ? AND (p.is_profile = 0 OR r.note LIKE 'unlinked %') LIMIT 1")
+      .get(revisionId, this.userId);
   }
 
   /** A page's `[[links]]`, resolved through live names and aliases. */
@@ -374,7 +419,7 @@ export class BrainStore {
       const id = this.newId();
       const at = this.now().toISOString();
       // Placeholder row so the revision and names can reference it; writeRevision fills it in.
-      this.db.prepare("INSERT INTO brain__pages (id, name, type, created_at, updated_at) VALUES (?, '', 'other', ?, ?)").run(id, at, at);
+      this.db.prepare("INSERT INTO brain__pages (id, user_id, name, type, created_at, updated_at) VALUES (?, ?, '', 'other', ?, ?)").run(id, this.userId, at, at);
       return this.writeRevision({ id, name: "", type: "other", aliases: [], body: "", isProfile: false, revisionId: 0, createdAt: at, updatedAt: at }, author, fields, { ...opts, base: undefined, keepOldName: false });
     });
   }
@@ -409,7 +454,7 @@ export class BrainStore {
   /** Makes an earlier profile revision's instructions current again, keeping the current summary. */
   restoreInstructions(revisionId: number, base: number): Page {
     return this.db.transaction(() => {
-      const rev = this.revision(PROFILE_ID, revisionId);
+      const rev = this.revision(this.profileId(), revisionId);
       if (!rev) throw new BrainError("not_found", `revision ${revisionId} of the profile does not exist`);
       const profile = this.instructionsBase(base);
       return this.writeRevision(profile, "user", profile, { instructions: rev.instructions ?? "", note: `restored revision ${revisionId}` });
@@ -431,16 +476,14 @@ export class BrainStore {
       if (page.id === this.subjectId()) throw new BrainError("profile", "the page about the user cannot be deleted");
       if (opts.base !== undefined && opts.base !== page.revisionId) throw new BrainError("stale", "the page changed since it was opened", page);
       const at = this.now().toISOString();
-      this.db.prepare("UPDATE brain__pages SET deleted_at = ? WHERE id = ?").run(at, id);
+      this.db.prepare("UPDATE brain__pages SET deleted_at = ? WHERE id = ? AND user_id = ?").run(at, id, this.userId);
       return this.writeRevision({ ...page, deletedAt: at }, author, page, { note: opts.note ?? "deleted" });
     });
   }
 
-  /** The id of the newest revision in the brain (0 when there is none). */
+  /** The id of the newest revision in any brain (0 when there is none): revision ids are global, so runs can range over them. */
   lastRevisionId(): number {
-    const seq = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'brain__revisions'").get() as { seq: number } | undefined;
-    const max = (this.db.prepare("SELECT max(id) AS m FROM brain__revisions").get() as { m: number | null }).m ?? 0;
-    return Math.max(seq?.seq ?? 0, max);
+    return lastRevisionId(this.db);
   }
 
   undelete(id: string, author: Author): Page {
@@ -448,7 +491,7 @@ export class BrainStore {
       const page = this.get(id);
       if (!page) throw new BrainError("not_found", "no such page");
       if (!page.deletedAt) return page;
-      this.db.prepare("UPDATE brain__pages SET deleted_at = NULL WHERE id = ?").run(id);
+      this.db.prepare("UPDATE brain__pages SET deleted_at = NULL WHERE id = ? AND user_id = ?").run(id, this.userId);
       const { deletedAt: _, ...live } = page;
       return this.writeRevision(live, author, page, { note: "undeleted" });
     });
@@ -471,7 +514,9 @@ export class BrainStore {
         const key = nameKey(name);
         if (forgotten.has(key) || this.owner(key)) continue;
         forgotten.add(key);
-        this.db.prepare("INSERT INTO brain__tombstones (key, name, purged_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET name = excluded.name, purged_at = excluded.purged_at").run(key, name, at);
+        this.db
+          .prepare("INSERT INTO brain__tombstones (user_id, key, name, purged_at) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, key) DO UPDATE SET name = excluded.name, purged_at = excluded.purged_at")
+          .run(this.userId, key, name, at);
       }
       const unlinked: string[] = [];
       for (const other of this.list()) {
@@ -480,7 +525,7 @@ export class BrainStore {
         this.writeRevision(other, author, { ...other, body }, { note: `unlinked "${page.name}" after purge`, keepOldName: false, summary: other.isProfile });
         unlinked.push(other.name);
       }
-      this.db.prepare("DELETE FROM brain__pages WHERE id = ?").run(id);
+      this.db.prepare("DELETE FROM brain__pages WHERE id = ? AND user_id = ?").run(id, this.userId);
       return unlinked;
     });
   }
@@ -530,7 +575,7 @@ export class BrainStore {
       throw new BrainError("stale", "the page changed since it was opened", this.get(page.id));
     }
     const fields = validateFields(input, page.isProfile);
-    if (page.isProfile) {
+    if (page.isProfile && page.name !== "") {
       if (fields.name !== page.name || fields.type !== page.type) throw new BrainError("profile", "the profile's name and type cannot change");
       // The summary is generated from the pages (hybrid-profile D1); only its own write path changes it.
       if (!opts.summary && (fields.body !== page.body || fields.aliases.join("\n") !== page.aliases.join("\n"))) {
@@ -556,21 +601,21 @@ export class BrainStore {
     const keys = keysOf(fields);
 
     const tombstoned = keys.flatMap((k) => {
-      const t = this.db.prepare("SELECT name FROM brain__tombstones WHERE key = ?").get(k) as { name: string } | undefined;
+      const t = this.db.prepare("SELECT name FROM brain__tombstones WHERE user_id = ? AND key = ?").get(this.userId, k) as { name: string } | undefined;
       return t ? [t.name] : [];
     });
     if (tombstoned.length) {
       if (author !== "user") throw new BrainError("tombstoned", `${tombstoned.join(", ")} was deliberately forgotten`, undefined, tombstoned);
-      for (const k of keys) this.db.prepare("DELETE FROM brain__tombstones WHERE key = ?").run(k);
+      for (const k of keys) this.db.prepare("DELETE FROM brain__tombstones WHERE user_id = ? AND key = ?").run(this.userId, k);
     }
 
     this.db.prepare("DELETE FROM brain__names WHERE page_id = ?").run(page.id);
     if (!page.deletedAt) {
       const taken = [fields.name, ...fields.aliases].filter((n) => this.owner(nameKey(n)));
       if (taken.length) throw new BrainError("name_taken", `already used by another page: ${taken.join(", ")}`, undefined, taken);
-      const insert = this.db.prepare("INSERT INTO brain__names (key, page_id, kind) VALUES (?, ?, ?)");
-      insert.run(nameKey(fields.name), page.id, "name");
-      for (const a of fields.aliases) insert.run(nameKey(a), page.id, "alias");
+      const insert = this.db.prepare("INSERT INTO brain__names (user_id, key, page_id, kind) VALUES (?, ?, ?, ?)");
+      insert.run(this.userId, nameKey(fields.name), page.id, "name");
+      for (const a of fields.aliases) insert.run(this.userId, nameKey(a), page.id, "alias");
     }
 
     const at = this.now().toISOString();
@@ -582,8 +627,8 @@ export class BrainStore {
       .prepare("INSERT INTO brain__revisions (page_id, author, base_revision_id, name, type, aliases_json, body, instructions, sources_json, note, created_at, user_id, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(page.id, author, page.revisionId || null, fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, JSON.stringify(opts.sources ?? []), opts.note ?? null, at, user?.id ?? null, user?.name ?? null).lastInsertRowid);
     this.db
-      .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, instructions = ?, revision_id = ?, updated_at = ? WHERE id = ?")
-      .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, rev, at, page.id);
+      .prepare("UPDATE brain__pages SET name = ?, type = ?, aliases_json = ?, body = ?, instructions = ?, revision_id = ?, updated_at = ? WHERE id = ? AND user_id = ?")
+      .run(fields.name, fields.type, JSON.stringify(fields.aliases), fields.body, instructions, rev, at, page.id, this.userId);
     return this.get(page.id)!;
   }
 
@@ -618,7 +663,7 @@ export class BrainStore {
   /** The profile, after checking that its instructions haven't changed since revision `base`. */
   private instructionsBase(base: number): Page {
     const profile = this.profile();
-    const at = this.revision(PROFILE_ID, base);
+    const at = this.revision(profile.id, base);
     if (!at || (at.instructions ?? "") !== profile.instructions) throw new BrainError("stale", "the instructions changed since they were opened", profile);
     return profile;
   }
@@ -630,10 +675,21 @@ export class BrainStore {
     return page;
   }
 
-  /** The live page that owns a name key, if any. */
+  /** The live page of this brain that owns a name key, if any. */
   private owner(key: string): string | undefined {
-    return (this.db.prepare("SELECT page_id FROM brain__names WHERE key = ?").get(key) as { page_id: string } | undefined)?.page_id;
+    return (this.db.prepare("SELECT page_id FROM brain__names WHERE user_id = ? AND key = ?").get(this.userId, key) as { page_id: string } | undefined)?.page_id;
   }
+
+  private profileRow(): PageRow | undefined {
+    return this.db.prepare("SELECT * FROM brain__pages WHERE user_id = ? AND is_profile = 1").get(this.userId) as PageRow | undefined;
+  }
+}
+
+/** The id of the newest revision in any brain (0 when there is none). */
+export function lastRevisionId(db: ModuleDb): number {
+  const seq = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'brain__revisions'").get() as { seq: number } | undefined;
+  const max = (db.prepare("SELECT max(id) AS m FROM brain__revisions").get() as { m: number | null }).m ?? 0;
+  return Math.max(seq?.seq ?? 0, max);
 }
 
 /** A dated note line: `- 2026-09-29: text`. */

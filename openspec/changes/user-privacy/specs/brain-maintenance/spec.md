@@ -10,7 +10,7 @@ A run of `brain/nightly` SHALL handle every user from `ctx.users.list()` in turn
 
 #### Scenario: One user fails
 - **WHEN** consolidation fails for Sanne
-- **THEN** the owner's brain is still handled, Sanne's run is recorded as failed, and the job's outcome is `partial`
+- **THEN** the owner's brain is still handled, Sanne's run is recorded as failed, and the job's summary starts with `partial` (jobs have no partial outcome; the job itself records `ok`)
 
 ### Requirement: Users run and review their own nightly passes
 
