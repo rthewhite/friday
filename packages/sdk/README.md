@@ -43,7 +43,8 @@ export default defineModule({
 | `jobs.schedule(job)` | Declares a background job `<id>/<name>` with a `cron` expression (in `FRIDAY_TIMEZONE`) or `everyMs` (at least 1000). Throws on an invalid declaration, so the module fails to load. In-process modules only; on the remote runner it throws `jobs are not available in this host`. |
 | `jobs.trigger(name)` | Starts one of the module's own jobs now (trigger `module`); returns `{ started: false }` when it is already running. |
 | `llm.generate(request)` | Text generation through core's model. See [Text generation](#text-generation). |
-| `conversations` | Read access to recorded conversations: `list`, `get`, `search`, `onQuiet`. In-process modules only; see [Conversations](#conversations). |
+| `conversations` | Read access to one user's recorded conversations at a time: `forUser(id)` with `list`, `get`, `search`; and `onQuiet`. In-process modules only; see [Conversations](#conversations). |
+| `users` | The household's users: `owner()`, `list()`, `onOwner(handler)`. Ids and names only. In-process modules only; see [Users](#users). |
 | `db` | Synchronous access to the module's own tables: `prepare`, `exec`, `transaction`. In-process modules only; see [Tables](#tables). |
 | `prompt.addContext(provider)` | Adds text to Friday's voice and chat system prompts. Returns an unsubscribe function. In-process modules only; see [Prompt context](#prompt-context). |
 | `oauth.token(provider)` | A fresh access token for a provider the manifest requests and the user granted. In-process modules only; see [OAuth](#oauth). |
@@ -98,8 +99,8 @@ Both keys matter only in voice. In a portal chat turn the result goes back to th
 A handler's second argument says where the call comes from: `channel` (`"voice"` or `"chat"`) and `conversationId`, the conversation the call is recorded in. The id is absent until that conversation is stored: a voice session writes an exchange when its turn ends, so a tool called in the first exchange has none yet. Both are absent when the host calls a tool directly, such as the remote runner or `host.call(name, args)` without options. Tools from MCP servers and remote modules never see it.
 
 ```ts
-handler: async ({ query }, { conversationId }) => ({
-  found: await ctx.conversations.search({ query, exclude: conversationId ? [conversationId] : [] }),
+handler: async ({ query }, { conversationId, user }) => ({
+  found: await ctx.conversations.forUser(user!.id).search({ query, exclude: conversationId ? [conversationId] : [] }),
 }),
 ```
 
@@ -111,22 +112,29 @@ A tool is offered in voice sessions and in portal chat unless it sets `channels`
 
 Core records every conversation as transcript text (never audio): user entries with their input (`speech`, transcribed and noisy, or `text`, typed and exact), assistant entries (marked `interrupted` on barge-in), and tool calls with their arguments and results. A conversation is **active** while it receives entries and goes **quiet** when its session ends or after `FRIDAY_CONVERSATION_QUIET_MINUTES` without activity. A resumed thread goes quiet again later, with a later `quietAt`.
 
-- `ctx.conversations.list({ quietSince?, limit? })`: without `quietSince`, the most recently active first. With it, the conversations currently quiet that went quiet after that time, oldest first.
-- `ctx.conversations.get(id)`: the conversation with all its entries, or `undefined`.
-- `ctx.conversations.search({ query?, since?, until?, channel?, device?, exclude?, limit? })`: the conversations whose entries in `[since, until)` (ISO 8601 instants) contain any of the query's words. Words shorter than 3 characters are ignored, and a word matches any part of a word, without case and accents. What is searched is user and assistant text and each tool call's name and the values in its arguments (not their keys), never its result. Results are ordered by the number of distinct words matched, then by most recent activity, and `limit` defaults to 5 (at most 20). Each result is the conversation's summary plus up to 3 `snippets`: the matching entry with the entries before and after it, text cut to 300 characters, tool calls without their result. Without words, it returns the conversations with entries in the window, each with its first 3 of them. An unknown channel, an invalid time or `since` after `until` rejects with a `SearchQueryError`.
-- `ctx.conversations.onQuiet(handler)`: called with `{ id, lastActivityAt, quietAt }` each time a conversation goes quiet. Returns an unsubscribe function; subscriptions end when the module is disposed or reloaded. A throwing handler is logged and does not affect other subscribers.
+Every conversation belongs to one user (see [Users](#users)), and a module reads one user's at a time. There is no view across users, so what one person said can't reach another through a module. `ctx.conversations.forUser(id)` returns that user's view:
 
-Notifications are best-effort and in-process: one that fires while the module reloads or Friday restarts is lost. The durable pattern is a watermark in `ctx.storage`, with `onQuiet` only as a nudge:
+- `list({ quietSince?, limit? })`: without `quietSince`, the most recently active first. With it, the conversations currently quiet that went quiet after that time, oldest first.
+- `get(id)`: the conversation with all its entries, or `undefined` (also for another user's conversation).
+- `search({ query?, since?, until?, channel?, device?, exclude?, limit? })`: the conversations whose entries in `[since, until)` (ISO 8601 instants) contain any of the query's words. Words shorter than 3 characters are ignored, and a word matches any part of a word, without case and accents. What is searched is user and assistant text and each tool call's name and the values in its arguments (not their keys), never its result. Results are ordered by the number of distinct words matched, then by most recent activity, and `limit` defaults to 5 (at most 20). Each result is the conversation's summary plus up to 3 `snippets`: the matching entry with the entries before and after it, text cut to 300 characters, tool calls without their result. Without words, it returns the conversations with entries in the window, each with its first 3 of them. An unknown channel, an invalid time or `since` after `until` rejects with a `SearchQueryError`.
+
+`ctx.conversations.onQuiet(handler)` is called with `{ id, userId, lastActivityAt, quietAt }` each time a conversation goes quiet. It returns an unsubscribe function; subscriptions end when the module is disposed or reloaded. A throwing handler is logged and does not affect other subscribers.
+
+Notifications are best-effort and in-process: one that fires while the module reloads or Friday restarts is lost. The durable pattern is a watermark per user in `ctx.storage`, with `onQuiet` only as a nudge:
 
 ```ts
 init(ctx) {
-  // Process every conversation that went quiet since the last run, exactly once.
+  // Process every conversation that went quiet since the last run, exactly once, one user at a time.
   const catchUp = async () => {
-    const since = (await ctx.storage.get<string>("watermark")) ?? new Date(0).toISOString();
-    for (const c of await ctx.conversations.list({ quietSince: since, limit: 100 })) {
-      const full = await ctx.conversations.get(c.id);
-      if (full) summarise(full);
-      await ctx.storage.set("watermark", c.quietAt);
+    for (const user of ctx.users.list()) {
+      const key = `watermark:${user.id}`;
+      const since = (await ctx.storage.get<string>(key)) ?? new Date(0).toISOString();
+      const theirs = ctx.conversations.forUser(user.id);
+      for (const c of await theirs.list({ quietSince: since, limit: 100 })) {
+        const full = await theirs.get(c.id);
+        if (full) summarise(full);
+        await ctx.storage.set(key, c.quietAt);
+      }
     }
   };
   // Going quiet is a best-effort nudge; the watermark makes a missed one (a restart, a reload) harmless.
@@ -137,7 +145,21 @@ init(ctx) {
 }
 ```
 
-For heavier work, make `catchUp` a background job and have the handler call `ctx.jobs.trigger("<name>")` instead, so runs never overlap and show up on the Jobs page. Remote modules get an error `conversations are not available in this host`. In tests, `createTestHost` provides an in-memory store as `host.conversations`: `seed({ entries, ... })` adds a conversation, `await markQuiet(id)` fires the module's handlers, and `search` follows the same rules as core, with substring matching over folded text in place of core's full-text index.
+For heavier work, make `catchUp` a background job and have the handler call `ctx.jobs.trigger("<name>")` instead, so runs never overlap and show up on the Jobs page. Remote modules get an error `conversations are not available in this host`. In tests, `createTestHost` provides an in-memory store as `host.conversations`: `seed({ userId, entries, ... })` adds a conversation (the host's owner's when `userId` is omitted), `await markQuiet(id)` fires the module's handlers, and `search` follows the same rules as core, with substring matching over folded text in place of core's full-text index.
+
+### Users
+
+Friday knows who it is talking to. `ctx.users` exposes the household's users by id and name, never an email, a login subject or a token:
+
+- `owner()`: the household owner, `{ id, name }`, or `undefined` on a fresh install before the first admin logs in.
+- `list()`: every user who is not disabled.
+- `onOwner(handler)`: called once, when the owner is first recorded. Returns an unsubscribe function; subscriptions end when the module is disposed or reloaded.
+
+A tool call's context and a prompt context provider's info carry `user`: the person chatting or using the Talk page, the household owner in a voice device's session, and an agent's creator in its runs. Data a module keeps for a person belongs to that user; data written before users existed belongs to the owner, which `onOwner` lets a module assign once there is one.
+
+A tool on the owner's own accounts (a calendar, a music service) sets `ownerOnly: true`. Everyone else's chat turns, voice sessions and agent runs don't get it, and a call for anyone else, or without a user, answers `{ error: "<name> is only available to the household owner" }` without running the handler.
+
+Remote modules get an error `users are not available in this host`. In tests, `createTestHost` takes `users` (`{ id, name }[]`) and `owner` (a user, or the id of one in `users`; `null` for none yet). Without `owner`, the `user` option is the owner, else `TEST_OWNER`. `await host.recordOwner(id)` records the owner later and runs `onOwner` handlers. A call without a user counts as the owner's, and `host.toolsIn(channel, user)` lists what a user is offered.
 
 ### Tables
 

@@ -2,10 +2,10 @@
 
 ## 1. SDK: users, scoped conversations, owner-only tools
 
-- [ ] 1.1 Add `ctx.users` (`owner()`, `list()`, `onOwner(handler)`) to `ModuleContext`, failing with "users are not available in that host" in the remote runner. Verify with SDK tests for the remote-host error and the types.
-- [ ] 1.2 Replace the unscoped `ctx.conversations.list/get/search` with `forUser(id)` (the same three, limited to that user), and add `userId` to `QuietEvent`. `MemoryConversations` seeds take a user. Verify with SDK tests: one user's view never returns another user's seeded conversation, and `onQuiet` carries the user.
-- [ ] 1.3 Add `ownerOnly?: true` to `Tool`. The registry takes an owner check: `declarations(channel, user?)` leaves owner-only tools out for non-owners, and `callTool` refuses them for non-owners and calls without a user, with the owner-only error and no handler call. Verify with `registry.test.ts` cases for declarations, a forced call and a call without a user.
-- [ ] 1.4 Test host: the `users` and `owner` options, a way to record the owner later that fires `onOwner`, user-scoped conversations, and calls without a user counting as the owner's. Verify with `test-host` tests for each `module-system` "Test host fakes users and the owner" scenario, and run `pnpm --filter @friday/sdk test typecheck build`.
+- [x] 1.1 Add `ctx.users` (`owner()`, `list()`, `onOwner(handler)`) to `ModuleContext`, failing with "users are not available in that host" in the remote runner. Verify with SDK tests for the remote-host error and the types.
+- [x] 1.2 Replace the unscoped `ctx.conversations.list/get/search` with `forUser(id)` (the same three, limited to that user), and add `userId` to `QuietEvent`. `MemoryConversations` seeds take a user. Verify with SDK tests: one user's view never returns another user's seeded conversation, and `onQuiet` carries the user.
+- [x] 1.3 Add `ownerOnly?: true` to `Tool`. The registry takes an owner check: `declarations(channel, user?)` leaves owner-only tools out for non-owners, and `callTool` refuses them for non-owners and calls without a user, with the owner-only error and no handler call. Verify with `registry.test.ts` cases for declarations, a forced call and a call without a user.
+- [x] 1.4 Test host: the `users` and `owner` options, a way to record the owner later that fires `onOwner`, user-scoped conversations, and calls without a user counting as the owner's. Verify with `test-host` tests for each `module-system` "Test host fakes users and the owner" scenario, and run `pnpm --filter @friday/sdk test typecheck build`.
 
 ## 2. Core: ownership and the owner fallback
 

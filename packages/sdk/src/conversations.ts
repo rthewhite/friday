@@ -1,4 +1,4 @@
-/** Read access to recorded conversations (`ctx.conversations`). In-process modules only. */
+/** Read access to recorded conversations (`ctx.conversations`), one user at a time. In-process modules only. */
 import {
   compareMatches,
   foldSearchText,
@@ -47,6 +47,8 @@ export interface Conversation extends ConversationSummary {
 
 export interface QuietEvent {
   id: string;
+  /** The user the conversation belongs to; null only for a device's conversation recorded before an owner existed. */
+  userId: string | null;
   lastActivityAt: string;
   quietAt: string;
 }
@@ -58,7 +60,8 @@ export interface ListConversationsOptions {
   limit?: number;
 }
 
-export interface ModuleConversations {
+/** One user's conversations (`ctx.conversations.forUser(id)`); another user's are never returned. */
+export interface UserConversations {
   /** Without `quietSince`: most recently active first. With it: quiet since that time, oldest first. */
   list(opts?: ListConversationsOptions): Promise<ConversationSummary[]>;
   get(id: string): Promise<Conversation | undefined>;
@@ -69,9 +72,14 @@ export interface ModuleConversations {
    * them. Rejects with a `SearchQueryError` for an unknown channel, an invalid time or `since` after `until`.
    */
   search(opts?: SearchConversationsOptions): Promise<ConversationMatch[]>;
+}
+
+export interface ModuleConversations {
+  /** A view of one user's conversations only. There is deliberately no view across users. */
+  forUser(userId: string): UserConversations;
   /**
    * Best-effort, in-process notification each time a conversation goes quiet. Missed notifications
-   * (restarts, reloads) are recovered with `list({ quietSince: <last quietAt seen> })`.
+   * (restarts, reloads) are recovered with `forUser(<user>).list({ quietSince: <last quietAt seen> })`.
    * Returns an unsubscribe function; subscriptions also end when the module is disposed or reloaded.
    */
   onQuiet(handler: (e: QuietEvent) => void | Promise<void>): () => void;
@@ -82,27 +90,44 @@ export type SeedEntry = Loose<ConversationEntry>;
 type Loose<E> = E extends ConversationEntry ? Omit<E, "seq" | "at"> & { seq?: number; at?: string } : never;
 
 export interface SeedConversation extends Partial<Omit<ConversationSummary, "state" | "entryCount" | "preview">> {
+  /** The user the conversation belongs to; `defaultUserId` when omitted. */
+  userId?: string;
   entries?: SeedEntry[];
 }
 
+/** The user seeded conversations belong to when neither the seed nor the store says otherwise (`TEST_USER`'s id). */
+export const DEFAULT_SEED_USER = "test-user";
+
+type Stored = Conversation & { userId: string };
+
 type Logger = Pick<Console, "error">;
 
-/** In-memory conversations for the test host: seed them, then mark them quiet to fire `onQuiet` handlers. */
+/**
+ * In-memory conversations for the test host: seed them for a user, then mark them quiet to fire `onQuiet` handlers.
+ * `forUser(id)` reads them as core does, one user at a time.
+ */
 export class MemoryConversations implements ModuleConversations {
-  private readonly items = new Map<string, Conversation>();
+  private readonly items = new Map<string, Stored>();
   private readonly handlers = new Set<(e: QuietEvent) => void | Promise<void>>();
   private n = 0;
+  /**
+   * Who a seed without `userId` belongs to. The test host sets it to its owner unless the store was given one.
+   */
+  defaultUserId: string | undefined;
 
-  constructor(private readonly log: Logger = { error() {} }) {}
+  constructor(private readonly log: Logger = { error() {} }, defaultUserId?: string) {
+    this.defaultUserId = defaultUserId;
+  }
 
-  /** Store a conversation (quiet when `quietAt` is given). Returns what `get` will return. */
+  /** Store a conversation (quiet when `quietAt` is given). Returns what `forUser(<its user>).get` will return. */
   seed(c: SeedConversation = {}): Conversation {
     const now = new Date().toISOString();
     const startedAt = c.startedAt ?? now;
     const entries = (c.entries ?? []).map((e, i) => ({ ...e, seq: e.seq ?? i + 1, at: e.at ?? startedAt }) as ConversationEntry);
     const firstUser = entries.find((e) => e.kind === "user");
-    const conv: Conversation = {
+    const conv: Stored = {
       id: c.id ?? `conversation-${++this.n}`,
+      userId: c.userId ?? this.defaultUserId ?? DEFAULT_SEED_USER,
       channel: c.channel ?? "voice",
       device: c.device ?? null,
       startedAt,
@@ -116,7 +141,7 @@ export class MemoryConversations implements ModuleConversations {
       entries,
     };
     this.items.set(conv.id, conv);
-    return structuredClone(conv);
+    return publicCopy(conv);
   }
 
   /** Mark a seeded conversation quiet now (or at `at`) and run every `onQuiet` handler; resolves once they settled. */
@@ -125,7 +150,7 @@ export class MemoryConversations implements ModuleConversations {
     if (!c) throw new Error(`no seeded conversation "${id}"`);
     c.quietAt = at;
     c.state = "quiet";
-    const e: QuietEvent = { id, lastActivityAt: c.lastActivityAt, quietAt: at };
+    const e: QuietEvent = { id, userId: c.userId, lastActivityAt: c.lastActivityAt, quietAt: at };
     for (const h of [...this.handlers]) {
       try {
         await h(e);
@@ -136,25 +161,36 @@ export class MemoryConversations implements ModuleConversations {
     return e;
   }
 
-  async list(opts: ListConversationsOptions = {}): Promise<ConversationSummary[]> {
+  forUser(userId: string): UserConversations {
+    return {
+      list: async (opts) => this.list(userId, opts),
+      get: async (id) => this.get(userId, id),
+      search: async (opts) => this.search(userId, opts),
+    };
+  }
+
+  private list(userId: string, opts: ListConversationsOptions = {}): ConversationSummary[] {
     const limit = opts.limit ?? 50;
-    const all = [...this.items.values()];
+    const all = this.of(userId);
     const rows = opts.quietSince !== undefined
       ? all.filter((c) => c.quietAt && Date.parse(c.quietAt) > Date.parse(opts.quietSince!)).sort((a, b) => Date.parse(a.quietAt!) - Date.parse(b.quietAt!))
       : all.sort((a, b) => Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt));
-    return rows.slice(0, limit).map(({ entries, ...summary }) => structuredClone(summary));
+    return rows.slice(0, limit).map((c) => {
+      const { entries: _entries, ...summary } = publicCopy(c);
+      return summary;
+    });
   }
 
-  async get(id: string): Promise<Conversation | undefined> {
+  private get(userId: string, id: string): Conversation | undefined {
     const c = this.items.get(id);
-    return c ? structuredClone(c) : undefined;
+    return c && c.userId === userId ? publicCopy(c) : undefined;
   }
 
   /** The store's search rules, with folded substring matching in place of the full-text index. */
-  async search(opts: SearchConversationsOptions = {}): Promise<ConversationMatch[]> {
+  private search(userId: string, opts: SearchConversationsOptions = {}): ConversationMatch[] {
     const s = validateSearch(opts);
     const candidates: { c: Conversation; entries: ConversationEntry[]; matching?: Set<number>; words: number }[] = [];
-    for (const c of this.items.values()) {
+    for (const c of this.of(userId).map(publicCopy)) {
       if ((s.channel && c.channel !== s.channel) || (s.device !== undefined && c.device !== s.device) || s.exclude.includes(c.id)) continue;
       const entries = [...c.entries].sort((a, b) => a.seq - b.seq).filter((e) => inWindow(e.at, s));
       if (!entries.length) continue;
@@ -185,8 +221,16 @@ export class MemoryConversations implements ModuleConversations {
     return () => void this.handlers.delete(handler);
   }
 
+  private of(userId: string): Stored[] {
+    return [...this.items.values()].filter((c) => c.userId === userId);
+  }
+
   /** Drop every subscription (the test host does this on dispose). */
   clearSubscriptions(): void {
     this.handlers.clear();
   }
+}
+
+function publicCopy({ userId: _userId, ...c }: Stored): Conversation {
+  return structuredClone(c);
 }

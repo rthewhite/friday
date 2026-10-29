@@ -13,6 +13,7 @@ import type { ModuleDb } from "./db.js";
 import type { ModulePrompt } from "./prompt.js";
 import { noOAuth, type ModuleOAuth } from "./oauth.js";
 import type { Tool } from "./tool.js";
+import type { ModuleUsers } from "./user.js";
 
 export type Env = Record<string, string | undefined>;
 /** Resolves a configuration key for one module; hosts compose stored values and the environment. */
@@ -71,6 +72,8 @@ export interface ContextOptions {
   llm?: ModuleLlm;
   /** Conversation store access; defaults to one that fails (hosts without a store, like the remote runner). */
   conversations?: ModuleConversations;
+  /** The household's users; defaults to one that fails (hosts without users, like the remote runner). */
+  users?: ModuleUsers;
   /** The module's database handle; defaults to one whose every call throws (hosts without friday.db). */
   db?: ModuleDb;
   /** The module's prompt context; defaults to one whose `addContext` throws (hosts without prompt assembly). */
@@ -97,6 +100,7 @@ export function createContext(manifest: ModuleManifest, o: ContextOptions): Modu
     },
     llm: o.llm ?? { generate: async () => { throw new LlmError("unavailable", "text generation is not available in this host"); } },
     conversations: o.conversations ?? noConversations(manifest.id),
+    users: o.users ?? noUsers(manifest.id),
     db: o.db ?? noDb(manifest.id),
     prompt: o.prompt ?? { addContext: () => { throw new Error(`${manifest.id}: prompt context is not available in this host`); } },
     oauth: o.oauth ?? noOAuth,
@@ -111,9 +115,16 @@ function noDb(id: string): ModuleDb {
 function noConversations(id: string): ModuleConversations {
   const error = () => new Error(`${id}: conversations are not available in this host`);
   return {
-    list: async () => { throw error(); },
-    get: async () => { throw error(); },
-    search: async () => { throw error(); },
+    forUser: () => ({
+      list: async () => { throw error(); },
+      get: async () => { throw error(); },
+      search: async () => { throw error(); },
+    }),
     onQuiet: () => { throw error(); },
   };
+}
+
+function noUsers(id: string): ModuleUsers {
+  const fail = (): never => { throw new Error(`${id}: users are not available in this host`); };
+  return { owner: fail, list: fail, onOwner: fail };
 }

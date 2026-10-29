@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { defineModule, LlmError, OAuthError, Type, type ModuleContext } from "../src/index.js";
-import { createTestHost } from "../src/test.js";
+import { createTestHost, TEST_OWNER } from "../src/test.js";
+import type { CallUser } from "../src/index.js";
 
 const hello = defineModule({
   manifest: {
@@ -238,4 +239,65 @@ test("a provider the manifest does not request is not_granted, a requested one w
 test("an invalid oauth request rejects createTestHost as the host would", async () => {
   const bad = defineModule({ manifest: { id: "bad", label: "Bad", oauth: [{ provider: "acme", scopes: [], authUrl: "https://a.example/x" }] }, init() {} });
   await assert.rejects(createTestHost(bad), /module bad: oauth request for acme: authUrl and tokenUrl go together/);
+});
+
+const raymond = { id: "u1", name: "Raymond", role: "admin" as const };
+const sanne = { id: "u2", name: "Sanne" };
+
+function usersModule(seen: { owners: CallUser[] }) {
+  return defineModule({
+    manifest: { id: "u", label: "U" },
+    init(ctx) {
+      ctx.users.onOwner((o) => void seen.owners.push(o));
+      ctx.defineTool({ name: "agenda", description: "", ownerOnly: true, handler: (_a, call) => ({ for: call.user?.id ?? null }) });
+      ctx.defineTool({ name: "whoami", description: "", handler: () => ({ owner: ctx.users.owner() ?? null, users: ctx.users.list() }) });
+    },
+  });
+}
+
+test("users: without options the fixed test owner is the owner and the only user", async () => {
+  const h = await createTestHost(usersModule({ owners: [] }));
+  assert.deepEqual((await h.call("whoami")).result, { owner: TEST_OWNER, users: [TEST_OWNER] });
+});
+
+test("users: the user option is the owner, and the list holds the owner and the user", async () => {
+  const withUser = await createTestHost(usersModule({ owners: [] }), { user: raymond });
+  assert.deepEqual((await withUser.call("whoami")).result, { owner: { id: "u1", name: "Raymond" }, users: [{ id: "u1", name: "Raymond" }] });
+  const both = await createTestHost(usersModule({ owners: [] }), { user: { ...sanne, role: "member" }, owner: { id: "u1", name: "Raymond" } });
+  assert.deepEqual((await both.call("whoami")).result, { owner: { id: "u1", name: "Raymond" }, users: [{ id: "u1", name: "Raymond" }, sanne] });
+});
+
+test("users: the users and owner options, the owner given by id", async () => {
+  const h = await createTestHost(usersModule({ owners: [] }), { users: [{ id: "u1", name: "Raymond" }, sanne], owner: "u2" });
+  assert.deepEqual((await h.call("whoami")).result, { owner: sanne, users: [{ id: "u1", name: "Raymond" }, sanne] });
+  await assert.rejects(createTestHost(usersModule({ owners: [] }), { users: [sanne], owner: "u9" }), /owner "u9" is not one of the test host's users/);
+});
+
+test("users: an owner recorded later fires onOwner once, and dispose ends the subscription", async () => {
+  const seen = { owners: [] as CallUser[] };
+  const h = await createTestHost(usersModule(seen), { users: [{ id: "u1", name: "Raymond" }, sanne], owner: null });
+  assert.deepEqual((await h.call("whoami")).result, { owner: null, users: [{ id: "u1", name: "Raymond" }, sanne] });
+  await h.recordOwner("u1");
+  assert.deepEqual(seen.owners, [{ id: "u1", name: "Raymond" }]);
+  assert.deepEqual(((await h.call("whoami")).result as { owner: unknown }).owner, { id: "u1", name: "Raymond" });
+  await assert.rejects(h.recordOwner("u2"), /the owner is already recorded/);
+  await h.dispose();
+  assert.equal(seen.owners.length, 1);
+});
+
+test("owner-only tools: calls without a user count as the owner's; a member's are refused and not declared", async () => {
+  const h = await createTestHost(usersModule({ owners: [] }), { users: [{ id: "u1", name: "Raymond" }, sanne], owner: "u1" });
+  assert.deepEqual((await h.call("agenda")).result, { for: null });
+  assert.deepEqual((await h.call("agenda", {}, { user: { id: "u1", name: "Raymond" } })).result, { for: "u1" });
+  assert.deepEqual((await h.call("agenda", {}, { user: sanne })).result, { error: "agenda is only available to the household owner" });
+  assert.deepEqual(h.toolsIn("chat"), ["agenda", "whoami"]);
+  assert.deepEqual(h.toolsIn("chat", sanne), ["whoami"]);
+  assert.deepEqual(h.toolsIn("chat", null), ["whoami"]);
+});
+
+test("seeded conversations belong to the host's owner unless a seed says otherwise", async () => {
+  const h = await createTestHost(usersModule({ owners: [] }), { user: raymond });
+  const c = h.conversations.seed();
+  assert.equal((await h.conversations.forUser("u1").get(c.id))?.id, c.id);
+  assert.equal(await h.conversations.forUser(TEST_OWNER.id).get(c.id), undefined);
 });

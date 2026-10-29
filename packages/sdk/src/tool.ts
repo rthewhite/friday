@@ -47,8 +47,8 @@ export interface ToolCallContext {
   /** The registered voice device whose session the call comes from; absent in chat and the Talk page. */
   device?: string;
   /**
-   * The user the call is for: in chat, the Talk page, and agent runs a user started. Absent in a voice device's
-   * session and a scheduled run.
+   * The user the call is for: in chat and the Talk page that user, in a voice device's session the household owner,
+   * in an agent run the agent's creator. Absent in a device's session while no owner is recorded.
    */
   user?: CallUser;
 }
@@ -63,6 +63,11 @@ export interface Tool<A = any> {
   scheduling?: Scheduling;
   /** Conversation channels the tool is offered in; every channel when omitted. */
   channels?: ConversationChannel[];
+  /**
+   * Only the household owner gets this tool: it is left out of everyone else's declarations, and a call for anyone
+   * else, or without a user, is refused without running the handler. For tools on the owner's own accounts.
+   */
+  ownerOnly?: true;
   handler: (args: A, call: ToolCallContext) => ToolResult | Promise<ToolResult>;
 }
 
