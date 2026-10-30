@@ -22,6 +22,7 @@ import { startFakeProvider, type FakeProvider, type Person } from "./oidc-fixtur
 import { UserConnections } from "../src/auth/connections.js";
 import { attachAudioWs } from "../src/transports/ws.js";
 import { StubSession } from "./helpers.js";
+import { ModuleAccessStore } from "../src/storage/module-access.js";
 
 export const quiet = { log() {}, warn() {}, error() {} };
 
@@ -37,6 +38,9 @@ export interface AuthApp {
   logs: string[];
   browser(): Browser;
   close(): Promise<void>;
+  /** Module access, wired as server.ts wires it, when the app was started with `access`. */
+  access?: ModuleAccessStore;
+  mcpStore: McpServerStore;
 }
 
 export interface Browser {
@@ -60,6 +64,8 @@ export interface AuthAppOptions {
   hostOptions?: (base: { db: DatabaseSync; users: UserStore }) => Partial<ModuleHostOptions>;
   /** Mount the Talk socket (/ws/audio) with stub sessions, checked like core does; disabling a user closes theirs. */
   talk?: boolean;
+  /** Module access with its API, wired to the registry as server.ts wires it. */
+  access?: boolean;
 }
 
 export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
@@ -82,13 +88,16 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
   const registry = new ToolRegistry(quiet);
   // As server.ts: owner-only tools are for the recorded owner.
   registry.setOwnerCheck((u) => u !== undefined && u.id === users.owner()?.id);
+  const access = o.access ? new ModuleAccessStore(db, (id) => users.isOwner(id), now) : undefined;
+  if (access) registry.setAccessCheck((owner, tool, u) => access.allowsTool(owner, tool, u));
   const host = new ModuleHost(registry, { env: {}, log: quiet, ...o.hostOptions?.({ db, users }) });
   if (o.modules) await host.load(o.modules);
-  const mcp = new McpSource(registry, new McpServerStore(db, undefined), { log: quiet });
+  const mcpStore = new McpServerStore(db, undefined);
+  const mcp = new McpSource(registry, mcpStore, { log: quiet });
   const userConnections = new UserConnections();
   sessions.onEnd((ids) => ids.forEach((id) => userConnections.closeSession(id)));
   const server: Server = createServer(
-    createApp({ registry, host, mcp, webDir: "/nonexistent", ...o.deps?.({ registry, host, db }), auth: { auth, users, sessions, oidc, publicUrl, log, onDisabled: (id) => userConnections.closeUser(id) } }),
+    createApp({ registry, host, mcp, ...(access ? { access, mcpStore } : {}), webDir: "/nonexistent", ...o.deps?.({ registry, host, db }), auth: { auth, users, sessions, oidc, publicUrl, log, onDisabled: (id) => userConnections.closeUser(id) } }),
   );
   if (o.talk) attachAudioWs(server, { pingMs: 0, auth, userConnections, registry, createSession: (e, r, d, a, u) => new StubSession(e, r, d, a, u) });
   server.listen(0, "127.0.0.1");
@@ -104,6 +113,8 @@ export async function startAuthApp(o: AuthAppOptions = {}): Promise<AuthApp> {
     auth,
     logs,
     advance: (ms) => (offset += ms),
+    access,
+    mcpStore,
     browser() {
       const cookies = new Map<string, string>();
       const b: Browser = {

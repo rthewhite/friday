@@ -26,28 +26,28 @@
 
 ## 3. Core: the API, listing and routes
 
-- [ ] 3.1 `PUT /api/modules/:id/access` and `DELETE /api/modules/:id/access` are admin only. They answer:
+- [x] 3.1 `PUT /api/modules/:id/access` and `DELETE /api/modules/:id/access` are admin only. They answer:
   - 403 for a member;
   - 400 with a message for a bad `mode`, an unknown user id, or an empty or non-string pattern, leaving the setting unchanged;
   - 404 for `core`, `builtin` or an id not in the listing;
   - otherwise 200 with the module's new listing entry.
 
   `PUT` stores the module's current tool names as `known`. Verify with `module-access-api.test.ts` cases for every "Module access API" scenario.
-- [ ] 3.2 `moduleListing` is built for the requesting user:
+- [x] 3.2 `moduleListing` is built for the requesting user:
   - every entry carries `available`;
   - members don't get unavailable entries, and get only their own tools in `tools`;
   - admins get every entry and tool, plus `access { mode, users: { id, name }, restricted, knownTools }` on everything except `core` and `builtin`.
 
   Verify with `platform-api.test.ts` cases for the "Member without access", "Member with restricted tools" and "Admin sees access" scenarios, plus the existing listing cases passing with `available: true`.
-- [ ] 3.3 `moduleRoute` answers 403 `{ error, code: "no_access" }` to a user without access to the module, without calling the handler. Verify with the "No access" route scenario test.
-- [ ] 3.4 Changes apply without a restart:
+- [x] 3.3 `moduleRoute` answers 403 `{ error, code: "no_access" }` to a user without access to the module, without calling the handler. Verify with the "No access" route scenario test.
+- [x] 3.4 Changes apply without a restart:
   - the next chat turn and `/api/tools` follow a new setting;
   - an open session's call to a newly restricted tool is refused;
   - a parked agent action whose tool became restricted fails on approval;
   - a remote module that reconnects keeps its setting.
 
   Verify with tests for the "Open session" and "Reconnect keeps access" scenarios and the approval re-check.
-- [ ] 3.5 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
+- [x] 3.5 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
 
 ## 4. Portal: menu and Modules page
 
