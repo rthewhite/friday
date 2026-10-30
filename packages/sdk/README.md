@@ -159,7 +159,9 @@ A tool call's context and a prompt context provider's info carry `user`: the per
 
 A tool on the owner's own accounts (a calendar, a music service) sets `ownerOnly: true`. Everyone else's chat turns, voice sessions and agent runs don't get it, and a call for anyone else, or without a user, answers `{ error: "<name> is only available to the household owner" }` without running the handler.
 
-Remote modules get an error `users are not available in this host`. In tests, `createTestHost` takes `users` (`{ id, name }[]`) and `owner` (a user, or the id of one in `users`; `null` for none yet). Without `owner`, the `user` option is the owner, else `TEST_OWNER`. `await host.recordOwner(id)` records the owner later and runs `onOwner` handlers. A call without a user counts as the owner's, and `host.toolsIn(channel, user)` lists what a user is offered.
+An admin can also limit who may use a module, on the Modules page: everyone or chosen users, and within a module everyone may use, tools kept for the chosen users. A module doesn't do anything for this. Core leaves out what a user may not use, from tools (`ToolRegistry.setAccessCheck`, checked after the channel and `ownerOnly`) to prompt context (`PromptContext.setAccessCheck`) and routes. A refused call answers `{ error: "<name> isn't available to you" }` without running the handler.
+
+Remote modules get an error `users are not available in this host`. In tests, `createTestHost` takes `users` (`{ id, name }[]`) and `owner` (a user, or the id of one in `users`; `null` for none yet). Without `owner`, the `user` option is the owner, else `TEST_OWNER`. `await host.recordOwner(id)` records the owner later and runs `onOwner` handlers. A call without a user counts as the owner's, and `host.toolsIn(channel, user)` lists what a user is offered. To fake module access, pass `access: (user, tool?) => boolean`: tool declarations and calls ask it per tool, and `promptContext` per module, without a tool name. Calls and prompts without a user ask for the owner.
 
 ### Tables
 

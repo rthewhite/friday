@@ -2,11 +2,11 @@
 
 ## 1. SDK: the access check in the registry, prompt context and test host
 
-- [ ] 1.1 Add `ToolRegistry.setAccessCheck((ownerTag, toolName, user) => boolean)`. `declarations(channel, user?)` leaves out refused tools, and `callTool` refuses them with `{ error: "<name> isn't available to you" }` (scheduling `INTERRUPT`) without calling the handler. The check runs after the channel and owner-only checks, and a registry without a check allows everything. Verify with `registry.test.ts` cases: a restricted tool left out, a forced call refused, a tool not in the channel still unknown, an owner-only tool keeping its owner-only error, and no check offering every tool.
-- [ ] 1.2 The remote runner sets the access check to always allow, as it does `setOwnerCheck`. Verify with a `remote-runner.test.ts` case.
-- [ ] 1.3 `PromptContext.render(channel, user?)` takes a module-level check `(ownerTag, user) => boolean` and skips the providers of a refused owner tag. A render without a user counts as the owner's. Verify with a `prompt` test: a refused owner's text is missing and the others' is present.
-- [ ] 1.4 Test host: the `access` option `(user, toolName?) => boolean`, applied per tool to declarations and calls and per module to prompt rendering. Without it everything is allowed. Verify with `test-host.test.ts` cases for the "Module test with access" scenario and the no-option default.
-- [ ] 1.5 Document `setAccessCheck` and the test host's `access` option in `packages/sdk/README.md`, then run `pnpm --filter @friday/sdk test typecheck build`. Verify all three are green.
+- [x] 1.1 Add `ToolRegistry.setAccessCheck((ownerTag, toolName, user) => boolean)`. `declarations(channel, user?)` leaves out refused tools, and `callTool` refuses them with `{ error: "<name> isn't available to you" }` (scheduling `INTERRUPT`) without calling the handler. The check runs after the channel and owner-only checks, and a registry without a check allows everything. Verify with `registry.test.ts` cases: a restricted tool left out, a forced call refused, a tool not in the channel still unknown, an owner-only tool keeping its owner-only error, and no check offering every tool.
+- [x] 1.2 The remote runner sets the access check to always allow, as it does `setOwnerCheck`. A registry without a check already allows everything, so no runner test can tell the two apart. Verify that the existing `remote-runner.test.ts` case still lists and calls every tool over MCP.
+- [x] 1.3 `PromptContext.render(channel, user?)` takes a module-level check `(ownerTag, user) => boolean` and skips the providers of a refused owner tag. A render without a user counts as the owner's. Verify with a `prompt` test: a refused owner's text is missing and the others' is present.
+- [x] 1.4 Test host: the `access` option `(user, toolName?) => boolean`, applied per tool to declarations and calls and per module to prompt rendering. Without it everything is allowed. Verify with `test-host.test.ts` cases for the "Module test with access" scenario and the no-option default.
+- [x] 1.5 Document `setAccessCheck` and the test host's `access` option in `packages/sdk/README.md`, then run `pnpm --filter @friday/sdk test typecheck build`. Verify all three are green.
 
 ## 2. Core: the access store and the rule
 

@@ -29,22 +29,32 @@ export interface ToolEntry {
 /** Whether a call's or a prompt's user is the household owner; the registry's view of the owner for `ownerOnly` tools. */
 export type OwnerCheck = (user: CallUser | undefined) => boolean;
 
+/** Whether `user` may use tool `tool` of module `owner` (the owner tag it was registered with); core's module access. */
+export type AccessCheck = (owner: string, tool: string, user: CallUser | undefined) => boolean;
+
 /**
  * Owner-tagged tool registry. Core creates one instance; modules reach it through
  * `ctx.defineTool`, MCP servers register as `mcp:<server>`. Voice sessions snapshot
  * `declarations("voice", user)` when they open; chat turns read `declarations("chat", user)`.
- * Until `setOwnerCheck` is called nobody counts as the owner, so `ownerOnly` tools are never offered.
+ * Until `setOwnerCheck` is called nobody counts as the owner, so `ownerOnly` tools are never offered. Until
+ * `setAccessCheck` is called every user may use every other tool.
  */
 export class ToolRegistry {
   private readonly tools = new Map<string, { tool: Tool; owner: string }>();
   private readonly listeners = new Set<() => void>();
   private isOwner: OwnerCheck = () => false;
+  private mayUse: AccessCheck = () => true;
 
   constructor(private readonly log: Pick<Console, "error"> = console) {}
 
   /** How to tell the household owner, for `ownerOnly` tools. */
   setOwnerCheck(check: OwnerCheck): void {
     this.isOwner = check;
+  }
+
+  /** Who may use which module's tools, checked after the channel and `ownerOnly` (see `module-access`). */
+  setAccessCheck(check: AccessCheck): void {
+    this.mayUse = check;
   }
 
   add<A>(owner: string, tool: Tool<A>): Tool<A> {
@@ -89,11 +99,11 @@ export class ToolRegistry {
 
   /**
    * Snapshot of what the model should see, narrowed to the tools offered in `channel` when given. `ownerOnly` tools
-   * are left out unless `user` is the household owner.
+   * are left out unless `user` is the household owner, and so is every tool the access check refuses `user`.
    */
   declarations(channel?: ConversationChannel, user?: CallUser): FunctionDeclaration[] {
     const owner = this.isOwner(user);
-    return [...this.tools.values()].filter(({ tool }) => offeredIn(tool, channel) && (owner || !tool.ownerOnly)).map(({ tool: { name, description, parameters, parametersJsonSchema } }) =>
+    return [...this.tools.values()].filter(({ tool, owner: tag }) => offeredIn(tool, channel) && (owner || !tool.ownerOnly) && this.mayUse(tag, tool.name, user)).map(({ tool: { name, description, parameters, parametersJsonSchema } }) =>
       parametersJsonSchema ? { name, description, parametersJsonSchema } : { name, description, parameters },
     );
   }
@@ -110,6 +120,7 @@ export class ToolRegistry {
     const e = this.tools.get(name);
     if (!e || !offeredIn(e.tool, opts.channel)) return { result: { error: `unknown tool ${name}` }, scheduling: "INTERRUPT" };
     if (e.tool.ownerOnly && !this.isOwner(opts.user)) return { result: { error: `${name} is only available to the household owner` }, scheduling: "INTERRUPT" };
+    if (!this.mayUse(e.owner, name, opts.user)) return { result: { error: `${name} isn't available to you` }, scheduling: "INTERRUPT" };
     try {
       const { scheduling, endConversation, ...result } = await e.tool.handler(args ?? {}, context(opts));
       const out: CallResult = { result, scheduling: pickScheduling(scheduling) ?? e.tool.scheduling ?? "INTERRUPT" };

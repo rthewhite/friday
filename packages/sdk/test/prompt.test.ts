@@ -105,3 +105,22 @@ test("composePrompt appends context after a blank line, and only when there is s
   assert.equal(composePrompt("base\n\nvoice", "## Brain"), "base\n\nvoice\n\n## Brain");
   assert.equal(composePrompt("base\n\nvoice", ""), "base\n\nvoice");
 });
+
+test("modules the access check refuses the user are skipped without calling their providers", () => {
+  const p = new PromptContext();
+  let travelCalls = 0;
+  p.forOwner("brain").addContext(() => "brain");
+  p.forOwner("travel").addContext(() => (travelCalls++, "travel"));
+  const seen: [string, string | undefined][] = [];
+  p.setAccessCheck((owner, user) => (seen.push([owner, user?.id]), owner !== "travel" || user?.id === "u1"));
+  assert.equal(p.render("chat", { id: "u2", name: "Sanne" }), "brain");
+  assert.equal(travelCalls, 0);
+  assert.deepEqual(seen, [["brain", "u2"], ["travel", "u2"]]);
+  assert.equal(p.render("chat", { id: "u1", name: "Raymond" }), "brain\n\ntravel");
+});
+
+test("without an access check every module renders", () => {
+  const p = new PromptContext();
+  p.forOwner("travel").addContext(() => "travel");
+  assert.equal(p.render("chat", { id: "u2", name: "Sanne" }), "travel");
+});

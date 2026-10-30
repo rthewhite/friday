@@ -28,6 +28,9 @@ export interface ModulePrompt {
   addContext(provider: PromptContextProvider): () => void;
 }
 
+/** Whether `user` may use module `owner` at all; providers of a module the user may not use are skipped. */
+export type PromptAccessCheck = (owner: string, user: CallUser | undefined) => boolean;
+
 /** A module's combined context is cut to this many characters unless the host configures otherwise. */
 export const DEFAULT_PROMPT_CONTEXT_MAX_CHARS = 12000;
 /** Providers slower than this are logged with their duration. */
@@ -47,6 +50,7 @@ export class PromptContext {
   private readonly maxChars: number;
   private readonly log: ModuleLogger;
   private readonly now: () => number;
+  private mayUse: PromptAccessCheck = () => true;
 
   constructor(opts: PromptContextOptions = {}) {
     this.maxChars = Math.max(1, Math.floor(opts.maxChars ?? DEFAULT_PROMPT_CONTEXT_MAX_CHARS));
@@ -71,16 +75,25 @@ export class PromptContext {
     };
   }
 
+  /** Who may use which module (see `module-access`). Until it is set every module renders for every user. */
+  setAccessCheck(check: PromptAccessCheck): void {
+    this.mayUse = check;
+  }
+
   /** Removes a module's providers; the module keeps its place in the render order. */
   clear(owner: string): void {
     if (this.owners.has(owner)) this.owners.set(owner, []);
   }
 
-  /** Module context for `channel` (and `user`): each module's non-empty output, capped, separated by blank lines. */
+  /**
+   * Module context for `channel` (and `user`): each module's non-empty output, capped, separated by blank lines.
+   * Modules the access check refuses `user` are skipped without calling their providers.
+   */
   render(channel: PromptChannel, user?: CallUser): string {
     const info: PromptContextInfo = user ? { channel, user: { id: user.id, name: user.name } } : { channel };
     const blocks: string[] = [];
     for (const [owner, providers] of this.owners) {
+      if (!providers.length || !this.mayUse(owner, user)) continue;
       const parts: string[] = [];
       for (const { fn } of providers) {
         const out = this.call(owner, fn, info);
