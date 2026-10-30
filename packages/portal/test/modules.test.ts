@@ -35,6 +35,7 @@ test("only a loaded module with a UI has a page: /m/core shows the gate, not a b
 test("the gate says why there is no page; an unlisted module whose UI the portal ships is one the user may not use", () => {
   assert.equal(gateReason(undefined, true), "no_access", "members aren't sent the modules they may not use");
   assert.equal(gateReason(undefined, false), "unknown");
+  assert.equal(gateReason(undefined, true, true), "load_failed", "an empty list because /api/modules failed says so");
   assert.equal(gateReason({ status: "loaded", ui: true, available: false }, true), "no_access", "an admin who isn't chosen");
   assert.equal(gateReason({ status: "disabled", ui: true, available: false }, true), "disabled");
   assert.equal(gateReason({ status: "failed", ui: true }, true), "failed");

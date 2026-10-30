@@ -132,9 +132,11 @@ export function ownedModules({ host, mcp, remote, registry }: Pick<AppDeps, "hos
   ];
 }
 
-/** The owner tag behind a `/api/modules` id, or undefined when no listed module has that id. */
-export const ownerOfModule = (deps: Pick<AppDeps, "host" | "mcp" | "remote" | "registry">, id: string): string | undefined =>
-  ownedModules(deps).find((m) => m.entry.id === id)?.owner;
+/** The listed module with this `/api/modules` id and its owner tag, unless there is none or it can't be restricted. */
+function accessibleModule(deps: Pick<AppDeps, "host" | "mcp" | "remote" | "registry">, id: string): { owner: string; entry: ApiModuleEntry } | undefined {
+  const listed = ownedModules(deps).find((m) => m.entry.id === id);
+  return listed && !ALWAYS_OPEN.has(listed.owner) ? listed : undefined;
+}
 
 /**
  * The shape /api/modules returns, for `viewer` (no viewer: everything, as for the local dev admin). Members don't get
@@ -375,8 +377,8 @@ export function createApp(deps: AppDeps) {
     // and `reload` do theirs.
     .add("PUT", "/api/modules/:id/access", async (req, res, { id }) => {
       if (!deps.access) return sendJson(res, { error: "no module access store" }, 503);
-      const listed = ownedModules(deps).find((m) => m.entry.id === id);
-      if (!listed || ALWAYS_OPEN.has(listed.owner)) return sendJson(res, { error: `no module "${id}" with an access setting` }, 404);
+      const listed = accessibleModule(deps, id);
+      if (!listed) return sendJson(res, { error: `no module "${id}" with an access setting` }, 404);
       let body: unknown;
       try {
         body = JSON.parse((await readBody(req)) || "{}");
@@ -388,14 +390,14 @@ export function createApp(deps: AppDeps) {
       // A disabled or failed module lists no tools; keep the tools known from before rather than forgetting them.
       const known = listed.entry.tools.length ? listed.entry.tools : (deps.access.get(listed.owner)?.known ?? []);
       deps.access.set(listed.owner, { ...input, known });
-      sendJson(res, moduleListing(deps, requestUser(req)).find((e) => e.id === id));
+      sendJson(res, listedEntry(deps, req, listed.entry));
     })
     .add("DELETE", "/api/modules/:id/access", (req, res, { id }) => {
       if (!deps.access) return sendJson(res, { error: "no module access store" }, 503);
-      const owner = ownerOfModule(deps, id);
-      if (owner === undefined || ALWAYS_OPEN.has(owner)) return sendJson(res, { error: `no module "${id}" with an access setting` }, 404);
-      deps.access.clear(owner);
-      sendJson(res, moduleListing(deps, requestUser(req)).find((e) => e.id === id));
+      const listed = accessibleModule(deps, id);
+      if (!listed) return sendJson(res, { error: `no module "${id}" with an access setting` }, 404);
+      deps.access.clear(listed.owner);
+      sendJson(res, listedEntry(deps, req, listed.entry));
     })
     .add("POST", "/api/modules/:id/reload", async (req, res, { id }) => {
       const entry = await deps.host.reload(id);

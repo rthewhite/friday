@@ -3,6 +3,8 @@
  * users get. The server enforces it; these helpers only describe and edit it.
  */
 
+import { patternRegExp } from "./agents.js";
+
 export type AccessMode = "everyone" | "chosen";
 
 /** A module's access as `/api/modules` sends it to admins. `knownTools` is absent while it is the default. */
@@ -20,14 +22,11 @@ export interface AccessDraft {
   restricted: string[];
 }
 
-/** Anchored match of a tool name against a pattern: `*` matches anything, every other character itself (as core). */
-export function matchesPattern(pattern: string, name: string): boolean {
-  const re = new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
-  return re.test(name);
+/** The tools any of the patterns keeps for the chosen users, matched by core's pattern rule. */
+export function restrictedTools(tools: readonly string[], restricted: readonly string[]): Set<string> {
+  const res = restricted.map(patternRegExp);
+  return new Set(tools.filter((t) => res.some((re) => re.test(t))));
 }
-
-/** Whether a tool is kept for the chosen users by any of the patterns. */
-export const isRestricted = (tool: string, restricted: readonly string[]): boolean => restricted.some((p) => matchesPattern(p, tool));
 
 /** A tool that wasn't there when the access was last saved; nothing is new while the access is the default. */
 export const isNewTool = (tool: string, access: ModuleAccess | undefined): boolean => access?.knownTools !== undefined && !access.knownTools.includes(tool);
@@ -39,12 +38,8 @@ export function accessLabel(access: ModuleAccess | undefined): "Chosen users" | 
   return access.restricted.length ? "Some tools restricted" : undefined;
 }
 
-/** The drawer's starting point: the stored access, without the owner (who is always included). */
-export const draftOf = (access: ModuleAccess, ownerId: string | undefined): AccessDraft => ({
-  mode: access.mode,
-  users: access.users.map((u) => u.id).filter((id) => id !== ownerId),
-  restricted: [...access.restricted],
-});
+/** The drawer's starting point: the stored access. The owner is always included, whether listed or not. */
+export const draftOf = (access: ModuleAccess): AccessDraft => ({ mode: access.mode, users: access.users.map((u) => u.id), restricted: [...access.restricted] });
 
 /** Ticks or unticks one tool by its exact name; patterns stay as they are. */
 export function toggleTool(draft: AccessDraft, tool: string, on: boolean): AccessDraft {
@@ -70,7 +65,7 @@ export function toggleUser(draft: AccessDraft, id: string, on: boolean): AccessD
 }
 
 /**
- * The PUT body: restricted tools only matter for `everyone` (with `chosen` nobody else gets the module at all), so
- * they are dropped for `chosen`.
+ * The PUT body. Restricted tools only take effect for `everyone`, but they are sent for `chosen` too, so switching
+ * back to everyone later keeps them restricted.
  */
-export const accessBody = (draft: AccessDraft): AccessDraft => ({ mode: draft.mode, users: [...draft.users], restricted: draft.mode === "everyone" ? [...draft.restricted] : [] });
+export const accessBody = (draft: AccessDraft): AccessDraft => ({ mode: draft.mode, users: [...draft.users], restricted: [...draft.restricted] });

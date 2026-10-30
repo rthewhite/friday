@@ -6,12 +6,12 @@ import { useSession } from "../composables/useSession.js";
 import { gateReason } from "../lib/modules.js";
 
 const props = defineProps<{ id: string }>();
-const { modules, loading, isEnabled } = useModules();
+const { modules, loading, error, isEnabled } = useModules();
 const uis = inject<ModuleUi[]>("moduleUis", []);
 const moduleId = computed(() => props.id.split("/")[0] ?? props.id);
 const entry = computed(() => modules.value.find((m) => m.id === moduleId.value));
 const ui = computed(() => uis.find((u) => u.id === moduleId.value));
-const reason = computed(() => gateReason(entry.value, ui.value !== undefined));
+const reason = computed(() => gateReason(entry.value, ui.value !== undefined, error.value !== null));
 // The Modules page is for admins; a member following the link would only get the admin-only notice.
 const { me } = useSession();
 const isAdmin = computed(() => me.value?.role === "admin");
@@ -24,6 +24,7 @@ const isAdmin = computed(() => me.value?.role === "admin");
       <p v-if="loading" class="text-f-text-muted">Checking module status…</p>
       <template v-else>
         <p v-if="reason === 'no_access'">This module isn't available to you. Ask an admin if you need it.</p>
+        <p v-else-if="reason === 'load_failed'" class="text-f-error">The module list couldn't be loaded: {{ error }}</p>
         <p v-else>
           The module <code class="font-mono">{{ moduleId }}</code>
           <span v-if="reason === 'unknown'"> is not part of this deployment.</span>

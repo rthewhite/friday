@@ -223,6 +223,38 @@ describe("ModulesPage access", () => {
     expect((drawer(w).find('input[type=radio][value="everyone"]').element as HTMLInputElement).checked).toBe(true);
   });
 
+  it("switching the module off in the drawer keeps unsaved access edits", async () => {
+    const access = { mode: "everyone", users: [], restricted: [], knownTools: ["sonos_play"] };
+    modules = listing().map((m) => (m.id === "sonos" ? { ...m, available: true, access } : m));
+    const fake = fakeApi({ "GET /api/users": users, "PUT /api/modules/sonos/enabled": { id: "sonos", label: "Sonos", status: "disabled", tools: [], ui: false, available: true, access } });
+    api.impl = fake.api;
+    // The real Teleport, as in the browser: the stubbed one renders the drawer afresh on every update of the page.
+    const w = mount(ModulesPage, { attachTo: document.body, global: { plugins: [await routerAt("/settings/modules")] } });
+    try {
+      await flushPromises();
+      await row(w, "Sonos").trigger("click");
+      await flushPromises();
+      const dialog = () => document.querySelector("[role=dialog]")!;
+      const input = (sel: string) => dialog().querySelector(sel) as HTMLInputElement;
+      const tick = async (sel: string, on: boolean) => {
+        input(sel).checked = on;
+        input(sel).dispatchEvent(new Event("change"));
+        await flushPromises();
+      };
+      await tick('label[data-user="u1"] input', true);
+      await tick('label[data-tool="sonos_play"] input', true);
+      await tick("input[type=checkbox]", false); // the drawer's Enabled switch, which asks first
+      [...dialog().querySelectorAll("button")].find((b) => b.textContent?.trim() === "Turn off")!.click();
+      await flushPromises();
+      expect(dialog().textContent).toContain("disabled");
+      expect(fake.calls.filter((c) => c.path === "/api/users").length, "the section isn't mounted again").toBe(1);
+      expect(input('label[data-user="u1"] input').checked).toBe(true);
+      expect(input('label[data-tool="sonos_play"] input').checked, "the known tool stays listed and ticked").toBe(true);
+    } finally {
+      w.unmount();
+    }
+  });
+
   it("core and builtin have no Access section", async () => {
     const { w } = await page({ "GET /api/users": users });
     await row(w, "Core").trigger("click");

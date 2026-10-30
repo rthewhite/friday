@@ -25,7 +25,7 @@ export interface ModuleAccess {
 export type ModuleAccessInput = Omit<ModuleAccess, "updatedAt">;
 
 interface Compiled {
-  mode: AccessMode;
+  stored: ModuleAccess;
   users: Set<string>;
   patterns: RegExp[];
 }
@@ -43,6 +43,11 @@ export class ModuleAccessStore {
   }
 
   get(owner: string): ModuleAccess | undefined {
+    const c = this.cache.get(owner);
+    return c && structuredClone(c.stored);
+  }
+
+  private read(owner: string): ModuleAccess | undefined {
     const row = this.db.prepare("SELECT mode, restricted_json, known_json, updated_at FROM module_access WHERE owner = ?").get(owner) as
       | { mode: AccessMode; restricted_json: string; known_json: string; updated_at: string }
       | undefined;
@@ -84,14 +89,14 @@ export class ModuleAccessStore {
   /** Whether `user` gets module `owner` at all. A call or prompt without a user is the owner's. */
   allowsModule(owner: string, user: CallUser | undefined): boolean {
     const c = this.cache.get(owner);
-    return !c || c.mode === "everyone" || this.chosen(c, user);
+    return !c || c.stored.mode === "everyone" || this.chosen(c, user);
   }
 
   /** Whether `user` may use tool `tool` of module `owner`. */
   allowsTool(owner: string, tool: string, user: CallUser | undefined): boolean {
     const c = this.cache.get(owner);
     if (!c) return true;
-    if (c.mode === "chosen") return this.chosen(c, user);
+    if (c.stored.mode === "chosen") return this.chosen(c, user);
     return this.chosen(c, user) || !c.patterns.some((re) => re.test(tool));
   }
 
@@ -100,11 +105,11 @@ export class ModuleAccessStore {
   }
 
   private refresh(owner: string): void {
-    const a = this.get(owner);
+    const a = this.read(owner);
     if (!a || ALWAYS_OPEN.has(owner)) {
       this.cache.delete(owner);
       return;
     }
-    this.cache.set(owner, { mode: a.mode, users: new Set(a.users), patterns: a.restricted.map(patternRegExp) });
+    this.cache.set(owner, { stored: a, users: new Set(a.users), patterns: a.restricted.map(patternRegExp) });
   }
 }

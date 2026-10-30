@@ -75,7 +75,7 @@ See proposal.md for the motivation.
 **P4. Enforcement in the registry, through one callback.**
 - **Registry:** `ToolRegistry.setAccessCheck((ownerTag, toolName, user) => boolean)` is applied in `declarations` and `callTool`, after the channel and `ownerOnly` checks.
   - A refused call answers `{ error: "<name> isn't available to you" }`.
-  - A call without a user (internal) counts as the owner's, as with `ownerOnly`.
+  - A call without a user (internal) counts as the owner's, so it is allowed. This is unlike `ownerOnly`, which refuses a call without a user. In practice no setting exists then: an admin can only set access after logging in, which records the owner. From then on devices act for the owner, and agents without a creator are assigned to the owner.
 - **Core:** it owns the callback, backed by an in-memory copy of the table, refreshed on every write. Core's `patternRegExp` does the matching.
 - **The remote runner** sets the check to always allow, as it does `setOwnerCheck`. Core enforces it for remote tools, which are registered under `remote:<id>`.
 

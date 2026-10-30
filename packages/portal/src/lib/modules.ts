@@ -23,14 +23,14 @@ export function moduleKind(m: Entry): ModuleKind {
  */
 export const hasPage = (m: Pick<ApiModule, "status" | "ui" | "available">): boolean => m.status === "loaded" && m.ui === true && m.available !== false;
 
-export type GateReason = "unknown" | "no_access" | "disabled" | "failed" | "no_page" | "not_enabled";
+export type GateReason = "unknown" | "no_access" | "load_failed" | "disabled" | "failed" | "no_page" | "not_enabled";
 
 /**
  * Why `/m/<id>` shows no page. Members aren't sent the modules they may not use, so a module whose UI the portal
- * ships but which isn't listed is one the user has no access to.
+ * ships but which isn't listed is one the user has no access to, unless the listing itself failed to load.
  */
-export function gateReason(entry: Pick<ApiModule, "status" | "ui" | "available"> | undefined, shipsUi: boolean): GateReason {
-  if (!entry) return shipsUi ? "no_access" : "unknown";
+export function gateReason(entry: Pick<ApiModule, "status" | "ui" | "available"> | undefined, shipsUi: boolean, listingFailed = false): GateReason {
+  if (!entry) return listingFailed ? "load_failed" : shipsUi ? "no_access" : "unknown";
   if (entry.status === "disabled") return "disabled";
   if (entry.status === "failed") return "failed";
   if (entry.available === false) return "no_access";

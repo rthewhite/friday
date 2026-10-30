@@ -5,14 +5,13 @@ import { Badge, Button, Chip } from "@friday/portal-ui";
 import { setModuleAccess, type ApiModule } from "../../composables/useModules.js";
 import { api } from "../../composables/useApi.js";
 import type { UserEntry } from "../../lib/users.js";
-import { addPattern, draftOf, isNewTool, isRestricted, patternsOf, removePattern, toggleTool, toggleUser, type AccessDraft, type ModuleAccess } from "../../lib/access.js";
+import { addPattern, draftOf, isNewTool, patternsOf, restrictedTools, removePattern, toggleTool, toggleUser, type AccessDraft, type ModuleAccess } from "../../lib/access.js";
 
 const props = defineProps<{ entry: ApiModule & { access: ModuleAccess } }>();
 const emit = defineEmits<{ saved: [entry: ApiModule] }>();
 
 const users = ref<UserEntry[]>([]);
 const usersError = ref<string | null>(null);
-const ownerId = computed(() => users.value.find((u) => u.owner)?.id);
 onMounted(async () => {
   try {
     users.value = (await api<{ users: UserEntry[] }>("/api/users")).users;
@@ -21,13 +20,14 @@ onMounted(async () => {
   }
 });
 
-const draft = ref<AccessDraft>(draftOf(props.entry.access, undefined));
-// A new entry (saved, refreshed) starts the edit over; so does learning who the owner is.
-watch([() => props.entry, ownerId], () => (draft.value = draftOf(props.entry.access, ownerId.value)));
+const draft = ref<AccessDraft>(draftOf(props.entry.access));
+// A saved access starts the edit over. A new entry with the same access (the module switched or reloaded) keeps the edits.
+watch(() => JSON.stringify(props.entry.access), () => (draft.value = draftOf(props.entry.access)));
 
 /** A disabled or failed module lists no tools; the ones known from the last save can still be restricted. */
 const tools = computed(() => (props.entry.tools.length ? props.entry.tools : (props.entry.access.knownTools ?? [])));
 const patterns = computed(() => patternsOf(draft.value, tools.value));
+const restricted = computed(() => restrictedTools(tools.value, draft.value.restricted));
 const newPattern = ref("");
 function add() {
   draft.value = addPattern(draft.value, newPattern.value);
@@ -91,12 +91,12 @@ async function save(reset: boolean) {
             <input
               type="checkbox"
               class="accent-f-accent"
-              :checked="isRestricted(t, draft.restricted)"
-              :disabled="!draft.restricted.includes(t) && isRestricted(t, draft.restricted)"
+              :checked="restricted.has(t)"
+              :disabled="!draft.restricted.includes(t) && restricted.has(t)"
               @change="draft = toggleTool(draft, t, ($event.target as HTMLInputElement).checked)"
             />
             {{ t }}
-            <span v-if="!draft.restricted.includes(t) && isRestricted(t, draft.restricted)" class="font-sans text-f-text-muted">(by pattern)</span>
+            <span v-if="!draft.restricted.includes(t) && restricted.has(t)" class="font-sans text-f-text-muted">(by pattern)</span>
             <Badge v-if="isNewTool(t, entry.access)" tone="accent">new</Badge>
           </label>
         </li>
