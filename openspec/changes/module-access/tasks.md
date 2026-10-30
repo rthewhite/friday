@@ -71,6 +71,6 @@
 
 ## 5. Docs and integration
 
-- [ ] 5.1 Document module access in `README.md` (who may use a module, restricted tools, the owner always allowed, core and builtin always open, devices acting as the owner), and add the module-access context to `openspec/config.yaml`. Verify that the README section matches the spec's rules.
-- [ ] 5.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify all three are green.
+- [x] 5.1 Document module access in `README.md` (who may use a module, restricted tools, the owner always allowed, core and builtin always open, devices acting as the owner), and add the module-access context to `openspec/config.yaml`. Verify that the README section matches the spec's rules.
+- [x] 5.2 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test`. Verify all three are green.
 - [ ] 5.3 On the deployed instance, as a member account (after the user approves the push): set Home Assistant to Everyone with `restart_ha` restricted, and check that the member's chat no longer offers it while the owner's does. Then set a module with a page to Chosen users without the member, and check that its menu entry is gone for the member.

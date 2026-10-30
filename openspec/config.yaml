@@ -165,7 +165,20 @@ context: |
   carry userId; retention stays global. Admins see no content (404 like anyone). ToolRegistry.setOwnerCheck (server.ts:
   the owner) with Tool.ownerOnly: declarations(channel, user) leave them out for others, callTool refuses them
   (INTERRUPT, "<name> is only available to the household owner"); voice snapshots for its user, chat per turn, agents
-  for the creator. Calendar (tools, agenda prompt, routes 403 owner_only) and Spotify tools are ownerOnly. Friday
+  for the creator. Calendar (tools, agenda prompt, routes 403 owner_only) and Spotify tools are ownerOnly. Module
+  access (core migration 14 module_access + module_access_users, storage/module-access.ts ModuleAccessStore, keyed by
+  owner tag; /api/modules ids map to tags by ownedModules in app.ts, a remote id `x` is `remote:x`): mode everyone
+  (restricted_json tool-name patterns, patternRegExp, only for chosen users) or chosen (module only for chosen users);
+  no row = everyone; the owner and calls without a user always allowed, other admins not implied; core and builtin
+  have none (ALWAYS_OPEN). An in-memory copy is refreshed on writes. ToolRegistry.setAccessCheck(owner, tool, user)
+  runs after channel and ownerOnly ("<name> isn't available to you"); PromptContext.setAccessCheck(owner, user)
+  skips a module's providers; moduleRoute answers 403 no_access; moduleListing(deps, viewer) adds `available`, hides
+  unavailable entries and restricted tools from members, gives admins `access { mode, users {id,name}, restricted,
+  knownTools }` (known_json = tools at the last save); PUT/DELETE /api/modules/:id/access admin only (400 bad mode,
+  unknown user, empty pattern; 404 core/builtin/unknown); reload and enabled answer the listed entry; deleting an MCP
+  server clears mcp:<name>. Remote runner allows all; the test host takes access(user, tool?). Portal: hasPage needs
+  available, ModuleGate says "isn't available to you" (gateReason), ModuleAccessSection.vue in the Modules drawer,
+  lib/access.ts. Friday
   is the OIDC client of Authentik (oidc.ts: discovery from FRIDAY_AUTH_ISSUER, arctic OAuth2Client, PKCE + state +
   nonce, ID token claims checked without JWKS, groups from userinfo when missing; routes.ts: /auth/login,
   /auth/callback, POST /auth/logout). config.ts authMode: env only (FRIDAY_AUTH_ISSUER/_CLIENT_ID/_CLIENT_SECRET,
