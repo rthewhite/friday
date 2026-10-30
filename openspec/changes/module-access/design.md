@@ -51,6 +51,7 @@ See proposal.md for the motivation.
 - **Storage:** a core migration adds:
   - `module_access(owner TEXT PRIMARY KEY, mode TEXT NOT NULL, restricted_json TEXT NOT NULL DEFAULT '[]', known_json TEXT NOT NULL DEFAULT '[]', updated_at)`, where `mode` is `everyone` or `chosen` and `known_json` holds the module's tool names at the last save (for the drawer's "new" marker);
   - `module_access_users(owner, user_id, PRIMARY KEY (owner, user_id))`.
+  - A save of a disabled or failed module, which lists no tools, keeps the `known_json` from before.
 - **The rule:** the chosen users are one list per module.
   - With `mode = chosen`, only they get the module at all.
   - With `mode = everyone`, everyone gets the module, but only they get the restricted tools.
@@ -84,7 +85,8 @@ See proposal.md for the motivation.
 - **Listing:** `moduleListing` adds `available: boolean` for the caller.
   - Members see only the modules available to them.
   - Admins see every module, with `available` and the access record, for the Modules page.
-- **Portal:** `hasPage` also requires `available`, so the menu and the `/m/:id` gate hide the module.
+- **Row updates:** `POST /api/modules/:id/reload`, `PUT /api/modules/:id/enabled` and the access API answer with the module's entry as the caller's listing shows it, with `available` and `access`. The portal replaces the row with that answer, so the row keeps its access.
+- **Portal:** `hasPage` also requires `available`, so the menu and the `/m/:id` gate hide the module. Members aren't sent the modules they may not use, so the gate treats a module whose UI the portal ships, but which isn't listed, as one the user has no access to.
 - **`/api/tools`** is already per user through `declarations`.
 
 **P6. Core and the builtin module can't be restricted.** The access API refuses `core` and `builtin`. They hold the timers, alarms, `run_agent`, `get_current_time` and `end_conversation` that voice sessions and agents depend on. Their Modules page rows show no access control.
