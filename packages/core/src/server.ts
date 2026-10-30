@@ -13,6 +13,7 @@ import { DeviceLinks } from "./devices/links.js";
 import { databasePath, openDatabase } from "./storage/db.js";
 import { SqliteModuleStorage } from "./storage/module-kv.js";
 import { retiredModulesWarning, SqliteModuleEnablement } from "./storage/module-enablement.js";
+import { ModuleAccessStore } from "./storage/module-access.js";
 import { ConversationStore } from "./conversations/store.js";
 import { registerRetention } from "./conversations/retention.js";
 import { coreConfig, followTimezone } from "./core-config.js";
@@ -112,7 +113,11 @@ const alerts = new AlertService({
 const registry = new ToolRegistry();
 // Owner-only tools (the owner's calendar, Spotify) are offered and run for the household owner only.
 registry.setOwnerCheck((u) => u !== undefined && users.isOwner(u.id));
+// Module access: who may use which module and its restricted tools, set by admins on the Modules page.
+const access = new ModuleAccessStore(db, (id) => users.isOwner(id));
+registry.setAccessCheck((owner, tool, u) => access.allowsTool(owner, tool, u));
 const promptContext = createPromptContext();
+promptContext.setAccessCheck((owner, u) => access.allowsModule(owner, u));
 const llm = new LlmService({
   model: new GeminiTextModel(geminiKey),
   models: { standard: settings.textModel, fast: settings.textModelFast },
@@ -202,7 +207,7 @@ const chat = new ChatEngine({
   toolTimeoutMs: settings.chatToolTimeoutMs,
 });
 
-const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs),
+const server = createServer(createApp({ registry, host, mcp, mcpStore, remote, access, webDir: settings.webDir, configStore, keys, devices, deviceSessions, deviceLinks, alerts, env: process.env, jobs, conversations, chat, onConfigChange: followTimezone(jobs),
   agents: { agents: agentStore, runs: agentRuns, runtime: agentRuntime, registry, nextRun: (name) => jobs.nextRunAt(agentJob(name)) },
   oauth: { store: oauthStore, requests: oauthRequests, flow: new OAuthFlow({ store: oauthStore, requests: oauthRequests }), publicUrl },
   auth: { auth: browserAuth, users, sessions, oidc, publicUrl: authPublicUrl, onDisabled: (id) => userConnections.closeUser(id) } }));

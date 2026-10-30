@@ -15,7 +15,7 @@ test("fresh start creates the database and applies all migrations", async () => 
   assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
   const search = ["conversation_search", "conversation_search_config", "conversation_search_data", "conversation_search_docsize", "conversation_search_idx"];
-  assert.deepEqual(tables, ["agent_actions", "agent_runs", "agents", "alerts", "auth_owner", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_enablement", "module_keys", "module_kv", "oauth_connections", "oauth_grants", "schema_version", "sessions", "users"]);
+  assert.deepEqual(tables, ["agent_actions", "agent_runs", "agents", "alerts", "auth_owner", "config_values", "conversation_entries", ...search, "conversations", "device_attempts", "devices", "job_runs", "job_state", "mcp_server_headers", "mcp_servers", "module_access", "module_access_users", "module_enablement", "module_keys", "module_kv", "oauth_connections", "oauth_grants", "schema_version", "sessions", "users"]);
   db.close();
   // reopening applies nothing
   const again = openDatabase(join(dir, "nested", "data"), "friday.db", quiet);
@@ -276,5 +276,26 @@ test("a version-11 database gains the empty module enablement table", async () =
   db.exec("INSERT INTO module_enablement (module_id, enabled, updated_at) VALUES ('sonos', 0, 't')");
   assert.throws(() => db.exec("INSERT INTO module_enablement (module_id, enabled, updated_at) VALUES ('sonos', 1, 't')"), /UNIQUE|PRIMARY/);
   assert.throws(() => db.exec("INSERT INTO module_enablement (module_id, enabled, updated_at) VALUES ('media', 2, 't')"), /CHECK/);
+  db.close();
+});
+
+test("a version-13 database gains the empty module access tables and keeps its data", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "friday-db-"));
+  const old = new DatabaseSync(join(dir, "friday.db"));
+  migrate(old, migrations.filter((m) => m.version <= 13), quiet);
+  old.exec("INSERT INTO module_enablement (module_id, enabled, updated_at) VALUES ('sonos', 0, 't')");
+  old.close();
+
+  const db = openDatabase(dir, "friday.db", quiet);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM module_enablement").get() }, { n: 1 });
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM module_access").get() }, { n: 0 });
+  db.exec("INSERT INTO module_access (owner, mode, updated_at) VALUES ('sonos', 'chosen', 't')");
+  assert.deepEqual({ ...db.prepare("SELECT restricted_json, known_json FROM module_access").get() }, { restricted_json: "[]", known_json: "[]" });
+  assert.throws(() => db.exec("INSERT INTO module_access (owner, mode, updated_at) VALUES ('media', 'some', 't')"), /CHECK/);
+  db.exec("INSERT INTO module_access_users (owner, user_id) VALUES ('sonos', 'u1')");
+  assert.throws(() => db.exec("INSERT INTO module_access_users (owner, user_id) VALUES ('sonos', 'u1')"), /UNIQUE|PRIMARY/);
+  db.exec("DELETE FROM module_access WHERE owner = 'sonos'");
+  assert.deepEqual({ ...db.prepare("SELECT COUNT(*) AS n FROM module_access_users").get() }, { n: 0 }, "chosen users go with their setting");
   db.close();
 });

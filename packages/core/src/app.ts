@@ -6,7 +6,8 @@ import type { ConversationChannel, ToolRegistry } from "@friday/sdk";
 import type { ModuleEntry, ModuleHost } from "./module-host.js";
 import { mcpOwner, type McpSource } from "./tools/mcp.js";
 import { McpInputError, McpServerExists, McpStoreDisabled, parseServerInput, type McpServerStore, type StoredServer } from "./tools/mcp-store.js";
-import type { RemoteEntry, RemoteHost } from "./remote/host.js";
+import { remoteOwner, type RemoteEntry, type RemoteHost } from "./remote/host.js";
+import { ACCESS_MODES, ALWAYS_OPEN, type AccessMode, type ModuleAccessStore } from "./storage/module-access.js";
 import { adaptRequest, adaptResponse, readBody, Router, sendJson } from "./router.js";
 import { mountAgentRoutes, type AgentsApi } from "./agents/routes.js";
 import { ConfigStoreDisabled, GLOBAL_SCOPE, type ConfigStore } from "./secrets/config-store.js";
@@ -56,6 +57,8 @@ export interface AppDeps {
   /** MCP server definitions; without it the MCP server API answers 503. */
   mcpStore?: McpServerStore;
   remote?: RemoteHost;
+  /** Who may use which module; without it every module is everyone's and the access API answers 503. */
+  access?: ModuleAccessStore;
   webDir: string;
   /** Platform services; optional so tests can build a minimal app. */
   configStore?: ConfigStore;
@@ -99,27 +102,81 @@ export interface AppAuth {
 
 export type ApiModuleEntry = ModuleEntry | RemoteEntry;
 
+/** A module's access setting as admins see it in `/api/modules`. `knownTools` is absent while it is the default. */
+export interface AccessView {
+  mode: AccessMode;
+  users: { id: string; name: string }[];
+  restricted: string[];
+  knownTools?: string[];
+}
+
+/** A `/api/modules` entry for one user: whether they may use it, and (admins only) its access setting. */
+export type ListedModule = ApiModuleEntry & { available: boolean; access?: AccessView };
+
 /**
- * The shape /api/modules returns: core's own entry when core owns tools (so the timer tools show up somewhere), then
- * in-process modules, MCP servers and connected remotes. The first entry is therefore not always a module.
+ * Every module in core's list with the owner tag its tools are registered under: core's own entry when core owns
+ * tools (so the timer tools show up somewhere), then in-process modules (owner = id), MCP servers (`mcp:<server>`,
+ * also their id) and connected remotes (id `<id>`, owner `remote:<id>`).
  */
-export function moduleListing({ host, mcp, remote, registry }: Pick<AppDeps, "host" | "mcp" | "remote" | "registry">): ApiModuleEntry[] {
+export function ownedModules({ host, mcp, remote, registry }: Pick<AppDeps, "host" | "mcp" | "remote" | "registry">): { owner: string; entry: ApiModuleEntry }[] {
   const coreTools = registry.names(CORE_ID);
   const { label, description } = coreManifest;
   return [
-    ...(coreTools.length ? [{ id: CORE_ID, label, description, status: "loaded" as const, tools: coreTools, ui: false }] : []),
-    ...host.loaded(),
-    ...mcp.servers().map(({ name, status, error, tools }): ModuleEntry => ({
-      id: mcpOwner(name),
-      label: name,
-      description: "MCP server",
-      status,
-      ...(error ? { error } : {}),
-      tools,
-      ui: false,
+    ...(coreTools.length ? [{ owner: CORE_ID, entry: { id: CORE_ID, label, description, status: "loaded" as const, tools: coreTools, ui: false } }] : []),
+    ...host.loaded().map((entry) => ({ owner: entry.id, entry })),
+    ...mcp.servers().map(({ name, status, error, tools }) => ({
+      owner: mcpOwner(name),
+      entry: { id: mcpOwner(name), label: name, description: "MCP server", status, ...(error ? { error } : {}), tools, ui: false } satisfies ModuleEntry,
     })),
-    ...(remote?.connected() ?? []),
+    ...(remote?.connected() ?? []).map((entry) => ({ owner: remoteOwner(entry.id), entry })),
   ];
+}
+
+/** The owner tag behind a `/api/modules` id, or undefined when no listed module has that id. */
+export const ownerOfModule = (deps: Pick<AppDeps, "host" | "mcp" | "remote" | "registry">, id: string): string | undefined =>
+  ownedModules(deps).find((m) => m.entry.id === id)?.owner;
+
+/**
+ * The shape /api/modules returns, for `viewer` (no viewer: everything, as for the local dev admin). Members don't get
+ * the modules they may not use, nor the tools they may not use; admins get everything, with each module's access.
+ */
+export function moduleListing(deps: Pick<AppDeps, "host" | "mcp" | "remote" | "registry" | "access" | "auth">, viewer?: { id: string; name: string; role: string }): ListedModule[] {
+  const user = viewer && { id: viewer.id, name: viewer.name };
+  const admin = !viewer || viewer.role === "admin";
+  const out: ListedModule[] = [];
+  for (const { owner, entry } of ownedModules(deps)) {
+    const available = deps.access?.allowsModule(owner, user) ?? true;
+    if (!admin && !available) continue;
+    const tools = admin || !deps.access ? entry.tools : entry.tools.filter((t) => deps.access!.allowsTool(owner, t, user));
+    const listed: ListedModule = { ...entry, tools, available };
+    if (admin && deps.access && !ALWAYS_OPEN.has(owner)) listed.access = accessView(deps, owner);
+    out.push(listed);
+  }
+  return out;
+}
+
+/** A module's new entry as the requesting admin's listing shows it (with `available` and `access`), for the row they changed. */
+function listedEntry(deps: Parameters<typeof moduleListing>[0], req: IncomingMessage, entry: ApiModuleEntry): ListedModule {
+  return moduleListing(deps, requestUser(req)).find((e) => e.id === entry.id) ?? { ...entry, available: true };
+}
+
+function accessView({ access, auth }: Pick<AppDeps, "access" | "auth">, owner: string): AccessView {
+  const a = access?.get(owner);
+  if (!a) return { mode: "everyone", users: [], restricted: [] };
+  const users = a.users.map((id) => ({ id, name: auth?.users.get(id)?.name ?? id }));
+  return { mode: a.mode, users, restricted: a.restricted, knownTools: a.known };
+}
+
+/** The body of `PUT /api/modules/:id/access`, checked; a string is the 400 message. */
+function parseAccessInput(body: unknown, userExists: (id: string) => boolean): { mode: AccessMode; users: string[]; restricted: string[] } | string {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return "body must be a JSON object";
+  const { mode, users, restricted } = body as Record<string, unknown>;
+  if (!ACCESS_MODES.includes(mode as AccessMode)) return `mode must be one of ${ACCESS_MODES.join(", ")}`;
+  if (!Array.isArray(users) || users.some((u) => typeof u !== "string")) return "users must be a list of user ids";
+  const unknown = users.find((u) => !userExists(u as string));
+  if (unknown !== undefined) return `unknown user "${unknown}"`;
+  if (!Array.isArray(restricted) || restricted.some((p) => typeof p !== "string" || !p.trim())) return "restricted must be a list of non-empty patterns";
+  return { mode: mode as AccessMode, users: [...new Set(users as string[])], restricted: [...new Set((restricted as string[]).map((p) => p.trim()))] };
 }
 
 export interface ConfigEntry {
@@ -313,12 +370,38 @@ export function createApp(deps: AppDeps) {
   const router = new Router()
     .add("GET", "/health", (_req, res) => sendJson(res, { ok: true, tools: deps.registry.names().length }))
     .add("GET", "/api/tools", (req, res) => sendJson(res, deps.registry.declarations(undefined, requestCallUser(req))))
-    .add("GET", "/api/modules", (_req, res) => sendJson(res, moduleListing(deps)))
-    .add("POST", "/api/modules/:id/reload", async (_req, res, { id }) => {
+    .add("GET", "/api/modules", (req, res) => sendJson(res, moduleListing(deps, requestUser(req))))
+    // Who may use a module (admins only, see auth/access.ts). These shadow a module route named `access`, as `enabled`
+    // and `reload` do theirs.
+    .add("PUT", "/api/modules/:id/access", async (req, res, { id }) => {
+      if (!deps.access) return sendJson(res, { error: "no module access store" }, 503);
+      const listed = ownedModules(deps).find((m) => m.entry.id === id);
+      if (!listed || ALWAYS_OPEN.has(listed.owner)) return sendJson(res, { error: `no module "${id}" with an access setting` }, 404);
+      let body: unknown;
+      try {
+        body = JSON.parse((await readBody(req)) || "{}");
+      } catch {
+        return sendJson(res, { error: "invalid JSON" }, 400);
+      }
+      const input = parseAccessInput(body, (u) => deps.auth?.users.get(u) !== undefined);
+      if (typeof input === "string") return sendJson(res, { error: input }, 400);
+      // A disabled or failed module lists no tools; keep the tools known from before rather than forgetting them.
+      const known = listed.entry.tools.length ? listed.entry.tools : (deps.access.get(listed.owner)?.known ?? []);
+      deps.access.set(listed.owner, { ...input, known });
+      sendJson(res, moduleListing(deps, requestUser(req)).find((e) => e.id === id));
+    })
+    .add("DELETE", "/api/modules/:id/access", (req, res, { id }) => {
+      if (!deps.access) return sendJson(res, { error: "no module access store" }, 503);
+      const owner = ownerOfModule(deps, id);
+      if (owner === undefined || ALWAYS_OPEN.has(owner)) return sendJson(res, { error: `no module "${id}" with an access setting` }, 404);
+      deps.access.clear(owner);
+      sendJson(res, moduleListing(deps, requestUser(req)).find((e) => e.id === id));
+    })
+    .add("POST", "/api/modules/:id/reload", async (req, res, { id }) => {
       const entry = await deps.host.reload(id);
       if (!entry) return sendJson(res, { error: `no reloadable in-process module "${id}"` }, 404);
       if (entry.status === "disabled") return sendJson(res, { error: `module "${id}" is disabled; enable it to load it` }, 409);
-      sendJson(res, entry);
+      sendJson(res, listedEntry(deps, req, entry));
     })
     .add("PUT", "/api/modules/:id/enabled", async (req, res, { id }) => {
       let body: { enabled?: unknown };
@@ -330,7 +413,7 @@ export function createApp(deps: AppDeps) {
       if (typeof body?.enabled !== "boolean") return sendJson(res, { error: "enabled must be true or false" }, 400);
       const entry = await deps.host.setEnabled(id, body.enabled);
       if (!entry) return sendJson(res, { error: `no in-process module "${id}"` }, 404);
-      sendJson(res, entry);
+      sendJson(res, listedEntry(deps, req, entry));
     })
     .add("GET", "/api/config", (_req, res) => sendJson(res, { secretsEnabled: deps.configStore?.secretsEnabled === true, entries: configListing(deps) }))
     .add("PUT", "/api/config/:scope/:key", async (req, res, { scope, key }) => {
@@ -396,6 +479,8 @@ export function createApp(deps: AppDeps) {
     .add("DELETE", "/api/mcp/servers/:name", async (_req, res, { name }) => {
       if (!deps.mcpStore) return sendJson(res, { error: "no MCP server store" }, 503);
       if (!deps.mcpStore.delete(name)) return sendJson(res, { error: `unknown MCP server "${name}"` }, 404);
+      // A new server with the same name starts at the default access.
+      deps.access?.clear(mcpOwner(name));
       await deps.mcp.apply(name);
       res.statusCode = 204;
       res.end();
@@ -541,10 +626,15 @@ export function createApp(deps: AppDeps) {
   const moduleRoute = async (req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> => {
     const m = /^\/api\/modules\/([^/]+)(\/.*)?$/.exec(url.pathname);
     if (!m) return false;
-    const table = deps.host.routesOf(decodeURIComponent(m[1]));
+    const id = decodeURIComponent(m[1]);
+    const table = deps.host.routesOf(id);
     const sub = m[2] || "/";
     const hit = table?.find(req.method ?? "GET", sub);
     if (!table || hit === null || hit === undefined) return false;
+    if (deps.access && !deps.access.allowsModule(id, requestCallUser(req))) {
+      sendJson(res, { error: `${id} isn't available to you`, code: "no_access" }, 403);
+      return true;
+    }
     if (hit === "method") {
       res.statusCode = 405;
       res.end("method not allowed");

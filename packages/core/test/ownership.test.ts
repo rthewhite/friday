@@ -34,7 +34,7 @@ test("a version-12 database gains agents.created_by, and existing agents keep no
   old.close();
 
   const db = openDatabase(dir, "friday.db", quiet);
-  assert.equal(schemaVersion(db), 13);
+  assert.equal(schemaVersion(db), Math.max(...migrations.map((m) => m.version)));
   assert.deepEqual(owners(db).agents, [{ name: "weekly-review", created_by: null }]);
   const plan = db.prepare("EXPLAIN QUERY PLAN SELECT id FROM conversations WHERE user_id = 'u1' ORDER BY last_activity_at DESC").all();
   assert.match(JSON.stringify(plan), /conversations_user_activity/);

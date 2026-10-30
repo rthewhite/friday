@@ -20,6 +20,28 @@ const SEARCH_BODY = (e: string) => `CASE WHEN ${e}.kind = 'tool' THEN COALESCE($
 
 export const migrations: Migration[] = [
   {
+    version: 14,
+    name: "module access",
+    // Who may use a module, keyed by the owner tag its tools are registered with (`sonos`, `mcp:home`, `remote:sim`).
+    // No row means everyone may use everything. `restricted_json` holds tool-name patterns only the chosen users get
+    // (mode everyone); `known_json` the module's tool names at the last save, so the portal can mark new ones.
+    // Chosen users have no foreign key: a disabled user keeps their place, a deleted one simply matches nobody.
+    sql: `
+      CREATE TABLE module_access (
+        owner TEXT PRIMARY KEY,
+        mode TEXT NOT NULL CHECK (mode IN ('everyone', 'chosen')),
+        restricted_json TEXT NOT NULL DEFAULT '[]',
+        known_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE module_access_users (
+        owner TEXT NOT NULL REFERENCES module_access (owner) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        PRIMARY KEY (owner, user_id)
+      );
+    `,
+  },
+  {
     version: 13,
     name: "user privacy",
     // Every agent belongs to the user who created it. Rows without a user (agents, runs and conversations from before

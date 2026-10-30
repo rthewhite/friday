@@ -10,8 +10,8 @@
 
 ## 2. Core: the access store and the rule
 
-- [ ] 2.1 Add core migration 14 (renumber at merge if taken) with `module_access` (`owner`, `mode`, `restricted_json`, `known_json`, `updated_at`) and `module_access_users` (`owner`, `user_id`, primary key on both). Verify with a `storage.test.ts` migration case: the tables exist and existing data is untouched.
-- [ ] 2.2 Add `ModuleAccessStore`: `get(owner)`, `set(owner, { mode, users, restricted, known })`, `clear(owner)`, and an in-memory copy with compiled `patternRegExp` patterns, refreshed on every write. It answers `allowsModule(owner, user)` and `allowsTool(owner, tool, user)`:
+- [x] 2.1 Add core migration 14 (renumber at merge if taken) with `module_access` (`owner`, `mode`, `restricted_json`, `known_json`, `updated_at`) and `module_access_users` (`owner`, `user_id`, primary key on both). Verify with a `storage.test.ts` migration case: the tables exist and existing data is untouched.
+- [x] 2.2 Add `ModuleAccessStore`: `get(owner)`, `set(owner, { mode, users, restricted, known })`, `clear(owner)`, and an in-memory copy with compiled `patternRegExp` patterns, refreshed on every write. It answers `allowsModule(owner, user)` and `allowsTool(owner, tool, user)`:
   - the owner, or a call without a user, is always allowed;
   - otherwise only chosen users are allowed;
   - `chosen` refuses the whole module to everyone else;
@@ -20,9 +20,9 @@
   - `core` and `builtin` are always allowed.
 
   Verify with `module-access.test.ts` cases for every "Who may use a module" scenario, including the owner always allowed, another admin not implied, and a disabled user keeping their place.
-- [ ] 2.3 Map listing ids to owner tags: an in-process id and `mcp:<server>` stay as they are, and a remote `<id>` becomes `remote:<id>`. Use the mapping everywhere a listing id is used. Verify with a unit test for the three kinds.
-- [ ] 2.4 Wire the store in `server.ts`: `registry.setAccessCheck` and the prompt context's module check. Deleting an MCP server clears `mcp:<server>`'s setting. Verify with tests: a member's chat turn and Talk session leave out a `chosen` module's tools; a voice session, which acts for the owner, gets them; an agent run of a member's agent leaves out a restricted tool; and a deleted and re-created MCP server starts at the default.
-- [ ] 2.5 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
+- [x] 2.3 Map listing ids to owner tags: an in-process id and `mcp:<server>` stay as they are, and a remote `<id>` becomes `remote:<id>`. Use the mapping everywhere a listing id is used. Verify with a unit test for the three kinds.
+- [x] 2.4 Wire the store in `server.ts`: `registry.setAccessCheck` and the prompt context's module check. Deleting an MCP server clears `mcp:<server>`'s setting. Verify with tests: a member's chat turn and Talk session leave out a `chosen` module's tools; a voice session, which acts for the owner, gets them; an agent run of a member's agent leaves out a restricted tool; and a deleted and re-created MCP server starts at the default.
+- [x] 2.5 Run `pnpm --filter @friday/core test typecheck`. Verify both are green.
 
 ## 3. Core: the API, listing and routes
 
