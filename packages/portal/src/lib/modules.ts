@@ -17,8 +17,25 @@ export function moduleKind(m: Entry): ModuleKind {
   return m.status === "connected" ? "remote" : "in-process";
 }
 
-/** The module's page (`/m/<id>`) can be shown: it is loaded and ships a UI. Core's own entry has none. */
-export const hasPage = (m: Pick<ApiModule, "status" | "ui">): boolean => m.status === "loaded" && m.ui === true;
+/**
+ * The module's page (`/m/<id>`) can be shown: it is loaded, ships a UI, and the user may use it. Core's own entry has
+ * no UI.
+ */
+export const hasPage = (m: Pick<ApiModule, "status" | "ui" | "available">): boolean => m.status === "loaded" && m.ui === true && m.available !== false;
+
+export type GateReason = "unknown" | "no_access" | "disabled" | "failed" | "no_page" | "not_enabled";
+
+/**
+ * Why `/m/<id>` shows no page. Members aren't sent the modules they may not use, so a module whose UI the portal
+ * ships but which isn't listed is one the user has no access to.
+ */
+export function gateReason(entry: Pick<ApiModule, "status" | "ui" | "available"> | undefined, shipsUi: boolean): GateReason {
+  if (!entry) return shipsUi ? "no_access" : "unknown";
+  if (entry.status === "disabled") return "disabled";
+  if (entry.status === "failed") return "failed";
+  if (entry.available === false) return "no_access";
+  return entry.ui ? "not_enabled" : "no_page";
+}
 
 /** Only in-process modules that are loaded or failed reload; core, MCP servers, remotes and disabled modules don't. */
 export const isReloadable = (m: Entry): boolean => moduleKind(m) === "in-process" && m.status !== "disabled";

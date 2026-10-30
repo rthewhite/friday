@@ -51,9 +51,9 @@
 
 ## 4. Portal: menu and Modules page
 
-- [ ] 4.1 Add `available` and `access` to the portal's `ApiModule` type. `hasPage` also requires `available`, and `/m/:id` for a module that isn't available to the user shows "isn't available to you, ask an admin" without saying who may use it. Verify with `lib/modules` and `nav` unit tests for the "Member navigation" and "Module not available to the user" scenarios.
-- [ ] 4.2 Modules page rows show `Chosen users` or `Some tools restricted` when access isn't the default. Verify with a unit test of the label helper.
-- [ ] 4.3 Add an Access section to the drawer of every entry with `access` (none for `core` and `builtin`):
+- [x] 4.1 Add `available` and `access` to the portal's `ApiModule` type. `hasPage` also requires `available`, and `/m/:id` for a module that isn't available to the user shows "isn't available to you, ask an admin" without saying who may use it. Verify with `lib/modules` and `nav` unit tests for the "Member navigation" and "Module not available to the user" scenarios.
+- [x] 4.2 Modules page rows show `Chosen users` or `Some tools restricted` when access isn't the default. Verify with a unit test of the label helper.
+- [x] 4.3 Add an Access section to the drawer of every entry with `access` (none for `core` and `builtin`):
   - Everyone or Chosen users;
   - the users from `GET /api/users`, with the owner always ticked and locked, and disabled users marked;
   - only for Everyone: a checkbox per tool plus a pattern field, with tools matched by a pattern shown as restricted;
@@ -66,6 +66,8 @@
   - reset to everyone.
 
   Stop the dev server afterwards.
+
+  (2026-10-30: there is no browser driver here, so the drawer itself still needs clicking through. On a dev server on 8081, the API the drawer calls worked: a `PUT` on `sonos` was kept through a reload and the listing, a bad mode answered 400, and `DELETE` reset it. The drawer's behaviour is covered by the `modules-page` component tests.)
 
 ## 5. Docs and integration
 
