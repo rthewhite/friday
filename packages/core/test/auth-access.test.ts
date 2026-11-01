@@ -37,6 +37,8 @@ const ADMIN_ONLY: [string, string][] = [
   ["POST", "/api/users/x/disable"],
   ["POST", "/api/modules/media/reload"],
   ["PUT", "/api/modules/media/enabled"],
+  ["PUT", "/api/modules/mcp:home/access"],
+  ["DELETE", "/api/modules/sonos/access"],
   ["GET", "/api//config"],
   ["GET", "/api/config/"],
   ["GET", "/api/future-route-under/../config"],
@@ -53,6 +55,7 @@ const ANY_USER: [string, string][] = [
   ["GET", "/api/modules/brain/pages"],
   ["GET", "/api/modules/media/reload"],
   ["GET", "/api/modules/media/enabled"],
+  ["GET", "/api/modules/sonos/access"],
   ["GET", "/api/nope"],
 ];
 

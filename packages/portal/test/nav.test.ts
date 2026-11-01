@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { navItems } from "../src/lib/nav.js";
+import { hasPage } from "../src/lib/modules.js";
 import { isAdminPath } from "../src/lib/auth.js";
 
 const uis = [
@@ -26,6 +27,15 @@ test("a member sees Assistant and the module UIs, and no System section", () => 
   const items = navItems(uis, () => true, "member");
   assert.deepEqual(groupOf(items, "Modules"), ["Brain", "Media"]);
   assert.deepEqual(groupOf(items, "System"), []);
+});
+
+test("a member's Modules section has only the module UIs available to them", () => {
+  // As useModules decides: a listed entry that has a page. Brain isn't listed for her.
+  const listing = [{ id: "media", status: "loaded" as const, ui: true, available: true }];
+  const items = navItems(uis, (id) => listing.some((m) => m.id === id && hasPage(m)), "member");
+  assert.deepEqual(groupOf(items, "Modules"), ["Media"]);
+  const notForAdmin = [{ id: "media", status: "loaded" as const, ui: true, available: false }];
+  assert.deepEqual(groupOf(navItems(uis, (id) => notForAdmin.some((m) => m.id === id && hasPage(m)), "admin"), "Modules"), []);
 });
 
 test("without a usable module UI there are no items in the Modules section", () => {

@@ -1,6 +1,7 @@
 import { ref } from "vue";
 import { hasPage, withEntry } from "../lib/modules.js";
 import { api } from "./useApi.js";
+import { accessBody, type AccessDraft, type ModuleAccess } from "../lib/access.js";
 
 export interface ApiModule {
   id: string;
@@ -11,6 +12,10 @@ export interface ApiModule {
   tools: string[];
   ui?: boolean;
   connectedAt?: string;
+  /** Whether the logged-in user may use the module. Members are only sent the ones they may. */
+  available?: boolean;
+  /** Who may use it; sent to admins for every module but core and builtin. */
+  access?: ModuleAccess;
 }
 
 const modules = ref<ApiModule[]>([]);
@@ -42,9 +47,20 @@ export async function setModuleEnabled(id: string, enabled: boolean): Promise<Ap
   return entry;
 }
 
+/**
+ * Save who may use a module (`draft`), or go back to everyone (`null`). The server answers with the module's new
+ * entry, which replaces the shared one. Rejects with the server's error, leaving the list as it was.
+ */
+export async function setModuleAccess(id: string, draft: AccessDraft | null): Promise<ApiModule> {
+  const path = `/api/modules/${encodeURIComponent(id)}/access`;
+  const entry = await api<ApiModule>(path, draft ? { method: "PUT", json: accessBody(draft) } : { method: "DELETE" });
+  modules.value = withEntry(modules.value, entry);
+  return entry;
+}
+
 export function useModules() {
   if (!modules.value.length && !loading.value) void refreshModules();
   /** The module's page can be shown (see hasPage): core's own entry has none. */
   const isEnabled = (id: string) => modules.value.some((m) => m.id === id && hasPage(m));
-  return { modules, loading, error, refreshModules, isEnabled, setModuleEnabled };
+  return { modules, loading, error, refreshModules, isEnabled, setModuleEnabled, setModuleAccess };
 }

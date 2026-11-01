@@ -310,3 +310,49 @@ test("promptContext renders for the owner when the host has no user, and without
   h.promptContext("voice", null);
   assert.deepEqual(seen, [{ id: "u1", name: "Raymond" }, null]);
 });
+
+function sonosModule(played: string[]) {
+  return defineModule({
+    manifest: { id: "sonos", label: "Sonos" },
+    init(ctx) {
+      ctx.defineTool({ name: "sonos_play", description: "", handler: (_a, call) => (played.push(call.user?.id ?? "-"), { ok: true }) });
+      ctx.defineTool({ name: "sonos_list", description: "", handler: () => ({ speakers: [] }) });
+      ctx.prompt.addContext(() => "## Sonos");
+    },
+  });
+}
+
+test("access: a tool the access option denies is refused and not declared, the handler isn't invoked", async () => {
+  const played: string[] = [];
+  const asked: [string | undefined, string | undefined][] = [];
+  const h = await createTestHost(sonosModule(played), {
+    users: [{ id: "u1", name: "Raymond" }, sanne],
+    owner: "u1",
+    access: (u, tool) => (asked.push([u?.id, tool]), !(u?.id === "u2" && tool === "sonos_play")),
+  });
+  assert.deepEqual(await h.call("sonos_play", {}, { user: sanne }), { result: { error: "sonos_play isn't available to you" }, scheduling: "INTERRUPT" });
+  assert.deepEqual(played, []);
+  assert.deepEqual(h.toolsIn("chat", sanne), ["sonos_list"]);
+  assert.deepEqual(h.toolsIn("chat", { id: "u1", name: "Raymond" }), ["sonos_play", "sonos_list"]);
+  await h.call("sonos_play");
+  assert.deepEqual(played, ["-"]);
+  assert.deepEqual(asked.at(-1), ["u1", "sonos_play"], "a call without a user asks for the owner");
+});
+
+test("access: prompt rendering asks per module, without a tool name", async () => {
+  const asked: [string | undefined, string | undefined][] = [];
+  const h = await createTestHost(sonosModule([]), {
+    users: [{ id: "u1", name: "Raymond" }, sanne],
+    owner: "u1",
+    access: (u, tool) => (asked.push([u?.id, tool]), u?.id !== "u2"),
+  });
+  assert.equal(h.promptContext("chat", sanne), "");
+  assert.equal(h.promptContext("chat"), "## Sonos");
+  assert.deepEqual(asked, [["u2", undefined], ["u1", undefined]]);
+});
+
+test("access: without the option everything is allowed", async () => {
+  const h = await createTestHost(sonosModule([]), { users: [{ id: "u1", name: "Raymond" }, sanne], owner: "u1" });
+  assert.deepEqual(h.toolsIn("chat", sanne), ["sonos_play", "sonos_list"]);
+  assert.equal(h.promptContext("chat", sanne), "## Sonos");
+});

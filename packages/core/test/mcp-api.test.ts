@@ -191,7 +191,7 @@ test("/api/modules lists stored MCP servers as loaded, failed with an error, or 
     assert.equal(by["mcp:down"].status, "failed");
     assert.ok(by["mcp:down"].error);
     assert.deepEqual(by["mcp:down"].tools, []);
-    assert.deepEqual({ ...by["mcp:off"] }, { id: "mcp:off", label: "off", description: "MCP server", status: "disabled", tools: [], ui: false });
+    assert.deepEqual({ ...by["mcp:off"] }, { id: "mcp:off", label: "off", description: "MCP server", status: "disabled", tools: [], ui: false, available: true });
   } finally {
     await s.close();
     await f.close();

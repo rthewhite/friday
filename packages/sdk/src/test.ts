@@ -47,6 +47,12 @@ export interface TestHostOptions {
    * owner's, so `ownerOnly` tools stay callable without setting a user.
    */
   owner?: CallUser | string | null;
+  /**
+   * Fake module access, as core applies it: whether `user` may use the module (no `tool`) or that tool. Tool
+   * declarations and calls ask per tool, prompt rendering per module. Calls and prompts without a user ask for the
+   * owner. Without it, everything is allowed.
+   */
+  access?: (user: CallUser | undefined, tool?: string) => boolean;
 }
 
 /** The user route requests carry when the test host has no `user` option. */
@@ -176,6 +182,11 @@ export async function createTestHost(module: FridayModule, opts: TestHostOptions
   conversations.defaultUserId ??= users.owner()?.id;
   // Calls without a user count as the owner's, so modules with owner-only tools stay testable without a user.
   registry.setOwnerCheck((u) => u === undefined || u.id === users.owner()?.id);
+  const access = opts.access;
+  if (access) {
+    registry.setAccessCheck((_owner, tool, u) => access(u ?? users.owner(), tool));
+    prompts.setAccessCheck((_owner, u) => access(u ?? users.owner()));
+  }
   const oauthCalls: Record<string, number> = {};
   const oauth = fakeOAuth(module, opts.oauth ?? {}, oauthCalls);
   await module.init(createContext(module.manifest, { env, registry, log, storage, conversations, jobs: jobApi, http: { route: (method, path, handler) => table.add({ method, path, handler }) }, llm, db, prompt: prompts.forOwner(id), oauth, users }));

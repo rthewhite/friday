@@ -144,3 +144,145 @@ describe("ModuleGate for a disabled module", () => {
     expect(w.find('a[href="/settings/modules"]').exists()).toBe(false);
   });
 });
+
+describe("ModulesPage access", () => {
+  const ha = {
+    id: "mcp:HomeAssistant",
+    label: "HomeAssistant",
+    status: "loaded",
+    tools: ["HomeAssistant__get_state", "HomeAssistant__restart_ha", "HomeAssistant__delete_automation", "HomeAssistant__wipe_history"],
+    ui: false,
+    available: true,
+    access: { mode: "everyone", users: [], restricted: [], knownTools: ["HomeAssistant__get_state", "HomeAssistant__restart_ha", "HomeAssistant__delete_automation"] },
+  };
+  const users = {
+    users: [
+      { id: "u0", name: "Owner", email: null, role: "admin", owner: true, disabled: false, firstLoginAt: "t", lastLoginAt: "t" },
+      { id: "u1", name: "Raymond", email: null, role: "admin", owner: false, disabled: false, firstLoginAt: "t", lastLoginAt: "t" },
+      { id: "u2", name: "Sanne", email: null, role: "member", owner: false, disabled: true, firstLoginAt: "t", lastLoginAt: "t" },
+    ],
+  };
+  const PATH = "/api/modules/mcp%3AHomeAssistant/access";
+  const drawer = (w: VueWrapper) => w.find("[role=dialog]");
+  const box = (w: VueWrapper, attr: string, value: string) => drawer(w).find(`label[data-${attr}="${value}"] input`);
+
+  async function opened(routes: ApiRoutes) {
+    modules = [...listing(), structuredClone(ha)];
+    const p = await page({ "GET /api/users": users, ...routes });
+    await row(p.w, "HomeAssistant").trigger("click");
+    await flushPromises();
+    return p;
+  }
+
+  it("restricts tools for everyone but the chosen users, saves them, and labels the row", async () => {
+    const saved = { ...ha, access: { mode: "everyone", users: [{ id: "u1", name: "Raymond" }], restricted: ["HomeAssistant__restart_ha", "HomeAssistant__*delete*"], knownTools: ha.tools } };
+    const { w, calls } = await opened({ [`PUT ${PATH}`]: saved });
+    expect(drawer(w).text()).toContain("Access");
+    expect(row(w, "HomeAssistant").text()).not.toContain("Some tools restricted");
+    await box(w, "user", "u1").setValue(true);
+    await box(w, "tool", "HomeAssistant__restart_ha").setValue(true);
+    await drawer(w).find("input[aria-label=Pattern]").setValue("HomeAssistant__*delete*");
+    await drawer(w).find("form").trigger("submit");
+    await flushPromises();
+    expect((box(w, "tool", "HomeAssistant__delete_automation").element as HTMLInputElement).checked).toBe(true);
+    expect(drawer(w).find('label[data-tool="HomeAssistant__delete_automation"]').text()).toContain("(by pattern)");
+    await button(w, "Save").trigger("click");
+    await flushPromises();
+    expect(calls.filter((c) => c.method === "PUT")).toEqual([
+      { path: PATH, method: "PUT", json: { mode: "everyone", users: ["u1"], restricted: ["HomeAssistant__restart_ha", "HomeAssistant__*delete*"] } },
+    ]);
+    expect(row(w, "HomeAssistant").text()).toContain("Some tools restricted");
+  });
+
+  it("shows the owner as always included and disabled users as disabled, and marks tools added since the last save", async () => {
+    const { w } = await opened({});
+    const owner = box(w, "user", "u0").element as HTMLInputElement;
+    expect(owner.checked && owner.disabled).toBe(true);
+    expect(drawer(w).find('label[data-user="u0"]').text()).toContain("always included");
+    expect(drawer(w).find('label[data-user="u2"]').text()).toContain("(disabled)");
+    expect(drawer(w).find('label[data-tool="HomeAssistant__wipe_history"]').text()).toContain("new");
+    expect(drawer(w).find('label[data-tool="HomeAssistant__get_state"]').text()).not.toContain("new");
+  });
+
+  it("chosen users hide the restricted tools; Reset to everyone sends DELETE; a failed save keeps the edits", async () => {
+    const { w, calls } = await opened({
+      [`PUT ${PATH}`]: () => { throw new Error('unknown user "u1"'); },
+      [`DELETE ${PATH}`]: { ...ha, access: { mode: "everyone", users: [], restricted: [] } },
+    });
+    await drawer(w).find('input[type=radio][value="chosen"]').setValue(true);
+    await box(w, "user", "u1").setValue(true);
+    expect(drawer(w).text()).not.toContain("Restricted tools");
+    await button(w, "Save").trigger("click");
+    await flushPromises();
+    expect(drawer(w).text()).toContain('unknown user "u1"');
+    expect((box(w, "user", "u1").element as HTMLInputElement).checked).toBe(true);
+    expect((drawer(w).find('input[type=radio][value="chosen"]').element as HTMLInputElement).checked).toBe(true);
+    await button(w, "Reset to everyone").trigger("click");
+    await flushPromises();
+    expect(calls.filter((c) => c.method === "DELETE")).toEqual([{ path: PATH, method: "DELETE" }]);
+    expect((drawer(w).find('input[type=radio][value="everyone"]').element as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("switching the module off in the drawer keeps unsaved access edits", async () => {
+    const access = { mode: "everyone", users: [], restricted: [], knownTools: ["sonos_play"] };
+    modules = listing().map((m) => (m.id === "sonos" ? { ...m, available: true, access } : m));
+    const fake = fakeApi({ "GET /api/users": users, "PUT /api/modules/sonos/enabled": { id: "sonos", label: "Sonos", status: "disabled", tools: [], ui: false, available: true, access } });
+    api.impl = fake.api;
+    // The real Teleport, as in the browser: the stubbed one renders the drawer afresh on every update of the page.
+    const w = mount(ModulesPage, { attachTo: document.body, global: { plugins: [await routerAt("/settings/modules")] } });
+    try {
+      await flushPromises();
+      await row(w, "Sonos").trigger("click");
+      await flushPromises();
+      const dialog = () => document.querySelector("[role=dialog]")!;
+      const input = (sel: string) => dialog().querySelector(sel) as HTMLInputElement;
+      const tick = async (sel: string, on: boolean) => {
+        input(sel).checked = on;
+        input(sel).dispatchEvent(new Event("change"));
+        await flushPromises();
+      };
+      await tick('label[data-user="u1"] input', true);
+      await tick('label[data-tool="sonos_play"] input', true);
+      await tick("input[type=checkbox]", false); // the drawer's Enabled switch, which asks first
+      [...dialog().querySelectorAll("button")].find((b) => b.textContent?.trim() === "Turn off")!.click();
+      await flushPromises();
+      expect(dialog().textContent).toContain("disabled");
+      expect(fake.calls.filter((c) => c.path === "/api/users").length, "the section isn't mounted again").toBe(1);
+      expect(input('label[data-user="u1"] input').checked).toBe(true);
+      expect(input('label[data-tool="sonos_play"] input').checked, "the known tool stays listed and ticked").toBe(true);
+    } finally {
+      w.unmount();
+    }
+  });
+
+  it("core and builtin have no Access section", async () => {
+    const { w } = await page({ "GET /api/users": users });
+    await row(w, "Core").trigger("click");
+    await flushPromises();
+    expect(drawer(w).find("input[type=radio]").exists()).toBe(false);
+    expect(drawer(w).text()).not.toContain("Reset to everyone");
+  });
+
+  it("the row says Chosen users when only chosen users may use the module", async () => {
+    modules = [...listing(), { ...structuredClone(ha), access: { mode: "chosen", users: [], restricted: [], knownTools: [] } }];
+    const { w } = await page({});
+    expect(row(w, "HomeAssistant").text()).toContain("Chosen users");
+  });
+});
+
+describe("ModuleGate for a module the user may not use", () => {
+  afterEach(() => { me.value = undefined; });
+
+  it("tells a member it isn't available to them, without saying who may use it", async () => {
+    me.value = { id: "u2", name: "Sanne", email: null, role: "member", owner: false, authEnabled: true };
+    modules = listing().filter((m) => m.id !== "media"); // members aren't sent the modules they may not use
+    api.impl = fakeApi({}).api;
+    await refreshModules();
+    const router = await routerAt("/m/media");
+    const w = mount(ModuleGate, { props: { id: "media" }, global: { plugins: [router], provide: { moduleUis: [{ id: "media", nav: { label: "Media" } }] } } });
+    await flushPromises();
+    expect(w.text()).toContain("isn't available to you");
+    expect(w.text()).toContain("Ask an admin");
+    expect(w.text()).not.toContain("not part of this deployment");
+  });
+});

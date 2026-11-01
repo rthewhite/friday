@@ -84,6 +84,22 @@ test("approving records who decided; the approved call is for the agent's creato
   assert.deepEqual(t.calls.at(-1)?.call, { channel: "agent", conversationId: run.conversationId, user: sanne });
 });
 
+test("a parked action whose tool the creator may no longer use fails on approval without running", async () => {
+  const t = harness();
+  const r = t.runtime.start("security-sweep", "schedule");
+  assert.ok(r.ok);
+  const run = await r.done;
+  const [action] = t.runs.actions(run.id);
+  const before = t.calls.length;
+  // An admin restricts the pull request tool to others after the action was parked.
+  t.registry.setAccessCheck((_owner, tool, u) => tool !== "github__create_pull_request" || u?.id !== sanne.id);
+  const approved = await t.runtime.approve(action.id, sanne);
+  assert.ok(approved.status === "ok");
+  assert.equal(approved.action.state, "failed");
+  assert.equal(approved.action.error, "tool github__create_pull_request is not available");
+  assert.equal(t.calls.length, before, "the tool did not run");
+});
+
 test("rejecting records who decided", async () => {
   const t = harness();
   const r = t.runtime.start("security-sweep", "schedule");

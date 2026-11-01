@@ -51,6 +51,7 @@ See proposal.md for the motivation.
 - **Storage:** a core migration adds:
   - `module_access(owner TEXT PRIMARY KEY, mode TEXT NOT NULL, restricted_json TEXT NOT NULL DEFAULT '[]', known_json TEXT NOT NULL DEFAULT '[]', updated_at)`, where `mode` is `everyone` or `chosen` and `known_json` holds the module's tool names at the last save (for the drawer's "new" marker);
   - `module_access_users(owner, user_id, PRIMARY KEY (owner, user_id))`.
+  - A save of a disabled or failed module, which lists no tools, keeps the `known_json` from before.
 - **The rule:** the chosen users are one list per module.
   - With `mode = chosen`, only they get the module at all.
   - With `mode = everyone`, everyone gets the module, but only they get the restricted tools.
@@ -74,7 +75,7 @@ See proposal.md for the motivation.
 **P4. Enforcement in the registry, through one callback.**
 - **Registry:** `ToolRegistry.setAccessCheck((ownerTag, toolName, user) => boolean)` is applied in `declarations` and `callTool`, after the channel and `ownerOnly` checks.
   - A refused call answers `{ error: "<name> isn't available to you" }`.
-  - A call without a user (internal) counts as the owner's, as with `ownerOnly`.
+  - A call without a user (internal) counts as the owner's, so it is allowed. This is unlike `ownerOnly`, which refuses a call without a user. In practice no setting exists then: an admin can only set access after logging in, which records the owner. From then on devices act for the owner, and agents without a creator are assigned to the owner.
 - **Core:** it owns the callback, backed by an in-memory copy of the table, refreshed on every write. Core's `patternRegExp` does the matching.
 - **The remote runner** sets the check to always allow, as it does `setOwnerCheck`. Core enforces it for remote tools, which are registered under `remote:<id>`.
 
@@ -84,7 +85,8 @@ See proposal.md for the motivation.
 - **Listing:** `moduleListing` adds `available: boolean` for the caller.
   - Members see only the modules available to them.
   - Admins see every module, with `available` and the access record, for the Modules page.
-- **Portal:** `hasPage` also requires `available`, so the menu and the `/m/:id` gate hide the module.
+- **Row updates:** `POST /api/modules/:id/reload`, `PUT /api/modules/:id/enabled` and the access API answer with the module's entry as the caller's listing shows it, with `available` and `access`. The portal replaces the row with that answer, so the row keeps its access.
+- **Portal:** `hasPage` also requires `available`, so the menu and the `/m/:id` gate hide the module. Members aren't sent the modules they may not use, so the gate treats a module whose UI the portal ships, but which isn't listed, as one the user has no access to.
 - **`/api/tools`** is already per user through `declarations`.
 
 **P6. Core and the builtin module can't be restricted.** The access API refuses `core` and `builtin`. They hold the timers, alarms, `run_agent`, `get_current_time` and `end_conversation` that voice sessions and agents depend on. Their Modules page rows show no access control.

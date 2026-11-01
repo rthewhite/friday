@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasPage, isReloadable, isSwitchedOn, isToggleable, moduleKind, moduleTone, withEntry } from "../src/lib/modules.ts";
+import { gateReason, hasPage, isReloadable, isSwitchedOn, isToggleable, moduleKind, moduleTone, withEntry } from "../src/lib/modules.ts";
 
 const row = (id: string, status: "loaded" | "failed" | "disabled" | "connected") => ({ id, status });
 
@@ -28,6 +28,18 @@ test("only a loaded module with a UI has a page: /m/core shows the gate, not a b
   assert.equal(hasPage({ status: "loaded", ui: false }), false, "core's entry");
   assert.equal(hasPage({ status: "failed", ui: true }), false);
   assert.equal(hasPage({ status: "connected" }), false, "remotes have no UI");
+  assert.equal(hasPage({ status: "loaded", ui: true, available: false }), false, "not available to this user");
+  assert.equal(hasPage({ status: "loaded", ui: true, available: true }), true);
+});
+
+test("the gate says why there is no page; an unlisted module whose UI the portal ships is one the user may not use", () => {
+  assert.equal(gateReason(undefined, true), "no_access", "members aren't sent the modules they may not use");
+  assert.equal(gateReason(undefined, false), "unknown");
+  assert.equal(gateReason(undefined, true, true), "load_failed", "an empty list because /api/modules failed says so");
+  assert.equal(gateReason({ status: "loaded", ui: true, available: false }, true), "no_access", "an admin who isn't chosen");
+  assert.equal(gateReason({ status: "disabled", ui: true, available: false }, true), "disabled");
+  assert.equal(gateReason({ status: "failed", ui: true }, true), "failed");
+  assert.equal(gateReason({ status: "loaded", ui: false }, false), "no_page");
 });
 
 test("status dots: loaded and connected are green, failed red, disabled neutral", () => {

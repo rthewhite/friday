@@ -48,8 +48,8 @@ test("/api/modules reports loaded and failed modules with tools and ui flag", as
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();
     assert.deepEqual(mods, [
-      { id: "builtin", label: "Builtin", status: "loaded", tools: ["get_current_time"], ui: false },
-      { id: "media", label: "Media", status: "failed", error: "module media: missing required config JELLYFIN_URL", tools: [], ui: true },
+      { id: "builtin", label: "Builtin", status: "loaded", tools: ["get_current_time"], ui: false, available: true },
+      { id: "media", label: "Media", status: "failed", error: "module media: missing required config JELLYFIN_URL", tools: [], ui: true, available: true },
     ]);
     assert.deepEqual((await (await fetch(`${s.base}/api/tools`)).json()).map((t: { name: string }) => t.name), ["get_current_time"]);
     assert.deepEqual(await (await fetch(`${s.base}/health`)).json(), { ok: true, tools: 1 });
@@ -65,7 +65,7 @@ test("core's own tools come first, as a built-in core entry, followed by the mod
   const s = await start([], timers);
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();
-    assert.deepEqual(mods[0], { id: "core", label: "Core", description: "Built into Friday", status: "loaded", tools: timers, ui: false });
+    assert.deepEqual(mods[0], { id: "core", label: "Core", description: "Built into Friday", status: "loaded", tools: timers, ui: false, available: true });
     assert.deepEqual(mods.slice(1).map((m: { id: string }) => m.id), ["builtin", "media"]);
     assert.deepEqual(mods[1].tools, ["get_current_time"], "a module's tools don't include core's");
   } finally {
@@ -87,7 +87,7 @@ test("a disabled module is listed as disabled with no tools", async () => {
   const s = await start(["media"]);
   try {
     const mods = await (await fetch(`${s.base}/api/modules`)).json();
-    assert.deepEqual(mods[1], { id: "media", label: "Media", status: "disabled", tools: [], ui: true });
+    assert.deepEqual(mods[1], { id: "media", label: "Media", status: "disabled", tools: [], ui: true, available: true });
   } finally {
     await s.close();
   }
@@ -101,12 +101,12 @@ test("PUT enabled: disable drops the tools, enable loads them, a failed enable r
     assert.ok((await tools()).includes("get_current_time"));
     const off = await put("builtin", { enabled: false });
     assert.equal(off.status, 200);
-    assert.deepEqual(await off.json(), { id: "builtin", label: "Builtin", status: "disabled", tools: [], ui: false });
+    assert.deepEqual(await off.json(), { id: "builtin", label: "Builtin", status: "disabled", tools: [], ui: false, available: true });
     assert.equal((await tools()).includes("get_current_time"), false);
 
     const on = await put("builtin", { enabled: true });
     assert.equal(on.status, 200);
-    assert.deepEqual(await on.json(), { id: "builtin", label: "Builtin", status: "loaded", tools: ["get_current_time"], ui: false });
+    assert.deepEqual(await on.json(), { id: "builtin", label: "Builtin", status: "loaded", tools: ["get_current_time"], ui: false, available: true });
 
     const failed = await put("media", { enabled: true });
     assert.equal(failed.status, 200);

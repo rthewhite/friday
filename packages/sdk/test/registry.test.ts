@@ -215,3 +215,57 @@ test("add rejects an ownerOnly that isn't true", () => {
   const r = new ToolRegistry(quiet);
   assert.throws(() => r.add("a", { name: "t", description: "", ownerOnly: "yes" as never, handler: () => ({}) }), /invalid ownerOnly for t/);
 });
+
+/** Home Assistant open to everyone with `restart_ha` kept for Raymond, as `module-access` would decide. */
+function accessRegistry() {
+  const r = new ToolRegistry(quiet);
+  r.setOwnerCheck((u) => u?.id === owner.id);
+  const seen: [string, string, string | undefined][] = [];
+  r.setAccessCheck((tag, tool, u) => {
+    seen.push([tag, tool, u?.id]);
+    return tool !== "HomeAssistant__restart_ha" || u?.id === owner.id;
+  });
+  let ran = 0;
+  r.add("mcp:HomeAssistant", { name: "HomeAssistant__get_state", description: "", handler: () => ({ on: true }) });
+  r.add("mcp:HomeAssistant", { name: "HomeAssistant__restart_ha", description: "", handler: () => (ran++, { ok: true }) });
+  r.add("mcp:HomeAssistant", { name: "HomeAssistant__voice_only", description: "", channels: ["voice"], handler: () => ({}) });
+  r.add("calendar", { name: "calendar_list_events", description: "", ownerOnly: true, handler: () => ({ events: [] }) });
+  return { r, ran: () => ran, seen };
+}
+
+test("tools the access check refuses are left out of the user's declarations", () => {
+  const { r, seen } = accessRegistry();
+  assert.deepEqual(r.declarations("chat", member).map((d) => d.name), ["HomeAssistant__get_state"]);
+  assert.deepEqual(seen.slice(0, 2), [
+    ["mcp:HomeAssistant", "HomeAssistant__get_state", "u2"],
+    ["mcp:HomeAssistant", "HomeAssistant__restart_ha", "u2"],
+  ]);
+  assert.deepEqual(r.declarations("chat", owner).map((d) => d.name), ["HomeAssistant__get_state", "HomeAssistant__restart_ha", "calendar_list_events"]);
+});
+
+test("a forced call to a refused tool answers that it isn't available, without running the handler", async () => {
+  const { r, ran } = accessRegistry();
+  assert.deepEqual(await r.callTool("HomeAssistant__restart_ha", {}, { channel: "chat", user: member }), {
+    result: { error: "HomeAssistant__restart_ha isn't available to you" },
+    scheduling: "INTERRUPT",
+  });
+  assert.equal(ran(), 0);
+  assert.deepEqual((await r.callTool("HomeAssistant__restart_ha", {}, { channel: "chat", user: owner })).result, { ok: true });
+  assert.equal(ran(), 1);
+});
+
+test("the access check comes after the channel and owner-only checks", async () => {
+  const { r, seen } = accessRegistry();
+  assert.deepEqual((await r.callTool("HomeAssistant__voice_only", {}, { channel: "chat", user: member })).result, { error: "unknown tool HomeAssistant__voice_only" });
+  assert.deepEqual((await r.callTool("calendar_list_events", {}, { channel: "chat", user: member })).result, {
+    error: "calendar_list_events is only available to the household owner",
+  });
+  assert.deepEqual(seen, []);
+});
+
+test("without an access check every tool is offered and callable", async () => {
+  const r = new ToolRegistry(quiet);
+  r.add("mcp:HomeAssistant", { name: "HomeAssistant__restart_ha", description: "", handler: () => ({ ok: true }) });
+  assert.deepEqual(r.declarations("chat", member).map((d) => d.name), ["HomeAssistant__restart_ha"]);
+  assert.deepEqual((await r.callTool("HomeAssistant__restart_ha", {}, { user: member })).result, { ok: true });
+});

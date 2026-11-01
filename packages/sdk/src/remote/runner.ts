@@ -42,6 +42,8 @@ export function runRemote(module: FridayModule, opts: RemoteOptions): RemoteHand
   // Core offers and runs owner-only tools for the owner only (OWNER_ONLY_META) and never sends the user over MCP, so
   // the calls that reach the runner are already the owner's.
   registry.setOwnerCheck(() => true);
+  // Likewise for module access: core enforces it for the module's tools (owner `remote:<id>`) before calling here.
+  registry.setAccessCheck(() => true);
   let stopped = false;
   let ws: WebSocket | undefined;
   let backoff = min;

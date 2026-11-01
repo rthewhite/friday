@@ -4,6 +4,8 @@ import { PageLayout, Button, DataTable, StatusDot, Badge, Chip, Drawer, Icon, fo
 import { useModules, type ApiModule } from "../../composables/useModules.js";
 import { api } from "../../composables/useApi.js";
 import { isReloadable, isSwitchedOn, isToggleable, moduleKind, moduleTone } from "../../lib/modules.js";
+import { accessLabel, type ModuleAccess } from "../../lib/access.js";
+import ModuleAccessSection from "./ModuleAccessSection.vue";
 
 const { modules, loading, error, refreshModules, setModuleEnabled } = useModules();
 onMounted(() => void refreshModules());
@@ -76,7 +78,10 @@ async function setEnabled(m: ApiModule, enabled: boolean) {
     <DataTable :columns="columns" :rows="modules as unknown as Record<string, unknown>[]" row-key="id" clickable @row-click="show($event as unknown as ApiModule)">
       <template #cell-status="{ row }"><StatusDot :tone="moduleTone((row as unknown as ApiModule).status)" :title="(row as unknown as ApiModule).status" /></template>
       <template #cell-label="{ row }">
-        <div class="font-medium text-f-text-bright">{{ (row as unknown as ApiModule).label }}</div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="font-medium text-f-text-bright">{{ (row as unknown as ApiModule).label }}</span>
+          <Badge v-if="accessLabel((row as unknown as ApiModule).access)" tone="warning">{{ accessLabel((row as unknown as ApiModule).access) }}</Badge>
+        </div>
       </template>
       <template #cell-kind="{ row }"><Badge>{{ moduleKind(row as unknown as ApiModule) }}</Badge></template>
       <template #cell-tools="{ row }">{{ (row as unknown as ApiModule).tools.length }}</template>
@@ -125,6 +130,7 @@ async function setEnabled(m: ApiModule, enabled: boolean) {
           <div v-if="selected.tools.length" class="flex flex-wrap gap-1.5"><Chip v-for="t in selected.tools" :key="t">{{ t }}</Chip></div>
           <p v-else class="text-sm text-f-text-muted">No tools</p>
         </div>
+        <ModuleAccessSection v-if="selected.access" :key="selected.id" :entry="selected as ApiModule & { access: ModuleAccess }" @saved="selected = $event" />
       </template>
       <template #footer>
         <RouterLink v-if="selected?.ui && selected.status === 'loaded'" :to="`/m/${selected.id}`"><Button variant="ghost">Open page</Button></RouterLink>
