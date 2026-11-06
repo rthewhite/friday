@@ -2,12 +2,12 @@
 
 ## 1. Baseline
 
-- [ ] 1.1 Before changing anything, run `pnpm dev` in the worktree (free ports, see CLAUDE.md) and take screenshots at 1280 px of Talk, Chat (a thread with messages), Conversations, Agents, Settings > Modules (with its drawer open), Settings > Configuration and `/m/brain`, saved to the session's scratchpad. Stop the dev server. Verify: one screenshot per page exists, for the comparison in 7.2.
+- [x] 1.1 Before changing anything, run `pnpm dev` in the worktree (free ports, see CLAUDE.md) and take screenshots at 1280 px of Talk, Chat (a thread with messages), Conversations, Agents, Settings > Modules (with its drawer open), Settings > Configuration and `/m/brain`, saved to the session's scratchpad. Stop the dev server. Verify: one screenshot per page exists, for the comparison in 7.2.
 
 ## 2. Shared tokens and components (portal-ui)
 
-- [ ] 2.1 In `packages/portal-ui/src/tokens.css`, add the unlayered `(pointer: coarse)` rule giving text inputs, textareas and selects `font-size: max(16px, 1em)`, and `text-size-adjust: 100%` on `html` in the base layer (design 2). Verify: `pnpm --filter @friday/portal build` succeeds and the built CSS has the rule outside any `@layer`.
-- [ ] 2.2 Add a `menu` icon to `Icon.vue`; make `PageLayout`'s actions row wrap and its title `text-2xl md:text-3xl`; make `Tabs` scroll sideways (`max-w-full overflow-x-auto`, buttons `shrink-0 whitespace-nowrap`); give `Drawer` `h-dvh` and safe-area padding on header and footer (design 6). Extend `packages/portal-ui/test/components.test.ts` for the new icon, the wrap and scroll classes and the drawer padding. Verify: `pnpm --filter @friday/portal-ui test` passes.
+- [x] 2.1 In `packages/portal-ui/src/tokens.css`, add the unlayered `(pointer: coarse)` rule giving text inputs, textareas and selects `font-size: max(16px, 1em)`, and `text-size-adjust: 100%` on `html` in the base layer (design 2). Verify: `pnpm --filter @friday/portal build` succeeds and the built CSS has the rule outside any `@layer`.
+- [x] 2.2 Add a `menu` icon to `Icon.vue`; make `PageLayout`'s actions row wrap and its title `text-2xl md:text-3xl`; make `Tabs` scroll sideways (`max-w-full overflow-x-auto`, buttons `shrink-0 whitespace-nowrap`); give `Drawer` `h-dvh` and safe-area padding on header and footer (design 6). Extend `packages/portal-ui/test/components.test.ts` for the new icon, the wrap and scroll classes and the drawer padding. Verify: `pnpm --filter @friday/portal-ui test` passes.
 
 ## 3. Shell: viewport, slide-over menu
 

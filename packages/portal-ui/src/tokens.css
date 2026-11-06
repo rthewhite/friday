@@ -31,6 +31,9 @@
 @layer base {
   html {
     color-scheme: dark;
+    /* Landscape iOS would otherwise enlarge text on its own. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
     background-color: var(--color-f-bg);
@@ -46,6 +49,19 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-thumb { background: var(--color-f-border); border-radius: 3px; }
   ::selection { background: var(--color-f-accent-muted); color: var(--color-f-text-bright); }
+}
+
+/*
+ * iOS zooms into a field whose text is under 16px when it gets the focus. On touch screens, fields get at least
+ * 16px. Unlayered on purpose: it then beats Tailwind's text-sm utilities without touching any page. Mouse and
+ * trackpad screens keep their sizes.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
 }
 
 @utility surface-card {
