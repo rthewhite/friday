@@ -64,6 +64,17 @@ describe("Shell", () => {
     expect(document.documentElement.style.overflow).toBe("");
   });
 
+  it("closes the menu when the page already shown is chosen", async () => {
+    const router = await shell("/conversations");
+    await menuButton().trigger("click");
+    await flushPromises();
+    panel()!.querySelector<HTMLElement>('a[href="/conversations"]')!.click();
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe("/conversations");
+    expect(panel()).toBeNull();
+    expect(document.activeElement).toBe(menuButton().element);
+  });
+
   it("closes the menu with its close button", async () => {
     await shell();
     await menuButton().trigger("click");

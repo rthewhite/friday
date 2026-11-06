@@ -108,6 +108,7 @@ const ORIGIN = "https://friday.example";
 type Listener = (event: FakeEvent) => void;
 interface FakeEvent {
   request?: { url: string; mode: string; method: string };
+  preloadResponse?: Promise<unknown>;
   responded?: Promise<unknown>;
   waited?: Promise<unknown>;
   respondWith(p: Promise<unknown>): void;
@@ -115,11 +116,11 @@ interface FakeEvent {
 }
 
 /** Load public/sw.js in a sandbox with fake caches and fetch. `online` decides whether fetch answers. */
-function worker(opts: { online: boolean; caches?: string[] }) {
+function worker(opts: { online: boolean; caches?: string[]; preload?: boolean }) {
   const listeners = new Map<string, Listener>();
   const stores = new Map<string, Map<string, string>>((opts.caches ?? []).map((name) => [name, new Map()]));
   const fetched: string[] = [];
-  const calls = { skipWaiting: 0, claim: 0 };
+  const calls = { skipWaiting: 0, claim: 0, preloadEnabled: 0 };
   const fetchFn = async (input: string | { url: string }) => {
     const url = typeof input === "string" ? new URL(input, ORIGIN).href : input.url;
     fetched.push(url);
@@ -144,20 +145,23 @@ function worker(opts: { online: boolean; caches?: string[] }) {
     addEventListener: (type: string, fn: Listener) => listeners.set(type, fn),
     skipWaiting: async () => void calls.skipWaiting++,
     clients: { claim: async () => void calls.claim++ },
+    // Browsers without navigation preload have no navigationPreload.
+    registration: opts.preload === false ? {} : { navigationPreload: { enable: async () => void calls.preloadEnabled++ } },
   };
   const context = vm.createContext({ self, caches, fetch: fetchFn, URL, Response: { error: () => "network error" }, console });
   vm.runInContext(readFileSync(pub("sw.js"), "utf8"), context);
-  const dispatch = (type: string, request?: FakeEvent["request"]) => {
+  const dispatch = (type: string, request?: FakeEvent["request"], preloadResponse?: Promise<unknown>) => {
     const event: FakeEvent = {
       request,
+      preloadResponse,
       respondWith(p) { this.responded = p; },
       waitUntil(p) { this.waited = p; },
     };
     listeners.get(type)!(event);
     return event;
   };
-  const navigate = (path: string, init: Partial<NonNullable<FakeEvent["request"]>> = {}) =>
-    dispatch("fetch", { url: new URL(path, ORIGIN).href, mode: "navigate", method: "GET", ...init });
+  const navigate = (path: string, init: Partial<NonNullable<FakeEvent["request"]>> = {}, preloadResponse?: Promise<unknown>) =>
+    dispatch("fetch", { url: new URL(path, ORIGIN).href, mode: "navigate", method: "GET", ...init }, preloadResponse);
   return { dispatch, navigate, stores, fetched, calls };
 }
 
@@ -174,6 +178,27 @@ test("activating drops older friday caches, keeps others, and claims open pages"
   await sw.dispatch("activate").waited;
   assert.deepEqual([...sw.stores.keys()].sort(), ["friday-offline-v1", "someone-else"]);
   assert.equal(sw.calls.claim, 1);
+  assert.equal(sw.calls.preloadEnabled, 1, "navigation preload on");
+});
+
+test("activating works in a browser without navigation preload", async () => {
+  const sw = worker({ online: true, preload: false });
+  await sw.dispatch("activate").waited;
+  assert.equal(sw.calls.claim, 1);
+});
+
+test("a page load uses the preloaded response, without a second request", async () => {
+  const sw = worker({ online: true });
+  const event = sw.navigate("/chat", {}, Promise.resolve({ from: "preload" }));
+  assert.deepEqual(await event.responded, { from: "preload" });
+  assert.deepEqual(sw.fetched, []);
+});
+
+test("a failed preload, offline, gets the offline page", async () => {
+  const sw = worker({ online: false });
+  sw.stores.set("friday-offline-v1", new Map([["/offline.html", "cached /offline.html"]]));
+  const event = sw.navigate("/chat", {}, Promise.reject(new TypeError("Failed to fetch")));
+  assert.equal(await event.responded, "cached /offline.html");
 });
 
 test("a page opened online comes from the network, and nothing is stored", async () => {

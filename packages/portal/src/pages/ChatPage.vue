@@ -155,6 +155,25 @@ const desktop = useMediaQuery(DESKTOP);
 useVisualViewportHeight();
 const placeholder = computed(() => (desktop.value ? "Message Friday… (Enter sends, Shift+Enter for a new line)" : "Message Friday…"));
 
+// On phones the input grows with its text through CSS field-sizing; where a browser lacks it, set the height here.
+const fieldSizing = typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("field-sizing", "content");
+const input = ref<HTMLTextAreaElement | null>(null);
+function autosize() {
+  const el = input.value;
+  if (!el || fieldSizing) return;
+  if (desktop.value) {
+    el.style.height = "";
+    return;
+  }
+  el.style.height = "auto";
+  // scrollHeight leaves out the border; max-h-40 caps the result and the text scrolls beyond it.
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+}
+watch([draft, desktop], () => void nextTick(autosize));
+
+/** The thread list's data, shared by the desktop column and the phone panel. */
+const listProps = computed(() => ({ threads: threads.value, current: threadId.value, hasMore: !!next.value, loading: listLoading.value, error: listError.value }));
+
 const scroller = ref<HTMLElement | null>(null);
 const scrollDown = async () => {
   await nextTick();
@@ -172,16 +191,16 @@ onMounted(() => {
   <!-- Phones: the visible height (it shrinks with the on-screen keyboard) below the portal's top bar. -->
   <div class="flex h-[calc(var(--f-viewport-h,100dvh)-var(--f-topbar-h))] md:h-dvh">
     <!-- Thread list: a column from md up, a panel over the thread below. -->
-    <aside class="hidden md:flex w-72 shrink-0 flex-col border-r border-f-border-subtle bg-f-surface/40">
-      <ThreadList :threads="threads" :current="threadId" :has-more="!!next" :loading="listLoading" :error="listError" @new="newChat" @more="loadThreads(true)" />
+    <aside class="hidden md:flex w-72 shrink-0 flex-col border-r border-f-border-subtle bg-f-surface/40 pt-[env(safe-area-inset-top)]">
+      <ThreadList v-bind="listProps" @new="newChat" @more="loadThreads(true)" />
     </aside>
     <SlideOver id="chat-threads" v-model:open="showThreads" label="Threads" :return-focus="threadsButton">
-      <ThreadList :threads="threads" :current="threadId" :has-more="!!next" :loading="listLoading" :error="listError" @new="newChat" @pick="showThreads = false" @more="loadThreads(true)" />
+      <ThreadList v-bind="listProps" @new="newChat" @pick="showThreads = false" @more="loadThreads(true)" />
     </SlideOver>
 
     <!-- The selected thread. -->
     <section class="flex min-w-0 flex-1 flex-col">
-      <header class="flex items-center gap-3 border-b border-f-border-subtle px-4 py-3 md:px-8">
+      <header class="flex items-center gap-3 border-b border-f-border-subtle px-4 pb-3 pt-3 md:px-8 md:pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           ref="threadsButton"
           type="button"
@@ -232,6 +251,7 @@ onMounted(() => {
       <form v-if="!notFound" class="border-t border-f-border-subtle px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-8" @submit.prevent="submit">
         <div class="mx-auto flex max-w-3xl items-end gap-2">
           <textarea
+            ref="input"
             v-model="draft"
             :rows="desktop ? 2 : 1"
             :disabled="running"

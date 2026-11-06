@@ -37,13 +37,19 @@ const Host = defineComponent({
 
 let w: VueWrapper<any>;
 let widen: (m: boolean) => void;
+/** The portal's root, as in index.html; the panel is teleported out of it to <body>. */
+let app: HTMLElement;
 beforeEach(() => {
   widen = fakeMedia(false);
   document.documentElement.style.overflow = "";
-  w = mount(Host, { attachTo: document.body });
+  app = document.createElement("div");
+  app.id = "app";
+  document.body.append(app);
+  w = mount(Host, { attachTo: app });
 });
 afterEach(() => {
   w.unmount();
+  app.remove();
   vi.unstubAllGlobals();
 });
 
@@ -89,6 +95,25 @@ describe("SlideOver", () => {
     expect(document.documentElement.style.overflow).toBe("clip");
   });
 
+  it("makes the page behind it inert while open, so Tab and screen readers stay in the panel", async () => {
+    await openIt();
+    expect(app.hasAttribute("inert")).toBe(true);
+    expect(app.contains(panel())).toBe(false);
+    backdrop()!.click();
+    await flushPromises();
+    expect(app.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement?.id).toBe("opener");
+  });
+
+  it("leaves an inert the page already had", async () => {
+    app.setAttribute("inert", "");
+    await openIt();
+    backdrop()!.click();
+    await flushPromises();
+    expect(app.hasAttribute("inert")).toBe(true);
+    app.removeAttribute("inert");
+  });
+
   it("closes on the backdrop and returns the focus to the opener", async () => {
     await openIt();
     backdrop()!.click();
@@ -130,6 +155,7 @@ describe("SlideOver", () => {
     await openIt();
     w.unmount();
     expect(document.documentElement.style.overflow).toBe("");
-    w = mount(Host, { attachTo: document.body });
+    expect(app.hasAttribute("inert")).toBe(false);
+    w = mount(Host, { attachTo: app });
   });
 });

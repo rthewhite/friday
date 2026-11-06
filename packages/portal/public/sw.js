@@ -26,6 +26,9 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k.startsWith("friday-") && k !== CACHE).map((k) => caches.delete(k))))
+      // The browser starts a page's request while the worker boots, instead of after: no delay for a worker that only
+      // matters offline.
+      .then(() => self.registration.navigationPreload?.enable())
       .then(() => self.clients.claim()),
   );
 });
@@ -37,6 +40,12 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (PASS.some((p) => url.pathname === p || url.pathname.startsWith(`${p}/`))) return;
   event.respondWith(
-    fetch(request).catch(async () => (await caches.match(OFFLINE, { cacheName: CACHE })) ?? Response.error()),
+    (async () => {
+      try {
+        return (await event.preloadResponse) ?? (await fetch(request));
+      } catch {
+        return (await caches.match(OFFLINE, { cacheName: CACHE })) ?? Response.error();
+      }
+    })(),
   );
 });

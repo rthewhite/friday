@@ -47,7 +47,8 @@ const items = computed(() => navItems(uis, isEnabled, me.value?.role));
       <Sidebar :items="items" :groups="NAV_GROUPS" panel @close="open = false" />
     </SlideOver>
     <Sidebar :items="items" :groups="NAV_GROUPS" class="hidden md:block" />
-    <main class="flex-1 min-w-0">
+    <!-- The right inset is 0 except beside a notch (an installed iPhone in landscape gets this layout too). -->
+    <main class="flex-1 min-w-0 pl-[env(safe-area-inset-left)] md:pl-0 pr-[env(safe-area-inset-right)]">
       <AdminOnly v-if="blocked" />
       <RouterView v-else />
     </main>

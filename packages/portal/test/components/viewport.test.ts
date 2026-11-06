@@ -58,31 +58,59 @@ describe("useMediaQuery", () => {
 describe("useVisualViewportHeight", () => {
   let vv: FakeViewport;
   let scrollTo: ReturnType<typeof vi.fn>;
+  let frames: FrameRequestCallback[];
+  /** Run the animation frames requested so far. */
+  const flush = () => { const run = frames; frames = []; for (const f of run) f(0); };
   beforeEach(() => {
     vv = new FakeViewport();
     vi.stubGlobal("visualViewport", vv);
     scrollTo = vi.fn();
     vi.stubGlobal("scrollTo", scrollTo);
+    frames = [];
+    vi.stubGlobal("requestAnimationFrame", (f: FrameRequestCallback) => frames.push(f));
+    vi.stubGlobal("cancelAnimationFrame", () => (frames = []));
     fakeMedia(false);
   });
   const Page = defineComponent({ setup() { useVisualViewportHeight(); return () => h("div"); } });
 
-  it("sets the visible height on mount and follows the keyboard", () => {
+  it("sets the visible height on mount and follows the keyboard, undoing iOS's pan", () => {
     const w = mount(Page);
     expect(viewportH()).toBe("700px");
     vv.height = 380; // the keyboard opened
     vv.offsetTop = 220; // and iOS panned the page up
     vv.dispatchEvent(new Event("resize"));
+    flush();
     expect(viewportH()).toBe("380px");
     expect(scrollTo).toHaveBeenCalledWith(0, 0);
     w.unmount();
   });
 
-  it("undoes a pan reported as a viewport scroll", () => {
+  it("coalesces a burst of events into one update per frame", () => {
     const w = mount(Page);
-    vv.offsetTop = 120;
+    const set = vi.spyOn(root.style, "setProperty");
+    for (const h of [600, 500, 400]) {
+      vv.height = h;
+      vv.dispatchEvent(new Event("scroll"));
+    }
+    expect(frames).toHaveLength(1);
+    flush();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(viewportH()).toBe("400px");
+    // Unchanged height: nothing written.
     vv.dispatchEvent(new Event("scroll"));
-    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    flush();
+    expect(set).toHaveBeenCalledTimes(1);
+    w.unmount();
+  });
+
+  it("follows the height on a viewport scroll without scrolling the page back", () => {
+    const w = mount(Page);
+    vv.offsetTop = 120; // iOS keeping the caret in view
+    vv.height = 420;
+    vv.dispatchEvent(new Event("scroll"));
+    flush();
+    expect(viewportH()).toBe("420px");
+    expect(scrollTo).not.toHaveBeenCalled();
     w.unmount();
   });
 
@@ -91,7 +119,8 @@ describe("useVisualViewportHeight", () => {
     vv.scale = 2;
     vv.height = 350;
     vv.offsetTop = 100;
-    vv.dispatchEvent(new Event("scroll"));
+    vv.dispatchEvent(new Event("resize"));
+    flush();
     expect(viewportH()).toBe("700px");
     expect(scrollTo).not.toHaveBeenCalled();
     w.unmount();
@@ -102,16 +131,21 @@ describe("useVisualViewportHeight", () => {
     const w = mount(Page);
     vv.offsetTop = 50;
     vv.dispatchEvent(new Event("resize"));
+    flush();
     expect(scrollTo).not.toHaveBeenCalled();
     w.unmount();
   });
 
-  it("removes the variable and its listeners on unmount", () => {
+  it("removes the variable, its listeners and a pending frame on unmount", () => {
     const w = mount(Page);
+    vv.height = 500;
+    vv.dispatchEvent(new Event("resize"));
     w.unmount();
+    expect(frames).toHaveLength(0);
     expect(viewportH()).toBe("");
     vv.height = 300;
     vv.dispatchEvent(new Event("resize"));
+    flush();
     expect(viewportH()).toBe("");
   });
 

@@ -14,7 +14,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <div v-if="open" class="fixed inset-0 z-40 flex justify-end">
       <div class="absolute inset-0 bg-black/50" @click="open = false" />
       <!-- The safe-area insets are 0 except under a notch or above a home indicator. -->
-      <aside class="relative h-dvh w-full sm:w-[28rem] bg-f-surface border-l border-f-border shadow-2xl flex flex-col" role="dialog" aria-modal="true">
+      <aside class="relative h-dvh w-full sm:w-[28rem] bg-f-surface border-l border-f-border shadow-2xl flex flex-col pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]" role="dialog" aria-modal="true">
         <header class="flex items-start justify-between gap-3 px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] border-b border-f-border-subtle">
           <div>
             <h2 class="text-base font-semibold text-f-text-bright">{{ title }}</h2>

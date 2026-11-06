@@ -88,6 +88,29 @@ describe("Chat page composer", () => {
     expect(input().classes()).toEqual(expect.arrayContaining(["max-md:resize-none", "max-md:[field-sizing:content]"]));
   });
 
+  it("grows the phone input with its text where the browser has no field-sizing", async () => {
+    wide(false);
+    vi.stubGlobal("CSS", { supports: () => false });
+    await page();
+    const el = input().element as HTMLTextAreaElement;
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => (el.value.split("\n").length * 24) + 16 });
+    await input().setValue("one\ntwo\nthree\nfour");
+    await flushPromises();
+    expect(el.style.height).toBe("112px");
+    await input().setValue("one");
+    await flushPromises();
+    expect(el.style.height).toBe("40px");
+  });
+
+  it("leaves the height to CSS where the browser has field-sizing", async () => {
+    wide(false);
+    vi.stubGlobal("CSS", { supports: (p: string) => p === "field-sizing" });
+    await page();
+    await input().setValue("one\ntwo\nthree");
+    await flushPromises();
+    expect((input().element as HTMLTextAreaElement).style.height).toBe("");
+  });
+
   it("is two lines with the Shift+Enter hint on the desktop", async () => {
     wide(true);
     await page();

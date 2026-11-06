@@ -27,15 +27,28 @@ function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") open.value = false;
 }
 
+/** The page behind the panel (the panel is teleported out of it): inert while open, so Tab and screen readers stay in the panel. */
+const page = () => document.getElementById("app");
+let madeInert = false;
+
 function lock() {
   const root = document.documentElement;
   if (overflowBefore === undefined) overflowBefore = root.style.overflow;
   root.style.overflow = "hidden";
+  const app = page();
+  if (app && !app.hasAttribute("inert")) {
+    app.setAttribute("inert", "");
+    madeInert = true;
+  }
   window.addEventListener("keydown", onKey);
 }
 
 function unlock() {
   window.removeEventListener("keydown", onKey);
+  if (madeInert) {
+    page()?.removeAttribute("inert");
+    madeInert = false;
+  }
   if (overflowBefore === undefined) return;
   document.documentElement.style.overflow = overflowBefore;
   overflowBefore = undefined;
