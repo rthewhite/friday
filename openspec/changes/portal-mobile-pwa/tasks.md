@@ -1,0 +1,40 @@
+# Tasks
+
+## 1. Baseline
+
+- [ ] 1.1 Before changing anything, run `pnpm dev` in the worktree (free ports, see CLAUDE.md) and take screenshots at 1280 px of Talk, Chat (a thread with messages), Conversations, Agents, Settings > Modules (with its drawer open), Settings > Configuration and `/m/brain`, saved to the session's scratchpad. Stop the dev server. Verify: one screenshot per page exists, for the comparison in 7.2.
+
+## 2. Shared tokens and components (portal-ui)
+
+- [ ] 2.1 In `packages/portal-ui/src/tokens.css`, add the unlayered `(pointer: coarse)` rule giving text inputs, textareas and selects `font-size: max(16px, 1em)`, and `text-size-adjust: 100%` on `html` in the base layer (design 2). Verify: `pnpm --filter @friday/portal build` succeeds and the built CSS has the rule outside any `@layer`.
+- [ ] 2.2 Add a `menu` icon to `Icon.vue`; make `PageLayout`'s actions row wrap and its title `text-2xl md:text-3xl`; make `Tabs` scroll sideways (`max-w-full overflow-x-auto`, buttons `shrink-0 whitespace-nowrap`); give `Drawer` `h-dvh` and safe-area padding on header and footer (design 6). Extend `packages/portal-ui/test/components.test.ts` for the new icon, the wrap and scroll classes and the drawer padding. Verify: `pnpm --filter @friday/portal-ui test` passes.
+
+## 3. Shell: viewport, slide-over menu
+
+- [ ] 3.1 Update `packages/portal/index.html`'s viewport to `width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content`; define `--f-topbar-h` (`calc(3.5rem + env(safe-area-inset-top))`) in `src/style.css`; change `Shell.vue`'s `min-h-screen` to `min-h-dvh` and pad the top bar with the top inset (design 3). Verify: `pnpm --filter @friday/portal typecheck` passes.
+- [ ] 3.2 Add `src/components/SlideOver.vue` (design 1): `v-model:open`, teleported, slides from the left over a backdrop, closes on backdrop and Escape, focus moves in on open and back on close, locks `<html>` scroll while open and restores the previous value, safe-area padding, `motion-reduce:transition-none`, `md:hidden`. Add `test/components/slide-over.test.ts` covering each of these. Verify: `pnpm --filter @friday/portal test` passes.
+- [ ] 3.3 Rework `Shell.vue`: desktop `<Sidebar>` always `hidden md:block`; a phone `<Sidebar>` (with brand row and a close button) inside `SlideOver`; menu button uses the `menu` icon with `aria-expanded`/`aria-controls`; closes on navigation as now. Let `Sidebar.vue` take a prop for the phone variant (brand row shown, no `md:` sizing, full height). Add `test/components/shell.test.ts`: button toggles `aria-expanded`, opening shows the panel, a route change closes it and returns focus, the desktop sidebar is always rendered. Verify: `pnpm --filter @friday/portal test` and `typecheck` pass.
+
+## 4. Chat page on a phone
+
+- [ ] 4.1 Add `src/composables/useMediaQuery.ts` (reactive `matchMedia`, cleaned up on unmount) and `src/composables/useVisualViewportHeight.ts` (writes `--f-viewport-h` from `visualViewport.height` on resize and scroll, `scrollTo(0, 0)` while the page fits, removes listeners and the variable on unmount; design 4). Test both with fakes in `test/components/viewport.test.ts` (or node:test where no Vue mount is needed), including a browser without `visualViewport`. Verify: `pnpm --filter @friday/portal test` passes.
+- [ ] 4.2 In `ChatPage.vue`: below `md`, height `calc(var(--f-viewport-h, 100dvh) - var(--f-topbar-h))`, thread list in `SlideOver` opened by the `Threads` button (closing on choosing a thread or `New chat`), `overscroll-contain` on the message list, composer bottom padded with the bottom inset; composer per design 5 (one-line growing textarea with `field-sizing`, `resize-none`, `enterkeyhint="send"`, short placeholder via `useMediaQuery`, round 44 px send button with the label as `max-md:sr-only`). Desktop classes stay as they are. Add `test/components/chat-page.test.ts` with `api()` faked: Enter sends and Shift+Enter doesn't, `enterkeyhint="send"`, the send button's accessible name is `Send`, the placeholder follows the media query, choosing a thread in the panel closes it. Verify: `pnpm --filter @friday/portal test` and `typecheck` pass.
+
+## 5. Pages at 360 px
+
+- [ ] 5.1 Run `pnpm dev` and, in the browser's device mode at 360 px with touch emulation, open every route: Talk, Chat, Conversations (with a transcript open), Agents and an agent's editor, every page under System (with their drawers), and `/m/brain`, `/m/calendar`, `/m/media`. Fix any page that scrolls sideways or has controls cut off, in that page, with `max-md:`/`sm:` classes only, and check that focusing a field doesn't zoom (16 px in the computed style). Stop the dev server. Verify: no route scrolls sideways at 360 px; list in the commit message what was fixed per page.
+
+## 6. Installable app
+
+- [ ] 6.1 Add `public/favicon.svg` (the brand mark) and `scripts/gen-icons.mjs` (design 7: rounded square and `F` drawn into RGBA, PNG encoded with `node:zlib`, exported encoder); run it to write `public/icons/icon-192.png`, `icon-512.png`, `icon-maskable-512.png` and `apple-touch-icon.png` (180 px), and commit them. Verify: the four PNGs exist and open as the mark in Preview.
+- [ ] 6.2 Add `public/manifest.webmanifest` and the manifest, icon, theme-colour and iOS tags in `index.html` (design 7). Add `test/pwa.test.ts`: manifest fields, every icon is a PNG of its stated size (IHDR), `index.html` has each link and meta tag. Verify: `pnpm --filter @friday/portal test` passes.
+- [ ] 6.3 Add `public/sw.js` and `public/offline.html` (design 7). Extend `test/pwa.test.ts` to run `sw.js` in `node:vm` with fake `self`, `caches` and `fetch`: install caches only `/offline.html`; activate drops other `friday-*` caches; an online navigation is answered from the network and not cached; an offline navigation gets the offline page; `/api/modules`, `/auth/login`, `/ws/audio`, `/health`, an `/assets/` script and a cross-origin request get no `respondWith`. Check `offline.html` loads no external file. Verify: `pnpm --filter @friday/portal test` passes.
+- [ ] 6.4 Add `src/lib/pwa.ts` `registerServiceWorker(nav, enabled)` and call it from `main.ts` after mount with `import.meta.env.PROD`. Test in `test/pwa.test.ts`: not registered when disabled or unsupported, registered with scope `/` otherwise, a rejection is logged and not thrown. Verify: `pnpm --filter @friday/portal test` and `typecheck` pass.
+- [ ] 6.5 In `packages/core/test/app.test.ts`, assert that `/sw.js` is served as `text/javascript` with `cache-control: no-cache` and `/manifest.webmanifest` as `application/manifest+json`, both without a session (no core code change expected; fix core only if the test shows otherwise). Verify: `pnpm --filter @friday/core test` passes.
+- [ ] 6.6 Document in the README's Portal section: installing Friday as an app (Android, iOS, desktop), that it needs HTTPS, the offline page, that the iOS app logs in separately from Safari, and how to retire the service worker. Add the PWA and mobile layout to the portal line of `openspec/config.yaml`'s context. Verify: the README section reads correctly and `openspec validate portal-mobile-pwa --strict` still passes.
+
+## 7. Integration checks
+
+- [ ] 7.1 `pnpm build && pnpm start` (free port) and check in Chrome: Application > Manifest shows no errors and the app is installable; the service worker is active with scope `/`; with the server stopped, reloading shows the offline page and `Retry` works after restarting it; a navigation after replacing a chunk in `dist/assets` reloads once (stale-chunk recovery still works). Stop the server. Verify: each check observed.
+- [ ] 7.2 Compare the pages from 1.1 at 1280 px with the same screenshots taken now. Verify: no visible difference on any page.
+- [ ] 7.3 (user, on device) After deploy, on the iPhone: add to home screen, log in inside the app, open the menu while scrolled down, open Chat and type a message (no zoom, composer on the keyboard, top bar visible), open a drawer (buttons above the home indicator). On Android: install from Chrome and repeat the menu and Chat checks. Verify: the user confirms each step, or reports what is off.
