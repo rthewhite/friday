@@ -9,6 +9,17 @@
   --f-topbar-h: calc(3.5rem + env(safe-area-inset-top));
 }
 
+/* Phone panels (SlideOver.vue) scroll without showing a scrollbar, also in what they contain. Unlayered, so it wins
+   over the scrollbar styling in portal-ui's tokens. */
+.f-no-scrollbar,
+.f-no-scrollbar * {
+  scrollbar-width: none;
+}
+.f-no-scrollbar::-webkit-scrollbar,
+.f-no-scrollbar *::-webkit-scrollbar {
+  display: none;
+}
+
 /* Rendered markdown in chat answers (lib/markdown). */
 .f-markdown {
   overflow-wrap: anywhere;

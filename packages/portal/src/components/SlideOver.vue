@@ -106,9 +106,11 @@ onBeforeUnmount(unlock);
           aria-modal="true"
           :aria-label="label"
           tabindex="-1"
-          class="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto overscroll-contain border-r border-f-border bg-f-surface shadow-2xl outline-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
+          class="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto overscroll-contain border-r border-f-border bg-f-surface shadow-2xl outline-none pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] f-no-scrollbar"
         >
           <slot />
+          <!-- An element, not padding: WebKit leaves a scrolling panel's own bottom padding out of what scrolls into view. -->
+          <div class="h-[env(safe-area-inset-bottom)] shrink-0" aria-hidden="true" />
         </aside>
       </Transition>
     </div>

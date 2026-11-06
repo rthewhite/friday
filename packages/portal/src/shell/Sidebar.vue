@@ -34,7 +34,7 @@ async function logOut() {
 <template>
   <nav
     :class="panel
-      ? 'min-h-full px-3 py-4 flex flex-col gap-1'
+      ? 'grow shrink-0 px-3 py-4 flex flex-col gap-1'
       : 'md:w-60 md:shrink-0 md:h-screen md:sticky md:top-0 border-b md:border-b-0 md:border-r border-f-border-subtle bg-f-surface/60 backdrop-blur pl-[max(0.75rem,env(safe-area-inset-left))] pr-3 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-1'"
     @click="onClick"
   >
