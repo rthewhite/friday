@@ -4,7 +4,12 @@ import { Icon } from "@friday/portal-ui";
 import { useSession } from "../composables/useSession.js";
 import type { NavEntry } from "../lib/nav.js";
 
-defineProps<{ items: NavEntry[]; groups: readonly string[] }>();
+/**
+ * The navigation. As a column (the default) it is the desktop sidebar; with `panel` it fills the phone menu
+ * (SlideOver), with the brand row and a close button.
+ */
+defineProps<{ items: NavEntry[]; groups: readonly string[]; panel?: boolean }>();
+const emit = defineEmits<{ close: [] }>();
 
 const { me, logout } = useSession();
 const leaving = ref(false);
@@ -22,8 +27,21 @@ async function logOut() {
 </script>
 
 <template>
-  <nav class="md:w-60 md:shrink-0 md:h-screen md:sticky md:top-0 border-b md:border-b-0 md:border-r border-f-border-subtle bg-f-surface/60 backdrop-blur px-3 py-4 flex flex-col gap-1">
-    <RouterLink to="/" class="hidden md:flex items-center gap-3 px-3 pb-6">
+  <nav
+    :class="panel
+      ? 'min-h-full px-3 py-4 flex flex-col gap-1'
+      : 'md:w-60 md:shrink-0 md:h-screen md:sticky md:top-0 border-b md:border-b-0 md:border-r border-f-border-subtle bg-f-surface/60 backdrop-blur px-3 py-4 flex flex-col gap-1'"
+  >
+    <div v-if="panel" class="flex items-center justify-between gap-3 pl-3 pb-4">
+      <RouterLink to="/" class="flex items-center gap-3">
+        <span class="grid h-8 w-8 place-items-center rounded-lg bg-f-accent text-white font-semibold">F</span>
+        <span class="text-lg font-semibold text-f-text-bright">Friday</span>
+      </RouterLink>
+      <button type="button" class="grid h-10 w-10 place-items-center rounded-md text-f-text-muted hover:text-f-text hover:bg-f-surface-hover" aria-label="Close menu" @click="emit('close')">
+        <Icon name="close" :size="20" />
+      </button>
+    </div>
+    <RouterLink v-else to="/" class="hidden md:flex items-center gap-3 px-3 pb-6">
       <span class="grid h-8 w-8 place-items-center rounded-lg bg-f-accent text-white font-semibold">F</span>
       <span class="text-lg font-semibold text-f-text-bright">Friday</span>
     </RouterLink>
