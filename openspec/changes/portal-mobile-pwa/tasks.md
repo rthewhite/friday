@@ -22,7 +22,7 @@
 
 ## 5. Pages at 360 px
 
-- [ ] 5.1 Run `pnpm dev` and, in the browser's device mode at 360 px with touch emulation, open every route: Talk, Chat, Conversations (with a transcript open), Agents and an agent's editor, every page under System (with their drawers), and `/m/brain`, `/m/calendar`, `/m/media`. Fix any page that scrolls sideways or has controls cut off, in that page, with `max-md:`/`sm:` classes only, and check that focusing a field doesn't zoom (16 px in the computed style). Stop the dev server. Verify: no route scrolls sideways at 360 px; list in the commit message what was fixed per page.
+- [x] 5.1 Run `pnpm dev` and, in the browser's device mode at 360 px with touch emulation, open every route: Talk, Chat, Conversations (with a transcript open), Agents and an agent's editor, every page under System (with their drawers), and `/m/brain`, `/m/calendar`, `/m/media`. Fix any page that scrolls sideways or has controls cut off, in that page, with `max-md:`/`sm:` classes only, and check that focusing a field doesn't zoom (16 px in the computed style). Stop the dev server. Verify: no route scrolls sideways at 360 px; list in the commit message what was fixed per page.
 
 ## 6. Installable app
 

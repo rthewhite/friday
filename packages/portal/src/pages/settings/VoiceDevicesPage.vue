@@ -103,7 +103,7 @@ async function remove() {
         <template #cell-firstSeenAt="{ value }"><span class="text-f-text-muted whitespace-nowrap">{{ when(value as string) }}</span></template>
         <template #cell-lastSeenAt="{ value }"><span class="text-f-text-muted whitespace-nowrap">{{ when(value as string) }}</span></template>
         <template #actions="{ row }">
-          <div class="flex justify-end gap-2">
+          <div class="flex justify-end gap-2 max-md:flex-col max-md:items-end">
             <Button variant="ghost" :disabled="busy" @click="ignore(row as PendingRecord)">Ignore</Button>
             <Button :disabled="busy" @click="openAccept(row as PendingRecord)">Accept</Button>
           </div>

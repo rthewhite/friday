@@ -108,8 +108,8 @@ async function save(reset: boolean) {
         </Chip>
       </div>
       <form class="mt-2 flex gap-2" @submit.prevent="add">
-        <input v-model="newPattern" aria-label="Pattern" placeholder="HomeAssistant__*delete*" class="surface-inset flex-1 px-3 py-2 font-mono text-sm text-f-text outline-none focus:border-f-accent" />
-        <Button type="submit" variant="ghost" :disabled="!newPattern.trim()">Add pattern</Button>
+        <input v-model="newPattern" aria-label="Pattern" placeholder="HomeAssistant__*delete*" class="surface-inset min-w-0 flex-1 px-3 py-2 font-mono text-sm text-f-text outline-none focus:border-f-accent" />
+        <Button type="submit" variant="ghost" class="shrink-0 whitespace-nowrap" :disabled="!newPattern.trim()">Add pattern</Button>
       </form>
     </div>
 
