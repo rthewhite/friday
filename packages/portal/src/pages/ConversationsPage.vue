@@ -14,9 +14,10 @@ const next = ref<string | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
+// Phones show the preview first, with the state, start and channel in a line below it (the cell-preview slot).
 const columns: Column[] = [
-  { key: "state", label: "", width: "3rem", align: "center" },
-  { key: "startedAt", label: "Started" },
+  { key: "state", label: "", width: "3rem", align: "center", hideBelow: "md" },
+  { key: "startedAt", label: "Started", hideBelow: "md" },
   { key: "channel", label: "Channel", hideBelow: "md" },
   { key: "device", label: "Device", hideBelow: "md" },
   { key: "preview", label: "First line" },
@@ -116,7 +117,14 @@ const subtitle = computed(() => (selected.value ? `${formatDateTime(selected.val
         <Chip v-if="device(value as string | null)" :title="device(value as string | null)!.title">{{ device(value as string | null)!.text }}</Chip>
         <span v-else class="text-f-text-muted">–</span>
       </template>
-      <template #cell-preview="{ value }"><span class="line-clamp-1 break-all text-f-text-bright">{{ value ?? "" }}</span></template>
+      <template #cell-preview="{ row, value }">
+        <span class="line-clamp-1 break-all text-f-text-bright max-md:line-clamp-2 max-md:[word-break:normal] max-md:[overflow-wrap:anywhere]">{{ value ?? "" }}</span>
+        <span class="md:hidden mt-1 flex items-center gap-2 text-xs text-f-text-muted" data-phone-meta>
+          <StatusDot :tone="tone(row as Summary)" :title="(row as Summary).state" />
+          <span class="whitespace-nowrap">{{ formatDateTime((row as Summary).startedAt) }}</span>
+          <span>· {{ (row as Summary).channel }}</span>
+        </span>
+      </template>
       <template #cell-duration="{ row }"><span class="text-f-text-muted whitespace-nowrap">{{ duration(row as Summary) }}</span></template>
     </DataTable>
     <div v-if="next" class="flex justify-center">

@@ -80,6 +80,16 @@ describe("SlideOver", () => {
     expect(document.activeElement?.id).toBe("first");
   });
 
+  it("keeps clear of the home indicator with a spacer, and scrolls without a scrollbar", async () => {
+    await openIt();
+    // A spacer element rather than bottom padding, which WebKit drops when the panel scrolls.
+    expect(panel()!.className).not.toMatch(/pb-\[env/);
+    const last = panel()!.lastElementChild as HTMLElement;
+    expect(last.className).toContain("h-[env(safe-area-inset-bottom)]");
+    expect(last.getAttribute("aria-hidden")).toBe("true");
+    expect(panel()!.className).toContain("f-no-scrollbar");
+  });
+
   it("slides without motion when reduced motion is asked for", async () => {
     // The transitions carry motion-reduce:transition-none; the classes are on the Transition, so check the source.
     const src = await import("../../src/components/SlideOver.vue?raw");
