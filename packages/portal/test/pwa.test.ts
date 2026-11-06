@@ -92,6 +92,9 @@ test("every page links the manifest and icons and declares the theme colour and 
   has(/<meta name="theme-color" content="#0f1217" \/>/, "theme colour");
   has(/<meta name="apple-mobile-web-app-title" content="Friday" \/>/, "iOS title");
   has(/<meta name="mobile-web-app-capable" content="yes" \/>/, "standalone");
+  // Opaque: with black-translucent the installed iOS app draws its status bar over the page, and iOS's fade below it
+  // dims the top bar's logo and menu button.
+  has(/<meta name="apple-mobile-web-app-status-bar-style" content="black" \/>/, "opaque iOS status bar");
   assert.match(readFileSync(pub("favicon.svg"), "utf8"), /^<svg [^>]*viewBox="0 0 100 100"/);
 });
 
