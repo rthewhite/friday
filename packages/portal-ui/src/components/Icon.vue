@@ -12,6 +12,7 @@ const paths: Record<string, string> = {
   key: "M14 2a6 6 0 0 0-5.65 8L2 16.35V22h5.65l1.42-1.42V18.4h2.18l1.42-1.41V14.8h1.42A6 6 0 1 0 14 2Zm2 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z",
   refresh: "M12 5V2L7 7l5 5V8a4 4 0 1 1-4 4H6a6 6 0 1 0 6-7Z",
   plus: "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z",
+  menu: "M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z",
   close: "M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6 6.4 5Z",
   chevron: "M9 6l6 6-6 6-1.4-1.4L12.2 12 7.6 7.4 9 6Z",
   server: "M4 4h16v6H4V4Zm0 10h16v6H4v-6Zm3-8v2h2V6H7Zm0 10v2h2v-2H7Z",

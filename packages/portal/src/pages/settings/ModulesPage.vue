@@ -86,7 +86,7 @@ async function setEnabled(m: ApiModule, enabled: boolean) {
       <template #cell-kind="{ row }"><Badge>{{ moduleKind(row as unknown as ApiModule) }}</Badge></template>
       <template #cell-tools="{ row }">{{ (row as unknown as ApiModule).tools.length }}</template>
       <template #actions="{ row }">
-        <div class="flex items-center justify-end gap-2">
+        <div class="flex flex-col items-end gap-2 md:flex-row md:items-center md:justify-end">
           <RouterLink v-if="(row as unknown as ApiModule).ui && (row as unknown as ApiModule).status === 'loaded'" :to="`/m/${(row as unknown as ApiModule).id}`"><Button variant="ghost">Open</Button></RouterLink>
           <Button v-if="isReloadable(row as unknown as ApiModule)" variant="ghost" :disabled="reloading === (row as unknown as ApiModule).id" @click="reload(row as unknown as ApiModule)">{{ reloading === (row as unknown as ApiModule).id ? "Reloading…" : "Reload" }}</Button>
           <label v-if="isToggleable(row as unknown as ApiModule)" class="flex items-center gap-2 text-sm" @click.stop>

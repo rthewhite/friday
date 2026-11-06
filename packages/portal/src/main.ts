@@ -4,6 +4,7 @@ import App from "./App.vue";
 import { createPortalRouter } from "./router.js";
 import { moduleUis } from "./modules.gen.js";
 import { guardFetch, loadMe, loginUrl } from "./lib/auth.js";
+import { registerServiceWorker } from "./lib/pwa.js";
 import { loginGuard, me } from "./composables/useSession.js";
 
 /** A page shown instead of the portal when it can't start for this user. */
@@ -38,6 +39,9 @@ async function bootstrap() {
     // still works instead of a blank tab.
   }
   app.mount("#app");
+  // The offline page for the installed app. Builds for deployment only: a worker registered from the dev server would
+  // stay installed for localhost:5173 and answer for whatever runs there next.
+  void registerServiceWorker(navigator, import.meta.env.PROD);
 }
 
 void bootstrap();

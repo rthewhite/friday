@@ -14,6 +14,11 @@ describe("portal-ui components render", () => {
     expect(html).toContain("System");
     expect(html).toContain("uppercase");
   });
+  it("PageLayout wraps its actions and uses a smaller title below md", async () => {
+    const html = await render(PageLayout, { title: "Modules" }, { default: () => "x", actions: () => [h("button", "One"), h("button", "Two")] });
+    expect(html).toMatch(/class="flex flex-wrap items-center gap-2 pt-1">(<!--\[-->)?<button>One<\/button><button>Two</);
+    expect(html).toContain("text-2xl md:text-3xl");
+  });
   it("Card shows title", async () => {
     expect(await render(Card, { title: "T" })).toContain("<h2");
   });
@@ -41,6 +46,13 @@ describe("portal-ui components render", () => {
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain(">3<");
   });
+  it("Tabs scroll sideways instead of widening the page", async () => {
+    const html = await render(Tabs, { items: [{ id: "a", label: "A" }, { id: "b", label: "B" }], modelValue: "a" });
+    expect(html).toMatch(/role="tablist"/);
+    expect(html).toContain("max-w-full");
+    expect(html).toContain("overflow-x-auto");
+    expect(html.match(/shrink-0 whitespace-nowrap/g)).toHaveLength(2);
+  });
   it("StatusDot and Chip render", async () => {
     expect(await render(StatusDot, { tone: "success", label: "loaded" })).toContain("bg-f-success");
     expect(await render(Chip, {}, "media")).toContain("media");
@@ -49,7 +61,7 @@ describe("portal-ui components render", () => {
     expect(await render(Icon, { name: "brain" })).toContain("<svg");
   });
   it("Icon renders the chat and keyboard icons as svg", async () => {
-    for (const name of ["chat", "keyboard"]) expect(await render(Icon, { name })).toContain("<svg");
+    for (const name of ["chat", "keyboard", "menu"]) expect(await render(Icon, { name })).toContain("<svg");
   });
   it("Icon renders svg for known names and text fallback otherwise", async () => {
     expect(await render(Icon, { name: "mic" })).toContain("<svg");
@@ -64,6 +76,20 @@ describe("portal-ui components render", () => {
     };
     expect(await teleported(false)).not.toContain("Edit");
     expect(await teleported(true)).toContain("Edit");
+  });
+  it("Drawer keeps its header and footer clear of the notch and home indicator", async () => {
+    const teleported = async (footer: boolean) => {
+      const ctx: { teleports?: Record<string, string> } = {};
+      const slots = footer ? { default: () => "body", footer: () => "Save" } : { default: () => "body" };
+      await renderToString(createSSRApp({ render: () => h(Drawer, { title: "Edit", open: true }, slots) }), ctx);
+      return ctx.teleports?.body ?? "";
+    };
+    const withFooter = await teleported(true);
+    expect(withFooter).toContain("h-dvh");
+    expect(withFooter).toContain("pt-[max(1rem,env(safe-area-inset-top))]");
+    expect(withFooter).toMatch(/<footer[^>]*pb-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
+    // Without a footer, the body is the last thing above the home indicator.
+    expect(await teleported(false)).toMatch(/overflow-y-auto[^"]*pb-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
   });
   it("defineModuleUi is an identity", () => {
     const ui = defineModuleUi({ id: "x", nav: { label: "X" }, routes: [] });

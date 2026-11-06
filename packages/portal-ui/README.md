@@ -21,17 +21,17 @@ Every page uses `PageLayout` with an `eyebrow` (section name: Assistant, Modules
 
 | Component | Purpose |
 |---|---|
-| `PageLayout` | eyebrow, title, subtitle, `actions` slot |
+| `PageLayout` | eyebrow, title, subtitle, `actions` slot (wraps below the title when it doesn't fit beside it) |
 | `Card` | surface with optional title and `header` slot |
 | `Button` | `variant`: primary, ghost, danger |
 | `Input` | labelled text/password input with `v-model` |
 | `DataTable` | typed columns (`width`, `align`, `hideBelow: md|lg`), `clickable` rows emitting `row-click`, `cell-<key>` and `actions` slots |
-| `Tabs` | pill tab group with optional counts, `v-model` |
+| `Tabs` | pill tab group with optional counts, `v-model`; scrolls sideways when it doesn't fit |
 | `StatusDot` | coloured dot with label, `tone` |
 | `Chip` | small mono pill for ids |
 | `Badge` | rounded label, `tone` |
-| `Drawer` | right-hand panel, `v-model:open`, `title`, `subtitle`, `footer` slot, Escape and overlay close |
-| `Icon` | inline SVG by name (mic, chat, keyboard, grid, play, settings, key, refresh, plus, close, chevron, server, link); unknown names render as text so emoji still work |
+| `Drawer` | right-hand panel (full width on phones, clear of the notch and home indicator), `v-model:open`, `title`, `subtitle`, `footer` slot, Escape and overlay close |
+| `Icon` | inline SVG by name (mic, chat, message, send, keyboard, grid, play, settings, key, refresh, plus, menu, close, chevron, server, link, speaker, bell, clock, calendar, user, bot, brain); unknown names render as text so emoji still work |
 
 ## Dates and times
 

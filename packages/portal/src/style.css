@@ -4,6 +4,11 @@
 @source "../../portal-ui/src";
 @source "../../../modules/*/src/ui";
 
+/* The phone top bar's height (Shell.vue): its 3.5rem row below the status bar. Pages that fill the screen subtract it. */
+:root {
+  --f-topbar-h: calc(3.5rem + env(safe-area-inset-top));
+}
+
 /* Rendered markdown in chat answers (lib/markdown). */
 .f-markdown {
   overflow-wrap: anywhere;
