@@ -6,12 +6,16 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Button, Icon, formatDateTime } from "@friday/portal-ui";
+import { Button, Icon } from "@friday/portal-ui";
 import { api } from "../composables/useApi.js";
 import { useChatStream } from "../composables/useChatStream.js";
 import type { Conversation, Entry, Summary } from "../lib/conversations.js";
 import { renderMarkdown } from "../lib/markdown.js";
 import TranscriptEntry from "../components/TranscriptEntry.vue";
+import SlideOver from "../components/SlideOver.vue";
+import ThreadList from "../components/ThreadList.vue";
+import { DESKTOP, useMediaQuery } from "../composables/useMediaQuery.js";
+import { useVisualViewportHeight } from "../composables/useVisualViewportHeight.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -22,7 +26,14 @@ const threads = ref<Summary[]>([]);
 const next = ref<string | null>(null);
 const listLoading = ref(false);
 const listError = ref<string | null>(null);
+/** The thread list panel on phones. */
 const showThreads = ref(false);
+const threadsButton = ref<HTMLElement | null>(null);
+
+function newChat() {
+  showThreads.value = false;
+  void router.push("/chat");
+}
 
 async function loadThreads(more = false) {
   listLoading.value = true;
@@ -139,6 +150,11 @@ const toolEntry = (i: { name: string; args: unknown; result?: unknown; settled: 
   ({ seq: -1, at: i.at, kind: "tool", name: i.name, args: i.args, truncated: false, ...(i.settled ? { result: i.result } : {}) }) as Entry;
 const title = computed(() => thread.value?.preview ?? (threadId.value ? "Chat" : "New chat"));
 
+// Phones: the page shrinks with the on-screen keyboard, and the input is one line with a short placeholder.
+const desktop = useMediaQuery(DESKTOP);
+useVisualViewportHeight();
+const placeholder = computed(() => (desktop.value ? "Message Friday… (Enter sends, Shift+Enter for a new line)" : "Message Friday…"));
+
 const scroller = ref<HTMLElement | null>(null);
 const scrollDown = async () => {
   await nextTick();
@@ -153,43 +169,35 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex h-[calc(100dvh-3.5rem)] md:h-dvh">
-    <!-- Thread list: a column from md up, a toggled panel below. -->
-    <aside :class="[showThreads ? 'flex' : 'hidden', 'md:flex absolute md:static inset-x-0 top-14 md:top-auto bottom-0 z-10 w-full md:w-72 shrink-0 flex-col border-r border-f-border-subtle bg-f-surface md:bg-f-surface/40']">
-      <div class="flex items-center justify-between gap-2 p-3">
-        <span class="text-xs font-semibold uppercase tracking-widest text-f-text-muted">Threads</span>
-        <Button variant="ghost" @click="router.push('/chat')"><Icon name="plus" />New chat</Button>
-      </div>
-      <p v-if="listError" class="px-3 text-sm text-f-error">{{ listError }}</p>
-      <ul class="flex-1 overflow-y-auto px-2 pb-3">
-        <li v-for="t in threads" :key="t.id">
-          <RouterLink
-            :to="`/chat/${encodeURIComponent(t.id)}`"
-            :class="['block rounded-lg px-3 py-2 transition hover:bg-f-surface-hover', t.id === threadId && 'bg-f-accent-muted']"
-            @click="showThreads = false"
-          >
-            <span class="line-clamp-1 break-all text-sm text-f-text-bright">{{ t.preview ?? "…" }}</span>
-            <span class="text-xs text-f-text-muted">{{ formatDateTime(t.lastActivityAt) }}</span>
-          </RouterLink>
-        </li>
-        <li v-if="!threads.length && !listLoading" class="px-3 py-2 text-sm text-f-text-muted">No chats yet.</li>
-      </ul>
-      <div v-if="next" class="flex justify-center p-2">
-        <Button variant="ghost" :disabled="listLoading" @click="loadThreads(true)">{{ listLoading ? "Loading…" : "Load more" }}</Button>
-      </div>
+  <!-- Phones: the visible height (it shrinks with the on-screen keyboard) below the portal's top bar. -->
+  <div class="flex h-[calc(var(--f-viewport-h,100dvh)-var(--f-topbar-h))] md:h-dvh">
+    <!-- Thread list: a column from md up, a panel over the thread below. -->
+    <aside class="hidden md:flex w-72 shrink-0 flex-col border-r border-f-border-subtle bg-f-surface/40">
+      <ThreadList :threads="threads" :current="threadId" :has-more="!!next" :loading="listLoading" :error="listError" @new="newChat" @more="loadThreads(true)" />
     </aside>
+    <SlideOver id="chat-threads" v-model:open="showThreads" label="Threads" :return-focus="threadsButton">
+      <ThreadList :threads="threads" :current="threadId" :has-more="!!next" :loading="listLoading" :error="listError" @new="newChat" @pick="showThreads = false" @more="loadThreads(true)" />
+    </SlideOver>
 
     <!-- The selected thread. -->
     <section class="flex min-w-0 flex-1 flex-col">
       <header class="flex items-center gap-3 border-b border-f-border-subtle px-4 py-3 md:px-8">
-        <button class="md:hidden rounded-md border border-f-border px-2 py-1 text-f-text" aria-label="Threads" @click="showThreads = !showThreads"><Icon name="message" /></button>
+        <button
+          ref="threadsButton"
+          type="button"
+          class="md:hidden grid h-10 w-10 shrink-0 place-items-center rounded-md border border-f-border text-f-text"
+          aria-label="Threads"
+          aria-controls="chat-threads"
+          :aria-expanded="showThreads"
+          @click="showThreads = !showThreads"
+        ><Icon name="message" :size="18" /></button>
         <div class="min-w-0">
           <span class="text-xs font-semibold uppercase tracking-widest text-f-accent-bright">Assistant</span>
           <h1 class="line-clamp-1 break-all text-xl font-semibold text-f-text-bright">{{ title }}</h1>
         </div>
       </header>
 
-      <div ref="scroller" class="flex-1 overflow-y-auto px-4 py-4 md:px-8">
+      <div ref="scroller" class="flex-1 overflow-y-auto overscroll-contain px-4 py-4 md:px-8">
         <div class="mx-auto flex max-w-3xl flex-col gap-3">
           <div v-if="notFound" class="surface-card p-4 text-sm text-f-text">
             This chat does not exist (or is not a chat).
@@ -220,17 +228,20 @@ onMounted(() => {
         </div>
       </div>
 
-      <form v-if="!notFound" class="border-t border-f-border-subtle px-4 py-3 md:px-8" @submit.prevent="submit">
+      <!-- Phones: a one-line input that grows with its text, next to a round send button as tall as it. -->
+      <form v-if="!notFound" class="border-t border-f-border-subtle px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-8" @submit.prevent="submit">
         <div class="mx-auto flex max-w-3xl items-end gap-2">
           <textarea
             v-model="draft"
-            rows="2"
+            :rows="desktop ? 2 : 1"
             :disabled="running"
-            placeholder="Message Friday… (Enter sends, Shift+Enter for a new line)"
-            class="min-h-12 max-h-48 flex-1 resize-y rounded-xl border border-f-border bg-f-surface px-3 py-2 text-sm text-f-text-bright placeholder:text-f-text-muted focus:border-f-accent focus:outline-none disabled:opacity-60"
+            :placeholder="placeholder"
+            enterkeyhint="send"
+            aria-label="Message"
+            class="min-h-12 max-h-48 flex-1 resize-y rounded-xl border border-f-border bg-f-surface px-3 py-2 text-sm text-f-text-bright placeholder:text-f-text-muted focus:border-f-accent focus:outline-none disabled:opacity-60 max-md:min-h-11 max-md:max-h-40 max-md:resize-none max-md:[field-sizing:content]"
             @keydown="onKey"
           />
-          <Button type="submit" :disabled="running || !draft.trim()"><Icon name="send" />Send</Button>
+          <Button type="submit" class="max-md:size-11 max-md:justify-center max-md:p-0" :disabled="running || !draft.trim()"><Icon name="send" /><span class="max-md:sr-only">Send</span></Button>
         </div>
       </form>
     </section>
