@@ -165,6 +165,18 @@ A statement that touches anything outside the module's `pantry__` prefix (core's
 
 The browser UI is a Vue single-page app served by core at `/` with an SPA fallback. It has a `Talk` page (the voice client), a `Chat` page (typed threads, see [Chat](#chat)), a `Conversations` page (the transcript history), an `Agents` page (see [Agents](#agents)), and one page per module that ships a UI. The `Modules` page sits under System, with the other admin pages, at `/settings/modules` (`/modules` redirects there). It lists everything `/api/modules` reports, with status and tools (core's own tools are the *Core* row, kind *core*), and has a switch per in-process module (see [Turning modules on and off](#turning-modules-on-and-off)). Design tokens and base components live in `@friday/portal-ui`. Pages are loaded on first use. A tab left open across a deploy reloads itself, once, when it next opens a page whose code the deploy replaced (`src/lib/stale-chunks.ts`).
 
+On a phone (below 768 px) the sidebar becomes a top bar with a menu button, which slides the navigation in over the page. The Chat page then fills the screen above the on-screen keyboard, and its thread list slides in the same way. On touch screens, form fields use 16 px text so iOS doesn't zoom in when one is focused. The desktop layout doesn't change. Module pages built from `@friday/portal-ui`'s components follow along; use `max-md:` classes for anything phone-specific, so the desktop stays as it is.
+
+### Install as an app
+
+Friday can be installed as an app, opening without a browser bar. It needs the portal on HTTPS, as the deployed one is (or `localhost`).
+
+- **Android (Chrome):** open Friday and choose *Install app* (Chrome may offer it by itself).
+- **iPhone and iPad (Safari):** Share, then *Add to Home Screen*. The app keeps its own login, separate from Safari, so you log in once inside it.
+- **Desktop (Chrome, Edge):** the install icon in the address bar.
+
+When the server can't be reached, the app shows a *Friday can't be reached* page with *Retry* instead of the browser's error. A small service worker (`packages/portal/public/sw.js`, registered in production builds only) does that and nothing else: it never caches the portal's code or the API, so deploys are picked up as before. The manifest is `public/manifest.webmanifest`. The icons are drawn by `node packages/portal/scripts/gen-icons.mjs`; run it again after changing the mark, and commit what it writes. To retire the worker, ship a `sw.js` that calls `self.registration.unregister()` when it activates. Deleting the file isn't enough, because an installed worker that gets a 404 on its update check stays in place.
+
 ### Add a module UI
 
 1. In the module's `package.json`, add `"friday": { "ui": "./src/ui/index.ts" }`, an export `"./ui": "./src/ui/index.ts"`, and `vue` as an optional peer dependency. Exclude `src/ui` from the module's own `tsconfig.json`; the portal's `vue-tsc` type-checks it.

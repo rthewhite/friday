@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- The brand mark; scripts/gen-icons.mjs draws the same shapes into the PNG icons. -->
+  <rect width="100" height="100" rx="22" fill="#3b82f6"/>
+  <path fill="#fff" d="M34 24h12v52H34zM34 24h36v11H34zM34 46h30v10H34z"/>
+</svg>

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ToolRegistry } from "@friday/sdk";
 import { createApp } from "../src/app.js";
@@ -78,6 +81,38 @@ test("without a session every API path answers 401, also unknown ones; health an
     assert.equal((await b.fetch("/health")).status, 200);
     assert.notEqual((await b.fetch("/")).status, 401);
     assert.notEqual((await b.fetch("/chat/abc")).status, 401);
+  } finally {
+    await app.close();
+  }
+});
+
+test("without a session the app's manifest, icons, service worker and offline page are served, and revalidated", async () => {
+  // The browser reads the manifest and icons, and installs and updates the worker, before anyone logs in.
+  const webDir = await mkdtemp(join(tmpdir(), "friday-web-"));
+  await writeFile(join(webDir, "index.html"), "<h1>hi</h1>");
+  await writeFile(join(webDir, "sw.js"), "self.addEventListener('fetch', () => {});");
+  await writeFile(join(webDir, "manifest.webmanifest"), '{"name":"Friday"}');
+  await writeFile(join(webDir, "offline.html"), "<h1>offline</h1>");
+  await writeFile(join(webDir, "favicon.svg"), "<svg/>");
+  await mkdir(join(webDir, "icons"));
+  await writeFile(join(webDir, "icons", "icon-192.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const app = await startAuthApp({ deps: () => ({ webDir }) });
+  try {
+    const b = app.browser();
+    const expect = [
+      ["/sw.js", "text/javascript"],
+      ["/manifest.webmanifest", "application/manifest+json"],
+      ["/offline.html", "text/html; charset=utf-8"],
+      ["/favicon.svg", "image/svg+xml"],
+      ["/icons/icon-192.png", "image/png"],
+    ] as const;
+    for (const [path, type] of expect) {
+      const res = await b.fetch(path);
+      assert.equal(res.status, 200, path);
+      assert.equal(res.headers.get("content-type"), type, path);
+      // Not under /assets/: checked again on every load, so a new worker or manifest is picked up after a deploy.
+      assert.equal(res.headers.get("cache-control"), "no-cache", path);
+    }
   } finally {
     await app.close();
   }

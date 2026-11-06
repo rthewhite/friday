@@ -210,7 +210,13 @@ context: |
   when the first navigation fails); pages Talk (voice client, AudioWorklet in public/), Chat
   (/chat, /chat/:id; markdown-it with HTML off), Conversations, Agents, and
   /m/<id> per module UI; the Modules page (enable switch, Reload) is under System at /settings/modules (/modules
-  redirects), nav built by src/lib/nav.ts. Module UIs are declared with "friday": { "ui": ... } in the module package.json and
+  redirects), nav built by src/lib/nav.ts. Phones (below md): Shell.vue's top bar opens the nav in SlideOver.vue
+  (left panel over the page, scroll lock, focus return; also Chat's thread list), ChatPage follows the visual
+  viewport (useVisualViewportHeight → --f-viewport-h, minus --f-topbar-h); phone-only styling uses max-md: or
+  (pointer: coarse) so the desktop doesn't change (tokens.css gives touch-screen fields 16px, unlayered). PWA:
+  public/manifest.webmanifest, icons from scripts/gen-icons.mjs (committed), public/sw.js registered in PROD by
+  src/lib/pwa.ts: only answers failed same-origin GET navigations outside /auth, /api, /ws, /health with the cached
+  public/offline.html, caches nothing else. Module UIs are declared with "friday": { "ui": ... } in the module package.json and
   defineModuleUi from @friday/portal-ui (tokens + base components); scripts/gen-modules.mjs generates the
   import list at build time (no Module Federation). Modules add backend routes with ctx.http.route, served
   at /api/modules/<id>/...; core routing lives in packages/core/src/{router,app}.ts.
