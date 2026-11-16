@@ -37,7 +37,13 @@ context: |
   transient, invalid_request, failed); blocks are BlockedError (an LlmError carrying usage for the log). The only
   adapter in use is GeminiAdapter (llm/gemini.ts: merges adjacent turns like before, keeps the turn's parts with their
   thought signatures as provider data, maps RetryInfo/QuotaFailure and safety reasons); @google/genai is imported only
-  there and in session.ts (voice). Golden fixtures (test/fixtures/gemini-golden) pin the Gemini requests. Agents (packages/core/src/agents/, migration 9: agents,
+  there and in session.ts (voice). Golden fixtures (test/fixtures/gemini-golden) pin the Gemini requests.
+  OpenAICompatibleAdapter (llm/openai.ts; { baseUrl, apiKey value|fn per call, fetch }) is built and tested but not
+  selectable yet (llm-providers wires it): POST <base>/chat/completions over fetch (no openai package, redirect
+  "error", bearer only with a key), SDK Schema converted to JSON Schema, response_format json_schema strict false,
+  max_tokens, stream with include_usage (missing usage = 0), tool_calls gathered by index and yielded at the end
+  (unreadable arguments = no calls + malformed_call), content_filter blocked, reasoning output ignored, 429
+  retry-after-ms/Retry-After, key redacted from errors. Agents (packages/core/src/agents/, migration 9: agents,
   agent_runs, agent_actions): definitions validated by parseAgent (definition.ts; names tools/runs/actions/new
   reserved), tool entries `{ pattern (* glob), mode auto|approve }` resolved against declarations("agent") with
   approve winning (resolveTools), budgets maxToolCalls/maxTokens/maxMinutes. AgentRuntime (runtime.ts) runs one run
