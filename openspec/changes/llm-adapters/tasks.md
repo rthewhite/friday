@@ -32,8 +32,8 @@
 
 ## 6. Both adapters, one contract
 
-- [ ] 6.1 Add `test/llm-adapter-contract.ts`: shared cases run against both adapters through a harness per provider that scripts raw provider responses (Gemini: stubbed `generateContent` and `generateContentStream`; OpenAI: injected `fetch` with JSON or server-sent-events bodies). Cases: text, thoughts asked and not asked, a tool round trip with ids, parallel calls, each finish reason, usage, 429 with a wait, 503, network, 401, blocked, and a schema request. Verify: `pnpm --filter @friday/core test` runs every case for both adapters and passes.
-- [ ] 6.2 Add the spec's "on another adapter" scenarios: a chat-engine turn where the model calls `get_current_time` and then answers, run once on each adapter over scripted responses, with the same SSE events, recorded entries and outcome; and `LlmService.generate` with a JSON schema on the OpenAI adapter, giving validated `json`, plus an `invalid_output` case. Verify: `pnpm --filter @friday/core test` passes.
+- [x] 6.1 Add `test/llm-adapter-contract.ts`: shared cases run against both adapters through a harness per provider that scripts raw provider responses (Gemini: stubbed `generateContent` and `generateContentStream`; OpenAI: injected `fetch` with JSON or server-sent-events bodies). Cases: text, thoughts asked and not asked, a tool round trip with ids, parallel calls, each finish reason, usage, 429 with a wait, 503, network, 401, blocked, and a schema request. Verify: `pnpm --filter @friday/core test` runs every case for both adapters and passes.
+- [x] 6.2 Add the spec's "on another adapter" scenarios: a chat-engine turn where the model calls `get_current_time` and then answers, run once on each adapter over scripted responses, with the same SSE events, recorded entries and outcome; and `LlmService.generate` with a JSON schema on the OpenAI adapter, giving validated `json`, plus an `invalid_output` case. Verify: `pnpm --filter @friday/core test` passes.
 
 ## 7. Integration checks
 
