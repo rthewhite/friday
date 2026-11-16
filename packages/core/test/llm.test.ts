@@ -136,6 +136,13 @@ test("a blocked answer is blocked with the reason, without retry, and its log li
   assert.match(lines[0], /^llm: \[brain\] std-model \(gemini-test-001\) blocked: the model provider blocked the prompt \(SAFETY\) in=7 out=0 \d+\.\ds \(1 attempt\)$/);
 });
 
+test("provider is not the module's choice: a provider name or an API key in the request is not used", async () => {
+  const f = fakeModel(answer("x"));
+  const sneaky = { prompt: "p", provider: "openai", baseUrl: "http://evil.example", apiKey: "sk-module" } as unknown as Parameters<ReturnType<typeof service>["llm"]["generate"]>[0];
+  await service(f.model).llm.generate(sneaky);
+  assert.deepEqual(f.calls[0].req, { model: "std-model", messages: [{ role: "user", text: "p" }] });
+});
+
 test("messages map to user and assistant turns; settings go along", async () => {
   const f = fakeModel(answer("x"));
   const schema = { type: "object" };

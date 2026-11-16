@@ -82,7 +82,7 @@ class ProviderError extends Error {
 ```
 
 - The Gemini adapter takes over `classify`, `rateLimitInfo`, the daily-quota check and `BLOCKING_FINISH`, with unchanged logic. `LlmService` keeps the retry policy and the messages. Its `classify` becomes a switch on `ProviderError.kind`, so log lines and error messages stay identical.
-- **Blocked is not a `ProviderError`.** An adapter throws `LlmError("blocked", …, { reason })` directly, as `throwIfBlocked` does today. `LlmService` already never retries an `LlmError`.
+- **Blocked is not a `ProviderError`.** An adapter throws `LlmError("blocked", …, { reason })` directly, as `throwIfBlocked` does today. `LlmService` already never retries an `LlmError`. The adapters actually throw `BlockedError`, a core-only subclass that also carries the answering model and the usage, so the call's log line keeps its token counts as before.
 - **Missing keys:** the Gemini adapter keeps throwing `LlmError("unavailable", "GEMINI_API_KEY is not configured")`.
 - **Finish reasons are neutral from the adapter onwards.** `unfinished()` in the tool loop switches on `length`, `malformed_call` and `other` (with `providerReason`), keeping today's messages. For `parseOutput`, `LlmService` passes `"MAX_TOKENS"` when `finish` is `length`, so the SDK helper and the test host stay untouched. *Alternative:* teaching `parseOutput` about `length`. That's a small SDK change. Deferred unless a second caller needs it.
 
@@ -115,6 +115,7 @@ The adapter can't tell where a request's messages come from, so the same merging
   - If any call's arguments are not valid JSON, no calls are yielded and the call ends with `malformed_call`. That matches how Gemini reports a malformed call, so the loop's handling stays the same. Empty arguments become `{}`.
   - Finish reasons map as follows: `stop` and `tool_calls` to `stop`, `length` to `length`, `content_filter` to blocked, anything else to `other`. A stream that ends with `[DONE]` but without a finish reason counts as `stop`.
   - Usage comes from the last chunk that has `usage` (`stream_options: { include_usage: true }`), and is 0 otherwise.
+  - A stream that ends with neither `[DONE]` nor a finish reason was cut off, and counts as a transient network failure. An `error` event, or an event that isn't JSON, is a `failed` provider error (not retried).
 - **Errors:**
   - The status mapping follows the spec. 401 and 403 become `failed`, which is not retried.
   - `Retry-After` can be seconds or an HTTP date. `retry-after-ms` is used when present.
