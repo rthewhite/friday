@@ -37,6 +37,6 @@
 
 ## 7. Integration checks
 
-- [ ] 7.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify: all green.
-- [ ] 7.2 With `GEMINI_API_KEY` in `packages/core/.env`, run core's `test:live` (`FRIDAY_LIVE_TESTS=1`, including `chat-live`). Verify: the live tests pass against Gemini.
-- [ ] 7.3 Run `pnpm dev` on free ports. In the portal: send a chat message that calls a tool (for example "what time is it?"), resume an older thread with tool calls and ask a follow-up, and start a short agent run with one tool. Check the `llm:` log lines look as before. Stop the dev server. Verify: each step answers normally, and no error appears in the core log.
+- [x] 7.1 Run `pnpm -r build && pnpm -r typecheck && pnpm -r test` in the worktree. Verify: all green.
+- [x] 7.2 With `GEMINI_API_KEY` in `packages/core/.env`, run core's `test:live` (`FRIDAY_LIVE_TESTS=1`, including `chat-live`). Verify: the live tests pass against Gemini.
+- [x] 7.3 Run `pnpm dev` on free ports. In the portal: send a chat message that calls a tool (for example "what time is it?"), resume an older thread with tool calls and ask a follow-up, and start a short agent run with one tool. Check the `llm:` log lines look as before. Stop the dev server. Verify: each step answers normally, and no error appears in the core log.
