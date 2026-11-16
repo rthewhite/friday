@@ -2,7 +2,7 @@
 
 ## 1. Golden Gemini requests (before anything moves)
 
-- [ ] 1.1 Add `packages/core/test/fixtures/gemini-golden/` and a test `test/llm-golden.test.ts` that records what today's `toGeminiParams`, `toStreamParams` and `toContents` produce. Cover: a plain prompt; `messages` with `user` and `model` turns; system, temperature, `maxOutputTokens` and a JSON schema; a stream request with tools (a Gemini `parameters` schema and a raw `parametersJsonSchema`) and `thoughts: true`; a replayed thread with text, two tool entries in a row, a truncated result, a missing result, and an assistant text followed by a call; and a tool-loop round trip where the model's parts carry a `thoughtSignature` and a thought part. Store each case's input and output as JSON (abort signals left out). Verify: `pnpm --filter @friday/core test` passes on the unchanged code, and the fixture files are committed.
+- [x] 1.1 Add `packages/core/test/fixtures/gemini-golden/` and a test `test/llm-golden.test.ts` that records what today's `toGeminiParams`, `toStreamParams` and `toContents` produce. Cover: a plain prompt; `messages` with `user` and `model` turns; system, temperature, `maxOutputTokens` and a JSON schema; a stream request with tools (a Gemini `parameters` schema and a raw `parametersJsonSchema`) and `thoughts: true`; a replayed thread with text, two tool entries in a row, a truncated result, a missing result, and an assistant text followed by a call; and a tool-loop round trip where the model's parts carry a `thoughtSignature` and a thought part. Store each case's input and output as JSON (abort signals left out). Verify: `pnpm --filter @friday/core test` passes on the unchanged code, and the fixture files are committed.
 
 ## 2. Neutral types and errors
 

@@ -1,0 +1,346 @@
+{
+  "input": [
+    {
+      "seq": 1,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "user",
+      "input": "text",
+      "text": "off and Dune"
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "assistant",
+      "text": "On it.",
+      "interrupted": false
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "tool",
+      "name": "ha_list",
+      "args": {},
+      "truncated": false,
+      "result": {
+        "ids": [
+          "light.x"
+        ]
+      }
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "tool",
+      "name": "ha_turn_off",
+      "args": {
+        "entity": "light.x"
+      },
+      "truncated": false,
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "tool",
+      "name": "big",
+      "args": {
+        "q": "Dune"
+      },
+      "truncated": true,
+      "result": "{\"items\":[{\"name\":\"Dune (19"
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "tool",
+      "name": "pending",
+      "args": null,
+      "truncated": false
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "tool",
+      "name": "list",
+      "args": {},
+      "truncated": false,
+      "result": [
+        1,
+        2
+      ]
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "tool",
+      "name": "bigargs",
+      "args": "{\"text\":\"xxxx",
+      "truncated": true,
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "assistant",
+      "text": "Done, and Dune is",
+      "interrupted": true
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "user",
+      "input": "text",
+      "text": "again please"
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "user",
+      "input": "text",
+      "text": "hello?"
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "tool",
+      "name": "t",
+      "args": {},
+      "truncated": false,
+      "result": {
+        "ok": 1
+      }
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-01T10:00:00.000Z",
+      "kind": "user",
+      "input": "text",
+      "text": "still there?"
+    }
+  ],
+  "output": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "off and Dune"
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "text": "On it."
+        },
+        {
+          "functionCall": {
+            "name": "ha_list",
+            "args": {}
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "ha_list",
+            "response": {
+              "ids": [
+                "light.x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "name": "ha_turn_off",
+            "args": {
+              "entity": "light.x"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "ha_turn_off",
+            "response": {
+              "ok": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "name": "big",
+            "args": {
+              "q": "Dune"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "big",
+            "response": {
+              "truncated": true,
+              "partial": "{\"items\":[{\"name\":\"Dune (19"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "name": "pending",
+            "args": {}
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "pending",
+            "response": {
+              "error": "no result"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "name": "list",
+            "args": {}
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "list",
+            "response": {
+              "result": [
+                1,
+                2
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "name": "bigargs",
+            "args": {
+              "truncated": true,
+              "partial": "{\"text\":\"xxxx"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "bigargs",
+            "response": {
+              "ok": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "text": "Done, and Dune is"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "again please"
+        },
+        {
+          "text": "hello?"
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "name": "t",
+            "args": {}
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "t",
+            "response": {
+              "ok": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "still there?"
+        }
+      ]
+    }
+  ]
+}

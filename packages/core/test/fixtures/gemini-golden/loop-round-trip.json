@@ -1,0 +1,144 @@
+{
+  "input": {
+    "history": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "go"
+          }
+        ]
+      }
+    ]
+  },
+  "output": {
+    "model": "m",
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "role": "model",
+        "parts": [
+          {
+            "thoughtSignature": "sig-0"
+          },
+          {
+            "text": "Looking.",
+            "thoughtSignature": "sig-t"
+          },
+          {
+            "functionCall": {
+              "name": "set_light",
+              "args": {
+                "entity": "light.x",
+                "on": false
+              }
+            },
+            "thoughtSignature": "sig-1"
+          },
+          {
+            "functionCall": {
+              "name": "get_current_time",
+              "args": {}
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "set_light",
+              "response": {
+                "ok": "set_light"
+              }
+            }
+          },
+          {
+            "functionResponse": {
+              "name": "get_current_time",
+              "response": {
+                "ok": "get_current_time"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "systemInstruction": "sys",
+      "tools": [
+        {
+          "functionDeclarations": [
+            {
+              "name": "set_light",
+              "description": "Turns a light on or off.",
+              "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                  "entity": {
+                    "type": "STRING",
+                    "description": "The light."
+                  },
+                  "on": {
+                    "type": "BOOLEAN"
+                  },
+                  "level": {
+                    "type": "INTEGER",
+                    "nullable": true
+                  },
+                  "mode": {
+                    "type": "STRING",
+                    "enum": [
+                      "warm",
+                      "cold"
+                    ]
+                  },
+                  "rooms": {
+                    "type": "ARRAY",
+                    "items": {
+                      "type": "STRING"
+                    }
+                  }
+                },
+                "required": [
+                  "entity",
+                  "on"
+                ]
+              }
+            },
+            {
+              "name": "get_current_time",
+              "description": "The current time."
+            },
+            {
+              "name": "mcp_search",
+              "description": "Searches.",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "q": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "q"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "thinkingConfig": {
+        "includeThoughts": true
+      }
+    }
+  }
+}
