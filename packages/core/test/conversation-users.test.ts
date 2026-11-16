@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { ToolRegistry } from "@friday/sdk";
 import { ChatEngine } from "../src/chat/engine.js";
 import { ConversationStore } from "../src/conversations/store.js";
-import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
+import type { ModelEnd, StreamChunk } from "../src/llm/types.js";
 import { setup } from "./conversation-fixtures.js";
 import { admin, member, startAuthApp } from "./auth-harness.js";
 import { startHarness } from "./helpers.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
-const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
-const answering = { async streamCall(_o: string, _r: unknown, onChunk: (c: StreamChunk) => void) { onChunk({ kind: "text", text: "hello", part: { text: "hello" } }); return end; } };
+const end: ModelEnd = { finish: "stop", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 }, message: { role: "assistant", text: "hello" } };
+const answering = { async streamCall(_o: string, _r: unknown, onChunk: (c: StreamChunk) => void) { onChunk({ kind: "text", text: "hello" }); return end; } };
 
 type Listed = { id: string; user: { id: string; name: string } | null };
 

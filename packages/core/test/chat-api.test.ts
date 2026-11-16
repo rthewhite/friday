@@ -7,23 +7,23 @@ import { createApp } from "../src/app.js";
 import { ModuleHost } from "../src/module-host.js";
 import { McpSource } from "../src/tools/mcp.js";
 import { ChatEngine } from "../src/chat/engine.js";
-import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
 import type { StreamCallRequest } from "../src/llm/service.js";
+import type { ModelEnd, StreamChunk } from "../src/llm/types.js";
 import { setup } from "./conversation-fixtures.js";
 import { devAuth, waitFor } from "./helpers.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
-const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
-const text = (t: string): StreamChunk => ({ kind: "text", text: t, part: { text: t } });
-const call = (name: string): StreamChunk => ({ kind: "call", name, args: {}, part: { functionCall: { name, args: {} } } });
+const usage = { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 };
+const text = (t: string): StreamChunk => ({ kind: "text", text: t });
+const call = (name: string): StreamChunk => ({ kind: "call", call: { id: "c1", name, args: {} } });
 
 /** Plays a tool call on the first model call of each turn and an answer on the second. */
 const toolThenAnswer = {
-  async streamCall(_owner: string, req: StreamCallRequest, onChunk: (c: StreamChunk) => void) {
-    const last = req.contents.at(-1)!;
-    const answered = last.parts?.some((p) => p.functionResponse);
+  async streamCall(_owner: string, req: StreamCallRequest, onChunk: (c: StreamChunk) => void): Promise<ModelEnd> {
+    const answered = req.messages.at(-1)?.role === "tool";
     for (const c of answered ? [text("It is "), text("ten.")] : [call("get_current_time")]) onChunk(c);
-    return end;
+    const message: ModelEnd["message"] = answered ? { role: "assistant", text: "It is ten." } : { role: "assistant", toolCalls: [{ id: "c1", name: "get_current_time", args: {} }] };
+    return { finish: "stop", model: "m", usage, message };
   },
 };
 

@@ -3,7 +3,6 @@
  * channel, and `approve` tools parked as exact calls the user approves or rejects later. One run per agent at
  * a time; agent model calls pass one gate, so together they hold at most one of the shared LLM slots.
  */
-import type { FunctionDeclaration } from "@google/genai";
 import type { CallUser, ToolRegistry } from "@friday/sdk";
 import { agentPrompt } from "../config.js";
 import type { ConversationRecorder } from "../conversations/recorder.js";
@@ -160,7 +159,7 @@ export class AgentRuntime {
     }
     const user = run.user ?? undefined;
     const { tools } = resolveTools(def, this.o.registry, user);
-    const declarations = this.o.registry.declarations("agent", user).filter((d) => tools.has(d.name)) as FunctionDeclaration[];
+    const declarations = this.o.registry.declarations("agent", user).filter((d) => tools.has(d.name));
     const first = request ?? START_MESSAGE;
     const recorder = this.o.conversations.recorder({ channel: "agent", userId: run.user?.id ?? null }, this.log);
     recorder.user(first, "text");
@@ -180,7 +179,7 @@ export class AgentRuntime {
         owner: `agent:${def.name}`,
         model: this.o.model,
         system: agentPrompt(def.name, def.instructions, this.now(), this.o.timezone()),
-        contents: [{ role: "user", parts: [{ text: first }] }],
+        messages: [{ role: "user", text: first }],
         tools: declarations,
         thoughts: false,
         signal: a.controller.signal,

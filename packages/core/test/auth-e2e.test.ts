@@ -9,20 +9,24 @@ import WebSocket from "ws";
 import type { ToolCallContext } from "@friday/sdk";
 import { ChatEngine } from "../src/chat/engine.js";
 import { ConversationStore } from "../src/conversations/store.js";
-import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
+import type { ModelEnd, StreamChunk } from "../src/llm/types.js";
 import { admin, member, quiet, startAuthApp } from "./auth-harness.js";
 import { StubSession, waitFor } from "./helpers.js";
 
-const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
+const usage = { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 };
 
 /** First round calls `whoami`, the second answers. */
 function llm() {
   let round = 0;
   return {
-    async streamCall(_o: string, _r: unknown, onChunk: (c: StreamChunk) => void): Promise<StreamEnd> {
-      if (round++ % 2 === 0) onChunk({ kind: "call", name: "whoami", args: {}, part: { functionCall: { name: "whoami", args: {} } } });
-      else onChunk({ kind: "text", text: "You are you.", part: { text: "You are you." } });
-      return end;
+    async streamCall(_o: string, _r: unknown, onChunk: (c: StreamChunk) => void): Promise<ModelEnd> {
+      const whoami = { id: "c1", name: "whoami", args: {} };
+      if (round++ % 2 === 0) {
+        onChunk({ kind: "call", call: whoami });
+        return { finish: "stop", model: "m", usage, message: { role: "assistant", toolCalls: [whoami] } };
+      }
+      onChunk({ kind: "text", text: "You are you." });
+      return { finish: "stop", model: "m", usage, message: { role: "assistant", text: "You are you." } };
     },
   };
 }

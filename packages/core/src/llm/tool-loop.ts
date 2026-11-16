@@ -1,18 +1,20 @@
 /**
  * The model and tool loop shared by portal chat and agent runs:
  *   model round (streamed) -> tool calls of that round, in parallel -> results back -> next round ...
- * until a round has no calls. Within the loop the model's parts go back verbatim (thought signatures
- * kept, thought summaries dropped). Callers decide which tools run and when to stop (`beforeRound`,
- * `beforeCalls`); the loop never records anything itself.
+ * until a round has no calls. Within the loop the model's turn goes back as the adapter returned it
+ * (for Gemini: its parts, thought signatures kept, thought summaries dropped), followed by one tool
+ * message per call. Callers decide which tools run and when to stop (`beforeRound`, `beforeCalls`);
+ * the loop never records anything itself.
  */
-import type { Content, FunctionDeclaration, Part } from "@google/genai";
-import { LlmError } from "@friday/sdk";
-import type { StreamEnd } from "./gemini.js";
+import { LlmError, type FunctionDeclaration } from "@friday/sdk";
 import type { LlmService } from "./service.js";
+import type { ChatMessage, FinishReason, ModelEnd } from "./types.js";
 
 export interface LoopCall {
   /** Numbers the loop's calls from 1, so a result can be matched to its call whatever order they settle in. */
   id: number;
+  /** The call's id in the request, which pairs it with its tool message. */
+  callId: string;
   name: string;
   args: Record<string, unknown>;
 }
@@ -42,7 +44,7 @@ export type LoopOutcome =
   /** The signal was aborted: before a round, or during a model call. */
   | { kind: "aborted" }
   | { kind: "failed"; error: LlmError }
-  /** A round without calls ended for another reason than STOP (cut off, malformed call, ...). */
+  /** A round without calls ended for another reason than `stop` (cut off, malformed call, ...). */
   | { kind: "unfinished"; message: string };
 
 export interface ToolLoopOptions {
@@ -51,8 +53,8 @@ export interface ToolLoopOptions {
   owner: string;
   model: string;
   system: string;
-  /** History to send; the loop appends the model turns and function responses of this loop to it. */
-  contents: Content[];
+  /** History to send; the loop appends the model turns and tool results of this loop to it. */
+  messages: ChatMessage[];
   tools: FunctionDeclaration[];
   thoughts?: boolean;
   signal?: AbortSignal;
@@ -70,10 +72,10 @@ export interface ToolLoopOptions {
 }
 
 /** Why a round without calls ended before its answer was complete. */
-export function unfinished(reason: string): string {
-  if (reason === "MAX_TOKENS") return "the answer was cut off at the output limit";
-  if (reason === "MALFORMED_FUNCTION_CALL") return "the model produced a malformed tool call";
-  return `the model stopped without finishing (${reason})`;
+export function unfinished(finish: Exclude<FinishReason, "stop">, providerReason?: string): string {
+  if (finish === "length") return "the answer was cut off at the output limit";
+  if (finish === "malformed_call") return "the model produced a malformed tool call";
+  return `the model stopped without finishing (${providerReason ?? "unknown reason"})`;
 }
 
 export async function runToolLoop(o: ToolLoopOptions): Promise<{ outcome: LoopOutcome; state: LoopState }> {
@@ -86,21 +88,19 @@ export async function runToolLoop(o: ToolLoopOptions): Promise<{ outcome: LoopOu
     const before = o.beforeRound?.(state);
     if (before) return finish({ kind: "stopped", stop: before, unrun: [] });
 
-    const parts: Part[] = [];
     const calls: LoopCall[] = [];
     let text = "";
-    let end: StreamEnd;
+    let end: ModelEnd;
     try {
       end = await around(() =>
-        o.llm.streamCall(o.owner, { model: o.model, system: o.system, contents: o.contents, tools: o.tools, thoughts: o.thoughts, signal: o.signal }, (c) => {
+        o.llm.streamCall(o.owner, { model: o.model, system: o.system, messages: o.messages, tools: o.tools, thoughts: o.thoughts, signal: o.signal }, (c) => {
           if (c.kind === "thought") return o.onThought?.(c.text);
-          parts.push(c.part);
           if (c.kind === "text") {
             state.streamed = true;
             text += c.text;
             o.onText?.(c.text);
           } else if (c.kind === "call") {
-            const call = { id: ++seq, name: c.name, args: c.args };
+            const call = { id: ++seq, callId: c.call.id, name: c.call.name, args: c.call.args };
             calls.push(call);
             o.onCall?.(call);
           }
@@ -113,9 +113,8 @@ export async function runToolLoop(o: ToolLoopOptions): Promise<{ outcome: LoopOu
     state.tokens += end.usage.inputTokens + end.usage.outputTokens;
 
     if (!calls.length) {
-      // Blocked answers already rejected in streamCall; anything else but STOP is an unfinished answer.
-      const reason = end.finishReason;
-      if (reason && reason !== "STOP") return finish({ kind: "unfinished", message: unfinished(reason) });
+      // Blocked answers already rejected in streamCall; anything else but `stop` is an unfinished answer.
+      if (end.finish !== "stop") return finish({ kind: "unfinished", message: unfinished(end.finish, end.providerReason) });
       return finish({ kind: "done", text });
     }
     const stop = o.beforeCalls?.(calls, state);
@@ -123,8 +122,8 @@ export async function runToolLoop(o: ToolLoopOptions): Promise<{ outcome: LoopOu
 
     state.rounds++;
     state.calls += calls.length;
-    o.contents.push({ role: "model", parts });
+    o.messages.push(end.message);
     const results = await Promise.all(calls.map((c) => o.callTool(c)));
-    o.contents.push({ role: "user", parts: calls.map((c, i) => ({ functionResponse: { name: c.name, response: results[i] } })) });
+    for (const [i, c] of calls.entries()) o.messages.push({ role: "tool", callId: c.callId, name: c.name, result: results[i] });
   }
 }

@@ -25,11 +25,19 @@ context: |
   (absent in a voice session's first exchange, which is stored at its turn end), a registered device's voice session
   also its device id; MCP and remote tools never see it. Portal chat (packages/core/src/chat/): POST /api/chat
   runs one turn per message on the text model (FRIDAY_CHAT_MODEL, else FRIDAY_TEXT_MODEL) through
-  LlmService.streamCall, replaying the thread's whole stored history (tool entries as function
-  call/response pairs), a tool loop over declarations("chat") (FRIDAY_CHAT_TOOL_TIMEOUT_MS, 10 rounds),
+  LlmService.streamCall, replaying the thread's whole stored history (chat/history.ts toMessages: tool entries as an
+  assistant call with id h<seq> plus its tool message), a tool loop over declarations("chat") (FRIDAY_CHAT_TOOL_TIMEOUT_MS, 10 rounds),
   recorded as a `chat` conversation, streamed as server-sent events. The loop itself (stream a round, run its calls,
-  send results back with parts verbatim; beforeRound/beforeCalls stop hooks, `around` for a gate) is
-  packages/core/src/llm/tool-loop.ts, shared with agents. Agents (packages/core/src/agents/, migration 9: agents,
+  push the adapter's assistant message as returned plus one tool message per call; beforeRound/beforeCalls stop hooks,
+  `around` for a gate) is packages/core/src/llm/tool-loop.ts, shared with agents. Text models (llm-adapters): chat,
+  agents and ctx.llm speak only core's provider-neutral types (llm/types.ts: ChatMessage user|assistant|tool with tool
+  call ids, ChatRequest with the SDK's FunctionDeclaration, StreamChunk text|thought|call, ModelEnd with neutral finish
+  stop|length|malformed_call|other and the assistant message to send back); LlmService serves a ChatModel (queue,
+  retries, timeouts, validation, log) and retries on the adapters' ProviderError (rate_limited with waitMs/quota/daily,
+  transient, invalid_request, failed); blocks are BlockedError (an LlmError carrying usage for the log). The only
+  adapter in use is GeminiAdapter (llm/gemini.ts: merges adjacent turns like before, keeps the turn's parts with their
+  thought signatures as provider data, maps RetryInfo/QuotaFailure and safety reasons); @google/genai is imported only
+  there and in session.ts (voice). Golden fixtures (test/fixtures/gemini-golden) pin the Gemini requests. Agents (packages/core/src/agents/, migration 9: agents,
   agent_runs, agent_actions): definitions validated by parseAgent (definition.ts; names tools/runs/actions/new
   reserved), tool entries `{ pattern (* glob), mode auto|approve }` resolved against declarations("agent") with
   approve winning (resolveTools), budgets maxToolCalls/maxTokens/maxMinutes. AgentRuntime (runtime.ts) runs one run

@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LlmError } from "@friday/sdk";
 import { START_MESSAGE } from "../src/agents/runtime.js";
-import type { StreamChunk, StreamEnd, TextModel, TextStream } from "../src/llm/gemini.js";
 import { LlmService } from "../src/llm/service.js";
+import type { ChatModel, ModelEnd, ModelStream } from "../src/llm/types.js";
 import { agentHarness, entries, quiet } from "./agent-harness.js";
 import { call, text } from "./fake-stream.js";
 import { waitFor } from "./helpers.js";
@@ -32,7 +32,7 @@ test("a scheduled check: the model sees its preamble, instructions and only its 
   assert.deepEqual(req.tools!.map((d) => d.name), ["calendar_list_events"]);
   assert.match(req.system!, /^You are "weekly-review", an agent of Friday/);
   assert.ok(req.system!.endsWith("Look at the calendar and sum up my week."));
-  assert.deepEqual(req.contents, [{ role: "user", parts: [{ text: START_MESSAGE }] }]);
+  assert.deepEqual(req.messages, [{ role: "user", text: START_MESSAGE }]);
   assert.deepEqual(t.stream.owners, ["agent:weekly-review", "agent:weekly-review"]);
 
   assert.deepEqual(t.calls, [{ name: "calendar_list_events", args: { from: "2026-10-19", to: "2026-10-25" }, call: { channel: "agent", conversationId: run.conversationId! } }]);
@@ -64,7 +64,7 @@ test("a request is the run's first message and is recorded with its trigger", as
   t.define();
   const run = await started(t.runtime.start("weekly-review", "voice", "  only look at the friday repo ")).done;
   assert.deepEqual([run.trigger, run.request], ["voice", "only look at the friday repo"]);
-  assert.deepEqual(t.stream.requests[0].contents, [{ role: "user", parts: [{ text: "only look at the friday repo" }] }]);
+  assert.deepEqual(t.stream.requests[0].messages, [{ role: "user", text: "only look at the friday repo" }]);
   assert.equal(t.conversations.get(run.conversationId!)!.preview, "only look at the friday repo");
 });
 
@@ -175,16 +175,16 @@ test("a tool that never answers is timed out and the run continues", async () =>
 
 // ---- fairness ----
 
-/** A TextModel whose streams each wait until `release()` is called, then answer. */
+/** A ChatModel whose streams each wait until `release()` is called, then answer. */
 function heldModel() {
-  const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
+  const end: ModelEnd = { finish: "stop", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 }, message: { role: "assistant", text: "done" } };
   let open = 0;
   let max = 0;
   const releases: Array<() => void> = [];
-  const model: TextModel = {
-    generate: async () => ({ text: "", model: "m", finishReason: "STOP", usage: end.usage }),
-    stream(): TextStream {
-      return (async function* (): AsyncGenerator<StreamChunk, StreamEnd> {
+  const model: ChatModel = {
+    generate: async () => end,
+    stream(): ModelStream {
+      return (async function* () {
         open++;
         max = Math.max(max, open);
         await new Promise<void>((r) => releases.push(r));
@@ -208,7 +208,7 @@ test("two running agents hold one of the two shared slots; a chat call starts at
   await waitFor(() => held.open === 1);
   assert.equal(held.open, 1, "one agent model call in flight, the other waits at the agent gate");
 
-  const chat = llm.streamCall("chat", { model: "m", contents: [{ role: "user", parts: [{ text: "hi" }] }] }, () => {});
+  const chat = llm.streamCall("chat", { model: "m", messages: [{ role: "user", text: "hi" }] }, () => {});
   await waitFor(() => held.open === 2);
   assert.equal(held.open, 2, "the chat call took the free slot at once");
 

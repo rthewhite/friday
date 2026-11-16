@@ -28,7 +28,7 @@ test("an approve tool is parked as the exact call; the model is told it is queue
   assert.deepEqual([action.tool, action.args, action.state, action.agent], ["github__create_pull_request", PR, "pending", "security-sweep"]);
   assert.deepEqual([run.outcome, run.toolCalls], ["ok", 2], "parked calls count as tool calls");
   const queued = { queued: true, actionId: action.id, note: "Queued for the user's approval. It has not run; continue without its result." };
-  assert.deepEqual(t.stream.requests[1].contents.at(-1)!.parts![1], { functionResponse: { name: "github__create_pull_request", response: queued } });
+  assert.deepEqual(t.stream.requests[1].messages.at(-1), { role: "tool", callId: "c2", name: "github__create_pull_request", result: queued });
   assert.deepEqual((entries(t.conversations, run.conversationId!)[2] as { result: unknown }).result, queued);
   assert.equal(t.runs.pendingCount("security-sweep"), 1);
 });

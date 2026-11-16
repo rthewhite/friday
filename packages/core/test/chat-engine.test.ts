@@ -2,40 +2,50 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LlmError, ToolRegistry, type ConversationEntry } from "@friday/sdk";
 import { ChatEngine, MAX_TOOL_ROUNDS, type ChatEvent } from "../src/chat/engine.js";
-import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
 import type { StreamCallRequest } from "../src/llm/service.js";
+import type { AssistantMessage, FinishReason, ModelEnd, StreamChunk, ToolCall } from "../src/llm/types.js";
 import { setup } from "./conversation-fixtures.js";
 import { prompts } from "../src/config.js";
 import { createPromptContext, systemPrompt } from "../src/prompt-context.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
-const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
-const text = (t: string, extra: object = {}): StreamChunk => ({ kind: "text", text: t, part: { text: t, ...extra } });
-const thought = (t: string): StreamChunk => ({ kind: "thought", text: t, part: { text: t, thought: true } });
-const call = (name: string, args: Record<string, unknown> = {}, sig?: string): StreamChunk => ({
-  kind: "call", name, args, part: { functionCall: { name, args }, ...(sig ? { thoughtSignature: sig } : {}) },
-});
+const usage = { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 };
+const text = (t: string): StreamChunk => ({ kind: "text", text: t });
+const thought = (t: string): StreamChunk => ({ kind: "thought", text: t });
+/** A call; `id` defaults to `c<n>` within the round. */
+const call = (name: string, args: Record<string, unknown> = {}, id = ""): StreamChunk => ({ kind: "call", call: { id, name, args } });
+/** Provider data the adapter attached to the round's message (the Gemini adapter keeps signatures there). */
+const data = (value: unknown) => ({ data: value });
 
-/** `{ finish }` sets the round's finish reason (default STOP). */
-type Round = Array<StreamChunk | Error | { finish: string }> | Error;
+/** `{ finish }` sets the round's finish reason (default stop); `{ data }` its message's provider data. */
+type Round = Array<StreamChunk | Error | { finish: FinishReason } | { data: unknown }> | Error;
 
 /** A stand-in for LlmService.streamCall that plays one round per call (the last repeats) and snapshots each request. */
 function fakeLlm(...rounds: Round[]) {
   const requests: StreamCallRequest[] = [];
   const owners: string[] = [];
   const llm = {
-    async streamCall(owner: string, req: StreamCallRequest, onChunk: (c: StreamChunk) => void): Promise<StreamEnd> {
+    async streamCall(owner: string, req: StreamCallRequest, onChunk: (c: StreamChunk) => void): Promise<ModelEnd> {
       owners.push(owner);
       requests.push(JSON.parse(JSON.stringify(req)));
       const round = rounds[Math.min(requests.length - 1, rounds.length - 1)];
       if (round instanceof Error) throw round;
-      let finishReason = "STOP";
+      let finish: FinishReason = "stop";
+      const message: AssistantMessage = { role: "assistant" };
+      const calls: ToolCall[] = [];
       for (const c of round) {
         if (c instanceof Error) throw c;
-        if ("finish" in c) finishReason = c.finish;
-        else onChunk(c);
+        if ("finish" in c) finish = c.finish;
+        else if ("data" in c) message.providerData = { adapter: "gemini", value: c.data };
+        else {
+          const chunk: StreamChunk = c.kind === "call" ? { kind: "call", call: { ...c.call, id: c.call.id || `c${calls.length + 1}` } } : c;
+          if (chunk.kind === "text") message.text = (message.text ?? "") + chunk.text;
+          if (chunk.kind === "call") calls.push(chunk.call);
+          onChunk(chunk);
+        }
       }
-      return { ...end, finishReason };
+      if (calls.length) message.toolCalls = calls;
+      return { finish, model: "m", usage, message };
     },
   };
   return { llm, requests, owners };
@@ -62,10 +72,10 @@ async function send(e: ChatEngine, text: string, conversationId?: string) {
 const shape = (entries: ConversationEntry[]) => entries.map(({ seq, at, ...rest }) => rest);
 const kinds = (events: ChatEvent[]) => events.map((e) => e.event);
 
-test("two tools, then an answer: events stream in order, contents carry verbatim parts, the turn is recorded", async () => {
+test("two tools, then an answer: events stream in order, the model's turns go back as returned, the turn is recorded", async () => {
   const f = fakeLlm(
-    [thought("Planning"), call("ha_turn_off", { entity: "light.x" }, "sig-1")],
-    [call("jellyfin_search", { q: "Dune" }, "sig-2")],
+    [thought("Planning"), call("ha_turn_off", { entity: "light.x" }, "p-1"), data(["sig-1"])],
+    [call("jellyfin_search", { q: "Dune" }), data(["sig-2"])],
     [text("Done. "), text("Which Dune?")],
   );
   const { engine: e, registry, store } = engine(f.llm);
@@ -87,13 +97,13 @@ test("two tools, then an answer: events stream in order, contents carry verbatim
   assert.equal(f.requests[0].model, "chat-model");
   assert.equal(f.requests[0].system, "CHAT PROMPT");
   assert.equal(f.requests[0].thoughts, true);
-  assert.deepEqual(f.requests[0].contents, [{ role: "user", parts: [{ text: "turn off the light and find Dune" }] }]);
-  // Round 3 sees both rounds: model parts verbatim (signatures kept, the thought summary dropped), then the responses.
-  assert.deepEqual(f.requests[2].contents.slice(1), [
-    { role: "model", parts: [{ functionCall: { name: "ha_turn_off", args: { entity: "light.x" } }, thoughtSignature: "sig-1" }] },
-    { role: "user", parts: [{ functionResponse: { name: "ha_turn_off", response: { ok: true } } }] },
-    { role: "model", parts: [{ functionCall: { name: "jellyfin_search", args: { q: "Dune" } }, thoughtSignature: "sig-2" }] },
-    { role: "user", parts: [{ functionResponse: { name: "jellyfin_search", response: { items: 2 } } }] },
+  assert.deepEqual(f.requests[0].messages, [{ role: "user", text: "turn off the light and find Dune" }]);
+  // Round 3 sees both rounds: each model turn as the adapter returned it (provider data kept), then its results.
+  assert.deepEqual(f.requests[2].messages.slice(1), [
+    { role: "assistant", toolCalls: [{ id: "p-1", name: "ha_turn_off", args: { entity: "light.x" } }], providerData: { adapter: "gemini", value: ["sig-1"] } },
+    { role: "tool", callId: "p-1", name: "ha_turn_off", result: { ok: true } },
+    { role: "assistant", toolCalls: [{ id: "c1", name: "jellyfin_search", args: { q: "Dune" } }], providerData: { adapter: "gemini", value: ["sig-2"] } },
+    { role: "tool", callId: "c1", name: "jellyfin_search", result: { items: 2 } },
   ]);
   const c = store.get(id)!;
   assert.equal(c.channel, "chat");
@@ -130,7 +140,10 @@ test("parallel calls in one round run together and answer in call order", { time
   registry.add("x", { name: "fast", description: "", handler: () => (order.push("fast"), fastRan(), { n: 2 }) });
   await send(e, "go");
   assert.deepEqual(order, ["fast", "slow"]);
-  assert.deepEqual(f.requests[1].contents.at(-1), { role: "user", parts: [{ functionResponse: { name: "slow", response: { n: 1 } } }, { functionResponse: { name: "fast", response: { n: 2 } } }] });
+  assert.deepEqual(f.requests[1].messages.slice(-2), [
+    { role: "tool", callId: "c1", name: "slow", result: { n: 1 } },
+    { role: "tool", callId: "c2", name: "fast", result: { n: 2 } },
+  ]);
 });
 
 test("a hanging tool is answered with a timeout error and the turn continues", async () => {
@@ -140,7 +153,7 @@ test("a hanging tool is answered with a timeout error and the turn continues", a
   const { id, events } = await send(e, "try it");
   assert.deepEqual(events.find((ev) => ev.event === "tool_result"), { event: "tool_result", data: { id: 1, name: "hang", result: { error: "timed out after 20 ms" } } });
   assert.equal(events.at(-1)!.event, "done");
-  assert.deepEqual(f.requests[1].contents.at(-1)!.parts, [{ functionResponse: { name: "hang", response: { error: "timed out after 20 ms" } } }]);
+  assert.deepEqual(f.requests[1].messages.at(-1), { role: "tool", callId: "c1", name: "hang", result: { error: "timed out after 20 ms" } });
   assert.deepEqual((store.get(id)!.entries[1] as { result: unknown }).result, { error: "timed out after 20 ms" });
 });
 
@@ -216,13 +229,13 @@ test("parallel calls to the same tool carry ids, so results match their calls wh
 });
 
 test("a round that ends unfinished without calls is an error, not an empty done", async () => {
-  const cut = fakeLlm([text("Here is a long"), { finish: "MAX_TOKENS" }]);
+  const cut = fakeLlm([text("Here is a long"), { finish: "length" }]);
   const a = engine(cut.llm);
   const r1 = await send(a.engine, "write a lot");
   assert.deepEqual(r1.events.at(-1), { event: "error", data: { kind: "invalid_output", message: "the answer was cut off at the output limit" } });
   assert.deepEqual(shape(a.store.get(r1.id)!.entries).at(-1), { kind: "assistant", text: "Here is a long", interrupted: true });
 
-  const malformed = fakeLlm([{ finish: "MALFORMED_FUNCTION_CALL" }]);
+  const malformed = fakeLlm([{ finish: "malformed_call" }]);
   const b = engine(malformed.llm);
   const r2 = await send(b.engine, "do it");
   assert.deepEqual(r2.events.map((ev) => ev.event), ["start", "error"]);
@@ -298,12 +311,12 @@ test("a resumed thread replays its whole history, tools included, and reads tool
   const again = await send(e, "turn it off", id);
   assert.equal(again.id, id);
   assert.deepEqual(f.requests[2].tools!.map((t) => t.name), ["ha_get_state", "ha_turn_off"]);
-  assert.deepEqual(f.requests[2].contents, [
-    { role: "user", parts: [{ text: "is the light on?" }] },
-    { role: "model", parts: [{ functionCall: { name: "ha_get_state", args: { entity: "light.x" } } }] },
-    { role: "user", parts: [{ functionResponse: { name: "ha_get_state", response: { state: "on" } } }] },
-    { role: "model", parts: [{ text: "It is on." }] },
-    { role: "user", parts: [{ text: "turn it off" }] },
+  assert.deepEqual(f.requests[2].messages, [
+    { role: "user", text: "is the light on?" },
+    { role: "assistant", toolCalls: [{ id: "h2", name: "ha_get_state", args: { entity: "light.x" } }] },
+    { role: "tool", callId: "h2", name: "ha_get_state", result: { state: "on" } },
+    { role: "assistant", text: "It is on." },
+    { role: "user", text: "turn it off" },
   ]);
   assert.deepEqual(store.get(id)!.entries.map((x) => x.seq), [1, 2, 3, 4, 5]);
 });
