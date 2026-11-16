@@ -82,22 +82,24 @@ class ProviderError extends Error {
 ```
 
 - The Gemini adapter takes over `classify`, `rateLimitInfo`, the daily-quota check and `BLOCKING_FINISH`, with unchanged logic. `LlmService` keeps the retry policy and the messages. Its `classify` becomes a switch on `ProviderError.kind`, so log lines and error messages stay identical.
-- **Blocked is not a `ProviderError`.** An adapter throws `LlmError("blocked", …, { reason })` directly, as `throwIfBlocked` does today. `LlmService` already never retries an `LlmError`.
+- **Blocked is not a `ProviderError`.** An adapter throws `LlmError("blocked", …, { reason })` directly, as `throwIfBlocked` does today. `LlmService` already never retries an `LlmError`. The adapters actually throw `BlockedError`, a core-only subclass that also carries the answering model and the usage, so the call's log line keeps its token counts as before.
 - **Missing keys:** the Gemini adapter keeps throwing `LlmError("unavailable", "GEMINI_API_KEY is not configured")`.
 - **Finish reasons are neutral from the adapter onwards.** `unfinished()` in the tool loop switches on `length`, `malformed_call` and `other` (with `providerReason`), keeping today's messages. For `parseOutput`, `LlmService` passes `"MAX_TOKENS"` when `finish` is `length`, so the SDK helper and the test host stay untouched. *Alternative:* teaching `parseOutput` about `length`. That's a small SDK change. Deferred unless a second caller needs it.
 
 ### 3. Tool call ids: from the provider, otherwise made up, and prefixed so they never clash
 
-- During a turn or run, a call uses the provider's id when it gives one (OpenAI always does, Gemini sometimes does). Otherwise the adapter makes one up: `c<n>`, counting within the call.
+- During a turn or run, a call uses the provider's id when it gives one (OpenAI always does, Gemini sometimes does). Otherwise the adapter makes one up: `c<n>`, counted per adapter instance across all its calls, so a multi-round loop never repeats one within a request.
 - On replay, `chat/history.ts` gives each stored tool entry the id `h<seq>`, from the entry's `seq`. Replayed and live ids can therefore never clash within one request.
 - The Gemini adapter sends an id in `functionCall` and `functionResponse` only when Gemini supplied one. Today's requests carry none, so nothing changes for Gemini.
 - `LoopCall` keeps its numeric `id` for bookkeeping in the loop and gains `callId: string`.
 
 ### 4. History becomes neutral; the Gemini adapter does the merging
 
-`toMessages(entries)` gives one `user` message per user entry and one `assistant` text message per assistant entry. Each tool entry becomes an `assistant` message with one call, followed by its `tool` message. The `{ truncated, partial }` and `{ error: "no result" }` rules stay in `history.ts`.
+`toMessages(entries)` gives one `user` message per user entry and one `assistant` text message per assistant entry. Each tool entry becomes an `assistant` message with one call, followed by its `tool` message; when the entry before it is the assistant's text, the call joins that message, so roles keep alternating (some chat templates on OpenAI-compatible servers refuse two assistant messages in a row). The `{ truncated, partial }` and `{ error: "no result" }` rules stay in `history.ts`.
 
 Merging moves into the Gemini adapter, with the same rules as `toContents` today: "a model turn holds its text and the call after it; user text and function responses stay apart". So Gemini receives the same `Content[]`. The OpenAI adapter doesn't merge. Its format allows consecutive assistant and tool messages.
+
+The adapter can't tell where a request's messages come from, so the same merging applies to `ctx.llm` messages. Before, those were sent one-to-one. Nothing changes for the calls Friday makes today: the brain always alternates user and model messages. A module that sent two user messages in a row would now have them sent as one Gemini content with two text parts, which means the same to Gemini.
 
 ### 5. The OpenAI-compatible adapter is our own `fetch` client, with no `openai` package
 
@@ -113,6 +115,7 @@ Merging moves into the Gemini adapter, with the same rules as `toContents` today
   - If any call's arguments are not valid JSON, no calls are yielded and the call ends with `malformed_call`. That matches how Gemini reports a malformed call, so the loop's handling stays the same. Empty arguments become `{}`.
   - Finish reasons map as follows: `stop` and `tool_calls` to `stop`, `length` to `length`, `content_filter` to blocked, anything else to `other`. A stream that ends with `[DONE]` but without a finish reason counts as `stop`.
   - Usage comes from the last chunk that has `usage` (`stream_options: { include_usage: true }`), and is 0 otherwise.
+  - A stream that ends with neither `[DONE]` nor a finish reason was cut off, and counts as a transient network failure. An `error` event, or an event that isn't JSON, is a `failed` provider error (not retried).
 - **Errors:**
   - The status mapping follows the spec. 401 and 403 become `failed`, which is not retried.
   - `Retry-After` can be seconds or an HTTP date. `retry-after-ms` is used when present.

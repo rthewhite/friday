@@ -8,13 +8,13 @@
  * shared with agent runs, llm/tool-loop.ts). The turn never depends on its listener: a disconnected
  * client only stops receiving events.
  */
-import type { Content, FunctionDeclaration } from "@google/genai";
 import { LlmError, type CallUser, type ToolRegistry } from "@friday/sdk";
 import type { ConversationRecorder } from "../conversations/recorder.js";
 import type { ConversationStore } from "../conversations/store.js";
 import type { LlmService } from "../llm/service.js";
 import { runToolLoop, type LoopCall as Call } from "../llm/tool-loop.js";
-import { toContents } from "./history.js";
+import type { ChatMessage as ModelMessage } from "../llm/types.js";
+import { toMessages } from "./history.js";
 
 export const MAX_TOOL_ROUNDS = 10;
 
@@ -129,15 +129,15 @@ export class ChatTurn {
         owner: "chat",
         model: this.opts.model,
         system: this.opts.system(this.user),
-        contents: this.history(),
-        tools: this.opts.registry.declarations("chat", this.user) as FunctionDeclaration[],
+        messages: this.history(),
+        tools: this.opts.registry.declarations("chat", this.user),
         thoughts: true,
         onThought: (text) => emit({ event: "thinking", data: { text } }),
         onText: (text) => {
           this.recorder.assistant(text);
           emit({ event: "text", data: { text } });
         },
-        onCall: (call) => emit({ event: "tool_call", data: call }),
+        onCall: ({ id, name, args }) => emit({ event: "tool_call", data: { id, name, args } }),
         callTool: (c) => this.callTool(c, emit),
         beforeCalls: (_calls, s) =>
           s.rounds >= MAX_TOOL_ROUNDS ? { kind: "too_many_tool_calls", message: `the model asked for tools more than ${MAX_TOOL_ROUNDS} times in one turn` } : undefined,
@@ -163,14 +163,14 @@ export class ChatTurn {
   }
 
   /** The stored thread, which already ends with this turn's message. */
-  private history(): Content[] {
+  private history(): ModelMessage[] {
     try {
       const c = this.opts.store.get(this.conversationId);
-      if (c) return toContents(c.entries);
+      if (c) return toMessages(c.entries);
     } catch (e) {
       this.log.error(`chat: could not read ${this.conversationId}`, e instanceof Error ? e.message : e);
     }
-    return [{ role: "user", parts: [{ text: this.text }] }];
+    return [{ role: "user", text: this.text }];
   }
 
   private settleUnrun({ id, name, args }: Call, emit: (e: ChatEvent) => void): void {

@@ -17,7 +17,7 @@ const finished = (t: { runs: { list(name: string): { outcome: string }[] } }, na
 const fired = (t: { clock: FakeClock }) => t.clock.advance(0);
 
 /** Agents with real scheduling on a fake clock starting on Sunday 25 October 2026, 12:00 UTC (13:00 in Amsterdam). */
-function setup(rounds: Round[] = [{ chunks: [{ kind: "text", text: "Busy week.", part: { text: "Busy week." } }] }], start = "2026-10-25T12:00:00Z") {
+function setup(rounds: Round[] = [{ chunks: [{ kind: "text", text: "Busy week." }] }], start = "2026-10-25T12:00:00Z") {
   const t = agentHarness(rounds);
   const clock = new FakeClock(Date.parse(start));
   const jobs = new JobStore(t.db);

@@ -28,7 +28,7 @@ import { registerAlertTools } from "./alerts/tools.js";
 import { createApp } from "./app.js";
 import { JobStore } from "./jobs/store.js";
 import { Scheduler } from "./jobs/scheduler.js";
-import { GeminiTextModel } from "./llm/gemini.js";
+import { GeminiAdapter } from "./llm/gemini.js";
 import { LlmService } from "./llm/service.js";
 import { ChatEngine } from "./chat/engine.js";
 import { createPromptContext, systemPrompt } from "./prompt-context.js";
@@ -119,7 +119,7 @@ registry.setAccessCheck((owner, tool, u) => access.allowsTool(owner, tool, u));
 const promptContext = createPromptContext();
 promptContext.setAccessCheck((owner, u) => access.allowsModule(owner, u));
 const llm = new LlmService({
-  model: new GeminiTextModel(geminiKey),
+  model: new GeminiAdapter(geminiKey),
   models: { standard: settings.textModel, fast: settings.textModelFast },
   concurrency: settings.llmConcurrency,
   timeoutMs: settings.llmTimeoutMs,

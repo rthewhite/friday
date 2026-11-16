@@ -1,18 +1,18 @@
-/** A scripted stand-in for `LlmService.streamCall`, for the tool loop and agent runs. */
+/** A scripted stand-in for `LlmService.streamCall`, for the tool loop and agent runs (provider-neutral). */
 import { LlmError } from "@friday/sdk";
-import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
 import type { StreamCallRequest } from "../src/llm/service.js";
+import type { AssistantMessage, FinishReason, ModelEnd, StreamChunk, ToolCall } from "../src/llm/types.js";
 
-export const text = (t: string, extra: object = {}): StreamChunk => ({ kind: "text", text: t, part: { text: t, ...extra } });
-export const thought = (t: string): StreamChunk => ({ kind: "thought", text: t, part: { text: t, thought: true } });
-export const call = (name: string, args: Record<string, unknown> = {}, sig?: string): StreamChunk => ({
-  kind: "call", name, args, part: { functionCall: { name, args }, ...(sig ? { thoughtSignature: sig } : {}) },
-});
+export const text = (t: string): StreamChunk => ({ kind: "text", text: t });
+export const thought = (t: string): StreamChunk => ({ kind: "thought", text: t });
+/** A tool call; its id defaults to `c<n>`, numbered within the round. */
+export const call = (name: string, args: Record<string, unknown> = {}, id?: string): StreamChunk => ({ kind: "call", call: { id: id ?? "", name, args } });
 
 /** One model call: its chunks, plus optional finish reason, token usage and a wait (aborted by the request's signal). */
 export interface Round {
   chunks?: StreamChunk[];
-  finish?: string;
+  finish?: FinishReason;
+  providerReason?: string;
   tokens?: { input: number; output: number };
   /** Milliseconds to wait before answering; `Infinity` waits for the abort. */
   waitMs?: number;
@@ -26,7 +26,7 @@ export function fakeStream(...rounds: Round[]) {
   const owners: string[] = [];
   const state = { active: 0, maxActive: 0 };
   const llm = {
-    async streamCall(owner: string, req: StreamCallRequest, onChunk: (c: StreamChunk) => void): Promise<StreamEnd> {
+    async streamCall(owner: string, req: StreamCallRequest, onChunk: (c: StreamChunk) => void): Promise<ModelEnd> {
       owners.push(owner);
       const { signal, ...rest } = req;
       requests.push(JSON.parse(JSON.stringify(rest)));
@@ -35,10 +35,20 @@ export function fakeStream(...rounds: Round[]) {
       state.maxActive = Math.max(state.maxActive, state.active);
       try {
         if (round.waitMs) await wait(round.waitMs, signal);
-        for (const c of round.chunks ?? []) onChunk(c);
+        let text = "";
+        const calls: ToolCall[] = [];
+        for (const c of round.chunks ?? []) {
+          const chunk: StreamChunk = c.kind === "call" ? { kind: "call", call: { ...c.call, id: c.call.id || `c${calls.length + 1}` } } : c;
+          if (chunk.kind === "text") text += chunk.text;
+          if (chunk.kind === "call") calls.push(chunk.call);
+          onChunk(chunk);
+        }
         if (round.error) throw round.error;
         const usage = { inputTokens: round.tokens?.input ?? 1, outputTokens: round.tokens?.output ?? 1, thoughtTokens: 0 };
-        return { finishReason: round.finish ?? "STOP", model: req.model, usage };
+        const message: AssistantMessage = { role: "assistant" };
+        if (text) message.text = text;
+        if (calls.length) message.toolCalls = calls;
+        return { finish: round.finish ?? "stop", ...(round.providerReason ? { providerReason: round.providerReason } : {}), model: req.model, usage, message };
       } finally {
         state.active--;
       }

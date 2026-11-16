@@ -2,22 +2,26 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defineModule, ToolRegistry, type PromptContextInfo, type RouteRequest, type ToolCallContext } from "@friday/sdk";
 import { ChatEngine } from "../src/chat/engine.js";
-import type { StreamChunk, StreamEnd } from "../src/llm/gemini.js";
+import type { ModelEnd, StreamChunk } from "../src/llm/types.js";
 import { createPromptContext, systemPrompt } from "../src/prompt-context.js";
 import { setup } from "./conversation-fixtures.js";
 import { admin, member, startAuthApp } from "./auth-harness.js";
 
 const quiet = { log() {}, warn() {}, error() {} };
-const end: StreamEnd = { finishReason: "STOP", model: "m", usage: { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 } };
+const usage = { inputTokens: 1, outputTokens: 1, thoughtTokens: 0 };
 
 /** One round calling tool `who`, then a round answering. */
 function llmCallingWho() {
   let round = 0;
   return {
-    async streamCall(_owner: string, _req: unknown, onChunk: (c: StreamChunk) => void): Promise<StreamEnd> {
-      if (round++ === 0) onChunk({ kind: "call", name: "who", args: {}, part: { functionCall: { name: "who", args: {} } } });
-      else onChunk({ kind: "text", text: "ok", part: { text: "ok" } });
-      return end;
+    async streamCall(_owner: string, _req: unknown, onChunk: (c: StreamChunk) => void): Promise<ModelEnd> {
+      const who = { id: "c1", name: "who", args: {} };
+      if (round++ === 0) {
+        onChunk({ kind: "call", call: who });
+        return { finish: "stop", model: "m", usage, message: { role: "assistant", toolCalls: [who] } };
+      }
+      onChunk({ kind: "text", text: "ok" });
+      return { finish: "stop", model: "m", usage, message: { role: "assistant", text: "ok" } };
     },
   };
 }

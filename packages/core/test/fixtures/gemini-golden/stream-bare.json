@@ -1,0 +1,29 @@
+{
+  "input": {
+    "model": "m",
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "hi"
+          }
+        ]
+      }
+    ]
+  },
+  "output": {
+    "model": "m",
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "config": {}
+  }
+}

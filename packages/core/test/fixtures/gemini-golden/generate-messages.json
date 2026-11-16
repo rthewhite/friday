@@ -1,0 +1,49 @@
+{
+  "input": {
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "text": "a"
+      },
+      {
+        "role": "model",
+        "text": "b"
+      },
+      {
+        "role": "user",
+        "text": "c"
+      }
+    ]
+  },
+  "output": {
+    "model": "m",
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "a"
+          }
+        ]
+      },
+      {
+        "role": "model",
+        "parts": [
+          {
+            "text": "b"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "c"
+          }
+        ]
+      }
+    ],
+    "config": {}
+  }
+}

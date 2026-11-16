@@ -203,7 +203,12 @@ test("dispose cancels a running job before module.dispose runs", async () => {
 test("ctx.llm calls are attributed to the module id; without a service they are unavailable", async () => {
   const { lines, log } = logger();
   const service = new LlmService({
-    model: { generate: async (req) => ({ text: `echo ${req.model}`, model: req.model, usage: { inputTokens: 3, outputTokens: 2, thoughtTokens: 0 } }) },
+    model: {
+      generate: async (req) => ({ finish: "stop", model: req.model, usage: { inputTokens: 3, outputTokens: 2, thoughtTokens: 0 }, message: { role: "assistant", text: `echo ${req.model}` } }),
+      stream: () => {
+        throw new Error("not used");
+      },
+    },
     models: { standard: "std", fast: "quick" },
     concurrency: 2,
     timeoutMs: 1000,

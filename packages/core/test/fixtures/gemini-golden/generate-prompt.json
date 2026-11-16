@@ -1,0 +1,56 @@
+{
+  "input": {
+    "model": "gemini-flash-latest",
+    "system": "Be brief.",
+    "prompt": "hi",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "facts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "facts"
+      ]
+    },
+    "temperature": 0.2,
+    "maxOutputTokens": 100
+  },
+  "output": {
+    "model": "gemini-flash-latest",
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "config": {
+      "systemInstruction": "Be brief.",
+      "temperature": 0.2,
+      "maxOutputTokens": 100,
+      "responseMimeType": "application/json",
+      "responseJsonSchema": {
+        "type": "object",
+        "properties": {
+          "facts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "facts"
+        ]
+      }
+    }
+  }
+}
