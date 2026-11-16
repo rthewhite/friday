@@ -6,7 +6,7 @@
 
 ## 2. Neutral types and errors
 
-- [ ] 2.1 Add `packages/core/src/llm/types.ts` with `ChatMessage`, `ToolCall`, `ProviderData`, `ChatRequest`, `StreamChunk`, `ModelEnd`, the `ChatModel` interface, and the `ProviderError` class (design 1 and 2). Tool declarations use the SDK's `FunctionDeclaration`. Nothing in it imports `@google/genai`. Verify: `pnpm --filter @friday/core typecheck` passes.
+- [x] 2.1 Add `packages/core/src/llm/types.ts` with `ChatMessage`, `ToolCall`, `ProviderData`, `ChatRequest`, `StreamChunk`, `ModelEnd`, the `ChatModel` interface, and the `ProviderError` class (design 1 and 2). Tool declarations use the SDK's `FunctionDeclaration`. Nothing in it imports `@google/genai`. Verify: `pnpm --filter @friday/core typecheck` passes.
 
 ## 3. Gemini adapter
 
