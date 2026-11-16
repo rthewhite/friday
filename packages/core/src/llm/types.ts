@@ -3,7 +3,7 @@
  * an adapter per provider (Gemini, OpenAI-compatible) maps them to its own wire format. Shaped like
  * OpenAI's chat messages, but owned by Friday: no provider SDK types appear outside the adapters.
  */
-import type { FunctionDeclaration, JsonSchema, LlmUsage } from "@friday/sdk";
+import { LlmError, type FunctionDeclaration, type JsonSchema, type LlmUsage } from "@friday/sdk";
 
 /** One tool call: `id` is unique within a request and pairs the call with its `tool` message. */
 export interface ToolCall {
@@ -86,6 +86,22 @@ export interface ChatModel {
   generate(req: ChatRequest, opts?: { signal?: AbortSignal }): Promise<ModelEnd>;
   /** Streamed call with tools. */
   stream(req: ChatRequest, opts?: { signal?: AbortSignal }): ModelStream;
+}
+
+/**
+ * The provider refused the prompt or stopped the response for safety or policy: an `LlmError` of kind
+ * `blocked` (never retried) that also carries the answering model and usage, so the call's log line keeps
+ * its token counts.
+ */
+export class BlockedError extends LlmError {
+  constructor(
+    message: string,
+    reason: string,
+    readonly model: string,
+    readonly usage: Required<LlmUsage>,
+  ) {
+    super("blocked", message, { reason });
+  }
 }
 
 /**

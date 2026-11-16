@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { ApiError } from "@google/genai";
 import { LlmError, type LlmErrorKind } from "@friday/sdk";
 import { GeminiTextModel, type TextModel, type TextRequest, type TextResponse } from "../src/llm/gemini.js";
-import { classify, LlmService, rateLimitInfo, type LlmServiceOptions } from "../src/llm/service.js";
+import { rateLimitInfo } from "../src/llm/gemini.js";
+import { classify, LlmService, type LlmServiceOptions } from "../src/llm/service.js";
 import { sleep, waitFor } from "./helpers.js";
 
 type Step = TextResponse | Error | ((req: TextRequest, signal?: AbortSignal) => Promise<TextResponse>);

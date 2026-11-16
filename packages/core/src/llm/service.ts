@@ -4,7 +4,7 @@
  * validation (SDK helpers, shared with the test host), and one content-free log line per call.
  */
 import { checkRequest, LlmError, parseOutput, type LlmRequest, type LlmResult, type LlmUsage, type ModuleLlm } from "@friday/sdk";
-import type { StreamChunk, StreamEnd, StreamRequest, TextModel, TextResponse } from "./gemini.js";
+import { BLOCKING_FINISH, isDaily, rateLimitInfo, type RateLimitInfo, type StreamChunk, type StreamEnd, type StreamRequest, type TextModel, type TextResponse } from "./gemini.js";
 
 /** A streamed call: the model is already resolved by the caller (the chat model). */
 export interface StreamCallRequest extends StreamRequest {
@@ -30,8 +30,6 @@ export interface LlmServiceOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
-/** Finish reasons that mean the provider stopped the answer for safety or policy. */
-const BLOCKING_FINISH = new Set(["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "OTHER", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT"]);
 /** A refused prompt or a response stopped for safety or policy is a `blocked` error. */
 function throwIfBlocked(res: { blockReason?: string; finishReason?: string }): void {
   const reason = res.blockReason ?? (res.finishReason && BLOCKING_FINISH.has(res.finishReason) ? res.finishReason : undefined);
@@ -109,44 +107,6 @@ function once(fn: () => void): () => void {
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-export interface RateLimitInfo {
-  /** The provider's `RetryInfo.retryDelay`, in ms. */
-  waitMs?: number;
-  /** The exhausted quota (`QuotaFailure` quota id or metric); a daily one when any violation is per day. */
-  quota?: string;
-}
-
-/**
- * Reads Gemini's 429 body, which the SDK puts JSON-encoded in `ApiError.message`. Best-effort:
- * anything unexpected yields `{}` and the fixed backoff applies.
- */
-export function rateLimitInfo(msg: string): RateLimitInfo {
-  let details: unknown;
-  try {
-    details = (JSON.parse(msg) as { error?: { details?: unknown } })?.error?.details;
-  } catch {
-    return {};
-  }
-  if (!Array.isArray(details)) return {};
-  const out: RateLimitInfo = {};
-  for (const d of details as Array<Record<string, unknown>>) {
-    const type = typeof d?.["@type"] === "string" ? (d["@type"] as string) : "";
-    if (out.waitMs === undefined && type.endsWith("RetryInfo")) {
-      const m = /^(\d+(?:\.\d+)?)s$/.exec(String(d.retryDelay ?? ""));
-      if (m) out.waitMs = Math.round(Number(m[1]) * 1000);
-    }
-    if (out.quota === undefined && type.endsWith("QuotaFailure") && Array.isArray(d.violations)) {
-      const names = (d.violations as Array<Record<string, unknown>>)
-        .map((v) => (typeof v?.quotaId === "string" ? v.quotaId : typeof v?.quotaMetric === "string" ? v.quotaMetric : undefined))
-        .filter((n): n is string => !!n);
-      out.quota = names.find(isDaily) ?? names[0];
-    }
-  }
-  return out;
-}
-
-const isDaily = (quota: string) => /perday/i.test(quota);
 
 export interface Failure extends RateLimitInfo {
   error: LlmError;

@@ -99,6 +99,8 @@ class ProviderError extends Error {
 
 Merging moves into the Gemini adapter, with the same rules as `toContents` today: "a model turn holds its text and the call after it; user text and function responses stay apart". So Gemini receives the same `Content[]`. The OpenAI adapter doesn't merge. Its format allows consecutive assistant and tool messages.
 
+The adapter can't tell where a request's messages come from, so the same merging applies to `ctx.llm` messages. Before, those were sent one-to-one. Nothing changes for the calls Friday makes today: the brain always alternates user and model messages. A module that sent two user messages in a row would now have them sent as one Gemini content with two text parts, which means the same to Gemini.
+
 ### 5. The OpenAI-compatible adapter is our own `fetch` client, with no `openai` package
 
 - It follows the pattern of the CalDAV and Spotify clients: `fetch` can be injected, and `{ baseUrl, apiKey?: string | (() => string | undefined) }`. `apiKey` is resolved on each call, like Gemini's, so `llm-providers` can hand it a key from the store.

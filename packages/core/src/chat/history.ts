@@ -13,6 +13,7 @@
  */
 import type { Content, Part } from "@google/genai";
 import type { ConversationEntry } from "@friday/sdk";
+import type { ChatMessage } from "../llm/types.js";
 
 type Kind = "text" | "calls" | "responses";
 
@@ -34,6 +35,25 @@ export function toContents(entries: ConversationEntry[]): Content[] {
     else push("model", "text", { text: e.text });
   }
   return out.map((o) => o.content);
+}
+
+/**
+ * A chat thread's stored entries as provider-neutral messages: user entries as user text, assistant entries
+ * as assistant text (interrupted ones as stored), and each tool entry as an assistant message with one call
+ * followed by its tool message. Stored calls have no id, so each gets `h<seq>` from its entry. Merging
+ * adjacent turns is the adapter's business (Gemini merges, OpenAI-compatible servers don't need to).
+ */
+export function toMessages(entries: ConversationEntry[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const e of entries) {
+    if (e.kind === "tool") {
+      const id = `h${e.seq}`;
+      out.push({ role: "assistant", toolCalls: [{ id, name: e.name, args: toArgs(e.args, e.truncated) }] });
+      out.push({ role: "tool", callId: id, name: e.name, result: toResponse(e.result, e.truncated) });
+    } else if (e.kind === "user") out.push({ role: "user", text: e.text });
+    else out.push({ role: "assistant", text: e.text });
+  }
+  return out;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
