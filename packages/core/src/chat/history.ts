@@ -2,7 +2,8 @@
  * A chat thread's stored entries as provider-neutral messages, replayed in full on every turn.
  *
  * - user entries become user text, assistant entries assistant text (interrupted ones as stored);
- * - a tool entry becomes an assistant message with one call, followed by its tool message. The store
+ * - a tool entry becomes an assistant message with one call (joining the assistant's text right before
+ *   it, as one turn), followed by its tool message. The store
  *   can't tell parallel calls from sequential rounds, so every call is replayed with its own result: a
  *   later call never appears to precede an earlier result. Stored calls have no id, so each gets
  *   `h<seq>` from its entry;
@@ -20,7 +21,12 @@ export function toMessages(entries: ConversationEntry[]): ChatMessage[] {
   for (const e of entries) {
     if (e.kind === "tool") {
       const id = `h${e.seq}`;
-      out.push({ role: "assistant", toolCalls: [{ id, name: e.name, args: toArgs(e.args, e.truncated) }] });
+      const call = { id, name: e.name, args: toArgs(e.args, e.truncated) };
+      // An assistant's text and the call right after it are one turn, so roles keep alternating
+      // (some chat templates refuse two assistant messages in a row).
+      const last = out.at(-1);
+      if (last?.role === "assistant" && !last.toolCalls) last.toolCalls = [call];
+      else out.push({ role: "assistant", toolCalls: [call] });
       out.push({ role: "tool", callId: id, name: e.name, result: toResponse(e.result, e.truncated) });
     } else if (e.kind === "user") out.push({ role: "user", text: e.text });
     else out.push({ role: "assistant", text: e.text });

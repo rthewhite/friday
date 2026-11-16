@@ -72,11 +72,29 @@ test("another adapter's provider data is left out: its text and calls are sent",
   ]);
 });
 
-test("provider data is copied, so later changes to the request don't touch the stored turn", () => {
-  const value: Part[] = [{ text: "hi", thoughtSignature: "s" }];
-  const contents = toGeminiContents([{ role: "assistant", providerData: { adapter: "gemini", value } }]);
-  contents[0].parts![0].text = "changed";
-  assert.equal(value[0].text, "hi");
+test("merging turns never changes a stored turn's parts", () => {
+  const first: Part[] = [{ text: "Looking.", thoughtSignature: "s" }];
+  const second: Part[] = [{ functionCall: { name: "a", args: {} } }];
+  const contents = toGeminiContents([
+    { role: "assistant", providerData: { adapter: "gemini", value: first } },
+    { role: "assistant", providerData: { adapter: "gemini", value: second } },
+  ]);
+  assert.equal(contents.length, 1);
+  assert.equal(contents[0].parts!.length, 2);
+  assert.deepEqual([first.length, second.length], [1, 1]);
+});
+
+test("made-up call ids never repeat across rounds, so a multi-round request keeps them unique", async () => {
+  let round = 0;
+  const adapter = new GeminiAdapter("k", undefined, undefined, () => async () => {
+    round++;
+    return (async function* () {
+      yield parts({ functionCall: { name: `tool${round}`, args: {} } }) as GenerateContentResponse;
+    })();
+  });
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i++) ids.push(...(await drain(adapter.stream(req()))).end.message.toolCalls!.map((c) => c.id));
+  assert.equal(new Set(ids).size, 3);
 });
 
 // --- Calls (task 3.2) ---------------------------------------------------------------------------------

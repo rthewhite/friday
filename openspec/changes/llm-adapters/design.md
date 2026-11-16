@@ -88,14 +88,14 @@ class ProviderError extends Error {
 
 ### 3. Tool call ids: from the provider, otherwise made up, and prefixed so they never clash
 
-- During a turn or run, a call uses the provider's id when it gives one (OpenAI always does, Gemini sometimes does). Otherwise the adapter makes one up: `c<n>`, counting within the call.
+- During a turn or run, a call uses the provider's id when it gives one (OpenAI always does, Gemini sometimes does). Otherwise the adapter makes one up: `c<n>`, counted per adapter instance across all its calls, so a multi-round loop never repeats one within a request.
 - On replay, `chat/history.ts` gives each stored tool entry the id `h<seq>`, from the entry's `seq`. Replayed and live ids can therefore never clash within one request.
 - The Gemini adapter sends an id in `functionCall` and `functionResponse` only when Gemini supplied one. Today's requests carry none, so nothing changes for Gemini.
 - `LoopCall` keeps its numeric `id` for bookkeeping in the loop and gains `callId: string`.
 
 ### 4. History becomes neutral; the Gemini adapter does the merging
 
-`toMessages(entries)` gives one `user` message per user entry and one `assistant` text message per assistant entry. Each tool entry becomes an `assistant` message with one call, followed by its `tool` message. The `{ truncated, partial }` and `{ error: "no result" }` rules stay in `history.ts`.
+`toMessages(entries)` gives one `user` message per user entry and one `assistant` text message per assistant entry. Each tool entry becomes an `assistant` message with one call, followed by its `tool` message; when the entry before it is the assistant's text, the call joins that message, so roles keep alternating (some chat templates on OpenAI-compatible servers refuse two assistant messages in a row). The `{ truncated, partial }` and `{ error: "no result" }` rules stay in `history.ts`.
 
 Merging moves into the Gemini adapter, with the same rules as `toContents` today: "a model turn holds its text and the call after it; user text and function responses stay apart". So Gemini receives the same `Content[]`. The OpenAI adapter doesn't merge. Its format allows consecutive assistant and tool messages.
 

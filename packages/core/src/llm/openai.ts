@@ -6,8 +6,8 @@
  *
  * Built and tested here; nothing selects it yet (that is `llm-providers`).
  */
-import { LlmError, type FunctionDeclaration, type Schema } from "@friday/sdk";
-import { BlockedError, ProviderError, type AssistantMessage, type ChatMessage, type ChatModel, type ChatRequest, type FinishReason, type ModelEnd, type ModelStream, type ToolCall } from "./types.js";
+import { LlmError, type FunctionDeclaration, type LlmUsage, type Schema } from "@friday/sdk";
+import { BlockedError, messageOf, ProviderError, statusFailure, type AssistantMessage, type ChatMessage, type ChatModel, type ChatRequest, type FinishReason, type ModelEnd, type ModelStream, type ToolCall } from "./types.js";
 
 export interface OpenAICompatibleOptions {
   /** The API's base URL, such as `http://gpu-box:11434/v1` or `https://api.openai.com/v1`. */
@@ -130,13 +130,18 @@ export function toWireRequest(req: ChatRequest, stream: boolean): Record<string,
   return body;
 }
 
-const usageOf = (u: WireUsage | undefined) => ({ inputTokens: u?.prompt_tokens ?? 0, outputTokens: u?.completion_tokens ?? 0, thoughtTokens: 0 });
+const usageOf = (u: WireUsage | null | undefined): Required<LlmUsage> => ({ inputTokens: u?.prompt_tokens ?? 0, outputTokens: u?.completion_tokens ?? 0, thoughtTokens: 0 });
 
 /** A chat-completion finish reason in neutral terms; `content_filter` is handled before this. */
 function finishOf(reason: string | null | undefined): { finish: FinishReason; providerReason?: string } {
   if (!reason || reason === "stop" || reason === "tool_calls" || reason === "function_call") return { finish: "stop" };
   if (reason === "length") return { finish: "length", providerReason: reason };
   return { finish: "other", providerReason: reason };
+}
+
+/** Throws `blocked` when the server stopped the response with `content_filter`. */
+function throwIfFiltered(reason: string | null | undefined, model: string, usage: Required<LlmUsage>): void {
+  if (reason === "content_filter") throw new BlockedError("the model provider blocked the response (content_filter)", "content_filter", model, usage);
 }
 
 /** Parses tool-call arguments; undefined when they are not a JSON object. Empty arguments are `{}`. */
@@ -150,10 +155,6 @@ function parseArgs(text: string): Record<string, unknown> | undefined {
   }
 }
 
-const TRANSIENT_STATUS = new Set([408, 500, 502, 503, 504]);
-const INVALID_STATUS = new Set([400, 404, 422]);
-const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
 /** The wait a 429 asks for: `retry-after-ms`, else `Retry-After` in seconds or as an HTTP date. */
 export function retryAfterMs(headers: Headers, now = Date.now()): number | undefined {
   const ms = headers.get("retry-after-ms");
@@ -165,11 +166,23 @@ export function retryAfterMs(headers: Headers, now = Date.now()): number | undef
   return Number.isNaN(at) ? undefined : Math.max(0, at - now);
 }
 
+/** A tool call as the server sent it: the arguments still as text. */
+interface RawCall {
+  id?: string;
+  name?: string;
+  args: string;
+}
+
+/** A chat-completion error object, which some servers send with HTTP 200 or inside a stream. */
+const errorText = (e: unknown) => (typeof e === "string" ? e : typeof (e as { message?: unknown })?.message === "string" ? (e as { message: string }).message : "the server reported an error");
+
 /** The adapter itself. */
 export class OpenAICompatibleAdapter implements ChatModel {
   private readonly url: string;
   private readonly key: () => string | undefined;
   private readonly fetch: typeof fetch;
+  /** Numbers the ids made up for calls the server gives none, across all calls, so they never repeat within a request. */
+  private madeIds = 0;
 
   constructor(opts: OpenAICompatibleOptions) {
     this.url = `${opts.baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -179,46 +192,37 @@ export class OpenAICompatibleAdapter implements ChatModel {
   }
 
   async generate(req: ChatRequest, opts: { signal?: AbortSignal } = {}): Promise<ModelEnd> {
-    const key = this.key() || undefined;
-    const res = await this.post(toWireRequest(req, false), key, opts.signal);
-    let body: { model?: string; choices?: Array<{ message?: { content?: string | null; tool_calls?: WireToolCall[] }; finish_reason?: string | null }>; usage?: WireUsage };
+    const res = await this.post(toWireRequest(req, false), this.key() || undefined, opts.signal);
+    let body: { model?: string; error?: unknown; choices?: Array<{ message?: { content?: string | null; tool_calls?: WireToolCall[] }; finish_reason?: string | null }>; usage?: WireUsage };
     try {
       body = (await res.json()) as typeof body;
     } catch (e) {
       if (opts.signal?.aborted) throw e;
-      throw new ProviderError("failed", String(res.status), "the server's answer is not JSON", { cause: e });
+      throw new ProviderError("failed", "response", "the server's answer is not JSON", { cause: e });
     }
-    const choice = body.choices?.[0];
+    // Some servers answer HTTP 200 with an error object instead of a completion.
+    if (body?.error) throw new ProviderError("failed", "response", this.redact(errorText(body.error)).slice(0, 200), { cause: body.error });
+    const choice = body?.choices?.[0];
+    if (!choice) throw new ProviderError("failed", "response", "the server's answer has no completion");
     const model = body.model || req.model;
     const usage = usageOf(body.usage);
-    if (choice?.finish_reason === "content_filter") throw new BlockedError("the model provider blocked the response (content_filter)", "content_filter", model, usage);
-    const message: AssistantMessage = { role: "assistant", text: choice?.message?.content ?? "" };
-    let { finish, providerReason } = finishOf(choice?.finish_reason);
-    const calls: ToolCall[] = [];
-    for (const c of choice?.message?.tool_calls ?? []) {
-      const args = parseArgs(c.function?.arguments ?? "");
-      if (!args) {
-        calls.length = 0;
-        finish = "malformed_call";
-        providerReason = undefined;
-        break;
-      }
-      calls.push({ id: c.id, name: c.function?.name ?? "", args });
-    }
-    if (calls.length) message.toolCalls = calls;
-    return { finish, ...(providerReason ? { providerReason } : {}), model, usage, message };
+    throwIfFiltered(choice.finish_reason, model, usage);
+    const raw = (choice.message?.tool_calls ?? []).map((c): RawCall => ({ id: c.id, name: c.function?.name, args: c.function?.arguments ?? "" }));
+    const round = this.callsOf(raw, choice.finish_reason);
+    const message: AssistantMessage = { role: "assistant", text: choice.message?.content ?? "" };
+    if (round.calls.length) message.toolCalls = round.calls;
+    return { finish: round.finish, ...(round.providerReason ? { providerReason: round.providerReason } : {}), model, usage, message };
   }
 
   async *stream(req: ChatRequest, opts: { signal?: AbortSignal } = {}): ModelStream {
-    const key = this.key() || undefined;
-    const res = await this.post(toWireRequest(req, true), key, opts.signal);
-    if (!res.body) throw new ProviderError("failed", String(res.status), "the server sent no stream");
+    const res = await this.post(toWireRequest(req, true), this.key() || undefined, opts.signal);
+    if (!res.body) throw new ProviderError("failed", "response", "the server sent no stream");
     let model = req.model;
     let usage = usageOf(undefined);
     let reason: string | null | undefined;
     let text = "";
     /** Tool calls by index: the id and name from the first delta, the argument fragments joined. */
-    const pending = new Map<number, { id: string; name: string; args: string }>();
+    const pending = new Map<number, RawCall>();
     const events = sseData(res.body as unknown as AsyncIterable<Uint8Array>);
     let done = false;
     try {
@@ -230,7 +234,7 @@ export class OpenAICompatibleAdapter implements ChatModel {
         }
         let chunk: {
           model?: string;
-          error?: { message?: string };
+          error?: unknown;
           usage?: WireUsage | null;
           choices?: Array<{ delta?: { content?: string | null; tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }> }; finish_reason?: string | null }>;
         };
@@ -239,7 +243,7 @@ export class OpenAICompatibleAdapter implements ChatModel {
         } catch (e) {
           throw new ProviderError("failed", "stream", "the server sent an unreadable stream event", { cause: e });
         }
-        if (chunk.error) throw new ProviderError("failed", "stream", this.redact(String(chunk.error.message ?? "the server reported an error")).slice(0, 200), { cause: chunk.error });
+        if (chunk.error) throw new ProviderError("failed", "stream", this.redact(errorText(chunk.error)).slice(0, 200), { cause: chunk.error });
         if (chunk.model) model = chunk.model;
         if (chunk.usage) usage = usageOf(chunk.usage);
         const choice = chunk.choices?.[0];
@@ -250,9 +254,10 @@ export class OpenAICompatibleAdapter implements ChatModel {
           text += delta.content;
           yield { kind: "text", text: delta.content };
         }
-        for (const d of delta.tool_calls ?? []) {
-          const index = d.index ?? 0;
-          const call = pending.get(index) ?? { id: "", name: "", args: "" };
+        // Servers that leave out `index` send each call whole; its place in the list stands in for it.
+        for (const [i, d] of (delta.tool_calls ?? []).entries()) {
+          const index = d.index ?? i;
+          const call = pending.get(index) ?? { args: "" };
           if (d.id) call.id = d.id;
           if (d.function?.name) call.name = d.function.name;
           if (d.function?.arguments) call.args += d.function.arguments;
@@ -263,28 +268,34 @@ export class OpenAICompatibleAdapter implements ChatModel {
     } catch (e) {
       if (e instanceof ProviderError || e instanceof LlmError || opts.signal?.aborted) throw e;
       throw new ProviderError("transient", "network", this.redact(messageOf(e)), { cause: e });
+    } finally {
+      // Stopped early (an error, or the caller returned): close the body, so the server stops generating.
+      if (!done) await events.return(false).catch(() => {});
     }
     if (!done && !reason) throw new ProviderError("transient", "network", "the stream ended before the answer was complete");
-    if (reason === "content_filter") throw new BlockedError("the model provider blocked the response (content_filter)", "content_filter", model, usage);
+    throwIfFiltered(reason, model, usage);
 
-    let { finish, providerReason } = finishOf(reason);
-    const calls: ToolCall[] = [];
-    for (const [index, c] of [...pending.entries()].sort(([a], [b]) => a - b)) {
-      const args = parseArgs(c.args);
-      if (!args) {
-        // One unreadable call spoils the round, as Gemini's MALFORMED_FUNCTION_CALL does: none are run.
-        calls.length = 0;
-        finish = "malformed_call";
-        providerReason = undefined;
-        break;
-      }
-      calls.push({ id: c.id || `c${index + 1}`, name: c.name, args });
-    }
-    for (const call of calls) yield { kind: "call", call };
+    const round = this.callsOf([...pending.entries()].sort(([a], [b]) => a - b).map(([, c]) => c), reason);
+    for (const call of round.calls) yield { kind: "call", call };
     const message: AssistantMessage = { role: "assistant" };
     if (text) message.text = text;
-    if (calls.length) message.toolCalls = calls;
-    return { finish, ...(providerReason ? { providerReason } : {}), model, usage, message };
+    if (round.calls.length) message.toolCalls = round.calls;
+    return { finish: round.finish, ...(round.providerReason ? { providerReason: round.providerReason } : {}), model, usage, message };
+  }
+
+  /**
+   * A round's tool calls with their arguments parsed, and how the round finished. A call without an id
+   * gets a made-up one. One unreadable call spoils the round, as Gemini's MALFORMED_FUNCTION_CALL does:
+   * none are run, and the round is `malformed_call`, or `length` when the output limit cut it off.
+   */
+  private callsOf(raw: RawCall[], reason: string | null | undefined): { calls: ToolCall[]; finish: FinishReason; providerReason?: string } {
+    const calls: ToolCall[] = [];
+    for (const c of raw) {
+      const args = parseArgs(c.args);
+      if (!args) return reason === "length" ? { calls: [], finish: "length", providerReason: reason } : { calls: [], finish: "malformed_call" };
+      calls.push({ id: c.id || `c${++this.madeIds}`, name: c.name ?? "", args });
+    }
+    return { calls, ...finishOf(reason) };
   }
 
   /** One POST; HTTP failures become `ProviderError`s, and a key never follows a redirect. */
@@ -299,8 +310,7 @@ export class OpenAICompatibleAdapter implements ChatModel {
       throw new ProviderError("transient", "network", this.redact(messageOf(e)), { cause: e });
     }
     if (res.ok) return res;
-    const status = res.status;
-    let detail = res.statusText || `HTTP ${status}`;
+    let detail = res.statusText || `HTTP ${res.status}`;
     try {
       const raw = await res.text();
       let parsed: unknown;
@@ -309,20 +319,17 @@ export class OpenAICompatibleAdapter implements ChatModel {
       } catch {
         parsed = undefined;
       }
-      const message = (parsed as { error?: { message?: unknown } | string })?.error;
-      detail = typeof message === "string" ? message : typeof message?.message === "string" ? message.message : raw.trim() || detail;
+      const error = (parsed as { error?: unknown })?.error;
+      detail = error !== undefined ? errorText(error) : raw.trim() || detail;
     } catch {
       // The status alone has to do.
     }
     detail = this.redact(detail).slice(0, 200);
-    const reason = String(status);
-    if (status === 429) {
+    if (res.status === 429) {
       const waitMs = retryAfterMs(res.headers);
-      throw new ProviderError("rate_limited", reason, detail, waitMs !== undefined ? { waitMs } : {});
+      throw statusFailure(429, detail, waitMs !== undefined ? { waitMs } : {});
     }
-    if (TRANSIENT_STATUS.has(status)) throw new ProviderError("transient", reason, detail);
-    if (INVALID_STATUS.has(status)) throw new ProviderError("invalid_request", reason, detail);
-    throw new ProviderError("failed", reason, detail);
+    throw statusFailure(res.status, detail);
   }
 
   /** Replaces the key wherever a server or the network echoes it back. */

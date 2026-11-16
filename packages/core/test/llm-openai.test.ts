@@ -282,6 +282,86 @@ test("a stream cut off before it finished, an error event and an unreadable even
   await assert.rejects(drain(adapter(fakeFetch(sse(["{not json"]))).stream(req())), (e: any) => e.kind === "failed" && /unreadable/.test(e.message));
 });
 
+test("calls without an index in one delta keep their place instead of merging", async () => {
+  const f = fakeFetch(sse([
+    delta({ tool_calls: [{ id: "c-a", function: { name: "ha_turn_off", arguments: '{"entity":"light.x"}' } }, { id: "c-b", function: { name: "jellyfin_search", arguments: '{"q":"Dune"}' } }] }, "tool_calls"),
+  ]));
+  const { chunks, end } = await drain(adapter(f).stream(req()));
+  assert.equal(end.finish, "stop");
+  assert.deepEqual(chunks, [
+    { kind: "call", call: { id: "c-a", name: "ha_turn_off", args: { entity: "light.x" } } },
+    { kind: "call", call: { id: "c-b", name: "jellyfin_search", args: { q: "Dune" } } },
+  ]);
+});
+
+test("arguments cut off at the output limit are length, not a malformed call", async () => {
+  const f = fakeFetch(sse([delta({ tool_calls: [{ index: 0, id: "c1", function: { name: "search", arguments: '{"query":"wea' } }] }, "length")]));
+  const { chunks, end } = await drain(adapter(f).stream(req()));
+  assert.deepEqual([chunks, end.finish, end.message.toolCalls], [[], "length", undefined]);
+  const g = await adapter(fakeFetch(json({ choices: [{ message: { content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "search", arguments: '{"q' } }] }, finish_reason: "length" }] }))).generate(req());
+  assert.deepEqual([g.finish, g.message.toolCalls], ["length", undefined]);
+});
+
+test("ids made up for calls without one never repeat across calls, in generate and stream", async () => {
+  const a = adapter(fakeFetch(
+    json({ choices: [{ message: { content: null, tool_calls: [{ type: "function", function: { name: "a", arguments: "{}" } }] }, finish_reason: "tool_calls" }] }),
+    sse([delta({ tool_calls: [{ index: 0, function: { name: "b", arguments: "{}" } }] }, "tool_calls")]),
+  ));
+  const first = (await a.generate(req())).message.toolCalls!;
+  const second = (await drain(a.stream(req()))).end.message.toolCalls!;
+  assert.ok(first[0].id && second[0].id);
+  assert.notEqual(first[0].id, second[0].id);
+});
+
+test("an error object or no completion in an HTTP 200 answer is a provider failure, not an empty answer", async () => {
+  await assert.rejects(adapter(fakeFetch(json({ error: { message: "context length exceeded" } }))).generate(req()), (e: any) => e.kind === "failed" && e.reason === "response" && /context length exceeded/.test(e.message));
+  await assert.rejects(adapter(fakeFetch(json({ choices: [] }))).generate(req()), (e: any) => e.kind === "failed" && /no completion/.test(e.message));
+  await assert.rejects(adapter(fakeFetch(new Response("<html>", { status: 200 }))).generate(req()), (e: any) => e.kind === "failed" && /not JSON/.test(e.message));
+});
+
+test("a stream stopped early is closed, so the server stops generating", async () => {
+  let cancelled = 0;
+  const reply = () =>
+    new Response(
+      new ReadableStream({
+        pull(c) {
+          c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(delta({ content: "word " }))}\n\n`));
+        },
+        cancel() {
+          cancelled++;
+        },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  const it = adapter(fakeFetch(reply)).stream(req());
+  assert.equal(((await it.next()).value as StreamChunk & { text: string }).text, "word ");
+  await it.return(undefined as never);
+  assert.equal(cancelled, 1, "the caller returning closes the body");
+
+  let broken = 0;
+  const bad = () =>
+    new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode("data: {nope\n\n"));
+        },
+        cancel() {
+          broken++;
+        },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  await assert.rejects(drain(adapter(fakeFetch(bad)).stream(req())), (e: any) => e.kind === "failed");
+  assert.equal(broken, 1, "an unreadable event closes the body");
+});
+
+test("reasons that are no HTTP status are named as they are", async () => {
+  const { llm } = service(adapter(fakeFetch(sse([{ error: { message: "model not loaded" } }]))));
+  const stream = await service(adapter(fakeFetch(sse([{ error: { message: "model not loaded" } }])))).s.streamCall("chat", req(), () => {}).catch((e) => e);
+  assert.match(stream.message, /^model call failed \(stream\): model not loaded$/);
+  await assert.rejects(llm.generate({ prompt: "p" }), kind("unavailable", /^model call failed \(response\)/));
+});
+
 // --- 5.4 Failures, through LlmService -----------------------------------------------------------------
 
 function service(a: OpenAICompatibleAdapter) {

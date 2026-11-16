@@ -33,6 +33,18 @@ test("replayed thread gets call ids: each stored call gets its own id, followed 
   ]);
 });
 
+test("an assistant's text and the call right after it are one assistant turn, so roles alternate", () => {
+  seq = 0;
+  assert.deepEqual(toMessages([user("off and Dune"), bot("On it."), tool("ha_list", {}, { ids: ["light.x"] }), tool("ha_turn_off", { entity: "light.x" }, { ok: true }), bot("Done.")]), [
+    { role: "user", text: "off and Dune" },
+    { role: "assistant", text: "On it.", toolCalls: [{ id: "h3", name: "ha_list", args: {} }] },
+    { role: "tool", callId: "h3", name: "ha_list", result: { ids: ["light.x"] } },
+    { role: "assistant", toolCalls: [{ id: "h4", name: "ha_turn_off", args: { entity: "light.x" } }] },
+    { role: "tool", callId: "h4", name: "ha_turn_off", result: { ok: true } },
+    { role: "assistant", text: "Done." },
+  ]);
+});
+
 test("truncated, missing and non-object results and arguments get placeholders", () => {
   const cut = '{"items":[{"name":"Dune (19';
   const messages = toMessages([

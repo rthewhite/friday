@@ -6,7 +6,7 @@
  * `ProviderError`.
  */
 import { checkRequest, LlmError, parseOutput, type LlmRequest, type LlmResult, type LlmUsage, type ModuleLlm } from "@friday/sdk";
-import { BlockedError, ProviderError, type ChatMessage, type ChatModel, type ChatRequest, type ModelEnd, type StreamChunk } from "./types.js";
+import { BlockedError, messageOf, ProviderError, type ChatMessage, type ChatModel, type ChatRequest, type ModelEnd, type StreamChunk } from "./types.js";
 
 /** A streamed call: the model is already resolved by the caller (the chat model). */
 export interface StreamCallRequest extends ChatRequest {
@@ -103,7 +103,7 @@ function once(fn: () => void): () => void {
   };
 }
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const message = messageOf;
 
 export interface Failure {
   error: LlmError;
@@ -127,10 +127,12 @@ export function classify(e: unknown): Failure {
   if (e instanceof LlmError) return { error: e, retry: false };
   if (!(e instanceof ProviderError)) return { error: new LlmError("unavailable", `model unreachable: ${message(e)}`, { cause: e }), retry: true, reason: "network" };
   const { reason } = e;
+  // Most reasons are HTTP statuses; an adapter's own ones (`stream`, `response`) are named as they are.
+  const where = /^\d+$/.test(reason) ? `HTTP ${reason}` : reason;
   switch (e.kind) {
     case "rate_limited":
       return {
-        error: new LlmError("unavailable", `model rate-limited (HTTP ${reason})`, { cause: e }),
+        error: new LlmError("unavailable", `model rate-limited (${where})`, { cause: e }),
         retry: true,
         reason,
         ...(e.waitMs !== undefined ? { waitMs: e.waitMs } : {}),
@@ -138,11 +140,11 @@ export function classify(e: unknown): Failure {
         ...(e.daily ? { daily: true } : {}),
       };
     case "transient":
-      return { error: new LlmError("unavailable", reason === "network" ? `model unreachable: ${e.message}` : `model unavailable (HTTP ${reason})`, { cause: e }), retry: true, reason };
+      return { error: new LlmError("unavailable", reason === "network" ? `model unreachable: ${e.message}` : `model unavailable (${where})`, { cause: e }), retry: true, reason };
     case "invalid_request":
-      return { error: new LlmError("invalid_request", `model rejected the request (HTTP ${reason}): ${e.message}`, { cause: e }), retry: false, reason };
+      return { error: new LlmError("invalid_request", `model rejected the request (${where}): ${e.message}`, { cause: e }), retry: false, reason };
     default:
-      return { error: new LlmError("unavailable", `model call failed (HTTP ${reason}): ${e.message}`, { cause: e }), retry: false, reason };
+      return { error: new LlmError("unavailable", `model call failed (${where}): ${e.message}`, { cause: e }), retry: false, reason };
   }
 }
 

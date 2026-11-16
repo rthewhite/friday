@@ -14,7 +14,7 @@ import {
   type Part,
 } from "@google/genai";
 import { LlmError, type LlmUsage } from "@friday/sdk";
-import { BlockedError, ProviderError, type AssistantMessage, type ChatMessage, type ChatModel, type ChatRequest, type FinishReason, type ModelEnd, type ModelStream, type ToolCall } from "./types.js";
+import { BlockedError, messageOf, ProviderError, statusFailure, type AssistantMessage, type ChatMessage, type ChatModel, type ChatRequest, type FinishReason, type ModelEnd, type ModelStream, type ToolCall } from "./types.js";
 
 /** The part of `GoogleGenAI.models` this provider uses; tests inject a stub. */
 export type GenerateContent = (params: GenerateContentParameters) => Promise<GenerateContentResponse>;
@@ -76,24 +76,17 @@ export function rateLimitInfo(msg: string): RateLimitInfo {
 
 export const isDaily = (quota: string) => /perday/i.test(quota);
 
-const TRANSIENT_STATUS = new Set([408, 500, 502, 503, 504]);
-const INVALID_STATUS = new Set([400, 404, 422]);
-const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
 /** Maps a Gemini SDK failure to a neutral one. Our own errors (`LlmError`, `ProviderError`) pass through. */
 export function geminiFailure(e: unknown): unknown {
   if (e instanceof LlmError || e instanceof ProviderError) return e;
   const status = typeof (e as { status?: unknown })?.status === "number" ? (e as { status: number }).status : undefined;
   const msg = messageOf(e);
   if (status === undefined) return new ProviderError("transient", "network", msg, { cause: e });
-  const reason = String(status);
   if (status === 429) {
     const info = rateLimitInfo(msg);
-    return new ProviderError("rate_limited", reason, msg, { ...info, ...(info.quota ? { daily: isDaily(info.quota) } : {}), cause: e });
+    return statusFailure(status, msg, { ...info, ...(info.quota ? { daily: isDaily(info.quota) } : {}), cause: e });
   }
-  if (TRANSIENT_STATUS.has(status)) return new ProviderError("transient", reason, msg, { cause: e });
-  if (INVALID_STATUS.has(status)) return new ProviderError("invalid_request", reason, msg, { cause: e });
-  return new ProviderError("failed", reason, msg, { cause: e });
+  return statusFailure(status, msg, { cause: e });
 }
 
 /**
@@ -118,7 +111,8 @@ export function toGeminiContents(messages: ChatMessage[]): Content[] {
       const id = geminiIds.has(m.callId) ? { id: m.callId } : {};
       push("user", "responses", [{ functionResponse: { ...id, name: m.name, response: m.result } }]);
     } else if (m.providerData?.adapter === "gemini") {
-      const parts = structuredClone(m.providerData.value as Part[]);
+      // A copy of the list, so merging pushes onto the request's content and never onto the stored turn.
+      const parts = [...(m.providerData.value as Part[])];
       for (const p of parts) if (p.functionCall?.id) geminiIds.add(p.functionCall.id);
       push("model", "model", parts);
     } else {
@@ -159,6 +153,8 @@ export class GeminiAdapter implements ChatModel {
   private readonly key: () => string | undefined;
   /** The provider functions for the key they were built for; rebuilt when the resolved key changes. */
   private client?: { apiKey: string; generate: GenerateContent; stream: GenerateContentStream };
+  /** Numbers the ids made up for calls Gemini gives none, across all calls, so they never repeat within a request. */
+  private madeIds = 0;
 
   /**
    * `apiKey` is a value or a function resolved on every call (core config: core scope, global, env).
@@ -204,7 +200,6 @@ export class GeminiAdapter implements ChatModel {
     const parts: Part[] = [];
     const calls: ToolCall[] = [];
     let text = "";
-    let n = 0;
     let responses: AsyncIterable<GenerateContentResponse>;
     try {
       responses = await stream(geminiParams(req, opts.signal));
@@ -222,7 +217,7 @@ export class GeminiAdapter implements ChatModel {
           // Everything but thought summaries goes back verbatim: text, calls and bare thought signatures.
           parts.push(part);
           if (part.functionCall) {
-            const call = { id: part.functionCall.id || `c${++n}`, name: part.functionCall.name ?? "", args: part.functionCall.args ?? {} };
+            const call = { id: part.functionCall.id || `c${++this.madeIds}`, name: part.functionCall.name ?? "", args: part.functionCall.args ?? {} };
             calls.push(call);
             yield { kind: "call", call };
           } else if (typeof part.text === "string" && part.text) {

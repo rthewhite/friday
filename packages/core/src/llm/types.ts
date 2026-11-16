@@ -134,3 +134,23 @@ export class ProviderError extends Error {
     if (opts.daily !== undefined) this.daily = opts.daily;
   }
 }
+
+const TRANSIENT_STATUS = new Set([408, 500, 502, 503, 504]);
+const INVALID_STATUS = new Set([400, 404, 422]);
+
+/**
+ * A provider's failed HTTP status in neutral terms, shared by the adapters so the same status is retried
+ * the same way on every provider: 429 rate-limited (with what the adapter read about the wait), 408 and 5xx
+ * transient, 400, 404 and 422 an invalid request, anything else failed.
+ */
+export function statusFailure(status: number, message: string, opts: { waitMs?: number; quota?: string; daily?: boolean; cause?: unknown } = {}): ProviderError {
+  const reason = String(status);
+  if (status === 429) return new ProviderError("rate_limited", reason, message, opts);
+  const { cause } = opts;
+  const only = cause !== undefined ? { cause } : {};
+  if (TRANSIENT_STATUS.has(status)) return new ProviderError("transient", reason, message, only);
+  if (INVALID_STATUS.has(status)) return new ProviderError("invalid_request", reason, message, only);
+  return new ProviderError("failed", reason, message, only);
+}
+
+export const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
